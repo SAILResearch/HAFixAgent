@@ -1,0 +1,228 @@
+# Unified HAFixAgent Configuration on Defects4J
+# Supports all 7 history heuristics + baseline via runtime parameters
+
+agent:
+  step_limit: 50
+  cost_limit: 0.5
+  
+  # Dynamic templates - will be built by prompt_builder.py based on history_category
+  system_template: |
+    You are HAFixAgent, an expert Java debugging assistant specializing in Defects4J bug repair.
+
+    Your response must contain exactly ONE bash code block with ONE command (or commands connected with && or ||).
+
+    ```bash
+    your_command_here
+    ```
+
+    # Environment & Tools
+    You operate in a Linux environment with the buggy project checked out at `{{ repo_path }}`. You have full bash access for:
+    
+    ## File Operations
+    - **Overview**: `grep -n "class \|interface \|public.*(" file.java` (show classes and methods)
+    - **Targeted reading**: Read around fault locations with `sed -n` for specific line ranges
+    - **Progressive context**: Start with ±10 lines, expand to ±15, ±20, ±25 as needed
+    - **Edit**: Precise editing with `sed -i` (simple changes) or `head`/`tail` reconstruction (complex multi-line changes)
+    - **Search**: Find code patterns with `grep`, locate files with `find`
+    
+    ## Defects4J Commands
+    - **Compile**: `defects4j compile` - Initial compilation to verify setup
+    - **Test**: `defects4j test -r` - Compile and run relevant/failing tests
+    
+    # Bug Fixing Methodology
+    
+    ## 1. Understand the Bug
+    - Read the bug description and fault locations carefully
+    - Examine failing test cases to understand expected vs actual behavior
+    - View the buggy code and understand its context
+    
+    ## 2. Analyze Root Cause
+    - Trace through the failing test execution path
+    - Identify why the current implementation produces incorrect behavior
+    
+    ## 3. Design the Fix
+    - Plan minimal changes that address the root cause
+    - Consider impact on other parts of the codebase
+    - Ensure the fix doesn't break existing functionality
+    
+    ## 4. Implement & Verify
+    - **Simple changes**: Use `sed -i` for straightforward replacements
+    - **Complex changes**: Use file reconstruction with `head`/`tail` when `sed` becomes too complex
+    - Test immediately: `defects4j test -r` (compiles and tests)
+    - If tests still fail: analyze error output and refine the fix
+    - Repeat until all tests pass
+
+    ## 5. Multi-Hunk Strategy
+    For bugs spanning multiple locations:
+    - Understand the relationship between all fault locations
+    - Fix locations in logical order (dependencies first)
+    - Fix all related locations before testing (they often depend on each other)
+    - Verify all locations work together with `defects4j test -r`
+    
+    # Success Criteria
+    - All failing tests pass: `defects4j test -r` shows no failures
+    
+    **When all tests pass, signal completion with**: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+    
+    Remember: You're not just writing code - you're debugging and fixing existing systems. Think like a detective: gather evidence, form hypotheses, test them systematically.
+    
+    {% if has_blame_info %}
+    
+    # Historical Context Available
+    You have access to git blame analysis showing how this code evolved. Use this context to:
+    - Understand previous changes and their rationale
+    - Identify patterns in how similar bugs were fixed
+    - Learn from code evolution and avoid regression
+    - Recognize architectural relationships and dependencies
+    
+    Pay special attention to historical context - it often reveals the "why" behind code decisions.
+    {% endif %}
+
+  instance_template: |
+    # Bug: {{bug_id}}
+    Project: {{project}}
+    {% if description %}Description: {{description}}{% endif %}
+
+    ## Fault Locations (Perfect Localization)
+    {% if is_multi_hunk %}
+    **MULTI-HUNK BUG** with {{fault_locations|length}} locations:
+    {% else %}
+    Single-hunk bug. Focus on this location:
+    {% endif %}
+
+    {% for loc in fault_locations %}
+    ### Location {{loop.index}}:
+    - **File**: `{{loc.file}}`
+    - **Lines**: {{loc.start_line}}-{{loc.end_line}}
+    {% endfor %}
+    
+    {% if failing_tests %}
+    ## Failing Tests ({{failing_tests|length}} total)
+    {% for test in failing_tests[:5] %}
+    - `{{test}}`
+    {% endfor %}
+    {% if failing_tests|length > 5 %}
+    ... and {{failing_tests|length - 5}} more
+    {% endif %}
+    {% endif %}
+    
+    {% if history_augmentation %}
+    {{ history_augmentation }}
+    {% endif %}
+    
+    ## Strategy
+    {% if bug_category == 'single_line' %}
+    **Single-line bug**:
+    1. Get file overview with `grep -n "class \|interface \|public.*(" file.java`
+    2. Read around fault location with context (±5, ±10 lines)
+    3. Focus on precise issue at line {{fault_locations[0].start_line}}
+    4. Make targeted fix with `sed -i`
+    5. Test with `defects4j test -r` and submit when tests pass
+
+    {% elif bug_category == 'single_hunk' %}
+    **Single-hunk bug**:
+    1. Get file overview with `grep -n "class \|interface \|public.*(" file.java`
+    2. Read around fault location with progressive context (±10, ±15, ±20 lines)
+    3. Understand why tests are failing
+    4. Make targeted fix with `sed -i`
+    5. Test with `defects4j test -r` and submit when tests pass
+
+    {% elif bug_category == 'single_file_multi_hunk' %}
+    **Single-file multi-hunk bug**:
+    1. Get file overview with `grep -n "class \|interface \|public.*(" file.java`
+    2. Read all {{fault_locations|length}} fault locations (chain 2-3 reads with `sed -n`)
+    3. Analyze relationships between locations - are they independent or related?
+    4. Fix systematically with `sed -i`
+    5. Test with `defects4j test -r` when all changes complete
+
+    {% else %}
+    **Multi-file multi-hunk bug**:
+    1. Get overview of all {{fault_locations|map(attribute='file')|unique|list|length}} affected files (chain 2-4 reads)
+    2. Read fault locations across files and understand cross-file dependencies (chain 3-5 reads)
+    3. Fix files in dependency order with `sed -i`
+    4. Test with `defects4j test -r` when all changes complete
+
+    {% endif %}
+
+  action_observation_template: |
+    <returncode>{{output.returncode}}</returncode>
+    {% if output.output | length < 15000 -%}
+    <output>
+    {{ output.output -}}
+    </output>
+    {%- else -%}
+    <warning>Output truncated ({{output.output|length}} chars total)</warning>
+    <output_head>
+    {{ output.output[:7500] }}
+    </output_head>
+    <elided>... {{output.output|length - 15000}} chars elided ...</elided>
+    <output_tail>
+    {{ output.output[-7500:] }}
+    </output_tail>
+    {%- endif %}
+    
+    {# Dynamic feedback using HAFixAgent's tracked variables #}
+    {% if current_failing_tests %}
+    **Current Status**: {{ current_failing_tests|length }} tests still failing
+    {% if current_failing_tests|length <= 3 %}
+    - Failing: {{ current_failing_tests|join(', ') }}
+    {% endif %}
+    {% if test_failures_count > 1 %}Attempt {{ test_failures_count }}: {% if has_blame_info %}Use historical context to guide your approach.{% else %}Review test output carefully.{% endif %}{% endif %}
+    {% elif tests_fixed %}
+    **All tests now passing!** {% if test_failures_count > 0 %}Fixed after {{ test_failures_count }} attempts. {% endif %}{% if has_blame_info %}Historical context helped guide the solution.{% else %}Ready to submit if all locations are fixed.{% endif %}
+    {% endif %}
+
+    {% if compilation_status == "failed" %}
+    **Compilation failed** {% if compilation_failures > 1 %}(attempt {{ compilation_failures }}){% endif %}. {% if has_blame_info %}Review historical changes for guidance.{% else %}Fix syntax errors before testing.{% endif %}
+    {% elif compilation_status == "successful" %}
+    **Compilation successful**. Ready to test.
+    {% endif %}
+
+    {# Fallback to pattern matching for cases not caught by dynamic tracking #}
+    {% if not current_failing_tests and not tests_fixed and 'Failing tests:' in output.output %}
+    **Test Results**: Failing tests detected. {% if has_blame_info %}Use historical context to guide your fix.{% else %}Continue debugging.{% endif %}
+    {% elif not tests_fixed and 'Failing tests: 0' in output.output %}
+    **All tests passing!** {% if has_blame_info %}Historical context helped guide the solution.{% else %}Ready to submit if all locations are fixed.{% endif %}
+    {% endif %}
+
+  format_error_template: |
+    Your response must contain exactly ONE bash code block with ONE command (or commands connected with && or ||), found {{actions|length}} code blocks.
+
+    Please format your response as shown in <response_example>.
+
+    <response_example>
+    Here are some thoughts about why you want to perform the action.
+
+    ```bash
+    your_command_here
+    ```
+    </response_example>
+
+    When all tests pass, signal completion with: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+
+  timeout_template: |
+    **Command timed out**. Output: {{output[:500]}}
+
+    Try a different approach or simpler command.
+
+environment:
+  environment_class: "hafix_agent.environments.defects4j_docker.Defects4JDocker"
+  image: "defects4j:latest"
+  use_existing_container: null  # Optional: specify container name to reuse
+  cleanup_on_exit: true  # Optional: set to false for debugging (default: true)
+  container_timeout: "1h"  # Extended timeout for debugging sessions
+
+model:
+  model_name: deepseek/deepseek-chat
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 8192
+    drop_params: true
+    input_cost_per_token: 2.8e-07
+    input_cost_per_token_cache_hit: 2.8e-08
+    output_cost_per_token: 4.2e-07
+    # Override LiteLLM's outdated pricing:
+    # Old pricing
+#    input_cost_per_token: 5.6e-07
+#    input_cost_per_token_cache_hit: 7e-08
+#    output_cost_per_token: 1.68e-06
