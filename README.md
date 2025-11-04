@@ -46,6 +46,11 @@ HAFixAgent/
 ├── 📁 config/
 │   └── 📄 defects4j.yaml              # Configuration of prompt template, model, agent, environment
 ├── 📁 analysis/                       # Result analysis and visualization scripts
+│   ├── analyze_rq0_blame_commit_count.py           # RQ0: blame-count distribution across categories
+│   ├── analyze_rq1_external_baselines.py           # RQ1: HAFixAgent vs. SOTA baselines
+│   ├── analyze_rq1_heuristics_comparison.py        # RQ1: HAFixAgent historical heuristics vs. non-history abalation
+│   ├── analyze_rq2_cost_step_comparison.py         # RQ2: step/count cost breakdowns and box/violin plots
+│   ├── analyze_rq2_cost_effectiveness_tradeoff.py  # RQ2: success vs. cost Pareto trade-off (total & avg cost)
 │   └── 📄 utils.py                    # Shared helpers for analysis scripts
 ├── 📁 results/                        # Evaluation results
 ├── 📁 vendor/                         # Reference projects
@@ -86,11 +91,18 @@ docker build -f Dockerfile.defects4j-enhanced -t defects4j:latest .
 ```
 docker load -i defects4j_latest.tar.gz
 ```
+- Setup Vendor project (baselines comparison setup)
+```
+cd vendor
+git clone git@github.com:sola-st/RepairAgent.git
+git clone git@github.com:SWE-agent/mini-swe-agent.git
+```
+git clone project_of_birch as well, check their [paper](https://arxiv.org/pdf/2506.04418) to get the code
 
 ## 🔧 RQ0: Blameable Analysis
 ```
-python analysis/analyze_blame_commit_count.py --bug-category all -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv --workers 8
-python analysis/analyze_blame_commit_count.py --stats -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv
+python analysis/analyze_rq0_blame_commit_count.py --bug-category all -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv --workers 8
+python analysis/analyze_rq0_blame_commit_count.py --stats -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv
 ```
 
 ## 🐳 RQ1: Effectiveness Evaluation
@@ -115,10 +127,10 @@ python analysis/analyze_rq1_external_baselines.py --baseline hunk4j -s llm_judge
 ## 📊 RQ2 Efficiency Analysis
 ```
 # separately
-python analysis/analyze_rq3_cost_step_comparison.py --mode multi-config --rq1-dir results/defects4j --rq2-dir results/defects4j_adaptive --bug-category single_line --no-adaptive --output results/rq3_analysis
+python analysis/analyze_rq2_cost_step_comparison.py --mode multi-config --rq1-dir results/defects4j --rq2-dir results/defects4j_adaptive --bug-category single_line --no-adaptive --output results/rq3_analysis
 
 # Pareto frontier one-panel
-python analysis/analyze_rq3_cost_effectiveness_tradeoff.py --bug-category all --single-panel --no-pareto --cost-metric avg
+python analysis/analyze_rq2_cost_effectiveness_tradeoff.py --bug-category all --single-panel --no-pareto --cost-metric avg
 ```
 
 ## 📚 Citation
@@ -156,3 +168,5 @@ For questions or issues, please:
 
 - [mini-swe-agent](https://mini-swe-agent.com/latest/)
 - [SWE-bench](https://www.swebench.com/)
+- [RepairAgent](https://github.com/sola-st/RepairAgent)
+- [BIRCH](https://arxiv.org/pdf/2506.04418)
