@@ -115,6 +115,8 @@ If you found this work helpful, please consider citing it using the following:
       url={https://arxiv.org/abs/2511.01047}, 
 }
 ```
+<details>
+<summary> HAFix (Prior Work) </summary>
 
 ```bibtex
 @article{shi2025hafix,
@@ -124,6 +126,8 @@ If you found this work helpful, please consider citing it using the following:
   year={2025}
 }
 ```
+</details>
+
 
 ## 📧 Contact
 For questions or issues, please:
