@@ -103,7 +103,19 @@ python analysis/analyze_rq3_cost_effectiveness_tradeoff.py --bug-category all --
 ```
 
 ## 📚 Citation
-If you use HAFix in your research, please cite our paper:
+If you found this work helpful, please consider citing it using the following:
+```bibtex
+@misc{shi2025hafixagent,
+      title={HAFixAgent: History-Aware Automated Program Repair Agent}, 
+      author={Yu Shi and Hao Li and Bram Adams and Ahmed E. Hassan},
+      year={2025},
+      eprint={2511.01047},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2511.01047}, 
+}
+```
+
 ```bibtex
 @article{shi2025hafix,
   title={HAFix: History-Augmented Large Language Models for Bug Fixing},
@@ -116,3 +128,8 @@ If you use HAFix in your research, please cite our paper:
 ## 📧 Contact
 For questions or issues, please:
 - Open a GitHub issue
+
+##  Acknowledgement 
+
+- [mini-swe-agent](https://mini-swe-agent.com/latest/)
+- [SWE-bench](https://www.swebench.com/)
