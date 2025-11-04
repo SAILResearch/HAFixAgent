@@ -63,7 +63,26 @@ conda create -n hafixagent python=3.11
 conda activate hafixagent
 pip install -e .
 ```
-- Load the docker image from anywhere else
+- Setup LLM API
+```
+# we extending mini-swe-agent, setting API:
+pip install mini-swe-agent>=1.12.0
+# Fo example, for ANTHROPIC models:
+mini-extra config set ANTHROPIC_API_KEY <ANTHROPIC_API_KEY>
+```
+- Setup Docker environment
+```
+cd vendor
+git clone git@github.com:rjust/defects4j.git
+cd defects4j
+# First using official Defects4J config to build the image, check if you build the image successfully
+docker build -f Dockerfile -t defects4j:latest .
+# Then enhance the image to have more bash tools
+cd ../
+docker build -f Dockerfile.defects4j-enhanced -t defects4j:latest .
+# You should have the updated defects4j image named defects4j:latest, HAFixAgent will up it as container during the runtime
+```
+- (Optionally) Load the docker image from anywhere else, if we upload the image tar file later
 ```
 docker load -i defects4j_latest.tar.gz
 ```
