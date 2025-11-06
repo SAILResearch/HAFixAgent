@@ -102,7 +102,7 @@ git clone git@github.com:SWE-agent/mini-swe-agent.git
 ```
 git clone project_of_birch as well, check their [paper](https://arxiv.org/pdf/2506.04418) to get the code
 
-## 🔧 RQ0: Blameable Analysis
+## 🔍 RQ0: Blameable Analysis
 ```
 python analysis/analyze_rq0_blame_commit_count.py --bug-category all -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv --workers 8
 python analysis/analyze_rq0_blame_commit_count.py --stats -o results/blame_commit_analysis/defects4j_blame_commit_counts.csv
@@ -175,7 +175,7 @@ If you found this work helpful, please kindly consider citing it using the follo
 For questions or issues, please:
 - Open a GitHub issue
 
-##  Acknowledgement 
+## 🙏 Acknowledgement 
 
 - [mini-swe-agent](https://mini-swe-agent.com/latest/)
 - [SWE-bench](https://www.swebench.com/)
