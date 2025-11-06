@@ -173,7 +173,7 @@ If you found this work helpful, please kindly consider citing it using the follo
 
 ## 📧 Contact
 For questions or issues, please:
-- Open a GitHub issue
+- Open a [GitHub Issue](https://github.com/SAILResearch/HAFixAgent/issues)
 
 ## 🙏 Acknowledgement 
 
