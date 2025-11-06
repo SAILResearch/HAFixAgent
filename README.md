@@ -1,4 +1,4 @@
-﻿# HAFixAgent
+# HAFixAgent
 
 [![Paper](https://img.shields.io/badge/Paper-arXiv:2511.01047-red)](https://arxiv.org/pdf/2511.01047)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -135,23 +135,27 @@ python analysis/analyze_rq2_cost_effectiveness_tradeoff.py --bug-category all --
 
 ## 📚 Citation
 If you found this work helpful, please consider citing it using the following:
+
 <details>
-<summary> HAFixAgent </summary>
+<summary>HAFixAgent</summary>
+
 ```bibtex
 @misc{shi2025hafixagent,
-      title={HAFixAgent: History-Aware Automated Program Repair Agent}, 
+      title={HAFixAgent: History-Aware Automated Program Repair Agent},
       author={Yu Shi and Hao Li and Bram Adams and Ahmed E. Hassan},
       year={2025},
       eprint={2511.01047},
       archivePrefix={arXiv},
       primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2511.01047}, 
+      url={https://arxiv.org/abs/2511.01047},
 }
 ```
+
 </details>
 
 <details>
-<summary> HAFix (Prior Foundation Work) </summary>
+<summary>HAFix (Prior Foundation Work)</summary>
+
 ```bibtex
 @article{shi2025hafix,
   title={HAFix: History-Augmented Large Language Models for Bug Fixing},
@@ -160,6 +164,7 @@ If you found this work helpful, please consider citing it using the following:
   year={2025}
 }
 ```
+
 </details>
 
 
