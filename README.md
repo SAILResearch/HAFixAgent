@@ -4,7 +4,9 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 📖 Project Overview
-HAFixAgent is an automated program repair agent with history-aware blame context extraction. It currently supports Defects4J through a dataset-agnostic architecture.
+HAFixAgent is an automated program repair agent with history-aware blame context.
+It currently supports Defects4J via a dataset-agnostic interface and works with any LLM supported by [LiteLLM](https://docs.litellm.ai/docs/providers),
+including models from DeepSeek, OpenAI or Ollama served models.
 ### Authors
 - Yu Shi, Hao Li, Bram Adams, Ahmed E. Hassan
 - [Lab on Maintenance, Construction and Intelligence of Software (MCIS)](https://mcis.cs.queensu.ca)
@@ -70,7 +72,8 @@ pip install -e .
 ```
 - Setup LLM API
 ```
-# we extending mini-swe-agent, setting API:
+# Update your prefered LLM in 'model' field of config/defects4j.yaml
+# Then setting API Key, we extended mini-swe-agent, make sure you have:
 pip install mini-swe-agent>=1.12.0
 # Fo example, for ANTHROPIC models:
 mini-extra config set ANTHROPIC_API_KEY <ANTHROPIC_API_KEY>
@@ -134,7 +137,7 @@ python analysis/analyze_rq2_cost_effectiveness_tradeoff.py --bug-category all --
 ```
 
 ## 📚 Citation
-If you found this work helpful, please consider citing it using the following:
+If you found this work helpful, please kindly consider citing it using the following:
 
 <details>
 <summary>HAFixAgent</summary>
