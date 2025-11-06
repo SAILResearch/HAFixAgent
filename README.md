@@ -143,14 +143,11 @@ If you found this work helpful, please kindly consider citing it using the follo
 <summary>HAFixAgent</summary>
 
 ```bibtex
-@misc{shi2025hafixagent,
-      title={HAFixAgent: History-Aware Automated Program Repair Agent},
-      author={Yu Shi and Hao Li and Bram Adams and Ahmed E. Hassan},
-      year={2025},
-      eprint={2511.01047},
-      archivePrefix={arXiv},
-      primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2511.01047},
+@article{shi2025hafixagent,
+  title={HAFixAgent: History-Aware Automated Program Repair Agent},
+  author={Shi, Yu and Li, Hao and Adams, Bram and Hassan, Ahmed E},
+  journal={arXiv preprint arXiv:2511.01047},
+  year={2025}
 }
 ```
 
