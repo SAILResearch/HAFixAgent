@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "74",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 23:01:52",
+      "end_time": "2026-06-26 23:03:52",
+      "duration_seconds": 120,
+      "duration_human": "2m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 48,
+    "token_usage": {
+      "input_tokens": 551328,
+      "output_tokens": 5880,
+      "total_tokens": 557208,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 551328
+    },
+    "agent_steps": 48,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\nindex d1d096a75..bd4b0a3ac 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\n@@ -145,6 +145,14 @@ public class AsPropertyTypeDeserializer extends AsArrayTypeDeserializer\n             }\n             return deser.deserialize(p, ctxt);\n         }\n+        // Check for empty string when ACCEPT_EMPTY_STRING_AS_NULL_OBJECT is enabled\n+        if (p.getCurrentToken() == JsonToken.VALUE_STRING &&\n+                ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT)) {\n+            String str = p.getText().trim();\n+            if (str.isEmpty()) {\n+                return null;\n+            }\n+        }\n         // or, perhaps we just bumped into a \"natural\" value (boolean/int/double/String)?\n         Object result = TypeDeserializer.deserializeIfNatural(p, ctxt, _baseType);\n         if (result != null) {\n"
+  },
+  "timestamp": "2026-06-26 23:03:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_74",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_74",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "AsPropertyTypeDeserializer ignores DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT\nThe `AsPropertyTypeDeserializer ` implementation does not respect the `DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT` feature. When deserializing an empty String it throws `DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT` instead of creating a null Object.\n",
+    "commit_message": "Merge pull request #1534 from Tillerino/2.8",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java",
+        "start_line": 155,
+        "end_line": 155,
+        "line_numbers": [
+          155
+        ],
+        "function_name": "_deserializeTypedUsingDefaultImpl",
+        "class_name": "AsPropertyTypeDeserializer",
+        "filename": "AsPropertyTypeDeserializer.java",
+        "code_snippet": "    protected Object _deserializeTypedUsingDefaultImpl(JsonParser p, DeserializationContext ctxt,\n            TokenBuffer tb) throws IOException\n    {\n        // As per [JACKSON-614], may have default implementation to use\n        JsonDeserializer<Object> deser = _findDefaultImplDeserializer(ctxt);\n        if (deser != null) {\n            if (tb != null) {\n                tb.writeEndObject();\n                p = tb.asParser(p);\n                // must move to point to the first token:\n                p.nextToken();\n            }\n            return deser.deserialize(p, ctxt);\n        }\n        // or, perhaps we just bumped into a \"natural\" value (boolean/int/double/String)?\n        Object result = TypeDeserializer.deserializeIfNatural(p, ctxt, _baseType);\n        if (result != null) {\n            return result;\n        }\n        // or, something for which \"as-property\" won't work, changed into \"wrapper-array\" type:\n        if (p.getCurrentToken() == JsonToken.START_ARRAY) {\n            return super.deserializeTypedFromAny(p, ctxt);\n        }\n        ctxt.reportWrongTokenException(p, JsonToken.FIELD_NAME,\n                \"missing property '\"+_typePropertyName+\"' that is to contain type id  (for class \"+baseTypeName()+\")\");\n        return null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TestPolymorphicWithDefaultImpl::testWithEmptyStringAsNullObject1533"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\nindex 7941e054c..d1d096a75 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsPropertyTypeDeserializer.java\n@@ -153,13 +153,6 @@ public class AsPropertyTypeDeserializer extends AsArrayTypeDeserializer\n         // or, something for which \"as-property\" won't work, changed into \"wrapper-array\" type:\n         if (p.getCurrentToken() == JsonToken.START_ARRAY) {\n             return super.deserializeTypedFromAny(p, ctxt);\n+        } else if (p.getCurrentToken() == JsonToken.VALUE_STRING) {\n+            if (ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT)) {\n+                String str = p.getText().trim();\n+                if (str.isEmpty()) {\n+                    return null;\n+                }\n+            }\n         }\n         ctxt.reportWrongTokenException(p, JsonToken.FIELD_NAME,\n                 \"missing property '\"+_typePropertyName+\"' that is to contain type id  (for class \"+baseTypeName()+\")\");",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

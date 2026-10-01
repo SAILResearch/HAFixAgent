@@ -1,0 +1,62 @@
+{
+  "project_name": "Math",
+  "bug_id": "19",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:48:47",
+      "end_time": "2026-06-20 00:59:29",
+      "duration_seconds": 643,
+      "duration_human": "10m 43s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 519451,
+      "output_tokens": 5319,
+      "total_tokens": 524770,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 519451
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:59:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_19",
+    "repo_path": "/defects4j/framework/bin/temp/Math_19",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "Wide bounds to CMAESOptimizer result in NaN parameters passed to fitness function\nIf you give large values as lower/upper bounds (for example -Double.MAX_VALUE as a lower bound), the optimizer can call the fitness function with parameters set to NaN.  My guess is this is due to FitnessFunction.encode/decode generating NaN when normalizing/denormalizing parameters.  For example, if the difference between the lower and upper bound is greater than Double.MAX_VALUE, encode could divide infinity by infinity.",
+    "commit_message": "MATH-865 Early detection that overflow will occur in the variables normalization procedure (\"encode\" method). Warning mentioned in the documentation.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 539,
+        "end_line": 539,
+        "line_numbers": [
+          539
+        ],
+        "function_name": "checkParameters",
+        "class_name": "CMAESOptimizer",
+        "filename": "CMAESOptimizer.java",
+        "code_snippet": "    private void checkParameters() {\n        final double[] init = getStartPoint();\n        final double[] lB = getLowerBound();\n        final double[] uB = getUpperBound();\n\n        // Checks whether there is at least one finite bound value.\n        boolean hasFiniteBounds = false;\n        for (int i = 0; i < lB.length; i++) {\n            if (!Double.isInfinite(lB[i]) ||\n                !Double.isInfinite(uB[i])) {\n                hasFiniteBounds = true;\n                break;\n            }\n        }\n        // Checks whether there is at least one infinite bound value.\n        boolean hasInfiniteBounds = false;\n        if (hasFiniteBounds) {\n            for (int i = 0; i < lB.length; i++) {\n                if (Double.isInfinite(lB[i]) ||\n                    Double.isInfinite(uB[i])) {\n                    hasInfiniteBounds = true;\n                    break;\n                }\n            }\n\n            if (hasInfiniteBounds) {\n                // If there is at least one finite bound, none can be infinite,\n                // because mixed cases are not supported by the current code.\n                throw new MathUnsupportedOperationException();\n            } else {\n                // Convert API to internal handling of boundaries.\n                boundaries = new double[2][];\n                boundaries[0] = lB;\n                boundaries[1] = uB;\n\n                // Abort early if the normalization will overflow (cf. \"encode\" method).\n            }\n        } else {\n            // Convert API to internal handling of boundaries.\n            boundaries = null;\n        }\n\n        if (inputSigma != null) {\n            if (inputSigma.length != init.length) {\n                throw new DimensionMismatchException(inputSigma.length, init.length);\n            }\n            for (int i = 0; i < init.length; i++) {\n                if (inputSigma[i] < 0) {\n                    throw new NotPositiveException(inputSigma[i]);\n                }\n                if (boundaries != null) {\n                    if (inputSigma[i] > boundaries[1][i] - boundaries[0][i]) {\n                        throw new OutOfRangeException(inputSigma[i], 0, boundaries[1][i] - boundaries[0][i]);\n                    }\n                }\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math3.optimization.direct.CMAESOptimizerTest::testBoundaryRangeTooLarge"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\nindex f6a4f28..51d1c64 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\n@@ -537,19 +537,6 @@ public class CMAESOptimizer\n                 boundaries[1] = uB;\n \n                 // Abort early if the normalization will overflow (cf. \"encode\" method).\n+                for (int i = 0; i < lB.length; i++) {\n+                    if (Double.isInfinite(boundaries[1][i] - boundaries[0][i])) {\n+                        final double max = Double.MAX_VALUE + boundaries[0][i];\n+                        final NumberIsTooLargeException e\n+                            = new NumberIsTooLargeException(boundaries[1][i],\n+                                                            max,\n+                                                            true);\n+                        e.getContext().addMessage(LocalizedFormats.OVERFLOW);\n+                        e.getContext().addMessage(LocalizedFormats.INDEX, i);\n+\n+                        throw e;\n+                    }\n+                }\n             }\n         } else {\n             // Convert API to internal handling of boundaries.",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

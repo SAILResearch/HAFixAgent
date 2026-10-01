@@ -1,0 +1,74 @@
+{
+  "project_name": "black",
+  "bug_id": "black_14",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:02:54",
+      "end_time": "2026-03-23 07:44:47",
+      "duration_seconds": 2513,
+      "duration_human": "41m 53s"
+    },
+    "model_cost": 0.1224,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 538820,
+      "output_tokens": 100179,
+      "total_tokens": 638999,
+      "cached_input_tokens": 237504,
+      "uncached_input_tokens": 301316
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex f49e6df..650529a 100644\n--- a/black.py\n+++ b/black.py\n@@ -2908,47 +2908,106 @@ def generate_trailers_to_omit(line: Line, line_length: int) -> Iterator[Set[Leaf\n             closing_bracket = leaf\n \n \n+\n+def get_future_imports(node: Node) -> Set[str]:\n def get_future_imports(node: Node) -> Set[str]:\n+    \"\"\"Return a set of __future__ imports in the file.\"\"\"\n     \"\"\"Return a set of __future__ imports in the file.\"\"\"\n     imports = set()\n+    imports = set()\n+    for child in node.children:\n     for child in node.children:\n         if child.type != syms.simple_stmt:\n+        if child.type != syms.simple_stmt:\n+            break\n             break\n         first_child = child.children[0]\n+        first_child = child.children[0]\n         if isinstance(first_child, Leaf):\n+        if isinstance(first_child, Leaf):\n+            # Continue looking if we see a docstring; otherwise stop.\n             # Continue looking if we see a docstring; otherwise stop.\n             if (\n+            if (\n+                len(child.children) == 2\n                 len(child.children) == 2\n                 and first_child.type == token.STRING\n+                and first_child.type == token.STRING\n                 and child.children[1].type == token.NEWLINE\n+                and child.children[1].type == token.NEWLINE\n+            ):\n             ):\n                 continue\n+                continue\n+            else:\n             else:\n                 break\n+                break\n         elif first_child.type == syms.import_from:\n+        elif first_child.type == syms.import_from:\n+            module_name = first_child.children[1]\n             module_name = first_child.children[1]\n             if not isinstance(module_name, Leaf) or module_name.value != \"__future__\":\n+            if not isinstance(module_name, Leaf) or module_name.value != \"__future__\":\n+                break\n                 break\n+            for import_from_child in first_child.children[3:]:\n             for import_from_child in first_child.children[3:]:\n                 if isinstance(import_from_child, Leaf):\n+                if isinstance(import_from_child, Leaf):\n+                    if import_from_child.type == token.NAME:\n                     if import_from_child.type == token.NAME:\n                         imports.add(import_from_child.value)\n+                        imports.add(import_from_child.value)\n                 else:\n-                    assert import_from_child.type == syms.import_as_names\n-                    for leaf in import_from_child.children:\n-                        if isinstance(leaf, Leaf) and leaf.type == token.NAME:\n-                            imports.add(leaf.value)\n-        else:\n+                else:\n+                    if import_from_child.type == syms.import_as_name:\n+                    if import_from_child.type == syms.import_as_name:\n+                        # Single import with alias\n+                        # Single import with alias\n+                        orig_name = import_from_child.children[0]\n+                        orig_name = import_from_child.children[0]\n+                        if isinstance(orig_name, Leaf) and orig_name.type == token.NAME:\n+                        if isinstance(orig_name, Leaf) and orig_name.type == token.NAME:\n+                            imports.add(orig_name.value)\n+                            imports.add(orig_name.value)\n+                    elif import_from_child.type == syms.import_as_names:\n+                    elif import_from_child.type == syms.import_as_names:\n+                        for leaf in import_from_child.children:\n+                        for leaf in import_from_child.children:\n+                            if isinstance(leaf, Leaf) and leaf.type == token.NAME:\n+                            if isinstance(leaf, Leaf) and leaf.type == token.NAME:\n+                                imports.add(leaf.value)\n+                                imports.add(leaf.value)\n+                            elif leaf.type == syms.import_as_name:\n+                            elif leaf.type == syms.import_as_name:\n+                                orig_name = leaf.children[0]\n+                                orig_name = leaf.children[0]\n+                                if isinstance(orig_name, Leaf) and orig_name.type == token.NAME:\n+                                if isinstance(orig_name, Leaf) and orig_name.type == token.NAME:\n+                                    imports.add(orig_name.value)\n+                                    imports.add(orig_name.value)\n             break\n+            break\n+    return imports\n     return imports\n \n \n+\n+\n+def gen_python_files_in_dir(\n def gen_python_files_in_dir(\n     path: Path,\n+    path: Path,\n+    root: Path,\n     root: Path,\n     include: Pattern[str],\n+    include: Pattern[str],\n+    exclude: Pattern[str],\n     exclude: Pattern[str],\n     report: \"Report\",\n+    report: \"Report\",\n+) -> Iterator[Path]:\n ) -> Iterator[Path]:\n     \"\"\"Generate all files under `path` whose paths are not excluded by the\n     `exclude` regex, but are included by the `include` regex.\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 8a37197..cc53aa6 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -735,6 +735,14 @@ class BlackTestCase(unittest.TestCase):\n         self.assertEqual(set(), black.get_future_imports(node))\n         node = black.lib2to3_parse(\"from some.module import black\\n\")\n         self.assertEqual(set(), black.get_future_imports(node))\n+        node = black.lib2to3_parse(\n+            \"from __future__ import unicode_literals as _unicode_literals\"\n+        )\n+        self.assertEqual({\"unicode_literals\"}, black.get_future_imports(node))\n+        node = black.lib2to3_parse(\n+            \"from __future__ import unicode_literals as _lol, print\"\n+        )\n+        self.assertEqual({\"unicode_literals\", \"print\"}, black.get_future_imports(node))\n \n     def test_debug_visitor(self) -> None:\n         source, _ = read_data(\"debug_visitor.py\")\n"
+  },
+  "timestamp": "2026-03-23 03:44:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_14",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_14/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Improve get_future_imports implementation.",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 2913,
+        "end_line": 2913,
+        "function_name": "get_future_imports",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 2932,
+        "end_line": 2940,
+        "function_name": "get_future_imports",
+        "class_name": ""
+      },
+      {
+        "file": "tests/data/python2_unicode_literals.py",
+        "start_line": 2,
+        "end_line": 2,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/data/python2_unicode_literals.py",
+        "start_line": 12,
+        "end_line": 12,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_get_future_imports"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

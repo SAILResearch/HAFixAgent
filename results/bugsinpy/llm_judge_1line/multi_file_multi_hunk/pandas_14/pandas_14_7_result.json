@@ -1,0 +1,56 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_14",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 23:42:36",
+      "end_time": "2026-03-23 23:47:11",
+      "duration_seconds": 275,
+      "duration_human": "4m 35s"
+    },
+    "model_cost": 0.0268,
+    "model_calls": 21,
+    "token_usage": {
+      "input_tokens": 188336,
+      "output_tokens": 9503,
+      "total_tokens": 197839,
+      "cached_input_tokens": 103552,
+      "uncached_input_tokens": 84784
+    },
+    "agent_steps": 21,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/ops/dispatch.py b/pandas/core/ops/dispatch.py\nindex 2463a1f58a..b48548a707 100644\n--- a/pandas/core/ops/dispatch.py\n+++ b/pandas/core/ops/dispatch.py\n@@ -71,7 +71,7 @@ def should_series_dispatch(left, right, op):\n         # numpy integer dtypes as timedelta64 dtypes in this scenario\n         return True\n \n-    if is_datetime64_dtype(ldtype) and is_object_dtype(rdtype):\n+    if (is_datetime64_dtype(ldtype) and is_object_dtype(rdtype)) or (is_object_dtype(ldtype) and is_datetime64_dtype(rdtype)) or (is_timedelta64_dtype(ldtype) and is_object_dtype(rdtype)) or (is_object_dtype(ldtype) and is_timedelta64_dtype(rdtype)):\n         # in particular case where right is an array of DateOffsets\n         return True\n \ndiff --git a/pandas/tests/arithmetic/test_datetime64.py b/pandas/tests/arithmetic/test_datetime64.py\nindex 83d81ccf84..8c937064c0 100644\n--- a/pandas/tests/arithmetic/test_datetime64.py\n+++ b/pandas/tests/arithmetic/test_datetime64.py\n@@ -1438,64 +1438,41 @@ class TestDatetime64DateOffsetArithmetic:\n         tm.assert_equal(result, exp)\n         tm.assert_equal(result2, exp)\n \n-    # TODO: __sub__, __rsub__\n-    def test_dt64arr_add_mixed_offset_array(self, box_with_array):\n-        # GH#10699\n-        # array of offsets\n-        s = DatetimeIndex([Timestamp(\"2000-1-1\"), Timestamp(\"2000-2-1\")])\n-        s = tm.box_expected(s, box_with_array)\n-\n-        warn = None if box_with_array is pd.DataFrame else PerformanceWarning\n-        with tm.assert_produces_warning(warn):\n-            other = pd.Index([pd.offsets.DateOffset(years=1), pd.offsets.MonthEnd()])\n-            other = tm.box_expected(other, box_with_array)\n-            result = s + other\n-            exp = DatetimeIndex([Timestamp(\"2001-1-1\"), Timestamp(\"2000-2-29\")])\n-            exp = tm.box_expected(exp, box_with_array)\n-            tm.assert_equal(result, exp)\n-\n-            # same offset\n-            other = pd.Index(\n+    @pytest.mark.parametrize(\n+        \"other\",\n+        [\n+            np.array([pd.offsets.MonthEnd(), pd.offsets.Day(n=2)]),\n+            np.array([pd.offsets.DateOffset(years=1), pd.offsets.MonthEnd()]),\n+            np.array(  # matching offsets\n                 [pd.offsets.DateOffset(years=1), pd.offsets.DateOffset(years=1)]\n-            )\n-            other = tm.box_expected(other, box_with_array)\n-            result = s + other\n-            exp = DatetimeIndex([Timestamp(\"2001-1-1\"), Timestamp(\"2001-2-1\")])\n-            exp = tm.box_expected(exp, box_with_array)\n-            tm.assert_equal(result, exp)\n-\n-    # TODO: overlap with test_dt64arr_add_mixed_offset_array?\n-    def test_dt64arr_add_sub_offset_ndarray(self, tz_naive_fixture, box_with_array):\n+            ),\n+        ],\n+    )\n+    @pytest.mark.parametrize(\"op\", [operator.add, roperator.radd, operator.sub])\n+    @pytest.mark.parametrize(\"box_other\", [True, False])\n+    def test_dt64arr_add_sub_offset_array(\n+        self, tz_naive_fixture, box_with_array, box_other, op, other\n+    ):\n         # GH#18849\n+        # GH#10699 array of offsets\n \n         tz = tz_naive_fixture\n         dti = pd.date_range(\"2017-01-01\", periods=2, tz=tz)\n         dtarr = tm.box_expected(dti, box_with_array)\n \n         other = np.array([pd.offsets.MonthEnd(), pd.offsets.Day(n=2)])\n+        expected = DatetimeIndex([op(dti[n], other[n]) for n in range(len(dti))])\n+        expected = tm.box_expected(expected, box_with_array)\n+\n+        if box_other:\n+            other = tm.box_expected(other, box_with_array)\n \n         warn = PerformanceWarning\n-        if box_with_array is pd.DataFrame and tz is not None:\n+        if box_with_array is pd.DataFrame and not (tz is None and not box_other):\n             warn = None\n-\n-        with tm.assert_produces_warning(warn):\n-            res = dtarr + other\n-        expected = DatetimeIndex(\n-            [dti[n] + other[n] for n in range(len(dti))], name=dti.name, freq=\"infer\"\n-        )\n-        expected = tm.box_expected(expected, box_with_array)\n-        tm.assert_equal(res, expected)\n-\n         with tm.assert_produces_warning(warn):\n-            res2 = other + dtarr\n-        tm.assert_equal(res2, expected)\n+            res = op(dtarr, other)\n \n-        with tm.assert_produces_warning(warn):\n-            res = dtarr - other\n-        expected = DatetimeIndex(\n-            [dti[n] - other[n] for n in range(len(dti))], name=dti.name, freq=\"infer\"\n-        )\n-        expected = tm.box_expected(expected, box_with_array)\n         tm.assert_equal(res, expected)\n \n     @pytest.mark.parametrize(\n@@ -1905,9 +1882,9 @@ class TestTimestampSeriesArithmetic:\n \n     # TODO: parametrize over box\n     @pytest.mark.parametrize(\"op\", [\"__add__\", \"__radd__\", \"__sub__\", \"__rsub__\"])\n-    @pytest.mark.parametrize(\"tz\", [None, \"Asia/Tokyo\"])\n-    def test_dt64_series_add_intlike(self, tz, op):\n+    def test_dt64_series_add_intlike(self, tz_naive_fixture, op):\n         # GH#19123\n+        tz = tz_naive_fixture\n         dti = pd.DatetimeIndex([\"2016-01-02\", \"2016-02-03\", \"NaT\"], tz=tz)\n         ser = Series(dti)\n \n@@ -2376,12 +2353,9 @@ class TestDatetimeIndexArithmetic:\n             tm.assert_index_equal(result, exp)\n             assert result.freq == exp.freq\n \n-    @pytest.mark.parametrize(\n-        \"names\", [(\"foo\", None, None), (\"baz\", \"bar\", None), (\"bar\", \"bar\", \"bar\")]\n-    )\n-    @pytest.mark.parametrize(\"tz\", [None, \"America/Chicago\"])\n-    def test_dti_add_series(self, tz, names):\n+    def test_dti_add_series(self, tz_naive_fixture, names):\n         # GH#13905\n+        tz = tz_naive_fixture\n         index = DatetimeIndex(\n             [\"2016-06-28 05:30\", \"2016-06-28 05:31\"], tz=tz, name=names[0]\n         )\n@@ -2403,9 +2377,6 @@ class TestDatetimeIndexArithmetic:\n         tm.assert_index_equal(result4, expected)\n \n     @pytest.mark.parametrize(\"op\", [operator.add, roperator.radd, operator.sub])\n-    @pytest.mark.parametrize(\n-        \"names\", [(None, None, None), (\"foo\", \"bar\", None), (\"foo\", \"foo\", \"foo\")]\n-    )\n     def test_dti_addsub_offset_arraylike(\n         self, tz_naive_fixture, names, op, index_or_series\n     ):\ndiff --git a/pandas/tests/arithmetic/test_timedelta64.py b/pandas/tests/arithmetic/test_timedelta64.py\nindex 0afa09d351..b64a52a772 100644\n--- a/pandas/tests/arithmetic/test_timedelta64.py\n+++ b/pandas/tests/arithmetic/test_timedelta64.py\n@@ -1195,18 +1195,10 @@ class TestTimedeltaArraylikeAddSubOps:\n         result = tdarr - tdi\n         tm.assert_equal(result, expected)\n \n-    @pytest.mark.parametrize(\n-        \"names\",\n-        [\n-            (None, None, None),\n-            (\"Egon\", \"Venkman\", None),\n-            (\"NCC1701D\", \"NCC1701D\", \"NCC1701D\"),\n-        ],\n-    )\n     def test_td64arr_add_sub_tdi(self, box, names):\n         # GH#17250 make sure result dtype is correct\n         # GH#19043 make sure names are propagated correctly\n-        if box is pd.DataFrame and names[1] == \"Venkman\":\n+        if box is pd.DataFrame and names[1] != names[0]:\n             pytest.skip(\n                 \"Name propagation for DataFrame does not behave like \"\n                 \"it does for Index/Series\"\n@@ -1307,12 +1299,9 @@ class TestTimedeltaArraylikeAddSubOps:\n     # ------------------------------------------------------------------\n     # __add__/__sub__ with DateOffsets and arrays of DateOffsets\n \n-    @pytest.mark.parametrize(\n-        \"names\", [(None, None, None), (\"foo\", \"bar\", None), (\"foo\", \"foo\", \"foo\")]\n-    )\n     def test_td64arr_add_offset_index(self, names, box):\n         # GH#18849, GH#19744\n-        if box is pd.DataFrame and names[1] == \"bar\":\n+        if box is pd.DataFrame and names[1] != names[0]:\n             pytest.skip(\n                 \"Name propagation for DataFrame does not behave like \"\n                 \"it does for Index/Series\"\n@@ -2041,14 +2030,6 @@ class TestTimedeltaArraylikeMulDivOps:\n         with pytest.raises(TypeError, match=pattern):\n             vector.astype(object) / tdser\n \n-    @pytest.mark.parametrize(\n-        \"names\",\n-        [\n-            (None, None, None),\n-            (\"Egon\", \"Venkman\", None),\n-            (\"NCC1701D\", \"NCC1701D\", \"NCC1701D\"),\n-        ],\n-    )\n     def test_td64arr_mul_int_series(self, box_df_fail, names):\n         # GH#19042 test for correct name attachment\n         box = box_df_fail  # broadcasts along wrong axis, but doesn't raise\n@@ -2078,14 +2059,6 @@ class TestTimedeltaArraylikeMulDivOps:\n         tm.assert_equal(result, expected)\n \n     # TODO: Should we be parametrizing over types for `ser` too?\n-    @pytest.mark.parametrize(\n-        \"names\",\n-        [\n-            (None, None, None),\n-            (\"Egon\", \"Venkman\", None),\n-            (\"NCC1701D\", \"NCC1701D\", \"NCC1701D\"),\n-        ],\n-    )\n     def test_float_series_rdiv_td64arr(self, box_with_array, names):\n         # GH#19042 test for correct name attachment\n         # TODO: the direct operation TimedeltaIndex / Series still\n"
+  },
+  "timestamp": "2026-03-23 19:47:11 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_14",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_14/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: DataFrame[object] + Series[dt64], test parametrization (#33824)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/ops/dispatch.py",
+        "start_line": 74,
+        "end_line": 75,
+        "function_name": "should_series_dispatch",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arithmetic/test_datetime64.py::TestDatetime64DateOffsetArithmetic::test_dt64arr_add_sub_offset_array",
+      "pytest pandas/tests/arithmetic/test_timedelta64.py::TestTimedeltaArraylikeAddSubOps::test_td64arr_add_offset_index"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

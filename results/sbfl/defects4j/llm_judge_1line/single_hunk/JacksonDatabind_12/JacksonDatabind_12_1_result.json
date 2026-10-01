@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_12",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-16 23:47:43",
+      "end_time": "2026-06-17 00:08:49",
+      "duration_seconds": 1267,
+      "duration_human": "21m 7s"
+    },
+    "model_cost": 0.1436,
+    "model_calls": 13,
+    "token_usage": {
+      "input_tokens": 728324,
+      "output_tokens": 50787,
+      "total_tokens": 779111,
+      "cached_input_tokens": 273728,
+      "uncached_input_tokens": 454596
+    },
+    "agent_steps": 13,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/type/MapType.java b/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\nindex 2b14896da..316cf7a60 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\n@@ -93,6 +93,7 @@ public final class MapType extends MapLikeType\n \n     @Override\n     public MapType withContentValueHandler(Object h) {\n+        System.err.println(\"MapType.withContentValueHandler called: h=\" + h + \", _valueType=\" + _valueType);\n         return new MapType(_class, _keyType, _valueType.withValueHandler(h),\n                 _valueHandler, _typeHandler, _asStatic);\n     }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\nindex b7c89b230..d323f3708 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\n@@ -113,9 +113,7 @@ public final class SimpleType\n \n     @Override\n     public SimpleType withValueHandler(Object h) {\n-        if (h == _valueHandler) {\n-            return this;\n-        }\n+        // Always create new instance when setting handler to avoid sharing handlers between properties\n         return new SimpleType(_class, _typeNames, _typeParameters, h, _typeHandler, _asStatic);\n     }\n     \n"
+  },
+  "timestamp": "2026-06-17 00:08:50 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_12",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_12",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "@JsonDeserialize on Map with contentUsing custom deserializer overwrites default behavior\nI recently updated from version 2.3.3 to 2.5.1 and encountered a new issue with our custom deserializers. They either seemed to stop working or were active on the wrong fields.\nI could narrow it down to some change in version 2.4.4 (2.4.3 is still working for me)\n\nI wrote a test to show this behavior. It seems to appear when there a two maps with the same key and value types in a bean, and only one of them has a custom deserializer. The deserializer is then falsely used either for both or none of the maps.\n\nThis test works for me in version 2.4.3 and fails with higher versions.\n\n``` java\nimport static org.junit.Assert.assertEquals;\n\nimport java.io.IOException;\nimport java.util.Map;\n\nimport org.junit.Test;\n\nimport com.fasterxml.jackson.annotation.JsonProperty;\nimport com.fasterxml.jackson.core.JsonParser;\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.DeserializationContext;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport com.fasterxml.jackson.databind.annotation.JsonDeserialize;\nimport com.fasterxml.jackson.databind.deser.std.StdDeserializer;\n\npublic class DeserializeTest {\n\n    @Test\n    public void testIt() throws Exception {\n        ObjectMapper om = new ObjectMapper();\n        String json = \"{\\\"map1\\\":{\\\"a\\\":1},\\\"map2\\\":{\\\"a\\\":1}}\";\n        TestBean bean = om.readValue(json.getBytes(), TestBean.class);\n\n        assertEquals(100, bean.getMap1().get(\"a\").intValue());\n        assertEquals(1, bean.getMap2().get(\"a\").intValue());\n    }\n\n    public static class TestBean {\n\n        @JsonProperty(\"map1\")\n        @JsonDeserialize(contentUsing = CustomDeserializer.class)\n        Map<String, Integer> map1;\n\n        @JsonProperty(\"map2\")\n        Map<String, Integer> map2;\n\n        public Map<String, Integer> getMap1() {\n            return map1;\n        }\n\n        public void setMap1(Map<String, Integer> map1) {\n            this.map1 = map1;\n        }\n\n        public Map<String, Integer> getMap2() {\n            return map2;\n        }\n\n        public void setMap2(Map<String, Integer> map2) {\n            this.map2 = map2;\n        }\n    }\n\n    public static class CustomDeserializer extends StdDeserializer<Integer> {\n\n        public CustomDeserializer() {\n            super(Integer.class);\n        }\n\n        @Override\n        public Integer deserialize(JsonParser p, DeserializationContext ctxt) throws IOException, JsonProcessingException {\n            Integer value = p.readValueAs(Integer.class);\n            return value * 100;\n        }\n    }\n}\n```\n\n",
+    "commit_message": "Fix #735",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/MapType.java",
+        "start_line": 96,
+        "end_line": 96,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java",
+        "start_line": 243,
+        "end_line": 243,
+        "suspiciousness": 0.5,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+        "start_line": 1567,
+        "end_line": 1567,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 584,
+        "end_line": 584,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 116,
+        "end_line": 116,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 119,
+        "end_line": 119,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 569,
+        "end_line": 569,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 570,
+        "end_line": 570,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/MapLikeType.java",
+        "start_line": 240,
+        "end_line": 240,
+        "suspiciousness": 0.22941573387056174,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/MapLikeType.java",
+        "start_line": 241,
+        "end_line": 241,
+        "suspiciousness": 0.22941573387056174,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestCustomDeserializers::testCustomMapValueDeser735"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/MapType.java",
+      "start_line": 96,
+      "end_line": 96,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java",
+      "start_line": 243,
+      "end_line": 243,
+      "suspiciousness": 0.5,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+      "start_line": 1567,
+      "end_line": 1567,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+      "start_line": 584,
+      "end_line": 584,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 116,
+      "end_line": 116,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 119,
+      "end_line": 119,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+      "start_line": 569,
+      "end_line": 569,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+      "start_line": 570,
+      "end_line": 570,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/MapLikeType.java",
+      "start_line": 240,
+      "end_line": 240,
+      "suspiciousness": 0.22941573387056174,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/MapLikeType.java",
+      "start_line": 241,
+      "end_line": 241,
+      "suspiciousness": 0.22941573387056174,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "108",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 09:27:00",
+      "end_time": "2026-06-27 09:33:07",
+      "duration_seconds": 367,
+      "duration_human": "6m 7s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 40,
+    "token_usage": {
+      "input_tokens": 681386,
+      "output_tokens": 4305,
+      "total_tokens": 685691,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 681386
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex ae5f43175..430b6d4a5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -1166,7 +1166,7 @@ public class ObjectReader\n     @SuppressWarnings(\"unchecked\")\n     @Override\n     public <T extends TreeNode> T readTree(JsonParser p) throws IOException {\n-        return (T) _bindAsTree(p);\n+        return (T) _bindAsTreeForParser(p);\n     }\n \n     @Override\n@@ -1700,6 +1700,38 @@ public class ObjectReader\n         return resultNode;\n     }\n \n+    protected final JsonNode _bindAsTreeForParser(JsonParser p) throws IOException {\n+        // Need to inline `_initForReading()` due to tree reading handling end-of-input specially\n+        _config.initialize(p);\n+        if (_schema != null) {\n+            p.setSchema(_schema);\n+        }\n+\n+        JsonToken t = p.getCurrentToken();\n+        if (t == null) {\n+            t = p.nextToken();\n+            if (t == null) {\n+                return null;\n+            }\n+        }\n+        final JsonNode resultNode;\n+        if (t == JsonToken.VALUE_NULL) {\n+            resultNode = _config.getNodeFactory().nullNode();\n+        } else {\n+            final DeserializationContext ctxt = createDeserializationContext(p);\n+            final JsonDeserializer<Object> deser = _findTreeDeserializer(ctxt);\n+            if (_unwrapRoot) {\n+                resultNode = (JsonNode) _unwrapAndDeserialize(p, ctxt, JSON_NODE_TYPE, deser);\n+            } else {\n+                resultNode = (JsonNode) deser.deserialize(p, ctxt);\n+                if (_config.isEnabled(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)) {\n+                    _verifyNoTrailingTokens(p, ctxt, JSON_NODE_TYPE);\n+                }\n+            }\n+        }\n+        return resultNode;\n+    }\n+\n     /**\n      * Same as {@link #_bindAsTree} except end-of-input is reported by returning\n      * {@code null}, not \"missing node\"\ndiff --git a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\nindex 397db2fa4..b23924c3b 100644\n--- a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n+++ b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.cfg.MapperConfig;\n  * Scala uses identifiers that are legal JVM names, but not legal Java names:\n  *\n  * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n+ *     <li><code>prop\u00e2\u0090\u00a3</code> (trailing space) for fields</li>\n  *     <li><code>prop</code> for getters</li>\n  *     <li><code>prop_=</code> for setters</li>\n  * </ul>\n@@ -32,12 +32,12 @@ public class TestScalaLikeImplicitProperties extends BaseMapTest\n             String name = null;\n             if (member instanceof AnnotatedField) {\n                 name = member.getName();\n-                if (name.endsWith(\"\u203f\")) {\n+                if (name.endsWith(\"\u00e2\u0080\u00bf\")) {\n                     return name.substring(0, name.length()-1);\n                 }\n             } else if (member instanceof AnnotatedMethod) {\n                 name = member.getName();\n-                if (name.endsWith(\"_\u2040\")) {\n+                if (name.endsWith(\"_\u00e2\u0081\u0080\")) {\n                     return name.substring(0, name.length()-2);\n                 }\n                 if (!name.startsWith(\"get\") && !name.startsWith(\"set\")) {\n@@ -71,46 +71,46 @@ public class TestScalaLikeImplicitProperties extends BaseMapTest\n \n     static class ValProperty\n     {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n+        private final String prop\u00e2\u0080\u00bf;\n+        public String prop() { return prop\u00e2\u0080\u00bf; }\n \n         public ValProperty(String prop) {\n-            prop\u203f = prop;\n+            prop\u00e2\u0080\u00bf = prop;\n         }\n     }\n \n     static class ValWithBeanProperty\n     {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n+        private final String prop\u00e2\u0080\u00bf;\n+        public String prop() { return prop\u00e2\u0080\u00bf; }\n+        public String getProp() { return prop\u00e2\u0080\u00bf; }\n \n         public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n+            prop\u00e2\u0080\u00bf = prop;\n         }\n     }\n \n     static class VarProperty\n     {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n+        private String prop\u00e2\u0080\u00bf;\n+        public String prop() { return prop\u00e2\u0080\u00bf; }\n+        public void prop_\u00e2\u0081\u0080(String p) { prop\u00e2\u0080\u00bf = p; }\n \n         public VarProperty(String prop) {\n-            prop\u203f = prop;\n+            prop\u00e2\u0080\u00bf = prop;\n         }\n     }\n \n     static class VarWithBeanProperty\n     {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n+        private String prop\u00e2\u0080\u00bf;\n+        public String prop() { return prop\u00e2\u0080\u00bf; }\n+        public void prop_\u00e2\u0081\u0080(String p) { prop\u00e2\u0080\u00bf = p; }\n+        public String getProp() { return prop\u00e2\u0080\u00bf; }\n+        public void setProp(String p) { prop\u00e2\u0080\u00bf = p; }\n \n         public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n+            prop\u00e2\u0080\u00bf = prop;\n         }\n     }\n \n@@ -119,7 +119,7 @@ public class TestScalaLikeImplicitProperties extends BaseMapTest\n         // Different name to represent an arbitrary implementation, not necessarily local to this class.\n         private String _prop_impl = \"get/set\";\n         public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n+        public void prop_\u00e2\u0081\u0080(String p) { _prop_impl = p; }\n \n         // Getter/Setters are typically not in the constructor because they are implemented\n         // by the end user, not the compiler. They should be detected similar to 'bean-style'\n"
+  },
+  "timestamp": "2026-06-27 09:33:07 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_108",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_108",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Change of behavior (2.8 -> 2.9) with `ObjectMapper.readTree(input)` with no content\nSo, it looks like `readTree()` methods in `ObjectMapper`, `ObjectReader` that take input OTHER than `JsonParser`, and are given \"empty input\" (only white-space available before end), will\r\n\r\n* Return `NullNode` (Jackson 2.x up to and including 2.8)\r\n* Return `null` (Jackson 2.9)\r\n\r\nLatter behavior is what `readTree(JsonParser)` has and will do; but this accidentally changed other methods due to refactoring that unified underlying call handling (and add checking for new `DeserializationFeature.FAIL_ON_TRAILING_TOKENS`). \r\nBehavior for this edge case was not being tested, apparently.\r\n\r\nNow: since behavior has been changed for all 2.9.x patch versions, I am not sure it should be changed for 2.9 branch. But it seems sub-optimal as behavior, and something to definitely change for 3.0... but probably also for 2.10.\r\n\r\nThere are multiple things we could do.\r\n\r\n1. Change it back to 2.8, to return `NullNode`\r\n2. Change to throw exception, as \"not valid\" use case\r\n3. Change it to return `MissingNode`\r\n4. Leave as-is, for rest of 2.x.\r\n\r\nAlthough it might seem best to revert it to (1), that seems somewhat wrong, problematic, as it would now not be possible to distinguish between JSON `null` value and missing content.\r\nAnd although (2) would probably make sense, if designing API from scratch, it is probably too intrusive.\r\n\r\nSo I think (3) is the best way: it avoids returning `null` or throwing Exception (both being likely to break 2.9 code), but still allows distinguishing between all possible input cases.\r\n\r\n\r\n\r\n\r\n\n",
+    "commit_message": "Fix #2211 (last changes, still need to improve test coverage)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1169,
+        "end_line": 1169,
+        "line_numbers": [
+          1169
+        ],
+        "function_name": "readTree",
+        "class_name": "ObjectReader",
+        "filename": "ObjectReader.java",
+        "code_snippet": "    public <T extends TreeNode> T readTree(JsonParser p) throws IOException {\n        return (T) _bindAsTree(p);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.EmptyContentAsTreeTest::testNullFromEOFWithParserAndReader"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex 71d11c83f..ae5f43175 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -1166,7 +1166,7 @@ public class ObjectReader\n     @SuppressWarnings(\"unchecked\")\n     @Override\n     public <T extends TreeNode> T readTree(JsonParser p) throws IOException {\n+        return (T) _bindAsTreeOrNull(p);\n-        return (T) _bindAsTree(p);\n     }\n \n     @Override\n@@ -1704,36 +1704,6 @@ public class ObjectReader\n      * Same as {@link #_bindAsTree} except end-of-input is reported by returning\n      * {@code null}, not \"missing node\"\n      */\n+    protected final JsonNode _bindAsTreeOrNull(JsonParser p) throws IOException\n+    {\n+        _config.initialize(p);\n+        if (_schema != null) {\n+            p.setSchema(_schema);\n+        }\n+        JsonToken t = p.getCurrentToken();\n+        if (t == null) {\n+            t = p.nextToken();\n+            if (t == null) {\n+                return null;\n+            }\n+        }\n+        final JsonNode resultNode;\n+        if (t == JsonToken.VALUE_NULL) {\n+            resultNode = _config.getNodeFactory().nullNode();\n+        } else {\n+            final DeserializationContext ctxt = createDeserializationContext(p);\n+            final JsonDeserializer<Object> deser = _findTreeDeserializer(ctxt);\n+            if (_unwrapRoot) {\n+                resultNode = (JsonNode) _unwrapAndDeserialize(p, ctxt, JSON_NODE_TYPE, deser);\n+            } else {\n+                resultNode = (JsonNode) deser.deserialize(p, ctxt);\n+                if (_config.isEnabled(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)) {\n+                    _verifyNoTrailingTokens(p, ctxt, JSON_NODE_TYPE);\n+                }\n+            }\n+        }\n+        return resultNode;\n+    }\n     \n     /**\n      * @since 2.1",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2015-12-26 13:30:42",
+        "commit_message": "javadoc cleanup",
+        "commit_hash": "2547048701f537079e38a01aa9337fe3b53add23"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "withValueToUpdate",
+          "getInjectableValues",
+          "treeAsTokens",
+          "forType",
+          "_detectBindAndCloseAsTree",
+          "_considerFilter",
+          "_bind",
+          "writeTree",
+          "_reportUnkownFormat",
+          "isEnabled",
+          "readTree",
+          "_unwrapAndDeserialize",
+          "withoutRootName",
+          "writeValue",
+          "withFormatDetection",
+          "_detectBindAndClose",
+          "createArrayNode",
+          "withFeatures",
+          "_findRootDeserializer",
+          "_bindAndClose",
+          "withRootName",
+          "_reportUndetectableSource",
+          "_findTreeDeserializer",
+          "version",
+          "getFactory",
+          "_with",
+          "_new",
+          "withAttributes",
+          "createObjectNode",
+          "_prefetchRootDeserializer",
+          "_bindAndCloseAsTree",
+          "_inputStream",
+          "withView",
+          "getConfig",
+          "_verifySchemaType",
+          "withType",
+          "withoutAttribute",
+          "_bindAsTree",
+          "withAttribute",
+          "createDeserializationContext",
+          "getTypeFactory",
+          "at",
+          "with",
+          "getAttributes",
+          "_initForReading",
+          "without",
+          "_initForMultiRead",
+          "ObjectReader",
+          "withHandler",
+          "withoutFeatures"
+        ],
+        "functions_name_all_files": [
+          "withValueToUpdate",
+          "getInjectableValues",
+          "treeAsTokens",
+          "forType",
+          "_detectBindAndCloseAsTree",
+          "_considerFilter",
+          "_bind",
+          "writeTree",
+          "_reportUnkownFormat",
+          "isEnabled",
+          "readTree",
+          "_unwrapAndDeserialize",
+          "withoutRootName",
+          "writeValue",
+          "withFormatDetection",
+          "_detectBindAndClose",
+          "createArrayNode",
+          "withFeatures",
+          "_findRootDeserializer",
+          "_bindAndClose",
+          "withRootName",
+          "_reportUndetectableSource",
+          "_findTreeDeserializer",
+          "version",
+          "getFactory",
+          "_with",
+          "_new",
+          "withAttributes",
+          "createObjectNode",
+          "_prefetchRootDeserializer",
+          "_bindAndCloseAsTree",
+          "_inputStream",
+          "withView",
+          "getConfig",
+          "_verifySchemaType",
+          "withType",
+          "withoutAttribute",
+          "_bindAsTree",
+          "withAttribute",
+          "createDeserializationContext",
+          "getTypeFactory",
+          "at",
+          "with",
+          "getAttributes",
+          "_initForReading",
+          "without",
+          "_initForMultiRead",
+          "ObjectReader",
+          "withHandler",
+          "withoutFeatures"
+        ],
+        "function_code_before": "    /**\n     * Convenience method that binds content read using given parser, using\n     * configuration of this reader, except that content is bound as\n     * JSON tree instead of configured root value type.\n     *<p>\n     * Note: if an object was specified with {@link #withValueToUpdate}, it",
+        "function_code_after": "    /**\n     * Convenience method that binds content read using given parser, using\n     * configuration of this reader, except that content is bound as\n     * JSON tree instead of configured root value type.\n     *<p>\n     * Note: if an object was specified with {@link #withValueToUpdate}, it"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex 60e37dca0..312ef0851 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -939,10 +939,9 @@ public class ObjectReader\n      * (data-format specific) parser is given.\n      */\n     @SuppressWarnings(\"unchecked\")\n-    public <T> T readValue(JsonParser jp)\n-        throws IOException, JsonProcessingException\n+    public <T> T readValue(JsonParser p) throws IOException\n     {\n-        return (T) _bind(jp, _valueToUpdate);\n+        return (T) _bind(p, _valueToUpdate);\n     }\n \n     /**\n@@ -957,10 +956,9 @@ public class ObjectReader\n      */\n     @SuppressWarnings(\"unchecked\")\n     @Override\n-    public <T> T readValue(JsonParser jp, Class<T> valueType)\n-        throws IOException, JsonProcessingException\n+    public <T> T readValue(JsonParser p, Class<T> valueType) throws IOException\n     {\n-        return (T) forType(valueType).readValue(jp);\n+        return (T) forType(valueType).readValue(p);\n     }\n \n     /**\n@@ -975,10 +973,9 @@ public class ObjectReader\n      */\n     @SuppressWarnings(\"unchecked\")\n     @Override\n-    public <T> T readValue(JsonParser jp, TypeReference<?> valueTypeRef)\n-        throws IOException, JsonProcessingException\n+    public <T> T readValue(JsonParser p, TypeReference<?> valueTypeRef) throws IOException\n     {\n-        return (T) forType(valueTypeRef).readValue(jp);\n+        return (T) forType(valueTypeRef).readValue(p);\n     }\n \n     /**\n@@ -993,8 +990,8 @@ public class ObjectReader\n      */\n     @Override\n     @SuppressWarnings(\"unchecked\")\n-    public <T> T readValue(JsonParser jp, ResolvedType valueType) throws IOException, JsonProcessingException {\n-        return (T) forType((JavaType)valueType).readValue(jp);\n+    public <T> T readValue(JsonParser p, ResolvedType valueType) throws IOException, JsonProcessingException {\n+        return (T) forType((JavaType)valueType).readValue(p);\n     }\n \n     /**\n@@ -1004,67 +1001,103 @@ public class ObjectReader\n      * (data-format specific) parser is given.\n      */\n     @SuppressWarnings(\"unchecked\")\n-    public <T> T readValue(JsonParser jp, JavaType valueType) throws IOException, JsonProcessingException {\n-        return (T) forType(valueType).readValue(jp);\n+    public <T> T readValue(JsonParser p, JavaType valueType) throws IOException {\n+        return (T) forType(valueType).readValue(p);\n     }\n \n     /**\n      * Convenience method that is equivalent to:\n      *<pre>\n-     *   withType(valueType).readValues(jp);\n+     *   withType(valueType).readValues(p);\n      *</pre>\n      *<p>\n+     * Method reads a sequence of Objects from parser stream.\n+     * Sequence can be either root-level \"unwrapped\" sequence (without surrounding\n+     * JSON array), or a sequence contained in a JSON Array.\n+     * In either case {@link JsonParser} <b>MUST</b> point to the first token of\n+     * the first element, OR not point to any token (in which case it is advanced\n+     * to the next token). This means, specifically, that for wrapped sequences,\n+     * parser MUST NOT point to the surrounding <code>START_ARRAY</code> (one that\n+     * contains values to read) but rather to the token following it which is the first\n+     * token of the first value to read.\n+     *<p>\n      * NOTE: this method never tries to auto-detect format, since actual\n      * (data-format specific) parser is given.\n      */\n     @Override\n-    public <T> Iterator<T> readValues(JsonParser jp, Class<T> valueType)\n-        throws IOException, JsonProcessingException {\n-        return forType(valueType).readValues(jp);\n+    public <T> Iterator<T> readValues(JsonParser p, Class<T> valueType) throws IOException {\n+        return forType(valueType).readValues(p);\n     }\n \n     /**\n      * Convenience method that is equivalent to:\n      *<pre>\n-     *   withType(valueTypeRef).readValues(jp);\n+     *   withType(valueTypeRef).readValues(p);\n      *</pre>\n      *<p>\n+     * Method reads a sequence of Objects from parser stream.\n+     * Sequence can be either root-level \"unwrapped\" sequence (without surrounding\n+     * JSON array), or a sequence contained in a JSON Array.\n+     * In either case {@link JsonParser} <b>MUST</b> point to the first token of\n+     * the first element, OR not point to any token (in which case it is advanced\n+     * to the next token). This means, specifically, that for wrapped sequences,\n+     * parser MUST NOT point to the surrounding <code>START_ARRAY</code> (one that\n+     * contains values to read) but rather to the token following it which is the first\n+     * token of the first value to read.\n+     *<p>\n      * NOTE: this method never tries to auto-detect format, since actual\n      * (data-format specific) parser is given.\n      */\n     @Override\n-    public <T> Iterator<T> readValues(JsonParser jp, TypeReference<?> valueTypeRef)\n-        throws IOException, JsonProcessingException {\n-        return forType(valueTypeRef).readValues(jp);\n+    public <T> Iterator<T> readValues(JsonParser p, TypeReference<?> valueTypeRef) throws IOException {\n+        return forType(valueTypeRef).readValues(p);\n     }\n     \n     /**\n      * Convenience method that is equivalent to:\n      *<pre>\n-     *   withType(valueType).readValues(jp);\n+     *   withType(valueType).readValues(p);\n      *</pre>\n      *<p>\n+     * Method reads a sequence of Objects from parser stream.\n+     * Sequence can be either root-level \"unwrapped\" sequence (without surrounding\n+     * JSON array), or a sequence contained in a JSON Array.\n+     * In either case {@link JsonParser} <b>MUST</b> point to the first token of\n+     * the first element, OR not point to any token (in which case it is advanced\n+     * to the next token). This means, specifically, that for wrapped sequences,\n+     * parser MUST NOT point to the surrounding <code>START_ARRAY</code> (one that\n+     * contains values to read) but rather to the token following it which is the first\n+     * token of the first value to read.\n+     *<p>\n      * NOTE: this method never tries to auto-detect format, since actual\n      * (data-format specific) parser is given.\n      */\n     @Override\n-    public <T> Iterator<T> readValues(JsonParser jp, ResolvedType valueType)\n-        throws IOException, JsonProcessingException {\n-        return readValues(jp, (JavaType) valueType);\n+    public <T> Iterator<T> readValues(JsonParser p, ResolvedType valueType) throws IOException {\n+        return readValues(p, (JavaType) valueType);\n     }\n \n     /**\n      * Convenience method that is equivalent to:\n      *<pre>\n-     *   withType(valueType).readValues(jp);\n+     *   withType(valueType).readValues(p);\n      *</pre>\n      *<p>\n+     * Method reads a sequence of Objects from parser stream.\n+     * Sequence can be either root-level \"unwrapped\" sequence (without surrounding\n+     * JSON array), or a sequence contained in a JSON Array.\n+     * In either case {@link JsonParser} <b>MUST</b> point to the first token of\n+     * the first element, OR not point to any token (in which case it is advanced\n+     * to the next token). This means, specifically, that for wrapped sequences,\n+     * parser MUST NOT point to the surrounding <code>START_ARRAY</code> (one that\n+     * contains values to read) but rather to the token following it which is the first\n+     * token of the first value to read.\n+     *<p>\n      * NOTE: this method never tries to auto-detect format, since actual\n      * (data-format specific) parser is given.\n      */\n-    public <T> Iterator<T> readValues(JsonParser jp, JavaType valueType)\n-        throws IOException, JsonProcessingException {\n-        return forType(valueType).readValues(jp);\n+    public <T> Iterator<T> readValues(JsonParser p, JavaType valueType) throws IOException {\n+        return forType(valueType).readValues(p);\n     }\n \n     /*\n@@ -1101,10 +1134,8 @@ public class ObjectReader\n      */\n     @SuppressWarnings(\"unchecked\")\n     @Override\n-    public <T extends TreeNode> T readTree(JsonParser jp)\n-            throws IOException, JsonProcessingException\n-    {\n-        return (T) _bindAsTree(jp);\n+    public <T extends TreeNode> T readTree(JsonParser p) throws IOException {\n+        return (T) _bindAsTree(p);\n     }\n      \n     @Override"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "project_name": "Closure",
+  "bug_id": "61",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 23:36:46",
+      "end_time": "2025-10-10 23:40:47",
+      "duration_seconds": 241,
+      "duration_human": "4m 1s"
+    },
+    "model_cost": 0.0117,
+    "model_calls": 23,
+    "token_usage": {
+      "input_tokens": 131757,
+      "output_tokens": 2019,
+      "total_tokens": 133776,
+      "cached_input_tokens": 123776,
+      "uncached_input_tokens": 7981
+    },
+    "agent_steps": 23,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java\nindex 1844b18ab..d48552f8c 100644\n--- a/src/com/google/javascript/jscomp/NodeUtil.java\n+++ b/src/com/google/javascript/jscomp/NodeUtil.java\n@@ -906,6 +906,10 @@ public final class NodeUtil {\n       ImmutableSet.of(\"test\", \"exec\");\n   private static final Set<String> STRING_REGEXP_METHODS =\n       ImmutableSet.of(\"match\", \"replace\", \"search\", \"split\");\n+  private static final Set<String> BUILTIN_MATH_FUNCTIONS =\n+      ImmutableSet.of(\"abs\", \"acos\", \"asin\", \"atan\", \"atan2\", \"ceil\", \"cos\",\n+          \"exp\", \"floor\", \"log\", \"max\", \"min\", \"pow\", \"random\", \"round\",\n+          \"sin\", \"sqrt\", \"tan\");\n \n   /**\n    * Returns true if calls to this function have side effects.\n@@ -955,6 +959,13 @@ public final class NodeUtil {\n       }\n \n       // Functions in the \"Math\" namespace have no side effects.\n+      \n+      // Only built-in Math functions have no side effects.\n+      if (nameNode.getFirstChild().getType() == Token.NAME &&\n+          \"Math\".equals(nameNode.getFirstChild().getString()) &&\n+          BUILTIN_MATH_FUNCTIONS.contains(nameNode.getLastChild().getString())) {\n+        return false;\n+      }\n \n       if (compiler != null && !compiler.hasRegExpGlobalReferences()) {\n         if (nameNode.getFirstChild().getType() == Token.REGEXP\n"
+  },
+  "timestamp": "2025-10-10 19:40:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_61",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_61",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Closure removes needed code.\n<b>What steps will reproduce the problem?</b>\n1. Try the following code, in Simple mode\r\nMath.blah = function(test) { test.a = 5; };\r\nvar test = new Object();\r\nMath.blah(test); \r\n2. The output is\r\nMath.blah=function(a){a.a=5};var test={};\r\n\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nNote that Math.blah(test) was removed. It should not be. It issues a warning: JSC_USELESS_CODE: Suspicious code. This code lacks side-effects. Is there a bug? at line 4 character 9\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nTested on Google hosted Closure service.\r\n\r\n<b>Please provide any additional information below.</b>\nClosure seems to be protective about Math in particular, and doesn't like people messing around with her? So, when I try the following code:-\r\nvar n = {};\r\nn.blah = function(test) { test.a = 5; };\r\nvar test = new Object();\r\nn.blah(test);\r\n\r\nIt works. When I replace n by Math, then again, Closure kicks out blah. I need that poor fellow. Please talk some sense into it.",
+    "commit_message": "Automated g4 rollback.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+        "start_line": 957,
+        "end_line": 957,
+        "line_numbers": [
+          957
+        ],
+        "function_name": "functionCallHasSideEffects",
+        "class_name": "NodeUtil",
+        "filename": "NodeUtil.java",
+        "code_snippet": "  static boolean functionCallHasSideEffects(\n      Node callNode, @Nullable AbstractCompiler compiler) {\n    if (callNode.getType() != Token.CALL) {\n      throw new IllegalStateException(\n          \"Expected CALL node, got \" + Token.name(callNode.getType()));\n    }\n\n    if (callNode.isNoSideEffectsCall()) {\n      return false;\n    }\n\n    Node nameNode = callNode.getFirstChild();\n\n    // Built-in functions with no side effects.\n    if (nameNode.getType() == Token.NAME) {\n      String name = nameNode.getString();\n      if (BUILTIN_FUNCTIONS_WITHOUT_SIDEEFFECTS.contains(name)) {\n        return false;\n      }\n    } else if (nameNode.getType() == Token.GETPROP) {\n      if (callNode.hasOneChild()\n          && OBJECT_METHODS_WITHOUT_SIDEEFFECTS.contains(\n                nameNode.getLastChild().getString())) {\n        return false;\n      }\n\n      if (callNode.isOnlyModifiesThisCall()\n          && evaluatesToLocalValue(nameNode.getFirstChild())) {\n        return false;\n      }\n\n      // Functions in the \"Math\" namespace have no side effects.\n\n      if (compiler != null && !compiler.hasRegExpGlobalReferences()) {\n        if (nameNode.getFirstChild().getType() == Token.REGEXP\n            && REGEXP_METHODS.contains(nameNode.getLastChild().getString())) {\n          return false;\n        } else if (nameNode.getFirstChild().getType() == Token.STRING\n            && STRING_REGEXP_METHODS.contains(\n                nameNode.getLastChild().getString())) {\n          Node param = nameNode.getNext();\n          if (param != null &&\n              (param.getType() == Token.STRING\n                  || param.getType() == Token.REGEXP))\n          return false;\n        }\n      }\n    }\n\n    return true;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.PeepholeRemoveDeadCodeTest::testCall1",
+      "com.google.javascript.jscomp.PeepholeRemoveDeadCodeTest::testCall2",
+      "com.google.javascript.jscomp.PeepholeRemoveDeadCodeTest::testRemoveUselessOps"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java\nindex f9ce42e..1844b18 100644\n--- a/src/com/google/javascript/jscomp/NodeUtil.java\n+++ b/src/com/google/javascript/jscomp/NodeUtil.java\n@@ -955,12 +955,6 @@ public final class NodeUtil {\n       }\n \n       // Functions in the \"Math\" namespace have no side effects.\n+      if (nameNode.getFirstChild().getType() == Token.NAME) {\n+        String namespaceName = nameNode.getFirstChild().getString();\n+        if (namespaceName.equals(\"Math\")) {\n+          return false;\n+        }\n+      }\n \n       if (compiler != null && !compiler.hasRegExpGlobalReferences()) {\n         if (nameNode.getFirstChild().getType() == Token.REGEXP",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

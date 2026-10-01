@@ -1,0 +1,166 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_11",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 15:42:30",
+      "end_time": "2026-06-29 15:44:12",
+      "duration_seconds": 101,
+      "duration_human": "1m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 793448,
+      "output_tokens": 3238,
+      "total_tokens": 796686,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 793448
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/modules/network/ios/ios_banner.py b/lib/ansible/modules/network/ios/ios_banner.py\nindex be85781058..c28838407c 100644\n--- a/lib/ansible/modules/network/ios/ios_banner.py\n+++ b/lib/ansible/modules/network/ios/ios_banner.py\n@@ -89,10 +89,9 @@ commands:\n     - string\n \"\"\"\n from ansible.module_utils.basic import AnsibleModule\n-from ansible.module_utils.connection import exec_command\n-from ansible.module_utils.network.ios.ios import load_config\n+from ansible.module_utils.network.ios.ios import get_config, load_config\n from ansible.module_utils.network.ios.ios import ios_argument_spec\n-import re\n+from re import search, M\n \n \n def map_obj_to_commands(updates, module):\n@@ -107,7 +106,7 @@ def map_obj_to_commands(updates, module):\n         if want['text'] and (want['text'] != have.get('text')):\n             banner_cmd = 'banner %s' % module.params['banner']\n             banner_cmd += ' @\\n'\n-            banner_cmd += want['text'].strip()\n+            banner_cmd += want['text'].strip('\\n')\n             banner_cmd += '\\n@'\n             commands.append(banner_cmd)\n \n@@ -115,17 +114,21 @@ def map_obj_to_commands(updates, module):\n \n \n def map_config_to_obj(module):\n-    rc, out, err = exec_command(module, 'show banner %s' % module.params['banner'])\n-    if rc == 0:\n-        output = out\n-    else:\n-        rc, out, err = exec_command(module,\n-                                    'show running-config | begin banner %s'\n-                                    % module.params['banner'])\n-        if out:\n-            output = re.search(r'\\^C(.*?)\\^C', out, re.S).group(1).strip()\n+    \"\"\"\n+    This function gets the banner config without stripping any whitespaces,\n+    and then fetches the required banner from it.\n+    :param module:\n+    :return: banner config dict object.\n+    \"\"\"\n+    out = get_config(module, flags='| begin banner %s' % module.params['banner'])\n+    if out:\n+        regex = 'banner ' + module.params['banner'] + ' ^C\\n'\n+        if search('banner ' + module.params['banner'], out, M):\n+            output = str((out.split(regex))[1].split(\"^C\\n\")[0])\n         else:\n             output = None\n+    else:\n+        output = None\n     obj = {'banner': module.params['banner'], 'state': 'absent'}\n     if output:\n         obj['text'] = output\n@@ -135,9 +138,6 @@ def map_config_to_obj(module):\n \n def map_params_to_obj(module):\n     text = module.params['text']\n-    if text:\n-        text = str(text).strip()\n-\n     return {\n         'banner': module.params['banner'],\n         'text': text,\ndiff --git a/test/units/modules/network/ios/test_ios_banner.py b/test/units/modules/network/ios/test_ios_banner.py\nindex 4e7106e966..cdd43d8e79 100644\n--- a/test/units/modules/network/ios/test_ios_banner.py\n+++ b/test/units/modules/network/ios/test_ios_banner.py\n@@ -30,20 +30,21 @@ class TestIosBannerModule(TestIosModule):\n     def setUp(self):\n         super(TestIosBannerModule, self).setUp()\n \n-        self.mock_exec_command = patch('ansible.modules.network.ios.ios_banner.exec_command')\n-        self.exec_command = self.mock_exec_command.start()\n+        self.mock_get_config = patch('ansible.modules.network.ios.ios_banner.get_config')\n+        self.get_config = self.mock_get_config.start()\n \n         self.mock_load_config = patch('ansible.modules.network.ios.ios_banner.load_config')\n         self.load_config = self.mock_load_config.start()\n \n     def tearDown(self):\n         super(TestIosBannerModule, self).tearDown()\n-        self.mock_exec_command.stop()\n+        self.mock_get_config.stop()\n         self.mock_load_config.stop()\n \n     def load_fixtures(self, commands=None):\n-        self.exec_command.return_value = (0, load_fixture('ios_banner_show_banner.txt').strip(), None)\n-        self.load_config.return_value = dict(diff=None, session='session')\n+        def load_from_file(*args, **kwargs):\n+            return load_fixture('ios_banner_show_running_config_ios12.txt')\n+        self.get_config.side_effect = load_from_file\n \n     def test_ios_banner_create(self):\n         for banner_type in ('login', 'motd', 'exec', 'incoming', 'slip-ppp'):\n@@ -57,21 +58,19 @@ class TestIosBannerModule(TestIosModule):\n         self.execute_module(changed=True, commands=commands)\n \n     def test_ios_banner_nochange(self):\n-        banner_text = load_fixture('ios_banner_show_banner.txt').strip()\n+        banner_text = load_fixture('ios_banner_show_banner.txt')\n         set_module_args(dict(banner='login', text=banner_text))\n         self.execute_module()\n \n \n class TestIosBannerIos12Module(TestIosBannerModule):\n \n-    def load_fixtures(self, commands):\n-        show_banner_return_value = (1, '', None)\n-        show_running_config_return_value = \\\n-            (0, load_fixture('ios_banner_show_running_config_ios12.txt').strip(), None)\n-        self.exec_command.side_effect = [show_banner_return_value,\n-                                         show_running_config_return_value]\n+    def load_fixtures(self, commands=None):\n+        def load_from_file(*args, **kwargs):\n+            return load_fixture('ios_banner_show_running_config_ios12.txt')\n+        self.get_config.side_effect = load_from_file\n \n     def test_ios_banner_nochange(self):\n-        banner_text = load_fixture('ios_banner_show_banner.txt').strip()\n+        banner_text = load_fixture('ios_banner_show_banner.txt')\n         set_module_args(dict(banner='exec', text=banner_text))\n         self.execute_module()\n"
+  },
+  "timestamp": "2026-06-29 15:44:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_11",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_11/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "allowing banner without stripping spaces (#62573)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 116,
+        "end_line": 116,
+        "suspiciousness": 0.983607,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 121,
+        "end_line": 121,
+        "suspiciousness": 0.983607,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.983607,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 123,
+        "end_line": 123,
+        "suspiciousness": 0.983607,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 124,
+        "end_line": 124,
+        "suspiciousness": 0.983607,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 130,
+        "end_line": 130,
+        "suspiciousness": 0.983607,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 131,
+        "end_line": 131,
+        "suspiciousness": 0.983607,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 133,
+        "end_line": 133,
+        "suspiciousness": 0.983607,
+        "rank": 8
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/modules/network/ios/test_ios_banner.py::TestIosBannerModule::test_ios_banner_nochange",
+      "pytest test/units/modules/network/ios/test_ios_banner.py::TestIosBannerIos12Module::test_ios_banner_nochange"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 116,
+      "end_line": 116,
+      "suspiciousness": 0.983607,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 121,
+      "end_line": 121,
+      "suspiciousness": 0.983607,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.983607,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 123,
+      "end_line": 123,
+      "suspiciousness": 0.983607,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 124,
+      "end_line": 124,
+      "suspiciousness": 0.983607,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 130,
+      "end_line": 130,
+      "suspiciousness": 0.983607,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 131,
+      "end_line": 131,
+      "suspiciousness": 0.983607,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 133,
+      "end_line": 133,
+      "suspiciousness": 0.983607,
+      "rank": 8
+    }
+  ]
+}

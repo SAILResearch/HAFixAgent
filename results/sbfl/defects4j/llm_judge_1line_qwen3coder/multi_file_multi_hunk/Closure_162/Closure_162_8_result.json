@@ -1,0 +1,193 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_162",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 05:54:31",
+      "end_time": "2026-06-29 06:01:44",
+      "duration_seconds": 433,
+      "duration_human": "7m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 725305,
+      "output_tokens": 8479,
+      "total_tokens": 733784,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 725305
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex 5acf25a1f..3bd697bed 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -223,6 +223,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n       if (n != null && isCallToScopeMethod(n)) {\n         transformation = transformationHandler.logAliasTransformation(\n             n.getSourceFileName(), getSourceRegion(n));\n+        findAliases(t);\n       }\n     }\n \n@@ -271,6 +272,29 @@ class ScopedAliases implements HotSwapCompilerPass {\n \n             // TODO(robbyw): Support using locals for private variables.\n \n+    private void findAliases(NodeTraversal t) {\n+      Scope scope = t.getScope();\n+      for (Var v : scope.getVarIterable()) {\n+        Node n = v.getNode();\n+        int type = n.getType();\n+        Node parent = n.getParent();\n+        if (parent.getType() == Token.VAR) {\n+          if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n+            String name = n.getString();\n+            Var aliasVar = scope.getVar(name);\n+            aliases.put(name, aliasVar);\n+\n+            String qualifiedName =\n+                aliasVar.getInitialValue().getQualifiedName();\n+            transformation.addAlias(name, qualifiedName);\n+          } else {\n+            // TODO(robbyw): Support using locals for private variables.\n+            report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n+          }\n+        }\n+      }\n+    }\n+\n     private void validateScopeCall(NodeTraversal t, Node n, Node parent) {\n       if (preprocessorSymbolTable != null) {\n         preprocessorSymbolTable.addReference(n.getFirstChild());\n@@ -300,31 +324,32 @@ class ScopedAliases implements HotSwapCompilerPass {\n         validateScopeCall(t, n, n.getParent());\n       }\n \n+      if (t.getScopeDepth() < 2) {\n+        return;\n+      }\n \n+      int type = n.getType();\n+      Var aliasVar = null;\n+      if (type == Token.NAME) {\n+        String name = n.getString();\n+        Var lexicalVar = t.getScope().getVar(n.getString());\n+        if (lexicalVar != null && lexicalVar == aliases.get(name)) {\n+          aliasVar = lexicalVar;\n+        }\n+      }\n \n       // Validate the top level of the goog.scope block.\n       if (t.getScopeDepth() == 2) {\n-        int type = n.getType();\n-        if (type == Token.NAME && parent.getType() == Token.VAR) {\n-          if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n-            String name = n.getString();\n-            Var aliasVar = t.getScope().getVar(name);\n-            aliases.put(name, aliasVar);\n+        if (aliasVar != null && NodeUtil.isLValue(n)) {\n+          if (aliasVar.getNode() == n) {\n             aliasDefinitionsInOrder.add(n);\n \n-            String qualifiedName =\n-                aliasVar.getInitialValue().getQualifiedName();\n-            transformation.addAlias(name, qualifiedName);\n             // Return early, to ensure that we don't record a definition\n             // twice.\n             return;\n           } else {\n-            report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n-          }\n-        }\n-        if (type == Token.NAME && NodeUtil.isAssignmentOp(parent) &&\n-            n == parent.getFirstChild()) {\n             report(t, n, GOOG_SCOPE_ALIAS_REDEFINED, n.getString());\n+          }\n         }\n \n         if (type == Token.RETURN) {\n@@ -339,11 +364,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n       // Validate all descendent scopes of the goog.scope block.\n       if (t.getScopeDepth() >= 2) {\n         // Check if this name points to an alias.\n-        if (n.getType() == Token.NAME) {\n-          String name = n.getString();\n-          Var aliasVar = aliases.get(name);\n-          if (aliasVar != null &&\n-              t.getScope().getVar(name) == aliasVar) {\n+        if (aliasVar != null) {\n           // Note, to support the transitive case, it's important we don't\n           // clone aliasedNode here.  For example,\n           // var g = goog; var d = g.dom; d.createElement('DIV');\n@@ -352,7 +373,6 @@ class ScopedAliases implements HotSwapCompilerPass {\n           // with <code>g.dom.createElement('DIV')</code>.\n           Node aliasedNode = aliasVar.getInitialValue();\n           aliasUsages.add(new AliasedNode(n, aliasedNode));\n-          }\n         }\n \n         JSDocInfo info = n.getJSDocInfo();\n"
+  },
+  "timestamp": "2026-06-29 06:01:44 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_162",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_162",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Type aliases cannot be used in type annotations before their definitions\n<b>What steps will reproduce the problem?</b>\n1. Compile the following with full warnings:\r\n\r\ngoog.provide('foo.Foo');\r\ngoog.provide('foo.Foo.Bar');\r\n\r\ngoog.scope(function() {\r\n  /**\r\n   * @param {Foo.Bar} bar\r\n   * @constructor\r\n   */\r\n  foo.Foo = function(bar) {\r\n    this.bar = bar;\r\n  };\r\n  var Foo = foo.Foo;\r\n\r\n  /** @type {Foo.Bar} */\r\n  Foo.prototype.bar = null;\r\n\r\n  /** @constructor */\r\n  Foo.Bar = function() {};\r\n});\r\n\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nThis should work, but instead I get an error:\r\n\r\nERROR - Bad type annotation. Unknown type Foo.Bar\r\n   * @param {Foo.Bar} bar\r\n                    ^\r\n\r\nThis can be worked around by writing explicitly foo.Foo.Bar, but this leads to strange inconsistencies in the code before vs. after the alias definition.\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nr1346 in Linux\r\n\r\n<b>Please provide any additional information below.</b>",
+    "commit_message": "Collect aliases before collecting usages Fixes issue 548",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1358,
+        "end_line": 1358,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1356,
+        "end_line": 1356,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1357,
+        "end_line": 1357,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1360,
+        "end_line": 1360,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1339,
+        "end_line": 1339,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1343,
+        "end_line": 1343,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1349,
+        "end_line": 1349,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1355,
+        "end_line": 1355,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1363,
+        "end_line": 1363,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSTypeExpression.java",
+        "start_line": 115,
+        "end_line": 115,
+        "suspiciousness": 0.25,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.ScopedAliasesTest::testForwardJsDoc"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1358,
+      "end_line": 1358,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1356,
+      "end_line": 1356,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1357,
+      "end_line": 1357,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1360,
+      "end_line": 1360,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1339,
+      "end_line": 1339,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1343,
+      "end_line": 1343,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1349,
+      "end_line": 1349,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1355,
+      "end_line": 1355,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1363,
+      "end_line": 1363,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSTypeExpression.java",
+      "start_line": 115,
+      "end_line": 115,
+      "suspiciousness": 0.25,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_149",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 17:29:17",
+      "end_time": "2026-06-20 17:32:06",
+      "duration_seconds": 169,
+      "duration_human": "2m 49s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 669290,
+      "output_tokens": 5782,
+      "total_tokens": 675072,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 669290
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/io/gcs.py b/pandas/io/gcs.py\nindex 1f5e0faedc..2f67da631c 100644\n--- a/pandas/io/gcs.py\n+++ b/pandas/io/gcs.py\n@@ -1,11 +1,26 @@\n \"\"\" GCS support for remote file interactivity \"\"\"\n+from typing import IO, Any, Optional, Tuple\n+\n from pandas.compat._optional import import_optional_dependency\n \n+from pandas._typing import FilePathOrBuffer\n+\n gcsfs = import_optional_dependency(\n     \"gcsfs\", extra=\"The gcsfs library is required to handle GCS files\"\n )\n \n \n+def get_file_and_filesystem(\n+    filepath_or_buffer: FilePathOrBuffer, mode: Optional[str] = None\n+) -> Tuple[IO, Any]:\n+    if mode is None:\n+        mode = \"rb\"\n+\n+    fs = gcsfs.GCSFileSystem()\n+    file = fs.open(filepath_or_buffer, mode)\n+    return file, fs\n+\n+\n def get_filepath_or_buffer(\n     filepath_or_buffer, encoding=None, compression=None, mode=None\n ):\ndiff --git a/pandas/io/parquet.py b/pandas/io/parquet.py\nindex 3612099d98..f670da7314 100644\n--- a/pandas/io/parquet.py\n+++ b/pandas/io/parquet.py\n@@ -7,7 +7,7 @@ from pandas.errors import AbstractMethodError\n \n from pandas import DataFrame, get_option\n \n-from pandas.io.common import get_filepath_or_buffer, is_s3_url\n+from pandas.io.common import get_filepath_or_buffer, is_gcs_url, is_s3_url\n \n \n def get_engine(engine):\n@@ -159,13 +159,27 @@ class FastParquetImpl(BaseImpl):\n         if partition_cols is not None:\n             kwargs[\"file_scheme\"] = \"hive\"\n \n-        if is_s3_url(path):\n-            # path is s3:// so we need to open the s3file in 'wb' mode.\n+        if is_s3_url(path) or is_gcs_url(path):\n+            # path is s3:// or gcs:// so we need to open the file in 'wb' mode.\n             # TODO: Support 'ab'\n \n-            path, _, _, _ = get_filepath_or_buffer(path, mode=\"wb\")\n-            # And pass the opened s3file to the fastparquet internal impl.\n-            kwargs[\"open_with\"] = lambda path, _: path\n+            if is_s3_url(path):\n+                from pandas.io.s3 import get_file_and_filesystem\n+                s3, filesystem = get_file_and_filesystem(path, mode=\"wb\")\n+                try:\n+                    path = s3\n+                    # And pass the opened s3file to the fastparquet internal impl.\n+                    kwargs[\"open_with\"] = filesystem.open\n+                finally:\n+                    s3.close()\n+            else:\n+                from pandas.io.gcs import get_file_and_filesystem\n+                gcs, filesystem = get_file_and_filesystem(path, mode=\"wb\")\n+                try:\n+                    path = gcs\n+                    kwargs[\"open_with\"] = filesystem.open\n+                finally:\n+                    gcs.close()\n         else:\n             path, _, _, _ = get_filepath_or_buffer(path)\n \ndiff --git a/pandas/tests/io/test_gcs.py b/pandas/tests/io/test_gcs.py\nindex 2ca56230b5..05d86d2c8a 100644\n--- a/pandas/tests/io/test_gcs.py\n+++ b/pandas/tests/io/test_gcs.py\n@@ -1,4 +1,5 @@\n from io import StringIO\n+import os\n \n import numpy as np\n import pytest\n@@ -60,6 +61,31 @@ def test_to_csv_gcs(monkeypatch):\n     assert_frame_equal(df1, df2)\n \n \n+@td.skip_if_no(\"fastparquet\")\n+@td.skip_if_no(\"gcsfs\")\n+def test_to_parquet_gcs_new_file(monkeypatch, tmpdir):\n+    \"\"\"Regression test for writing to a not-yet-existent GCS Parquet file.\"\"\"\n+    df1 = DataFrame(\n+        {\n+            \"int\": [1, 3],\n+            \"float\": [2.0, np.nan],\n+            \"str\": [\"t\", \"s\"],\n+            \"dt\": date_range(\"2018-06-18\", periods=2),\n+        }\n+    )\n+\n+    class MockGCSFileSystem:\n+        def open(self, path, mode=\"r\", *args):\n+            if \"w\" not in mode:\n+                raise FileNotFoundError\n+            return open(os.path.join(tmpdir, \"test.parquet\"), mode)\n+\n+    monkeypatch.setattr(\"gcsfs.GCSFileSystem\", MockGCSFileSystem)\n+    df1.to_parquet(\n+        \"gs://test/test.csv\", index=True, engine=\"fastparquet\", compression=None\n+    )\n+\n+\n @td.skip_if_no(\"gcsfs\")\n def test_gcs_get_filepath_or_buffer(monkeypatch):\n     df1 = DataFrame(\n"
+  },
+  "timestamp": "2026-06-20 17:32:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_149",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_149/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix FastParquetImpl.write for non-existent file (#28326)",
+    "fault_locations": [
+      {
+        "file": "pandas/io/parquet.py",
+        "start_line": 10,
+        "end_line": 10,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/parquet.py",
+        "start_line": 162,
+        "end_line": 163,
+        "function_name": "FastParquetImpl",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/parquet.py",
+        "start_line": 167,
+        "end_line": 167,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/test_gcs.py::test_to_parquet_gcs_new_file"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

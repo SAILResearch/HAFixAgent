@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "97",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:50:00",
+      "end_time": "2025-10-10 22:52:15",
+      "duration_seconds": 136,
+      "duration_human": "2m 16s"
+    },
+    "model_cost": 0.0105,
+    "model_calls": 17,
+    "token_usage": {
+      "input_tokens": 97127,
+      "output_tokens": 1891,
+      "total_tokens": 99018,
+      "cached_input_tokens": 83328,
+      "uncached_input_tokens": 13799
+    },
+    "agent_steps": 17,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java b/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\nindex 91fe5120a..06c315cfb 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\n@@ -111,7 +111,7 @@ public class POJONode\n         } else {\n             // 25-May-2018, tatu: [databind#1991] do not call via generator but through context;\n             //    this to preserve contextual information\n-            gen.writeObject(_value);\n+            ctxt.defaultSerializeValue(_value, gen);\n         }\n     }\n \n"
+  },
+  "timestamp": "2025-10-10 22:52:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_97",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_97",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Context attributes are not passed/available to custom serializer if object is in POJO\nBelow is a test case where I create a custom serializer and use it to serialize an object 1) in a HashMap and 2) in an ObjectNode. In both cases I pass attribute to the serializer like this:\r\n`mapper.writer().withAttribute(\"myAttr\", \"Hello!\")`\r\nSerializing HashMap works as expected, but during ObjectNode serialization the attribute is null . It seems that in both cases the custom serializer should get access to the passed attribute and so both lines in the output should contain \"Hello!\"\r\n\r\nProduced output from running testCase.test()\r\n```\r\n{\"data\":{\"aStr\":\"The value is: Hello!\"}}\r\n{\"data\":{\"aStr\":\"The value is: NULL\"}}\r\n\r\n```\r\nTest case:\r\n\r\n```\r\nimport com.fasterxml.jackson.core.JsonGenerator;\r\nimport com.fasterxml.jackson.databind.ObjectMapper;\r\nimport com.fasterxml.jackson.databind.SerializerProvider;\r\nimport com.fasterxml.jackson.databind.annotation.JsonSerialize;\r\nimport com.fasterxml.jackson.databind.node.ObjectNode;\r\nimport com.fasterxml.jackson.databind.ser.std.StdSerializer;\r\n\r\nimport java.io.IOException;\r\nimport java.util.HashMap;\r\nimport java.util.Map;\r\n\r\npublic class TestCase {\r\n  public final static ObjectMapper mapper = new ObjectMapper();\r\n\r\n  @JsonSerialize(using = TestCase.CustomSer.class)\r\n  public static class Data {\r\n    public String aStr;\r\n  }\r\n\r\n  public static class CustomSer extends StdSerializer<Data> {\r\n    public CustomSer() {\r\n      super(Data.class);\r\n    }\r\n\r\n    @Override\r\n    public void serialize(Data value, JsonGenerator gen, SerializerProvider provider) throws IOException {\r\n      String attrStr = (String) provider.getAttribute(\"myAttr\");\r\n      gen.writeStartObject();\r\n      gen.writeObjectField(\"aStr\", \"The value is: \" + (attrStr == null ? \"NULL\" : attrStr));\r\n      gen.writeEndObject();\r\n    }\r\n  }\r\n\r\n  public static void test() throws IOException {\r\n    Data data = new Data();\r\n    data.aStr = \"Hello\";\r\n\r\n    Map<String, Object> mapTest = new HashMap<>();\r\n    mapTest.put(\"data\", data);\r\n\r\n    ObjectNode treeTest = mapper.createObjectNode();\r\n    treeTest.putPOJO(\"data\", data);\r\n\r\n    String mapOut = mapper.writer().withAttribute(\"myAttr\", \"Hello!\").writeValueAsString(mapTest);\r\n    System.out.println(mapOut);\r\n\r\n    String treeOut = mapper.writer().withAttribute(\"myAttr\", \"Hello!\").writeValueAsString(treeTest);\r\n    System.out.println(treeOut);\r\n  }\r\n}\r\n\r\n```\r\n\n",
+    "commit_message": "Fix #1991",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/node/POJONode.java",
+        "start_line": 114,
+        "end_line": 114,
+        "line_numbers": [
+          114
+        ],
+        "function_name": "serialize",
+        "class_name": "POJONode",
+        "filename": "POJONode.java",
+        "code_snippet": "    public final void serialize(JsonGenerator gen, SerializerProvider ctxt) throws IOException\n    {\n        if (_value == null) {\n            ctxt.defaultSerializeNull(gen);\n        } else if (_value instanceof JsonSerializable) {\n            ((JsonSerializable) _value).serialize(gen, ctxt);\n        } else {\n            // 25-May-2018, tatu: [databind#1991] do not call via generator but through context;\n            //    this to preserve contextual information\n            gen.writeObject(_value);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.POJONodeTest::testPOJONodeCustomSer"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java b/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\nindex 06c315cfb..91fe5120a 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/node/POJONode.java\n@@ -111,7 +111,7 @@ public class POJONode\n         } else {\n             // 25-May-2018, tatu: [databind#1991] do not call via generator but through context;\n             //    this to preserve contextual information\n+            ctxt.defaultSerializeValue(_value, gen);\n-            gen.writeObject(_value);\n         }\n     }",
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

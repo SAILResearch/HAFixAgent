@@ -1,0 +1,76 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_104",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 04:33:56",
+      "end_time": "2026-03-24 05:17:24",
+      "duration_seconds": 2609,
+      "duration_human": "43m 29s"
+    },
+    "model_cost": 0.387,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 1830507,
+      "output_tokens": 78148,
+      "total_tokens": 1908655,
+      "cached_input_tokens": 515776,
+      "uncached_input_tokens": 1314731
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 529d123d25..28b5705591 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -1939,7 +1939,6 @@ class GroupBy(_GroupBy):\n             #  which doesn't reorder the list-like `q` on the inner level.\n             order = np.roll(list(range(result.index.nlevels)), -1)\n             result = result.reorder_levels(order)\n-            result = result.reindex(q, level=-1)\n \n             # fix order.\n             hi = len(q) * self.ngroups\n@@ -1951,8 +1950,35 @@ class GroupBy(_GroupBy):\n                 arrays.append(arr2)\n \n             indices = np.concatenate(arrays)\n-            assert len(indices) == len(result)\n-            return result.take(indices)\n+            result = result.take(indices)\n+            \n+            # Rebuild the index with correct q level values and codes\n+            # After take, we have q-major order: for each group, all q values in q order\n+            # The current index has the right row order but wrong q level values/codes\n+            nlevels = result.index.nlevels\n+            # The last level is q, the rest are groupby levels\n+            groupby_levels = [result.index.levels[i] for i in range(nlevels-1)]\n+            groupby_codes = [result.index.codes[i] for i in range(nlevels-1)]\n+            \n+            # Create correct q level: values are q, codes cycle through 0..len(q)-1 for each group\n+            q_level_values = list(q) if not hasattr(q, 'tolist') else q.tolist()\n+            # q codes: for each group, we have all q values in order\n+            q_codes = np.tile(np.arange(len(q)), self.ngroups)\n+            \n+            # Create new MultiIndex\n+            from pandas import MultiIndex\n+            new_index = MultiIndex(\n+                levels=groupby_levels + [q_level_values],\n+                codes=groupby_codes + [q_codes],\n+                names=result.index.names\n+            )\n+            result.index = new_index\n+            \n+            # Fix index names\n+            if hasattr(self, 'grouper') and hasattr(self.grouper, 'names'):\n+                result.index.names = list(self.grouper.names) + [None]\n+            \n+            return result\n \n     @Substitution(name=\"groupby\")\n     def ngroup(self, ascending: bool = True):\ndiff --git a/pandas/tests/groupby/test_function.py b/pandas/tests/groupby/test_function.py\nindex 4ca23c61ba..c41c9b4db0 100644\n--- a/pandas/tests/groupby/test_function.py\n+++ b/pandas/tests/groupby/test_function.py\n@@ -1398,6 +1398,35 @@ def test_quantile_array_multiple_levels():\n     tm.assert_frame_equal(result, expected)\n \n \n+@pytest.mark.parametrize(\"frame_size\", [(2, 3), (100, 10)])\n+@pytest.mark.parametrize(\"groupby\", [[0], [0, 1]])\n+@pytest.mark.parametrize(\"q\", [[0.5, 0.6]])\n+def test_groupby_quantile_with_arraylike_q_and_int_columns(frame_size, groupby, q):\n+    # GH30289\n+    nrow, ncol = frame_size\n+    df = pd.DataFrame(\n+        np.array([ncol * [_ % 4] for _ in range(nrow)]), columns=range(ncol)\n+    )\n+\n+    idx_levels = [list(range(min(nrow, 4)))] * len(groupby) + [q]\n+    idx_codes = [[x for x in range(min(nrow, 4)) for _ in q]] * len(groupby) + [\n+        list(range(len(q))) * min(nrow, 4)\n+    ]\n+    expected_index = pd.MultiIndex(\n+        levels=idx_levels, codes=idx_codes, names=groupby + [None]\n+    )\n+    expected_values = [\n+        [float(x)] * (ncol - len(groupby)) for x in range(min(nrow, 4)) for _ in q\n+    ]\n+    expected_columns = [x for x in range(ncol) if x not in groupby]\n+    expected = pd.DataFrame(\n+        expected_values, index=expected_index, columns=expected_columns\n+    )\n+    result = df.groupby(groupby).quantile(q)\n+\n+    tm.assert_frame_equal(result, expected)\n+\n+\n def test_quantile_raises():\n     df = pd.DataFrame(\n         [[\"foo\", \"a\"], [\"foo\", \"b\"], [\"foo\", \"c\"]], columns=[\"key\", \"val\"]\n"
+  },
+  "timestamp": "2026-03-24 01:17:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_104",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_104/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "Bug groupby quantile listlike q and int columns (#30485)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1940,
+        "end_line": 1942,
+        "function_name": "quantile",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1944,
+        "end_line": 1947,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1949,
+        "end_line": 1951,
+        "function_name": "quantile",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1953,
+        "end_line": 1954,
+        "function_name": "quantile",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_function.py::test_groupby_quantile_with_arraylike_q_and_int_columns"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

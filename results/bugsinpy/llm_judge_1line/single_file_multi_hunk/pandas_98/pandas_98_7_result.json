@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_98",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 04:26:58",
+      "end_time": "2026-03-24 04:51:37",
+      "duration_seconds": 1479,
+      "duration_human": "24m 39s"
+    },
+    "model_cost": 0.068,
+    "model_calls": 9,
+    "token_usage": {
+      "input_tokens": 185646,
+      "output_tokens": 43750,
+      "total_tokens": 229396,
+      "cached_input_tokens": 384,
+      "uncached_input_tokens": 185262
+    },
+    "agent_steps": 9,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/base.py b/pandas/core/indexes/base.py\nindex c349b64e4f..e0bc401cb4 100644\n--- a/pandas/core/indexes/base.py\n+++ b/pandas/core/indexes/base.py\n@@ -329,8 +329,8 @@ class Index(IndexOpsMixin, PandasObject):\n             else:\n                 return TimedeltaIndex(data, copy=copy, name=name, dtype=dtype, **kwargs)\n \n-        elif is_period_dtype(data) and not is_object_dtype(dtype):\n-            return PeriodIndex(data, copy=copy, name=name, **kwargs)\n+        elif (is_period_dtype(data) or is_period_dtype(dtype)) and not is_object_dtype(dtype):\n+            return PeriodIndex(data, copy=copy, name=name, dtype=dtype, **kwargs)\n \n         # extension dtype\n         elif is_extension_array_dtype(data) or is_extension_array_dtype(dtype):\ndiff --git a/pandas/tests/indexes/period/test_constructors.py b/pandas/tests/indexes/period/test_constructors.py\nindex 2adce0b7f8..d87e49e3cb 100644\n--- a/pandas/tests/indexes/period/test_constructors.py\n+++ b/pandas/tests/indexes/period/test_constructors.py\n@@ -7,14 +7,11 @@ from pandas.core.dtypes.dtypes import PeriodDtype\n \n import pandas as pd\n from pandas import Index, Period, PeriodIndex, Series, date_range, offsets, period_range\n-import pandas.core.indexes.period as period\n+from pandas.core.arrays import PeriodArray\n import pandas.util.testing as tm\n \n \n class TestPeriodIndex:\n-    def setup_method(self, method):\n-        pass\n-\n     def test_construction_base_constructor(self):\n         # GH 13664\n         arr = [pd.Period(\"2011-01\", freq=\"M\"), pd.NaT, pd.Period(\"2011-03\", freq=\"M\")]\n@@ -32,6 +29,30 @@ class TestPeriodIndex:\n             pd.Index(np.array(arr)), pd.Index(np.array(arr), dtype=object)\n         )\n \n+    def test_base_constructor_with_period_dtype(self):\n+        dtype = PeriodDtype(\"D\")\n+        values = [\"2011-01-01\", \"2012-03-04\", \"2014-05-01\"]\n+        result = pd.Index(values, dtype=dtype)\n+\n+        expected = pd.PeriodIndex(values, dtype=dtype)\n+        tm.assert_index_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"values_constructor\", [list, np.array, PeriodIndex, PeriodArray._from_sequence]\n+    )\n+    def test_index_object_dtype(self, values_constructor):\n+        # Index(periods, dtype=object) is an Index (not an PeriodIndex)\n+        periods = [\n+            pd.Period(\"2011-01\", freq=\"M\"),\n+            pd.NaT,\n+            pd.Period(\"2011-03\", freq=\"M\"),\n+        ]\n+        values = values_constructor(periods)\n+        result = Index(values, dtype=object)\n+\n+        assert type(result) is Index\n+        tm.assert_numpy_array_equal(result.values, np.array(values))\n+\n     def test_constructor_use_start_freq(self):\n         # GH #1118\n         p = Period(\"4/2/2012\", freq=\"B\")\n@@ -201,7 +222,7 @@ class TestPeriodIndex:\n         assert res.dtype == \"period[M]\"\n \n         msg = \"specified freq and dtype are different\"\n-        with pytest.raises(period.IncompatibleFrequency, match=msg):\n+        with pytest.raises(IncompatibleFrequency, match=msg):\n             PeriodIndex([\"2011-01\"], freq=\"M\", dtype=\"period[D]\")\n \n     def test_constructor_empty(self):\n@@ -261,12 +282,12 @@ class TestPeriodIndex:\n     def test_constructor_incompat_freq(self):\n         msg = \"Input has different freq=D from PeriodIndex\\\\(freq=M\\\\)\"\n \n-        with pytest.raises(period.IncompatibleFrequency, match=msg):\n+        with pytest.raises(IncompatibleFrequency, match=msg):\n             PeriodIndex(\n                 [Period(\"2011-01\", freq=\"M\"), pd.NaT, Period(\"2011-01\", freq=\"D\")]\n             )\n \n-        with pytest.raises(period.IncompatibleFrequency, match=msg):\n+        with pytest.raises(IncompatibleFrequency, match=msg):\n             PeriodIndex(\n                 np.array(\n                     [Period(\"2011-01\", freq=\"M\"), pd.NaT, Period(\"2011-01\", freq=\"D\")]\n@@ -274,12 +295,12 @@ class TestPeriodIndex:\n             )\n \n         # first element is pd.NaT\n-        with pytest.raises(period.IncompatibleFrequency, match=msg):\n+        with pytest.raises(IncompatibleFrequency, match=msg):\n             PeriodIndex(\n                 [pd.NaT, Period(\"2011-01\", freq=\"M\"), Period(\"2011-01\", freq=\"D\")]\n             )\n \n-        with pytest.raises(period.IncompatibleFrequency, match=msg):\n+        with pytest.raises(IncompatibleFrequency, match=msg):\n             PeriodIndex(\n                 np.array(\n                     [pd.NaT, Period(\"2011-01\", freq=\"M\"), Period(\"2011-01\", freq=\"D\")]\n"
+  },
+  "timestamp": "2026-03-24 00:51:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_98",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_98/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Index.__new__ with Interval/Period data and object dtype (#30635)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 298,
+        "end_line": 302,
+        "function_name": "Index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 332,
+        "end_line": 333,
+        "function_name": "Index",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/period/test_constructors.py::TestPeriodIndex::test_base_constructor_with_period_dtype"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

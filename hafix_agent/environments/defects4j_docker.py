@@ -4,6 +4,7 @@ Extends mini-swe-agent's DockerEnvironment with Defects4J-specific defaults.
 """
 
 import subprocess
+import time
 import uuid
 from typing import Dict, Any
 
@@ -59,46 +60,61 @@ class Defects4JDocker(DockerEnvironment):
             self.container_id = self.existing_container_name
             self.logger.info(f"Using existing container: {self.existing_container_name}")
         else:
-            # Start new container with HAFixAgent naming
-            container_name = f"hafixagent-{uuid.uuid4().hex[:8]}"
-            cmd = [
-                self.config.executable,
-                "run",
-                "-d",
-                "--name",
-                container_name,
-                "-w",
-                self.config.cwd,
-                *self.config.run_args,
-                self.config.image,
-                "sleep",
-                self.config.container_timeout,
-            ]
-            
-            result = subprocess.run(
-                cmd,
-                text=True,
-                timeout=60,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode != 0:
-                msg = f"Failed to start container: {result.stderr}"
-                self.logger.error(msg)
-                raise RuntimeError(msg)
-            
-            self.logger.info(f"Started HAFixAgent container {container_name} with ID {result.stdout.strip()}")
-            self.container_id = result.stdout.strip()
+            # Retry container creation: under high concurrency `docker run` can exceed
+            # the timeout (saturated daemon); a short backoff lets the burst subside.
+            # On timeout, force-remove the half-started container so it does not leak.
+            last_err = None
+            for attempt in range(3):
+                container_name = f"hafixagent-{uuid.uuid4().hex[:8]}"
+                cmd = [
+                    self.config.executable,
+                    "run",
+                    "-d",
+                    "--name",
+                    container_name,
+                    "-w",
+                    self.config.cwd,
+                    *self.config.run_args,
+                    self.config.image,
+                    "sleep",
+                    self.config.container_timeout,
+                ]
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        text=True,
+                        timeout=120,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                except subprocess.TimeoutExpired as e:
+                    last_err = e
+                    try:  # the daemon may still be starting it -> remove the leak
+                        subprocess.run([self.config.executable, "rm", "-f", container_name],
+                                       capture_output=True, timeout=30)
+                    except Exception:
+                        pass
+                    if attempt < 2:
+                        time.sleep(5 * (attempt + 1))
+                        continue
+                    raise RuntimeError(f"Failed to start container after retries: {e}")
+                if result.returncode != 0:
+                    msg = f"Failed to start container: {result.stderr}"
+                    self.logger.error(msg)
+                    raise RuntimeError(msg)
+
+                self.logger.info(f"Started HAFixAgent container {container_name} with ID {result.stdout.strip()}")
+                self.container_id = result.stdout.strip()
+                return
     
     def cleanup(self):
-        """Override cleanup to respect cleanup_on_exit setting."""
+        """Override cleanup to remove container with volumes (-v) and respect cleanup_on_exit."""
         if hasattr(self, 'cleanup_on_exit') and not self.cleanup_on_exit:
-            # Don't cleanup - keep container for debugging/reuse
             self.logger.info(f"Keeping container {getattr(self, 'container_id', 'unknown')} for debugging")
             return
-        
-        # Use parent cleanup (removes container)
-        super().cleanup()
+        if getattr(self, "container_id", None):
+            cmd = f"(timeout 60 {self.config.executable} stop {self.container_id} || true) && {self.config.executable} rm -f -v {self.container_id}"
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
     def force_cleanup(self):
         """Force cleanup regardless of cleanup_on_exit setting."""

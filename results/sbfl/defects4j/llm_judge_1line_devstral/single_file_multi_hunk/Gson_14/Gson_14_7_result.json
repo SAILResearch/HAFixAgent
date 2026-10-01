@@ -1,0 +1,199 @@
+{
+  "project_name": "Gson",
+  "bug_id": "Gson_14",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 05:06:40",
+      "end_time": "2026-06-30 05:10:18",
+      "duration_seconds": 217,
+      "duration_human": "3m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1236201,
+      "output_tokens": 11291,
+      "total_tokens": 1247492,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1236201
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex c2372c79..a9464d61 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -377,17 +377,44 @@ public final class $Gson$Types {\n         WildcardType original = (WildcardType) toResolve;\n         Type[] originalLowerBound = original.getLowerBounds();\n         Type[] originalUpperBound = original.getUpperBounds();\n-\n         if (originalLowerBound.length == 1) {\n           Type lowerBound = resolve(context, contextRawType, originalLowerBound[0]);\n           if (lowerBound != originalLowerBound[0]) {\n+            // Collapse chains: supertypeOf(supertypeOf(X)) == supertypeOf(X)\n+          if (lowerBound != originalLowerBound[0]) {\n+            // Check if lowerBound is itself a wildcard with a lower bound (i.e., ? super X)\n+            // If so, creating another ? super would cause infinite recursion\n+            if (lowerBound instanceof WildcardType) {\n+              WildcardType lbWildcard = (WildcardType) lowerBound;\n+              if (lbWildcard.getLowerBounds().length == 1) {\n+                // This would create a chain like ? super ? super X - break it\n+                return original;\n+              }\n+            }\n+            // Otherwise, proceed with creating the new supertype\n             return supertypeOf(lowerBound);\n           }\n-        } else if (originalUpperBound.length == 1) {\n-          Type upperBound = resolve(context, contextRawType, originalUpperBound[0]);\n+          }\n           if (upperBound != originalUpperBound[0]) {\n+            // Check if upperBound is itself a wildcard with an upper bound (i.e., ? extends X)\n+            // If so, creating another ? extends would cause infinite recursion\n+            if (upperBound instanceof WildcardType) {\n+              WildcardType ubWildcard = (WildcardType) upperBound;\n+              if (ubWildcard.getUpperBounds().length == 1 && ubWildcard.getUpperBounds()[0] != Object.class) {\n+                // This would create a chain like ? extends ? extends X - break it\n+                return original;\n+              }\n+            }\n+            // Otherwise, proceed with creating the new subtype\n             return subtypeOf(upperBound);\n           }\n+            } else {\n+              // This is a subtype (? extends X), so we need to create a new subtype\n+              return subtypeOf(upperBound);\n+            }\n+          }\n+        }\n+        return original;\n         }\n         return original;\n \n"
+  },
+  "timestamp": "2026-06-30 05:10:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_14",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_14",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "$Gson$Types.resolve() shall collapse chains of super/extends type bounds to avoid StackOverflowError\nWhile resolving recursive generic types, $Gson$Types.resolve() sometimes starts to generate chains of type bounds like  \"super ? extends ? .... ? extends A\" , causing infinite recursion and thus StackOverflowError's like \r\n`java.lang.StackOverflowError\r\n\tat com.google.gson.internal.$Gson$Types.resolveTypeVariable($Gson$Types.java:407)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:330)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:379)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:379)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n...\r\n`\r\nThis can be reproduced on the following simple ccde:\r\n```java\r\n  private static class Foo1<A> {\r\n    Foo2<? extends A> foo2;\r\n  }\r\n  private static class Foo2<B> {\r\n    Foo1<? super B> foo1;\r\n  }\r\n  public void testRecursiveResolveSimple() {\r\n    new Gson().getAdapter(Foo1.class);\r\n  }\r\n```\r\n\r\nThis is the root cause of StackOverflowError's described in Issue #440 and Issue #603.\r\n\r\nIn order to fix them, such chains need to be collapsed using the following rules:\r\n- supertypeOf(supertypeOf(X)) == supertypeOf(X)\r\n- subtypeOf(subtypeOf(X)) == subtypeOf(X)\r\n- supertypeOf(subtypeOf(X)) == subtypeOf(Object.class)\r\n- subtypeOf(supertypeOf(X)) == subtypeOf(Object.class)\n",
+    "commit_message": "Fix StackOverflowError on resolving recursive types by collapsing chains of type bounds (#1075)",
+    "fault_locations": [
+      {
+        "file": "gson/src/main/java/com/google/gson/Gson.java",
+        "start_line": 437,
+        "end_line": 437,
+        "suspiciousness": 0.50709255283711,
+        "rank": 1
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/Gson.java",
+        "start_line": 521,
+        "end_line": 521,
+        "suspiciousness": 0.18394180184548975,
+        "rank": 2
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java",
+        "start_line": 145,
+        "end_line": 145,
+        "suspiciousness": 0.1690308509457033,
+        "rank": 3
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.1259881576697424,
+        "rank": 4
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/Gson.java",
+        "start_line": 415,
+        "end_line": 415,
+        "suspiciousness": 0.10482848367219183,
+        "rank": 5
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+        "start_line": 50,
+        "end_line": 50,
+        "suspiciousness": 0.08971226080325131,
+        "rank": 6
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+        "start_line": 51,
+        "end_line": 51,
+        "suspiciousness": 0.08971226080325131,
+        "rank": 7
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+        "start_line": 52,
+        "end_line": 52,
+        "suspiciousness": 0.08971226080325131,
+        "rank": 8
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/Excluder.java",
+        "start_line": 151,
+        "end_line": 151,
+        "suspiciousness": 0.07796811755854505,
+        "rank": 9
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+        "start_line": 94,
+        "end_line": 94,
+        "suspiciousness": 0.07342230982143523,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testDoubleSupertype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testIssue440WeakReference",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSubSupertype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testDoubleSubtype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testIssue603PrintStream",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSuperSubtype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testRecursiveResolveSimple"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "gson/src/main/java/com/google/gson/Gson.java",
+      "start_line": 437,
+      "end_line": 437,
+      "suspiciousness": 0.50709255283711,
+      "rank": 1
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/Gson.java",
+      "start_line": 521,
+      "end_line": 521,
+      "suspiciousness": 0.18394180184548975,
+      "rank": 2
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java",
+      "start_line": 145,
+      "end_line": 145,
+      "suspiciousness": 0.1690308509457033,
+      "rank": 3
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.1259881576697424,
+      "rank": 4
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/Gson.java",
+      "start_line": 415,
+      "end_line": 415,
+      "suspiciousness": 0.10482848367219183,
+      "rank": 5
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+      "start_line": 50,
+      "end_line": 50,
+      "suspiciousness": 0.08971226080325131,
+      "rank": 6
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+      "start_line": 51,
+      "end_line": 51,
+      "suspiciousness": 0.08971226080325131,
+      "rank": 7
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java",
+      "start_line": 52,
+      "end_line": 52,
+      "suspiciousness": 0.08971226080325131,
+      "rank": 8
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/Excluder.java",
+      "start_line": 151,
+      "end_line": 151,
+      "suspiciousness": 0.07796811755854505,
+      "rank": 9
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+      "start_line": 94,
+      "end_line": 94,
+      "suspiciousness": 0.07342230982143523,
+      "rank": 10
+    }
+  ]
+}

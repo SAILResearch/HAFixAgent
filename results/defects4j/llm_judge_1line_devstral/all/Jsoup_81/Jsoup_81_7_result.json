@@ -1,0 +1,202 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "81",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 10:39:47",
+      "end_time": "2026-06-27 10:40:34",
+      "duration_seconds": 47,
+      "duration_human": "47.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 254985,
+      "output_tokens": 2188,
+      "total_tokens": 257173,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 254985
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-27 10:40:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_81",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_81",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Failure to guess correct XHTML encoding even when explicitly declared\n```\r\nString encoding = \"iso-8859-1\";\r\nInputStream soup = new ByteArrayInputStream((\r\n    \"<?xml version=\\\"1.0\\\" encoding=\\\"\" + encoding + \"\\\"?>\" +\r\n    \"<!DOCTYPE html PUBLIC \\\"-//W3C//DTD XHTML 1.0 Strict//EN\\\" \\\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\\\">\" +\r\n    \"<html xmlns=\\\"http://www.w3.org/1999/xhtml\\\" lang=\\\"en\\\" xml:lang=\\\"en\\\">Hell\u00f6 W\u00f6rld!</html>\"\r\n    ).getBytes(encoding));\r\n\r\nSystem.out.println(Jsoup.parse(soup, null, \"\"));\r\n```\r\nprints:\r\n\r\n```\r\n<!--?xml version=\"1.0\" encoding=\"iso-8859-1\"?--><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\r\n <head></head>\r\n <body>\r\n  Hell\ufffd W\ufffdrld!\r\n </body>\r\n</html>\r\n```\r\n\r\ninstead of expected output:\r\n\r\n```\r\n<!--?xml version=\"1.0\" encoding=\"iso-8859-1\"?--><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\r\n <head></head>\r\n <body>\r\n  Hell\u00f6 W\u00f6rld!\r\n </body>\r\n</html>\r\n```\r\n\n",
+    "commit_message": "Detect charset from pseudo XML declaration when in HTML parser mode",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 4,
+        "end_line": 4,
+        "line_numbers": [
+          4
+        ],
+        "function_name": "",
+        "class_name": "",
+        "filename": "DataUtil.java",
+        "code_snippet": "",
+        "granularity": "file"
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 136,
+        "end_line": 136,
+        "line_numbers": [
+          136
+        ],
+        "function_name": "parseInputStream",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseInputStream(InputStream input, String charsetName, String baseUri, Parser parser) throws IOException  {\n        if (input == null) // empty body\n            return new Document(baseUri);\n        input = ConstrainableInputStream.wrap(input, bufferSize, 0);\n\n        Document doc = null;\n        boolean fullyRead = false;\n\n        // read the start of the stream and look for a BOM or meta charset\n        input.mark(bufferSize);\n        ByteBuffer firstBytes = readToByteBuffer(input, firstReadBufferSize - 1); // -1 because we read one more to see if completed. First read is < buffer size, so can't be invalid.\n        fullyRead = input.read() == -1;\n        input.reset();\n\n        // look for BOM - overrides any other header or input\n        BomCharset bomCharset = detectCharsetFromBom(firstBytes);\n        if (bomCharset != null)\n            charsetName = bomCharset.charset;\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            String docData = Charset.forName(defaultCharset).decode(firstBytes).toString();\n            doc = parser.parseInput(docData, baseUri);\n\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            Elements metaElements = doc.select(\"meta[http-equiv=content-type], meta[charset]\");\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            for (Element meta : metaElements) {\n                if (meta.hasAttr(\"http-equiv\"))\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                if (foundCharset == null && meta.hasAttr(\"charset\"))\n                    foundCharset = meta.attr(\"charset\");\n                if (foundCharset != null)\n                    break;\n            }\n\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNodeSize() > 0) {\n                Node first = doc.childNode(0);\n                XmlDeclaration decl = null;\n                if (first instanceof XmlDeclaration)\n                    decl = (XmlDeclaration) first;\n                if (decl != null) {\n                    if (decl.name().equalsIgnoreCase(\"xml\"))\n                        foundCharset = decl.attr(\"encoding\");\n                }\n            }\n            foundCharset = validateCharset(foundCharset);\n            if (foundCharset != null && !foundCharset.equalsIgnoreCase(defaultCharset)) { // need to re-decode. (case insensitive check here to match how validate works)\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                doc = null;\n            } else if (!fullyRead) {\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n        }\n        if (doc == null) {\n            if (charsetName == null)\n                charsetName = defaultCharset;\n            BufferedReader reader = new BufferedReader(new InputStreamReader(input, charsetName), bufferSize);\n            if (bomCharset != null && bomCharset.offset) // creating the buffered reader ignores the input pos, so must skip here\n                reader.skip(1);\n            try {\n                doc = parser.parseInput(reader, baseUri);\n            } catch (UncheckedIOException e) {\n                // io exception when parsing (not seen before because reading the stream as we go)\n                throw e.ioException();\n            }\n            doc.outputSettings().charset(charsetName);\n        }\n        input.close();\n        return doc;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::supportsXmlCharsetDeclaration"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 3aaa0ed..0d52d38 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -2,7 +2,6 @@ package org.jsoup.helper;\n \n import org.jsoup.UncheckedIOException;\n import org.jsoup.internal.ConstrainableInputStream;\n+import org.jsoup.nodes.Comment;\n import org.jsoup.nodes.Document;\n import org.jsoup.nodes.Element;\n import org.jsoup.nodes.Node;\n@@ -134,11 +133,6 @@ public final class DataUtil {\n                 XmlDeclaration decl = null;\n                 if (first instanceof XmlDeclaration)\n                     decl = (XmlDeclaration) first;\n+                else if (first instanceof Comment) {\n+                    Comment comment = (Comment) first;\n+                    if (comment.isXmlDeclaration())\n+                        decl = comment.asXmlDeclaration();\n+                }\n                 if (decl != null) {\n                     if (decl.name().equalsIgnoreCase(\"xml\"))\n                         foundCharset = decl.attr(\"encoding\");",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2017-06-12 22:46:35",
+        "commit_message": "Make sure the HTML parser is correctly reset before reuse",
+        "commit_hash": "1203bd459fe137e78a2a6dc2969f3c4995b726ce"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "parse",
+          "initialiseParse"
+        ],
+        "functions_name_modified_file": [
+          "getCharsetFromContentType",
+          "detectCharsetFromBom",
+          "load",
+          "mimeBoundary",
+          "readFileToByteBuffer",
+          "DataUtil",
+          "emptyByteBuffer",
+          "parseByteData",
+          "crossStreams",
+          "readToByteBuffer",
+          "validateCharset"
+        ],
+        "functions_name_all_files": [
+          "pushActiveFormattingElements",
+          "popStackToClose",
+          "pop",
+          "detectCharsetFromBom",
+          "inSpecificScope",
+          "process",
+          "removeLastFormattingElement",
+          "getPendingTableCharacters",
+          "isSpecial",
+          "inButtonScope",
+          "insertForm",
+          "parseByteData",
+          "clearStackToContext",
+          "inSelectScope",
+          "parseFragment",
+          "isElementInQueue",
+          "error",
+          "removeFromActiveFormattingElements",
+          "isSameFormattingElement",
+          "state",
+          "popStackToBefore",
+          "push",
+          "inScope",
+          "initialiseParse",
+          "parse",
+          "insertInFosterParent",
+          "aboveOnStack",
+          "replaceOnStack",
+          "getBaseUri",
+          "getDocument",
+          "inListItemScope",
+          "getCharsetFromContentType",
+          "load",
+          "defaultSettings",
+          "DataUtil",
+          "insertMarkerToFormattingElements",
+          "insertEmpty",
+          "processEndTag",
+          "getFromStack",
+          "insert",
+          "insertOnStackAfter",
+          "toString",
+          "crossStreams",
+          "originalState",
+          "framesetOk",
+          "setHeadElement",
+          "runParser",
+          "reconstructFormattingElements",
+          "isInActiveFormattingElements",
+          "emptyByteBuffer",
+          "insertNode",
+          "onStack",
+          "clearFormattingElementsToLastMarker",
+          "markInsertionMode",
+          "inTableScope",
+          "newPendingTableCharacters",
+          "generateImpliedEndTags",
+          "readFileToByteBuffer",
+          "replaceInQueue",
+          "processStartTag",
+          "removeFromStack",
+          "maybeSetBaseUri",
+          "clearStackToTableContext",
+          "isFragmentParsing",
+          "getStack",
+          "replaceActiveFormattingElement",
+          "setFosterInserts",
+          "isFosterInserts",
+          "setFormElement",
+          "mimeBoundary",
+          "TreeBuilder",
+          "currentElement",
+          "transition",
+          "setPendingTableCharacters",
+          "getFormElement",
+          "getHeadElement",
+          "readToByteBuffer",
+          "HtmlTreeBuilder",
+          "getActiveFormattingElement",
+          "clearStackToTableRowContext",
+          "insertStartTag",
+          "clearStackToTableBodyContext",
+          "lastFormattingElement",
+          "validateCharset",
+          "resetInsertionMode"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/helper/DataUtil.java",
+          "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+          "src/main/java/org/jsoup/parser/TreeBuilder.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/helper/DataUtil.java": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 44a4db39..888a5863 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -124,8 +124,7 @@ public final class DataUtil {\n                 }\n             }\n             foundCharset = validateCharset(foundCharset);\n-\n-            if (foundCharset != null && !foundCharset.equals(defaultCharset)) { // need to re-decode\n+            if (foundCharset != null && !foundCharset.equalsIgnoreCase(defaultCharset)) { // need to re-decode. (case insensitive check here to match how validate works)\n                 foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                 charsetName = foundCharset;\n                 byteData.rewind();"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

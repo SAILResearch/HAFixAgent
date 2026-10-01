@@ -1,0 +1,83 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_9",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 04:25:38",
+      "end_time": "2026-03-24 04:52:42",
+      "duration_seconds": 1624,
+      "duration_human": "27m 4s"
+    },
+    "model_cost": 0.2837,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1367624,
+      "output_tokens": 54581,
+      "total_tokens": 1422205,
+      "cached_input_tokens": 399680,
+      "uncached_input_tokens": 967944
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 0c9db271ed..6fa4d8fe02 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -170,7 +170,14 @@ def contains(cat, key, container):\n     This method does not check for NaN values. Do that separately\n     before calling this method.\n     \"\"\"\n-    hash(key)\n+    try:\n+        hash(key)\n+    except TypeError:\n+        # key is not hashable, e.g., NA scalar.\n+        # If key is NA, it cannot be in categories, so return False.\n+        if is_scalar(key) and isna(key):\n+            return False\n+        raise\n \n     # get location of key in categories.\n     # If a KeyError, the key isn't in categories, so logically\n@@ -1827,15 +1834,35 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject):\n         \"\"\"\n         Returns an Iterator over the values of this Categorical.\n         \"\"\"\n-        return iter(self._internal_get_values().tolist())\n-\n-    def __contains__(self, key) -> bool:\n+        return iter(self._internal_get_values().tolist())    def __contains__(self, key) -> bool:\n         \"\"\"\n         Returns True if `key` is in this Categorical.\n         \"\"\"\n         # if key is a NaN, check if any NaN is in self.\n         if is_scalar(key) and isna(key):\n-            return self.isna().any()\n+            if not self.isna().any():\n+                return False\n+            # Determine if the NA type matches the categories dtype\n+            from pandas.core.dtypes.common import is_datetime64_dtype, is_timedelta64_dtype\n+            import numpy as np\n+            import pandas as pd\n+            cat_dtype = self.categories.dtype\n+            if is_datetime64_dtype(cat_dtype):\n+                # Accept datetime64 NaT, pd.NaT, and generic NaN/None\n+                if isinstance(key, np.datetime64) or key is pd.NaT:\n+                    return True\n+                if key is None or (isinstance(key, float) and np.isnan(key)):\n+                    return True\n+                return False\n+            elif is_timedelta64_dtype(cat_dtype):\n+                if isinstance(key, np.timedelta64) or key is pd.NaT:\n+                    return True\n+                if key is None or (isinstance(key, float) and np.isnan(key)):\n+                    return True\n+                return False\n+            else:\n+                # For other dtypes, any NA scalar matches.\n+                return True\n \n         return contains(self, key, container=self._codes)\n \ndiff --git a/pandas/core/indexes/category.py b/pandas/core/indexes/category.py\nindex 0cf6698d31..639a1b9dd7 100644\n--- a/pandas/core/indexes/category.py\n+++ b/pandas/core/indexes/category.py\n@@ -2,6 +2,7 @@ from typing import Any, List\n import warnings\n \n import numpy as np\n+import pandas as pd\n \n from pandas._config import get_option\n \n@@ -17,6 +18,8 @@ from pandas.core.dtypes.common import (\n     is_interval_dtype,\n     is_list_like,\n     is_scalar,\n+    is_datetime64_dtype,\n+    is_timedelta64_dtype,\n )\n from pandas.core.dtypes.dtypes import CategoricalDtype\n from pandas.core.dtypes.missing import isna\n@@ -360,13 +363,30 @@ class CategoricalIndex(ExtensionIndex, accessor.PandasDelegate):\n     @property\n     def _has_complex_internals(self) -> bool:\n         # used to avoid libreduction code paths, which raise or require conversion\n-        return True\n-\n-    @doc(Index.__contains__)\n+        return True    @doc(Index.__contains__)\n     def __contains__(self, key: Any) -> bool:\n         # if key is a NaN, check if any NaN is in self.\n         if is_scalar(key) and isna(key):\n-            return self.hasnans\n+            if not self.hasnans:\n+                return False\n+            # Determine if the NA type matches the categories dtype\n+            cat_dtype = self.categories.dtype\n+            if is_datetime64_dtype(cat_dtype):\n+                # Accept datetime64 NaT, pd.NaT, and generic NaN/None\n+                if isinstance(key, np.datetime64) or key is pd.NaT:\n+                    return True\n+                if key is None or (isinstance(key, float) and np.isnan(key)):\n+                    return True\n+                return False\n+            elif is_timedelta64_dtype(cat_dtype):\n+                if isinstance(key, np.timedelta64) or key is pd.NaT:\n+                    return True\n+                if key is None or (isinstance(key, float) and np.isnan(key)):\n+                    return True\n+                return False\n+            else:\n+                # For other dtypes, any NA scalar matches.\n+                return True\n \n         hash(key)\n         return contains(self, key, container=self._engine)\ndiff --git a/pandas/tests/indexes/categorical/test_indexing.py b/pandas/tests/indexes/categorical/test_indexing.py\nindex a36568bbbe..9cf901c079 100644\n--- a/pandas/tests/indexes/categorical/test_indexing.py\n+++ b/pandas/tests/indexes/categorical/test_indexing.py\n@@ -285,6 +285,43 @@ class TestContains:\n         ci = CategoricalIndex(list(\"aabbca\") + [np.nan], categories=list(\"cabdef\"))\n         assert np.nan in ci\n \n+    @pytest.mark.parametrize(\"unwrap\", [True, False])\n+    def test_contains_na_dtype(self, unwrap):\n+        dti = pd.date_range(\"2016-01-01\", periods=100).insert(0, pd.NaT)\n+        pi = dti.to_period(\"D\")\n+        tdi = dti - dti[-1]\n+        ci = CategoricalIndex(dti)\n+\n+        obj = ci\n+        if unwrap:\n+            obj = ci._data\n+\n+        assert np.nan in obj\n+        assert None in obj\n+        assert pd.NaT in obj\n+        assert np.datetime64(\"NaT\") in obj\n+        assert np.timedelta64(\"NaT\") not in obj\n+\n+        obj2 = CategoricalIndex(tdi)\n+        if unwrap:\n+            obj2 = obj2._data\n+\n+        assert np.nan in obj2\n+        assert None in obj2\n+        assert pd.NaT in obj2\n+        assert np.datetime64(\"NaT\") not in obj2\n+        assert np.timedelta64(\"NaT\") in obj2\n+\n+        obj3 = CategoricalIndex(pi)\n+        if unwrap:\n+            obj3 = obj3._data\n+\n+        assert np.nan in obj3\n+        assert None in obj3\n+        assert pd.NaT in obj3\n+        assert np.datetime64(\"NaT\") not in obj3\n+        assert np.timedelta64(\"NaT\") not in obj3\n+\n     @pytest.mark.parametrize(\n         \"item, expected\",\n         [\n"
+  },
+  "timestamp": "2026-03-24 00:52:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_9",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_9/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: CategoricalIndex.__contains__ incorrect NaTs (#33947)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 40,
+        "end_line": 40,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1837,
+        "end_line": 1837,
+        "function_name": "__contains__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/category.py",
+        "start_line": 22,
+        "end_line": 22,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/category.py",
+        "start_line": 368,
+        "end_line": 368,
+        "function_name": "__contains__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/category.py",
+        "start_line": 371,
+        "end_line": 371,
+        "function_name": "__contains__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/categorical/test_indexing.py::TestContains::test_contains_na_dtype"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

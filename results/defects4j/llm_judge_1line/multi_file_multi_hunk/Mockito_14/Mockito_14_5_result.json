@@ -1,0 +1,104 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "14",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 01:28:54",
+      "end_time": "2025-09-30 01:33:24",
+      "duration_seconds": 270,
+      "duration_human": "4m 30s"
+    },
+    "model_cost": 0.0375,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 459872,
+      "output_tokens": 4414,
+      "total_tokens": 464286,
+      "cached_input_tokens": 443584,
+      "uncached_input_tokens": 16288
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/org/mockito/internal/progress/MockingProgress.java b/src/org/mockito/internal/progress/MockingProgress.java\nindex 0c65721ad..3139bc6b3 100644\n--- a/src/org/mockito/internal/progress/MockingProgress.java\n+++ b/src/org/mockito/internal/progress/MockingProgress.java\n@@ -16,7 +16,7 @@ public interface MockingProgress {\n \n     IOngoingStubbing pullOngoingStubbing();\n \n-    void verificationStarted(VerificationMode verificationMode);\n+    void verificationStarted(VerificationMode verificationMode, Object mock);\n \n     VerificationMode pullVerificationMode();\n \ndiff --git a/src/org/mockito/internal/progress/MockingProgressImpl.java b/src/org/mockito/internal/progress/MockingProgressImpl.java\nindex 9d2bf408e..ba4f4b8d7 100644\n--- a/src/org/mockito/internal/progress/MockingProgressImpl.java\n+++ b/src/org/mockito/internal/progress/MockingProgressImpl.java\n@@ -23,6 +23,7 @@ public class MockingProgressImpl implements MockingProgress {\n     IOngoingStubbing iOngoingStubbing;\n     private Localized<VerificationMode> verificationMode;\n     private Location stubbingInProgress = null;\n+    private Object verifyingMock;\n     private MockingProgressListener listener;\n \n     public void reportOngoingStubbing(IOngoingStubbing iOngoingStubbing) {\n@@ -35,10 +36,11 @@ public class MockingProgressImpl implements MockingProgress {\n         return temp;\n     }\n     \n-    public void verificationStarted(VerificationMode verify) {\n+    public void verificationStarted(VerificationMode verify, Object mock) {\n         validateState();\n         resetOngoingStubbing();\n         verificationMode = new Localized(verify);\n+        verifyingMock = mock;\n     }\n \n     /* (non-Javadoc)\n@@ -49,6 +51,12 @@ public class MockingProgressImpl implements MockingProgress {\n     }\n \n     public VerificationMode pullVerificationMode() {\n+    \n+    public Object pullVerifyingMock() {\n+        Object temp = verifyingMock;\n+        verifyingMock = null;\n+        return temp;\n+    }\n         if (verificationMode == null) {\n             return null;\n         }\ndiff --git a/src/org/mockito/internal/progress/ThreadSafeMockingProgress.java b/src/org/mockito/internal/progress/ThreadSafeMockingProgress.java\nindex 21ad14330..9d2ca0572 100644\n--- a/src/org/mockito/internal/progress/ThreadSafeMockingProgress.java\n+++ b/src/org/mockito/internal/progress/ThreadSafeMockingProgress.java\n@@ -32,11 +32,15 @@ public class ThreadSafeMockingProgress implements MockingProgress, Serializable\n         return threadSafely().pullOngoingStubbing();\n     }\n     \n-    public void verificationStarted(VerificationMode verify) {\n-        threadSafely().verificationStarted(verify);\n+    public void verificationStarted(VerificationMode verify, Object mock) {\n+        threadSafely().verificationStarted(verify, mock);\n     }\n \n     public VerificationMode pullVerificationMode() {\n+    \n+    public Object pullVerifyingMock() {\n+        return threadSafely().pullVerifyingMock();\n+    }\n         return threadSafely().pullVerificationMode();\n     }\n \n"
+  },
+  "timestamp": "2025-09-30 01:33:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_14",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_14",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "make verify() possible if there is inlined different method call on other mock\nTo reproduce, run this as a test case:\r\n\t\r\n\tprivate static interface Foo {void setFoo(String bar);}\r\n\tprivate static interface Bar {String getBar();}\r\n\t\r\n\t@Test\r\n\tpublic void testVerifyFails() throws Exception {\r\n\t\tFoo foo = Mockito.mock(Foo.class);\r\n\t\tBar bar = Mockito.mock(Bar.class);\r\n\t\tbar.getBar();\r\n\t\tverify(foo).setFoo(bar.getBar());\r\n\t}\r\n\r\nThe verify should fail, since setFoo(String) was never called, but it will\r\nsucceed.\r\n\r\nI'm using 1.8 on Linux, JDK 1.6.\r\n\r\nIf you comment out the second-to-last line:\r\n//              bar.getBar();\r\nit will fail, complaining like this:\r\n# Wanted but not invoked:\r\n# bar.getBar();\r\n\r\nSo what seems to be happening is that the mock invocation of getBar(),\r\npassed as the parameter to the setFoo(String) invocation, confuses verify()\r\ninto thinking that it should verify getBar(), rather than setFoo(String).",
+    "commit_message": "Fixed issue 138 When verify contains extra calls to other mocks (highly unlikely) then Mockito was verifying wrong invocation. Now it is all good.",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/MockitoCore.java",
+        "start_line": 73,
+        "end_line": 73,
+        "line_numbers": [
+          73
+        ],
+        "function_name": "verify",
+        "class_name": "MockitoCore",
+        "filename": "MockitoCore.java",
+        "code_snippet": "    public <T> T verify(T mock, VerificationMode mode) {\n        if (mock == null) {\n            reporter.nullPassedToVerify();\n        } else if (!mockUtil.isMock(mock)) {\n            reporter.notAMockPassedToVerify();\n        }\n        mockingProgress.verificationStarted(mode);\n        return mock;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockitousage.bugs.VerifyingWithAnExtraCallToADifferentMockTest::shouldAllowVerifyingWhenOtherMockCallIsInTheSameLine"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/MockHandler.java b/src/org/mockito/internal/MockHandler.java\nindex b6c1b78..bc18218 100644\n--- a/src/org/mockito/internal/MockHandler.java\n+++ b/src/org/mockito/internal/MockHandler.java\n@@ -17,7 +17,6 @@ import org.mockito.internal.stubbing.InvocationContainerImpl;\n import org.mockito.internal.stubbing.OngoingStubbingImpl;\n import org.mockito.internal.stubbing.StubbedInvocationMatcher;\n import org.mockito.internal.stubbing.VoidMethodStubbableImpl;\n+import org.mockito.internal.verification.MockAwareVerificationMode;\n import org.mockito.internal.verification.VerificationDataImpl;\n import org.mockito.stubbing.Answer;\n import org.mockito.stubbing.VoidMethodStubbable;\n@@ -74,11 +73,9 @@ public class MockHandler<T> implements MockitoInvocationHandler, MockHandlerInte\n         if (verificationMode != null) {\n             //We need to check if verification was started on the correct mock \n             // - see VerifyingWithAnExtraCallToADifferentMockTest\n+            if (verificationMode instanceof MockAwareVerificationMode && ((MockAwareVerificationMode) verificationMode).getMock() == invocation.getMock()) {\n                 VerificationDataImpl data = new VerificationDataImpl(invocationContainerImpl.getInvocations(), invocationMatcher);            \n                 verificationMode.verify(data);\n                 return null;\n+            }\n         }\n         \n         invocationContainerImpl.setInvocationForPotentialStubbing(invocationMatcher);\ndiff --git a/src/org/mockito/internal/MockitoCore.java b/src/org/mockito/internal/MockitoCore.java\nindex ae0d72b..fc99ea9 100755\n--- a/src/org/mockito/internal/MockitoCore.java\n+++ b/src/org/mockito/internal/MockitoCore.java\n@@ -20,7 +20,6 @@ import org.mockito.internal.progress.ThreadSafeMockingProgress;\n import org.mockito.internal.stubbing.OngoingStubbingImpl;\n import org.mockito.internal.stubbing.StubberImpl;\n import org.mockito.internal.util.MockUtil;\n+import org.mockito.internal.verification.MockAwareVerificationMode;\n import org.mockito.internal.verification.VerificationDataImpl;\n import org.mockito.internal.verification.VerificationModeFactory;\n import org.mockito.internal.verification.api.InOrderContext;\n@@ -71,7 +70,7 @@ public class MockitoCore {\n         } else if (!mockUtil.isMock(mock)) {\n             reporter.notAMockPassedToVerify();\n         }\n+        mockingProgress.verificationStarted(new MockAwareVerificationMode(mock, mode));\n-        mockingProgress.verificationStarted(mode);\n         return mock;\n     }",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Szczepan Faber",
+        "commit_date": "2009-04-15 11:19:35",
+        "commit_message": "Getting rid of static code",
+        "commit_hash": "6037bc6c0098fff7ab9487ecd3bf2dc12ec02c2a"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "doAnswer",
+          "stub",
+          "verifyNoMoreInteractions",
+          "MockitoCore",
+          "inOrder",
+          "assertMocksNotEmpty"
+        ],
+        "functions_name_all_files": [
+          "doAnswer",
+          "StateMaster",
+          "reset",
+          "stub",
+          "verifyNoMoreInteractions",
+          "validate",
+          "MockitoCore",
+          "inOrder",
+          "assertMocksNotEmpty"
+        ],
+        "function_code_before": "    public <T> T verify(T mock, VerificationMode mode) {\n        if (mock == null) {\n            REPORTER.nullPassedToVerify();\n        } else if (!MockUtil.isMock(mock)) {\n            REPORTER.notAMockPassedToVerify();\n        }\n        MOCKING_PROGRESS.verificationStarted(mode);\n        return mock;\n    }",
+        "function_code_after": "    public <T> T verify(T mock, VerificationMode mode) {\n        if (mock == null) {\n            reporter.nullPassedToVerify();\n        } else if (!MockUtil.isMock(mock)) {\n            reporter.notAMockPassedToVerify();\n        }\n        mockingProgress.verificationStarted(mode);\n        return mock;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/org/mockito/internal/MockitoCore.java",
+          "test/org/mockito/StateMaster.java"
+        ],
+        "file_patches": {
+          "src/org/mockito/internal/MockitoCore.java": "diff --git a/src/org/mockito/internal/MockitoCore.java b/src/org/mockito/internal/MockitoCore.java\nindex 3ceeeece5..a7df28092 100755\n--- a/src/org/mockito/internal/MockitoCore.java\n+++ b/src/org/mockito/internal/MockitoCore.java\n@@ -25,86 +25,86 @@ import org.mockito.stubbing.Answer;\n @SuppressWarnings(\"unchecked\")\n public class MockitoCore {\n \n-    private static final Reporter REPORTER = new Reporter();\n-    public static final MockingProgress MOCKING_PROGRESS = new ThreadSafeMockingProgress();\n+    private final Reporter reporter = new Reporter();\n+    private final MockingProgress mockingProgress = new ThreadSafeMockingProgress();\n     \n     public <T> T mock(Class<T> classToMock, String name, T optionalInstance, ReturnValues returnValues) {\n-        MOCKING_PROGRESS.validateState();\n-        MOCKING_PROGRESS.resetOngoingStubbing();\n-        return MockUtil.createMock(classToMock, MOCKING_PROGRESS, name, optionalInstance, returnValues);\n+        mockingProgress.validateState();\n+        mockingProgress.resetOngoingStubbing();\n+        return MockUtil.createMock(classToMock, mockingProgress, name, optionalInstance, returnValues);\n     }\n     \n     public OngoingStubbing stub() {\n-        OngoingStubbing stubbing = MOCKING_PROGRESS.pullOngoingStubbing();\n+        OngoingStubbing stubbing = mockingProgress.pullOngoingStubbing();\n         if (stubbing == null) {\n-            MOCKING_PROGRESS.reset();\n-            REPORTER.missingMethodInvocation();\n+            mockingProgress.reset();\n+            reporter.missingMethodInvocation();\n         }\n         return stubbing;\n     }\n \n     @Deprecated\n     public <T> DeprecatedOngoingStubbing<T> stub(T methodCall) {\n-        MOCKING_PROGRESS.stubbingStarted();\n+        mockingProgress.stubbingStarted();\n         return (DeprecatedOngoingStubbing) stub();\n     }\n \n     public <T> NewOngoingStubbing<T> when(T methodCall) {\n-        MOCKING_PROGRESS.stubbingStarted();\n+        mockingProgress.stubbingStarted();\n         return (NewOngoingStubbing) stub();\n     }\n     \n     \n     public <T> T verify(T mock, VerificationMode mode) {\n         if (mock == null) {\n-            REPORTER.nullPassedToVerify();\n+            reporter.nullPassedToVerify();\n         } else if (!MockUtil.isMock(mock)) {\n-            REPORTER.notAMockPassedToVerify();\n+            reporter.notAMockPassedToVerify();\n         }\n-        MOCKING_PROGRESS.verificationStarted(mode);\n+        mockingProgress.verificationStarted(mode);\n         return mock;\n     }\n     \n     public <T> void reset(T ... mocks) {\n-        MOCKING_PROGRESS.validateState();\n-        MOCKING_PROGRESS.reset();\n-        MOCKING_PROGRESS.resetOngoingStubbing();\n+        mockingProgress.validateState();\n+        mockingProgress.reset();\n+        mockingProgress.resetOngoingStubbing();\n         \n         for (T m : mocks) {\n-            MockUtil.resetMock(m, MOCKING_PROGRESS);\n+            MockUtil.resetMock(m, mockingProgress);\n         }\n     }\n     \n     public void verifyNoMoreInteractions(Object... mocks) {\n         assertMocksNotEmpty(mocks);\n-        MOCKING_PROGRESS.validateState();\n+        mockingProgress.validateState();\n         for (Object mock : mocks) {\n             try {\n                 if (mock == null) {\n-                    REPORTER.nullPassedToVerifyNoMoreInteractions();\n+                    reporter.nullPassedToVerifyNoMoreInteractions();\n                 }\n                 MockUtil.getMockHandler(mock).verifyNoMoreInteractions();\n             } catch (NotAMockException e) {\n-                REPORTER.notAMockPassedToVerifyNoMoreInteractions();\n+                reporter.notAMockPassedToVerifyNoMoreInteractions();\n             }\n         }\n     }\n     \n     public void assertMocksNotEmpty(Object[] mocks) {\n         if (mocks == null || mocks.length == 0) {\n-            REPORTER.mocksHaveToBePassedToVerifyNoMoreInteractions();\n+            reporter.mocksHaveToBePassedToVerifyNoMoreInteractions();\n         }\n     }\n     \n     public InOrder inOrder(Object... mocks) {\n         if (mocks == null || mocks.length == 0) {\n-            REPORTER.mocksHaveToBePassedWhenCreatingInOrder();\n+            reporter.mocksHaveToBePassedWhenCreatingInOrder();\n         }\n         for (Object mock : mocks) {\n             if (mock == null) {\n-                REPORTER.nullPassedWhenCreatingInOrder();\n+                reporter.nullPassedWhenCreatingInOrder();\n             } else if (!MockUtil.isMock(mock)) {\n-                REPORTER.notAMockPassedWhenCreatingInOrder();\n+                reporter.notAMockPassedWhenCreatingInOrder();\n             }\n         }\n         InOrder inOrder = new InOrderImpl(Arrays.asList(mocks));\n@@ -112,15 +112,14 @@ public class MockitoCore {\n     }\n     \n     public Stubber doAnswer(Answer answer) {\n-        MOCKING_PROGRESS.stubbingStarted();\n-        MOCKING_PROGRESS.resetOngoingStubbing();\n+        mockingProgress.stubbingStarted();\n+        mockingProgress.resetOngoingStubbing();\n         return new StubberImpl().doAnswer(answer);\n     }\n     \n     public <T> VoidMethodStubbable<T> stubVoid(T mock) {\n         MockHandler<T> handler = MockUtil.getMockHandler(mock);\n-        MOCKING_PROGRESS.stubbingStarted();\n+        mockingProgress.stubbingStarted();\n         return handler.voidMethodStubbable(mock);\n     }\n-\n-}\n+}\n\\ No newline at end of file"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

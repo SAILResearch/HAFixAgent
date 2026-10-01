@@ -1,0 +1,158 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "85",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 09:19:06",
+      "end_time": "2026-06-27 09:21:09",
+      "duration_seconds": 123,
+      "duration_human": "2m 3s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 750942,
+      "output_tokens": 6849,
+      "total_tokens": 757791,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 750942
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\nindex df3205c4e..9d0900f83 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n@@ -67,12 +67,29 @@ public abstract class DateTimeSerializerBase<T>\n                 if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n                                 || format.hasLocale() || format.hasTimeZone()) {\n                     TimeZone tz = format.getTimeZone();\n-                    final String pattern = format.hasPattern()\n-                                    ? format.getPattern()\n-                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n-            final Locale loc = format.hasLocale()\n+                    final String pattern;\n+                    final Locale loc = format.hasLocale()\n                             ? format.getLocale()\n                             : serializers.getLocale();\n+\n+                    if (format.hasPattern()) {\n+                        pattern = format.getPattern();\n+                    } else {\n+                        // Reuse configured format like deserializer does\n+                        DateFormat existingFormat = serializers.getConfig().getDateFormat();\n+                        if (existingFormat.getClass() == StdDateFormat.class) {\n+                            StdDateFormat std = (StdDateFormat) existingFormat;\n+                            std = std.withTimeZone(tz);\n+                            std = std.withLocale(loc);\n+                            return withFormat(Boolean.FALSE, std);\n+                        } else {\n+                            // For other DateFormat types, need to clone\n+                            existingFormat = (DateFormat) existingFormat.clone();\n+                            existingFormat.setTimeZone(tz);\n+                            return withFormat(Boolean.FALSE, existingFormat);\n+                        }\n+                    }\n+\n                     SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n                     if (tz == null) {\n                         tz = serializers.getTimeZone();\n@@ -81,16 +98,6 @@ public abstract class DateTimeSerializerBase<T>\n             return withFormat(Boolean.FALSE, df);\n         }\n \n-        // Otherwise, need one of these changes:\n-\n-\n-        // Jackson's own `StdDateFormat` is quite easy to deal with...\n-\n-        // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n-        //    mechanism for changing `DateFormat` instances (or even clone()ing)\n-        //    So: require it be `SimpleDateFormat`; can't config other types\n-//            serializers.reportBadDefinition(handledType(), String.format(\n-            // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n         return this;\n     }\n \n"
+  },
+  "timestamp": "2026-06-27 09:21:09 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_85",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_85",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`DateTimeSerializerBase` ignores configured date format when creating contextual \n`DateTimeSerializerBase#createContextual` creates a new serializer with `StdDateFormat.DATE_FORMAT_STR_ISO8601` format instead of re-using the actual format that may have been specified on the configuration. See the following code:\r\n\r\n```\r\nfinal String pattern = format.hasPattern()\r\n                                    ? format.getPattern()\r\n                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\r\n```\r\n\r\nUsing the `@JsonFormat` annotation on a field will therefore reset the format to Jackson's default even if the annotation doesn't specify any custom format.\r\n\r\n\r\n`DateBasedDeserializer#createContextual` behaves differently and tries to re-use the configured format:\r\n\r\n```\r\nDateFormat df = ctxt.getConfig().getDateFormat();\r\n// one shortcut: with our custom format, can simplify handling a bit\r\nif (df.getClass() == StdDateFormat.class) {\r\n   ...\r\n   StdDateFormat std = (StdDateFormat) df;\r\n   std = std.withTimeZone(tz);\r\n   ...\r\n} else {\r\n  // otherwise need to clone, re-set timezone:\r\n  df = (DateFormat) df.clone();\r\n  df.setTimeZone(tz);\r\n}\r\n```\r\n\r\nShouldn't the serializer follow the same approach ?\r\n\n",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java",
+        "start_line": 67,
+        "end_line": 72,
+        "line_numbers": [
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ],
+        "function_name": "withFormat",
+        "class_name": "DateTimeSerializerBase",
+        "filename": "DateTimeSerializerBase.java",
+        "code_snippet": "    public abstract DateTimeSerializerBase<T> withFormat(Boolean timestamp, DateFormat customFormat);\n\n    @Override\n    public JsonSerializer<?> createContextual(SerializerProvider serializers,\n            BeanProperty property) throws JsonMappingException\n    {\n        if (property == null) {\n            return this;\n        }\n        JsonFormat.Value format = findFormatOverrides(serializers, property, handledType());\n        if (format == null) {\n            return this;\n        }\n        // Simple case first: serialize as numeric timestamp?\n        JsonFormat.Shape shape = format.getShape();\n        if (shape.isNumeric()) {\n            return withFormat(Boolean.TRUE, null);\n        }\n\n        // 08-Jun-2017, tatu: With [databind#1648], this gets bit tricky..\n        // First: custom pattern will override things\n                if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n                                || format.hasLocale() || format.hasTimeZone()) {\n                    TimeZone tz = format.getTimeZone();\n                    final String pattern = format.hasPattern()\n                                    ? format.getPattern()\n                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n            final Locale loc = format.hasLocale()\n                            ? format.getLocale()\n                            : serializers.getLocale();\n                    SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n                    if (tz == null) {\n                        tz = serializers.getTimeZone();\n                    }\n            df.setTimeZone(tz);\n            return withFormat(Boolean.FALSE, df);\n        }\n\n        // Otherwise, need one of these changes:\n\n\n        // Jackson's own `StdDateFormat` is quite easy to deal with...\n\n        // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n        //    mechanism for changing `DateFormat` instances (or even clone()ing)\n        //    So: require it be `SimpleDateFormat`; can't config other types\n//            serializers.reportBadDefinition(handledType(), String.format(\n            // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java",
+        "start_line": 76,
+        "end_line": 79,
+        "line_numbers": [
+          76,
+          77,
+          78,
+          79
+        ],
+        "function_name": "withFormat",
+        "class_name": "DateTimeSerializerBase",
+        "filename": "DateTimeSerializerBase.java",
+        "code_snippet": "    public abstract DateTimeSerializerBase<T> withFormat(Boolean timestamp, DateFormat customFormat);\n\n    @Override\n    public JsonSerializer<?> createContextual(SerializerProvider serializers,\n            BeanProperty property) throws JsonMappingException\n    {\n        if (property == null) {\n            return this;\n        }\n        JsonFormat.Value format = findFormatOverrides(serializers, property, handledType());\n        if (format == null) {\n            return this;\n        }\n        // Simple case first: serialize as numeric timestamp?\n        JsonFormat.Shape shape = format.getShape();\n        if (shape.isNumeric()) {\n            return withFormat(Boolean.TRUE, null);\n        }\n\n        // 08-Jun-2017, tatu: With [databind#1648], this gets bit tricky..\n        // First: custom pattern will override things\n                if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n                                || format.hasLocale() || format.hasTimeZone()) {\n                    TimeZone tz = format.getTimeZone();\n                    final String pattern = format.hasPattern()\n                                    ? format.getPattern()\n                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n            final Locale loc = format.hasLocale()\n                            ? format.getLocale()\n                            : serializers.getLocale();\n                    SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n                    if (tz == null) {\n                        tz = serializers.getTimeZone();\n                    }\n            df.setTimeZone(tz);\n            return withFormat(Boolean.FALSE, df);\n        }\n\n        // Otherwise, need one of these changes:\n\n\n        // Jackson's own `StdDateFormat` is quite easy to deal with...\n\n        // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n        //    mechanism for changing `DateFormat` instances (or even clone()ing)\n        //    So: require it be `SimpleDateFormat`; can't config other types\n//            serializers.reportBadDefinition(handledType(), String.format(\n            // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java",
+        "start_line": 94,
+        "end_line": 94,
+        "line_numbers": [
+          94
+        ],
+        "function_name": "withFormat",
+        "class_name": "DateTimeSerializerBase",
+        "filename": "DateTimeSerializerBase.java",
+        "code_snippet": "    public abstract DateTimeSerializerBase<T> withFormat(Boolean timestamp, DateFormat customFormat);\n\n    @Override\n    public JsonSerializer<?> createContextual(SerializerProvider serializers,\n            BeanProperty property) throws JsonMappingException\n    {\n        if (property == null) {\n            return this;\n        }\n        JsonFormat.Value format = findFormatOverrides(serializers, property, handledType());\n        if (format == null) {\n            return this;\n        }\n        // Simple case first: serialize as numeric timestamp?\n        JsonFormat.Shape shape = format.getShape();\n        if (shape.isNumeric()) {\n            return withFormat(Boolean.TRUE, null);\n        }\n\n        // 08-Jun-2017, tatu: With [databind#1648], this gets bit tricky..\n        // First: custom pattern will override things\n                if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n                                || format.hasLocale() || format.hasTimeZone()) {\n                    TimeZone tz = format.getTimeZone();\n                    final String pattern = format.hasPattern()\n                                    ? format.getPattern()\n                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n            final Locale loc = format.hasLocale()\n                            ? format.getLocale()\n                            : serializers.getLocale();\n                    SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n                    if (tz == null) {\n                        tz = serializers.getTimeZone();\n                    }\n            df.setTimeZone(tz);\n            return withFormat(Boolean.FALSE, df);\n        }\n\n        // Otherwise, need one of these changes:\n\n\n        // Jackson's own `StdDateFormat` is quite easy to deal with...\n\n        // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n        //    mechanism for changing `DateFormat` instances (or even clone()ing)\n        //    So: require it be `SimpleDateFormat`; can't config other types\n//            serializers.reportBadDefinition(handledType(), String.format(\n            // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n        return this;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.DateSerializationTest::testFormatWithoutPattern"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\nindex 4b9312b7a..df3205c4e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n@@ -64,61 +64,34 @@ public abstract class DateTimeSerializerBase<T>\n \n         // 08-Jun-2017, tatu: With [databind#1648], this gets bit tricky..\n         // First: custom pattern will override things\n+        if (format.hasPattern()) {\n-                if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n-                                || format.hasLocale() || format.hasTimeZone()) {\n-                    TimeZone tz = format.getTimeZone();\n-                    final String pattern = format.hasPattern()\n-                                    ? format.getPattern()\n-                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n             final Locale loc = format.hasLocale()\n                             ? format.getLocale()\n                             : serializers.getLocale();\n+            SimpleDateFormat df = new SimpleDateFormat(format.getPattern(), loc);\n+            TimeZone tz = format.hasTimeZone() ? format.getTimeZone()\n+                    : serializers.getTimeZone();\n-                    SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n-                    if (tz == null) {\n-                        tz = serializers.getTimeZone();\n-                    }\n             df.setTimeZone(tz);\n             return withFormat(Boolean.FALSE, df);\n         }\n \n         // Otherwise, need one of these changes:\n+        final boolean hasLocale = format.hasLocale();\n+        final boolean hasTZ = format.hasTimeZone();\n+        final boolean asString = (shape == JsonFormat.Shape.STRING);\n \n+        if (!hasLocale && !hasTZ && !asString) {\n+            return this;\n+        }\n \n+        DateFormat df0 = serializers.getConfig().getDateFormat();\n         // Jackson's own `StdDateFormat` is quite easy to deal with...\n+        if (df0 instanceof StdDateFormat) {\n+            StdDateFormat std = (StdDateFormat) df0;\n+            if (format.hasLocale()) {\n+                std = std.withLocale(format.getLocale());\n+            }\n+            if (format.hasTimeZone()) {\n+                std = std.withTimeZone(format.getTimeZone());\n+            }\n+            return withFormat(Boolean.FALSE, std);\n+        }\n \n         // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n         //    mechanism for changing `DateFormat` instances (or even clone()ing)\n         //    So: require it be `SimpleDateFormat`; can't config other types\n+        if (!(df0 instanceof SimpleDateFormat)) {\n //            serializers.reportBadDefinition(handledType(), String.format(\n+            serializers.reportMappingProblem(\n+\"Configured `DateFormat` (%s) not a `SimpleDateFormat`; can not configure `Locale` or `TimeZone`\",\n+df0.getClass().getName());\n+        }\n+        SimpleDateFormat df = (SimpleDateFormat) df0;\n+        if (hasLocale) {\n             // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n+            df = new SimpleDateFormat(df.toPattern(), format.getLocale());\n+        } else {\n+            df = (SimpleDateFormat) df.clone();\n+        }\n+        TimeZone newTz = format.getTimeZone();\n+        boolean changeTZ = (newTz != null) && !newTz.equals(df.getTimeZone());\n+        if (changeTZ) {\n+            df.setTimeZone(newTz);\n+        }\n+        return withFormat(Boolean.FALSE, df);\n-        return this;\n     }\n \n     /*",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2012-02-22 01:34:45",
+        "commit_message": "Add customizable date format handling for Calendars as well (what about Joda?)",
+        "commit_hash": "396725d28661a520ca7564346a547d98bdbd75b4"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "withFormat",
+          "_timestamp",
+          "DateTimeSerializerBase",
+          "isEmpty",
+          "createContextual",
+          "serialize",
+          "getSchema"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "CalendarSerializer",
+          "withFormat",
+          "_timestamp",
+          "DateTimeSerializerBase",
+          "isEmpty",
+          "serialize",
+          "createContextual",
+          "DateSerializer",
+          "getSchema"
+        ],
+        "functions_name_modified_file": [
+          "withFormat",
+          "_timestamp",
+          "DateTimeSerializerBase",
+          "isEmpty",
+          "createContextual",
+          "serialize",
+          "getSchema"
+        ],
+        "functions_name_all_files": [
+          "CalendarSerializer",
+          "withFormat",
+          "_timestamp",
+          "DateTimeSerializerBase",
+          "isEmpty",
+          "serialize",
+          "createContextual",
+          "DateSerializer",
+          "getSchema"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    public abstract DateTimeSerializerBase<T> withFormat(boolean timestamp, DateFormat customFormat);\n\n    @Override\n    public JsonSerializer<?> createContextual(SerializerProvider prov,\n            BeanProperty property) throws JsonMappingException\n    {\n        if (property != null) {\n            JsonFormat.Value format = prov.getAnnotationIntrospector().findFormat(property.getMember());\n            if (format != null) {\n                if (format.shape.isNumeric()) {\n                    return withFormat(true, null);\n                }\n                String pattern = format.pattern;\n                if (pattern.length() > 0){\n                    SimpleDateFormat df = new SimpleDateFormat(pattern, prov.getLocale());\n                    df.setTimeZone(prov.getTimeZone());\n                    return withFormat(false, df);\n                }\n            }\n        }\n        return this;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/CalendarSerializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/DateSerializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\nnew file mode 100644\nindex 000000000..09bda9e1b\n--- /dev/null\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n@@ -0,0 +1,98 @@\n+package com.fasterxml.jackson.databind.ser.std;\n+\n+import java.io.IOException;\n+import java.lang.reflect.Type;\n+import java.text.DateFormat;\n+import java.text.SimpleDateFormat;\n+\n+import com.fasterxml.jackson.annotation.JsonFormat;\n+import com.fasterxml.jackson.core.JsonGenerationException;\n+import com.fasterxml.jackson.core.JsonGenerator;\n+import com.fasterxml.jackson.databind.*;\n+import com.fasterxml.jackson.databind.ser.ContextualSerializer;\n+\n+public abstract class DateTimeSerializerBase<T>\n+    extends StdScalarSerializer<T>\n+    implements ContextualSerializer\n+{\n+    /**\n+     * Flag that indicates that serialization must be done as the\n+     * Java timetamp, regardless of other settings.\n+     */\n+    protected final boolean _useTimestamp;\n+    \n+    /**\n+     * Specific format to use, if not default format: non null value\n+     * also indicates that serialization is to be done as JSON String,\n+     * not numeric timestamp, unless {@link #_useTimestamp} is true.\n+     */\n+    protected final DateFormat _customFormat;\n+\n+    protected DateTimeSerializerBase(Class<T> type,\n+            boolean useTimestamp, DateFormat customFormat)\n+    {\n+        super(type);\n+        _useTimestamp = useTimestamp;\n+        _customFormat = customFormat;\n+    }\n+\n+    public abstract DateTimeSerializerBase<T> withFormat(boolean timestamp, DateFormat customFormat);\n+\n+    @Override\n+    public JsonSerializer<?> createContextual(SerializerProvider prov,\n+            BeanProperty property) throws JsonMappingException\n+    {\n+        if (property != null) {\n+            JsonFormat.Value format = prov.getAnnotationIntrospector().findFormat(property.getMember());\n+            if (format != null) {\n+                if (format.shape.isNumeric()) {\n+                    return withFormat(true, null);\n+                }\n+                String pattern = format.pattern;\n+                if (pattern.length() > 0){\n+                    SimpleDateFormat df = new SimpleDateFormat(pattern, prov.getLocale());\n+                    df.setTimeZone(prov.getTimeZone());\n+                    return withFormat(false, df);\n+                }\n+            }\n+        }\n+        return this;\n+    }\n+\n+    /*\n+    /**********************************************************\n+    /* Accessors\n+    /**********************************************************\n+     */\n+\n+    @Override\n+    public boolean isEmpty(T value) {\n+        // let's assume \"null date\" (timestamp 0) qualifies for empty\n+        return (value == null) || (_timestamp(value) == 0L);\n+    }\n+\n+    protected abstract long _timestamp(T value);\n+    \n+    @Override\n+    public JsonNode getSchema(SerializerProvider provider, Type typeHint)\n+    {\n+        //todo: (ryan) add a format for the date in the schema?\n+        boolean asNumber = _useTimestamp;\n+        if (!asNumber) {\n+            if (_customFormat == null) {\n+                asNumber = provider.isEnabled(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);\n+            }\n+        }\n+        return createSchemaNode(asNumber ? \"number\" : \"string\", true);\n+    }\n+\n+    /*\n+    /**********************************************************\n+    /* Actual serialization\n+    /**********************************************************\n+     */\n+\n+    @Override\n+    public abstract void serialize(T value, JsonGenerator jgen, SerializerProvider provider)\n+        throws IOException, JsonGenerationException;\n+}"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

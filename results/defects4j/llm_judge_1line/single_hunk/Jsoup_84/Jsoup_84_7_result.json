@@ -1,0 +1,122 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "84",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:24:44",
+      "end_time": "2025-10-10 22:28:05",
+      "duration_seconds": 202,
+      "duration_human": "3m 22s"
+    },
+    "model_cost": 0.0071,
+    "model_calls": 10,
+    "token_usage": {
+      "input_tokens": 61358,
+      "output_tokens": 4490,
+      "total_tokens": 65848,
+      "cached_input_tokens": 56768,
+      "uncached_input_tokens": 4590
+    },
+    "agent_steps": 10,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java\nindex 7b309a3f..91e7fb9e 100644\n--- a/src/main/java/org/jsoup/helper/W3CDom.java\n+++ b/src/main/java/org/jsoup/helper/W3CDom.java\n@@ -88,8 +88,7 @@ public class W3CDom {\n                 String namespace = namespacesStack.peek().get(prefix);\n                 String tagName = sourceEl.tagName();\n \n-                Element el = \n-                    doc.createElementNS(namespace, tagName);\n+                Element el = doc.createElementNS(namespace != null ? namespace : \"\", tagName);\n                 copyAttributes(sourceEl, el);\n                 if (dest == null) { // sets up the root\n                     doc.appendChild(el);\n"
+  },
+  "timestamp": "2025-10-10 18:28:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_84",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_84",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "W3CDom Helper fails to convert whenever some namespace declarations are missing\nHello\r\n\r\nI've been running into an issue where if I convert my Jsoup parsed document into a org.w3c.dom.Document with the W3CDom helper and that document happens to be missing namespace declarations we get the following exception:\r\n\r\n```\r\nNAMESPACE_ERR: An attempt is made to create or change an object in a way which is incorrect with regard to namespaces.\r\n```\r\n\r\nI've looked into this a bit and first thing I tried was using a locally forked version of the W3CDom helper that simply turned this flag off:\r\n\r\n```\r\nfactory.setNamespaceAware(false);\r\n```\r\n\r\nHowever the issue continued, so instead I simply hacked the code to completely ignore namespaces\r\n\r\n```\r\n// (csueiras): We purposely remove any namespace because we get malformed HTML that might not be\r\n// declaring all of it's namespaces!\r\nElement el = doc.createElementNS(\"\", sourceEl.tagName());\r\n```\r\n\r\nI am not completely sure if this will have any side effects, but it resolved the issues with the document I'm interacting with. I would be glad to provide a pull request if I have some guidance regarding how to properly handle this issue if it can be handled by Jsoup.\r\n\r\nThe document I'm having issues is simply making use of the Facebook like buttons using tags like this:\r\n\r\n```\r\n<fb:like ...\r\n```\r\n\r\nBut there's no namespace declaration for \"fb\".\n",
+    "commit_message": "Don't blow up if a namespace is undefined",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/W3CDom.java",
+        "start_line": 91,
+        "end_line": 91,
+        "line_numbers": [
+          91
+        ],
+        "function_name": "head",
+        "class_name": "W3CBuilder",
+        "filename": "W3CDom.java",
+        "code_snippet": "        public void head(org.jsoup.nodes.Node source, int depth) {\n            namespacesStack.push(new HashMap<>(namespacesStack.peek())); // inherit from above on the stack\n            if (source instanceof org.jsoup.nodes.Element) {\n                org.jsoup.nodes.Element sourceEl = (org.jsoup.nodes.Element) source;\n\n                String prefix = updateNamespaces(sourceEl);\n                String namespace = namespacesStack.peek().get(prefix);\n                String tagName = sourceEl.tagName();\n\n                Element el = \n                    doc.createElementNS(namespace, tagName);\n                copyAttributes(sourceEl, el);\n                if (dest == null) { // sets up the root\n                    doc.appendChild(el);\n                } else {\n                    dest.appendChild(el);\n                }\n                dest = el; // descend\n            } else if (source instanceof org.jsoup.nodes.TextNode) {\n                org.jsoup.nodes.TextNode sourceText = (org.jsoup.nodes.TextNode) source;\n                Text text = doc.createTextNode(sourceText.getWholeText());\n                dest.appendChild(text);\n            } else if (source instanceof org.jsoup.nodes.Comment) {\n                org.jsoup.nodes.Comment sourceComment = (org.jsoup.nodes.Comment) source;\n                Comment comment = doc.createComment(sourceComment.getData());\n                dest.appendChild(comment);\n            } else if (source instanceof org.jsoup.nodes.DataNode) {\n                org.jsoup.nodes.DataNode sourceData = (org.jsoup.nodes.DataNode) source;\n                Text node = doc.createTextNode(sourceData.getWholeData());\n                dest.appendChild(node);\n            } else {\n                // unhandled\n            }\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.W3CDomTest::treatsUndeclaredNamespaceAsLocalName"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java\nindex 6847574..7b309a3 100644\n--- a/src/main/java/org/jsoup/helper/W3CDom.java\n+++ b/src/main/java/org/jsoup/helper/W3CDom.java\n@@ -88,8 +88,7 @@ public class W3CDom {\n                 String namespace = namespacesStack.peek().get(prefix);\n                 String tagName = sourceEl.tagName();\n \n+                Element el = namespace == null && tagName.contains(\":\") ?\n+                    doc.createElementNS(\"\", tagName) : // doesn't have a real namespace defined\n-                Element el = \n                     doc.createElementNS(namespace, tagName);\n                 copyAttributes(sourceEl, el);\n                 if (dest == null) { // sets up the root",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2014-10-12 02:53:21",
+        "commit_message": "Support for W3C DOM document conversion.",
+        "commit_hash": "a4883a448416031773bba432bc5bce4492f1e19d"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "W3CDom",
+          "copyAttributes",
+          "asString",
+          "W3CBuilder",
+          "fromJsoup",
+          "tail",
+          "head",
+          "convert"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "W3CDom",
+          "copyAttributes",
+          "asString",
+          "W3CBuilder",
+          "fromJsoup",
+          "tail",
+          "head",
+          "convert"
+        ],
+        "functions_name_modified_file": [
+          "W3CDom",
+          "copyAttributes",
+          "asString",
+          "W3CBuilder",
+          "fromJsoup",
+          "tail",
+          "head",
+          "convert"
+        ],
+        "functions_name_all_files": [
+          "W3CDom",
+          "copyAttributes",
+          "asString",
+          "W3CBuilder",
+          "fromJsoup",
+          "tail",
+          "head",
+          "convert"
+        ],
+        "function_code_before": "",
+        "function_code_after": "        public void head(org.jsoup.nodes.Node source, int depth) {\n            if (source instanceof org.jsoup.nodes.Element) {\n                org.jsoup.nodes.Element sourceEl = (org.jsoup.nodes.Element) source;\n                Element el = doc.createElement(sourceEl.tagName());\n                copyAttributes(sourceEl, el);\n                if (dest == null) { // sets up the root\n                    doc.appendChild(el);\n                } else {\n                    dest.appendChild(el);\n                }\n                dest = el; // descend\n            } else if (source instanceof org.jsoup.nodes.TextNode) {\n                org.jsoup.nodes.TextNode sourceText = (org.jsoup.nodes.TextNode) source;\n                Text text = doc.createTextNode(sourceText.getWholeText());\n                dest.appendChild(text);\n            } else if (source instanceof org.jsoup.nodes.Comment) {\n                org.jsoup.nodes.Comment sourceComment = (org.jsoup.nodes.Comment) source;\n                Comment comment = doc.createComment(sourceComment.getData());\n                dest.appendChild(comment);\n            } else if (source instanceof org.jsoup.nodes.DataNode) {\n                org.jsoup.nodes.DataNode sourceData = (org.jsoup.nodes.DataNode) source;\n                Text node = doc.createTextNode(sourceData.getWholeData());\n                dest.appendChild(node);\n            } else {\n                // unhandled\n            }\n        }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/helper/W3CDom.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/helper/W3CDom.java": "diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java\nnew file mode 100644\nindex 00000000..48fd923c\n--- /dev/null\n+++ b/src/main/java/org/jsoup/helper/W3CDom.java\n@@ -0,0 +1,131 @@\n+package org.jsoup.helper;\n+\n+import org.jsoup.nodes.Attribute;\n+import org.jsoup.select.NodeTraversor;\n+import org.jsoup.select.NodeVisitor;\n+import org.w3c.dom.Comment;\n+import org.w3c.dom.Document;\n+import org.w3c.dom.Element;\n+import org.w3c.dom.Text;\n+\n+import javax.xml.parsers.DocumentBuilder;\n+import javax.xml.parsers.DocumentBuilderFactory;\n+import javax.xml.parsers.ParserConfigurationException;\n+import javax.xml.transform.Transformer;\n+import javax.xml.transform.TransformerFactory;\n+import javax.xml.transform.dom.DOMSource;\n+import javax.xml.transform.stream.StreamResult;\n+import java.io.StringWriter;\n+\n+/**\n+ * Helper class to transform a {@link org.jsoup.nodes.Document} to a {@link org.w3c.dom.Document org.w3c.dom.Document},\n+ * for integration with toolsets that use the W3C DOM.\n+ * <p/>\n+ * This class is currently <b>experimental</b>, please provide feedback on utility and any problems experienced.\n+ */\n+public class W3CDom {\n+    protected DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();\n+\n+    /**\n+     * Convert a jsoup Document to a W3C Document.\n+     * @param in jsoup doc\n+     * @return w3c doc\n+     */\n+    public Document fromJsoup(org.jsoup.nodes.Document in) {\n+        Validate.notNull(in);\n+        DocumentBuilder builder;\n+        try {\n+            builder = factory.newDocumentBuilder();\n+            Document out = builder.newDocument();\n+            convert(in, out);\n+            return out;\n+        } catch (ParserConfigurationException e) {\n+            throw new IllegalStateException(e);\n+        }\n+    }\n+\n+    /**\n+     * Converts a jsoup document into the provided W3C Document. If required, you can set options on the output document\n+     * before converting.\n+     * @param in jsoup doc\n+     * @param out w3c doc\n+     * @see org.jsoup.helper.W3CDom#fromJsoup(org.jsoup.nodes.Document)\n+     */\n+    public void convert(org.jsoup.nodes.Document in, Document out) {\n+        if (!StringUtil.isBlank(in.location()))\n+            out.setDocumentURI(in.location());\n+\n+        org.jsoup.nodes.Element rootEl = in.child(0); // skip the #root node\n+        NodeTraversor traversor = new NodeTraversor(new W3CBuilder(out));\n+        traversor.traverse(rootEl);\n+    }\n+\n+    /**\n+     * Implements the conversion by walking the input.\n+     */\n+    protected class W3CBuilder implements NodeVisitor {\n+        private final Document doc;\n+        private Element dest;\n+\n+        public W3CBuilder(Document doc) {\n+            this.doc = doc;\n+        }\n+\n+        public void head(org.jsoup.nodes.Node source, int depth) {\n+            if (source instanceof org.jsoup.nodes.Element) {\n+                org.jsoup.nodes.Element sourceEl = (org.jsoup.nodes.Element) source;\n+                Element el = doc.createElement(sourceEl.tagName());\n+                copyAttributes(sourceEl, el);\n+                if (dest == null) { // sets up the root\n+                    doc.appendChild(el);\n+                } else {\n+                    dest.appendChild(el);\n+                }\n+                dest = el; // descend\n+            } else if (source instanceof org.jsoup.nodes.TextNode) {\n+                org.jsoup.nodes.TextNode sourceText = (org.jsoup.nodes.TextNode) source;\n+                Text text = doc.createTextNode(sourceText.getWholeText());\n+                dest.appendChild(text);\n+            } else if (source instanceof org.jsoup.nodes.Comment) {\n+                org.jsoup.nodes.Comment sourceComment = (org.jsoup.nodes.Comment) source;\n+                Comment comment = doc.createComment(sourceComment.getData());\n+                dest.appendChild(comment);\n+            } else if (source instanceof org.jsoup.nodes.DataNode) {\n+                org.jsoup.nodes.DataNode sourceData = (org.jsoup.nodes.DataNode) source;\n+                Text node = doc.createTextNode(sourceData.getWholeData());\n+                dest.appendChild(node);\n+            } else {\n+                // unhandled\n+            }\n+        }\n+\n+        public void tail(org.jsoup.nodes.Node source, int depth) {\n+            if (source instanceof org.jsoup.nodes.Element && dest.getParentNode() instanceof Element) {\n+                dest = (Element) dest.getParentNode(); // undescend. cromulent.\n+            }\n+        }\n+\n+        private void copyAttributes(org.jsoup.nodes.Node source, Element el) {\n+            for (Attribute attribute : source.attributes()) {\n+                el.setAttribute(attribute.getKey(), attribute.getValue());\n+            }\n+        }\n+    }\n+\n+    /**\n+     * Serialize a W3C document to a String.\n+     */\n+    public String asString(Document doc) {\n+        try {\n+            DOMSource domSource = new DOMSource(doc);\n+            StringWriter writer = new StringWriter();\n+            StreamResult result = new StreamResult(writer);\n+            TransformerFactory tf = TransformerFactory.newInstance();\n+            Transformer transformer = tf.newTransformer();\n+            transformer.transform(domSource, result);\n+            return writer.toString();\n+        } catch (Exception e) {\n+            throw new IllegalStateException(e);\n+        }\n+    }\n+}"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

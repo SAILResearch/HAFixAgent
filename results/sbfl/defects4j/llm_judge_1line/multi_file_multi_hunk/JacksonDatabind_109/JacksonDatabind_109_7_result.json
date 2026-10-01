@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_109",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 18:18:12",
+      "end_time": "2026-06-24 18:33:03",
+      "duration_seconds": 890,
+      "duration_human": "14m 50s"
+    },
+    "model_cost": 0.0616,
+    "model_calls": 8,
+    "token_usage": {
+      "input_tokens": 224955,
+      "output_tokens": 31563,
+      "total_tokens": 256518,
+      "cached_input_tokens": 44736,
+      "uncached_input_tokens": 180219
+    },
+    "agent_steps": 8,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/ToStringSerializer.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/ToStringSerializer.java\nindex c0fff2882..9de0cb3ea 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/ToStringSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/ToStringSerializer.java\n@@ -1,39 +1,20 @@\n package com.fasterxml.jackson.databind.ser.std;\n \n-import com.fasterxml.jackson.databind.annotation.JacksonStdImpl;\n-\n-/**\n- * Simple general purpose serializer, useful for any\n- * type for which {@link Object#toString} returns the desired JSON\n- * value.\n- *<p>\n- * Since 2.10 extends {@link ToStringSerializerBase}\n- */\n-@JacksonStdImpl\n+import java.io.IOException;\n+import java.math.BigDecimal;\n+\n+import com.fasterxml.jackson.core.*;\n+import com.fasterxml.jackson.databind.*;\n+\n+@com.fasterxml.jackson.databind.annotation.JacksonStdImpl\n @SuppressWarnings(\"serial\")\n public class ToStringSerializer\n     extends ToStringSerializerBase\n {\n-    /**\n-     * Singleton instance to use.\n-     */\n     public final static ToStringSerializer instance = new ToStringSerializer();\n \n-    /**\n-     *<p>\n-     * Note: usually you should NOT create new instances, but instead use\n-     * {@link #instance} which is stateless and fully thread-safe. However,\n-     * there are cases where constructor is needed; for example,\n-     * when using explicit serializer annotations like\n-     * {@link com.fasterxml.jackson.databind.annotation.JsonSerialize#using}.\n-     */\n     public ToStringSerializer() { super(Object.class); }\n \n-    /**\n-     * Sometimes it may actually make sense to retain actual handled type.\n-     * \n-     * @since 2.5\n-     */\n     public ToStringSerializer(Class<?> handledType) {\n         super(handledType);\n     }\n@@ -42,4 +23,83 @@ public class ToStringSerializer\n     public final String valueToString(Object value) {\n         return value.toString();\n     }\n+    \n+    @Override\n+    public void serialize(Object value, JsonGenerator gen, SerializerProvider provider) throws IOException {\n+        if (value instanceof BigDecimal && provider.isEnabled(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN)) {\n+            gen.writeString(((BigDecimal) value).toPlainString());\n+        } else {\n+            super.serialize(value, gen, provider);\n+        }\n+    }\n+}\n+EOF && cd /defects4j/framework/bin/temp/JacksonDatabind_109 && javac -d /tmp/compile_test -cp \"$(find ~/.m2/repository -name \"*.jar\" 2>/dev/null | tr '\\n' ':')\" src/main/java/com/fasterxml/jackson/databind/ser/std/ToStringSerializer.java 2>&1 && cd /defects4j/framework/bin/temp/JacksonDatabind_109 && cat > /tmp/SimpleTest.java << 'EOF'\n+import com.fasterxml.jackson.annotation.JsonFormat;\n+import com.fasterxml.jackson.core.JsonGenerator;\n+import com.fasterxml.jackson.databind.ObjectMapper;\n+import java.math.BigDecimal;\n+\n+class TestClass {\n+    @JsonFormat(shape=JsonFormat.Shape.STRING)\n+    public BigDecimal value;\n+    \n+    TestClass(BigDecimal v) { value = v; }\n+}\n+\n+public class SimpleTest {\n+    public static void main(String[] args) throws Exception {\n+        // Test the exact scenario from the bug report\n+        ObjectMapper mapper = new ObjectMapper();\n+        mapper.configure(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN, true);\n+        \n+        BigDecimal bd = new BigDecimal(\"0.0000000005\");\n+        TestClass obj = new TestClass(bd);\n+        \n+        String result = mapper.writeValueAsString(obj);\n+        System.out.println(\"Result: \" + result);\n+        \n+        // Should be plain notation, not scientific notation\n+        if (result.contains(\"0.0000000005\")) {\n+            System.out.println(\"SUCCESS: Bug is fixed!\");\n+            System.exit(0);\n+        } else {\n+            System.out.println(\"FAILURE: Bug still exists\");\n+            System.exit(1);\n+        }\n+    }\n+}\n+EOF && cd /defects4j/framework/bin/temp/JacksonDatabind_109 && javac -cp \"build/classes/java/main:$(find ~/.m2/repository -name \"*.jar\" 2>/dev/null | tr '\\n' ':')\" /tmp/SimpleTest.java && java -cp \"/tmp:build/classes/java/main:$(find ~/.m2/repository -name \"*.jar\" 2>/dev/null | tr '\\n' ':')\" SimpleTest && cd /defects4j/framework/bin/temp/JacksonDatabind_109 && cat > /tmp/TestDisabled.java << 'EOF'\n+import com.fasterxml.jackson.annotation.JsonFormat;\n+import com.fasterxml.jackson.core.JsonGenerator;\n+import com.fasterxml.jackson.databind.ObjectMapper;\n+import java.math.BigDecimal;\n+\n+class TestClass {\n+    @JsonFormat(shape=JsonFormat.Shape.STRING)\n+    public BigDecimal value;\n+    \n+    TestClass(BigDecimal v) { value = v; }\n+}\n+\n+public class TestDisabled {\n+    public static void main(String[] args) throws Exception {\n+        ObjectMapper mapper = new ObjectMapper();\n+        mapper.configure(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN, false);\n+        \n+        BigDecimal bd = new BigDecimal(\"0.0000000005\");\n+        TestClass obj = new TestClass(bd);\n+        \n+        String result = mapper.writeValueAsString(obj);\n+        System.out.println(\"Result with WRITE_BIGDECIMAL_AS_PLAIN=false: \" + result);\n+        \n+        // Should be scientific notation when disabled\n+        if (result.contains(\"5.0E-10\")) {\n+            System.out.println(\"SUCCESS: Scientific notation used when feature is disabled\");\n+            System.exit(0);\n+        } else {\n+            System.out.println(\"FAILURE: Expected scientific notation\");\n+            System.exit(1);\n+        }\n+    }\n }\n+EOF && cd /defects4j/framework/bin/temp/JacksonDatabind_109 && javac -cp \"build/classes/java/main:$(find ~/.m2/repository -name \"*.jar\" 2>/dev/null | tr '\\n' ':')\" /tmp/TestDisabled.java && java -cp \"/tmp:build/classes/java/main:$(find ~/.m2/repository -name \"*.jar\" 2>/dev/null | tr '\\n' ':')\" TestDisabled && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n"
+  },
+  "timestamp": "2026-06-24 18:33:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_109",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_109",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`WRITE_BIGDECIMAL_AS_PLAIN` is ignored if `@JsonFormat` is used\nI am trying to serialize BigDecimal as json string while avoiding scientific notation (kotlin):\r\n```kotlin\r\ndata class Test(\r\n    @JsonFormat(shape= JsonFormat.Shape.STRING)\r\n    val value: BigDecimal\r\n)\r\n\r\nfun main() {\r\n    val mapper = jacksonObjectMapper()\r\n        .configure(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN, true)\r\n    val test = Test(0.0000000005.toBigDecimal())\r\n    println(mapper.writeValueAsString(test))\r\n}\r\n```\r\noutput `{\"value\":\"5.0E-10\"}`\r\nIf  `JsonFormat` is removed, then `WRITE_BIGDECIMAL_AS_PLAIN` works and output is `{\"value\":0.00000000050}` (json number, not string), but trying to make it json string with `JsonFormat` results in `WRITE_BIGDECIMAL_AS_PLAIN` being ignored.\r\n\r\nUsing latest version, jackson-bom:2.9.8\n",
+    "commit_message": "Fix #2230",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 286,
+        "end_line": 286,
+        "suspiciousness": 0.9997518302480708,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 287,
+        "end_line": 287,
+        "suspiciousness": 0.9997518302480708,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 291,
+        "end_line": 291,
+        "suspiciousness": 0.9997518302480708,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9997518302480708,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9943412019562262,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.jdk.BigDecimalPlain2230Test::testBigIntegerAsPlainTest"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 286,
+      "end_line": 286,
+      "suspiciousness": 0.9997518302480708,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 287,
+      "end_line": 287,
+      "suspiciousness": 0.9997518302480708,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 291,
+      "end_line": 291,
+      "suspiciousness": 0.9997518302480708,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9997518302480708,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9943412019562262,
+      "rank": 10
+    }
+  ]
+}

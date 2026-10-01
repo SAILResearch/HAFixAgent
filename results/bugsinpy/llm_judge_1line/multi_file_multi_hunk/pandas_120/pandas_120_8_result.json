@@ -1,0 +1,98 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_120",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 06:40:56",
+      "end_time": "2026-03-24 07:20:39",
+      "duration_seconds": 2383,
+      "duration_human": "39m 43s"
+    },
+    "model_cost": 0.1047,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 597882,
+      "output_tokens": 79756,
+      "total_tokens": 677638,
+      "cached_input_tokens": 331136,
+      "uncached_input_tokens": 266746
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex 0ca6ef043f..e4f3312f61 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -557,7 +557,7 @@ class SeriesGroupBy(GroupBy):\n             res, out = np.zeros(len(ri), dtype=out.dtype), res\n             res[ids[idx]] = out\n \n-        return Series(res, index=ri, name=self._selection_name)\n+        return self._reindex_output(Series(res, index=ri, name=self._selection_name), fill_value=0)\n \n     @Appender(Series.describe.__doc__)\n     def describe(self, **kwargs):\n@@ -707,15 +707,15 @@ class SeriesGroupBy(GroupBy):\n         mask = (ids != -1) & ~isna(val)\n         ids = ensure_platform_int(ids)\n         minlength = ngroups or 0\n-        out = np.bincount(ids[mask], minlength=minlength)\n-\n-        return Series(\n-            out,\n-            index=self.grouper.result_index,\n-            name=self._selection_name,\n-            dtype=\"int64\",\n+        return self._reindex_output(\n+            Series(\n+                out,\n+                index=self.grouper.result_index,\n+                name=self._selection_name,\n+                dtype=\"int64\",\n+            ),\n+            fill_value=0\n         )\n-\n     def _apply_to_column_groupbys(self, func):\n         \"\"\" return a pass thru \"\"\"\n         return func(self)\n@@ -1934,4 +1934,4 @@ def _recast_datetimelike_result(result: DataFrame) -> DataFrame:\n         )\n \n         result.iloc[:, n] = converted\n-    return result\n+    return result\n\\ No newline at end of file\ndiff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 99a4942df4..24363768f6 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -1296,7 +1296,7 @@ class GroupBy(_GroupBy):\n \n         if isinstance(self.obj, Series):\n             result.name = self.obj.name\n-        return result\n+        return self._reindex_output(result, fill_value=0)\n \n     @classmethod\n     def _add_numeric_operations(cls):\n@@ -2380,7 +2380,7 @@ class GroupBy(_GroupBy):\n         mask = self._cumcount_array(ascending=False) < n\n         return self._selected_obj[mask]\n \n-    def _reindex_output(self, output):\n+    def _reindex_output(self, output, fill_value=None):\n         \"\"\"\n         If we have categorical groupers, then we might want to make sure that\n         we have a fully re-indexed output to the levels. This means expanding\n@@ -2427,7 +2427,7 @@ class GroupBy(_GroupBy):\n \n         if self.as_index:\n             d = {self.obj._get_axis_name(self.axis): index, \"copy\": False}\n-            return output.reindex(**d)\n+            return output.reindex(**d, fill_value=fill_value)\n \n         # GH 13204\n         # Here, the categorical in-axis groupers, which need to be fully\n@@ -2448,7 +2448,7 @@ class GroupBy(_GroupBy):\n         output = output.drop(labels=list(g_names), axis=1)\n \n         # Set a temp index and reindex (possibly expanding)\n-        output = output.set_index(self.grouper.result_index).reindex(index, copy=False)\n+        output = output.set_index(self.grouper.result_index).reindex(index, copy=False, fill_value=fill_value)\n \n         # Reset in-axis grouper columns\n         # (using level numbers `g_nums` because level names may not be unique)\ndiff --git a/pandas/tests/groupby/test_categorical.py b/pandas/tests/groupby/test_categorical.py\nindex 663e03aa1b..5f78e4860f 100644\n--- a/pandas/tests/groupby/test_categorical.py\n+++ b/pandas/tests/groupby/test_categorical.py\n@@ -1252,3 +1252,82 @@ def test_get_nonexistent_category():\n                 {\"var\": [rows.iloc[-1][\"var\"]], \"val\": [rows.iloc[-1][\"vau\"]]}\n             )\n         )\n+\n+\n+def test_series_groupby_on_2_categoricals_unobserved(\n+    reduction_func: str, observed: bool\n+):\n+    # GH 17605\n+\n+    if reduction_func == \"ngroup\":\n+        pytest.skip(\"ngroup is not truly a reduction\")\n+\n+    df = pd.DataFrame(\n+        {\n+            \"cat_1\": pd.Categorical(list(\"AABB\"), categories=list(\"ABCD\")),\n+            \"cat_2\": pd.Categorical(list(\"AB\") * 2, categories=list(\"ABCD\")),\n+            \"value\": [0.1] * 4,\n+        }\n+    )\n+    args = {\"nth\": [0]}.get(reduction_func, [])\n+\n+    expected_length = 4 if observed else 16\n+\n+    series_groupby = df.groupby([\"cat_1\", \"cat_2\"], observed=observed)[\"value\"]\n+    agg = getattr(series_groupby, reduction_func)\n+    result = agg(*args)\n+\n+    assert len(result) == expected_length\n+\n+\n+@pytest.mark.parametrize(\n+    \"func, zero_or_nan\",\n+    [\n+        (\"all\", np.NaN),\n+        (\"any\", np.NaN),\n+        (\"count\", 0),\n+        (\"first\", np.NaN),\n+        (\"idxmax\", np.NaN),\n+        (\"idxmin\", np.NaN),\n+        (\"last\", np.NaN),\n+        (\"mad\", np.NaN),\n+        (\"max\", np.NaN),\n+        (\"mean\", np.NaN),\n+        (\"median\", np.NaN),\n+        (\"min\", np.NaN),\n+        (\"nth\", np.NaN),\n+        (\"nunique\", 0),\n+        (\"prod\", np.NaN),\n+        (\"quantile\", np.NaN),\n+        (\"sem\", np.NaN),\n+        (\"size\", 0),\n+        (\"skew\", np.NaN),\n+        (\"std\", np.NaN),\n+        (\"sum\", np.NaN),\n+        (\"var\", np.NaN),\n+    ],\n+)\n+def test_series_groupby_on_2_categoricals_unobserved_zeroes_or_nans(func, zero_or_nan):\n+    # GH 17605\n+    # Tests whether the unobserved categories in the result contain 0 or NaN\n+    df = pd.DataFrame(\n+        {\n+            \"cat_1\": pd.Categorical(list(\"AABB\"), categories=list(\"ABC\")),\n+            \"cat_2\": pd.Categorical(list(\"AB\") * 2, categories=list(\"ABC\")),\n+            \"value\": [0.1] * 4,\n+        }\n+    )\n+    unobserved = [tuple(\"AC\"), tuple(\"BC\"), tuple(\"CA\"), tuple(\"CB\"), tuple(\"CC\")]\n+    args = {\"nth\": [0]}.get(func, [])\n+\n+    series_groupby = df.groupby([\"cat_1\", \"cat_2\"], observed=False)[\"value\"]\n+    agg = getattr(series_groupby, func)\n+    result = agg(*args)\n+\n+    for idx in unobserved:\n+        val = result.loc[idx]\n+        assert (pd.isna(zero_or_nan) and pd.isna(val)) or (val == zero_or_nan)\n+\n+    # If we expect unobserved values to be zero, we also expect the dtype to be int\n+    if zero_or_nan == 0:\n+        assert np.issubdtype(result.dtype, np.integer)\n"
+  },
+  "timestamp": "2026-03-24 03:20:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_120",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_120/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Series groupby does not include nan counts for all categorical labels (#17605) (#29690)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 560,
+        "end_line": 560,
+        "function_name": "nunique",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 712,
+        "end_line": 712,
+        "function_name": "count",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1299,
+        "end_line": 1299,
+        "function_name": "size",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2383,
+        "end_line": 2383,
+        "function_name": "_reindex_output",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2397,
+        "end_line": 2397,
+        "function_name": "_reindex_output",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2429,
+        "end_line": 2429,
+        "function_name": "_reindex_output",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2451,
+        "end_line": 2451,
+        "function_name": "_reindex_output",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_categorical.py::test_series_groupby_on_2_categoricals_unobserved",
+      "pytest pandas/tests/groupby/test_categorical.py::test_series_groupby_on_2_categoricals_unobserved_zeroes_or_nans"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

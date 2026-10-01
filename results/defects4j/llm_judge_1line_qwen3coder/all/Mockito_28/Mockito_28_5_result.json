@@ -1,0 +1,62 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "28",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 03:42:29",
+      "end_time": "2026-06-20 03:47:55",
+      "duration_seconds": 326,
+      "duration_human": "5m 26s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 41,
+    "token_usage": {
+      "input_tokens": 327622,
+      "output_tokens": 2971,
+      "total_tokens": 330593,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 327622
+    },
+    "agent_steps": 41,
+    "checkout_success": true,
+    "patch": "diff --git a/src/org/mockito/internal/configuration/injection/TypeBasedCandidateFilter.java b/src/org/mockito/internal/configuration/injection/TypeBasedCandidateFilter.java\nindex bbb6ce7fc..47aa39526 100644\n--- a/src/org/mockito/internal/configuration/injection/TypeBasedCandidateFilter.java\n+++ b/src/org/mockito/internal/configuration/injection/TypeBasedCandidateFilter.java\n@@ -1,26 +1,31 @@\n-package org.mockito.internal.configuration.injection;\n-\n-import java.lang.reflect.Field;\n-import java.util.ArrayList;\n-import java.util.Collection;\n-import java.util.List;\n-\n-public class TypeBasedCandidateFilter implements MockCandidateFilter {\n-\n-    MockCandidateFilter next;\n-\n-    public TypeBasedCandidateFilter(MockCandidateFilter next) {\n-        this.next = next;\n-    }\n-\n-    public OngoingInjecter filterCandidate(Collection<Object> mocks, Field field, Object fieldInstance) {\n-        List<Object> mockTypeMatches = new ArrayList<Object>();\n-        for (Object mock : mocks) {\n-            if (field.getType().isAssignableFrom(mock.getClass())) {\n-                mockTypeMatches.add(mock);\n-            }\n-        }\n-\n-        return next.filterCandidate(mockTypeMatches, field, fieldInstance);\n-    }\n-}\n\\ No newline at end of file\n+package org.mockito.internal.configuration.injection;\n+\n+import java.lang.reflect.Field;\n+import java.util.ArrayList;\n+import java.util.Collection;\n+import java.util.List;\n+\n+public class TypeBasedCandidateFilter implements MockCandidateFilter {\n+\n+    MockCandidateFilter next;\n+\n+    public TypeBasedCandidateFilter(MockCandidateFilter next) {\n+        this.next = next;\n+    }\n+\n+    public OngoingInjecter filterCandidate(Collection<Object> mocks, Field field, Object fieldInstance) {\n+        // Skip fields of type Object to avoid injecting mocks into Object fields\n+        if (field.getType().equals(Object.class)) {\n+            return next.filterCandidate(new ArrayList<Object>(), field, fieldInstance);\n+        }\n+        \n+        List<Object> mockTypeMatches = new ArrayList<Object>();\n+        for (Object mock : mocks) {\n+            if (field.getType().isAssignableFrom(mock.getClass())) {\n+                mockTypeMatches.add(mock);\n+            }\n+        }\n+\n+        return next.filterCandidate(mockTypeMatches, field, fieldInstance);\n+    }\n+}\n"
+  },
+  "timestamp": "2026-06-20 03:47:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_28",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_28",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "@InjectMocks injects mock into Object-typed fields\nWhen using @InjectMocks on a class which has fields of the type &quot;Object&quot;, the mock gets injected into that field instead of being only injected into the field it is supposed to be injected to.\r\n\r\nSee attachments for a testcase on this problem.\r\n\r\nIt would be better if @InjectMocks would leave the Object fields alone, because this behaviour is not expected and it is causing my own unit tests to fail. One example of such a failure is the production code having a Object-constant (see the commented out one in TestService as illustration) which mockito tries to override with a mock, but fails because PowerMock is not available. \r\n\r\nAnd even if i set the Object-field to non-static, it mangles the logic of my production code, because on class initialization the object is used to register a listener in a different class with that object as a map accessor. Now when mockito overrides the Object-field, the requests are added with the mock object instead of the original Object-instance and thus no listeners are being found by the async service my service uses.\r\n\r\nI don't like the idea of removing the Object-field as an accessor to instead use &quot;this&quot; (not explicit enough for readability purposes) or some other type as the accessor-type (just more code), instead I think this should better be fixed.\r\n\r\nSurely there will be more occasions this will make me problems in writing unit tests.\r\n\r\nBest regards\r\nsubes",
+    "commit_message": "fix for issue 236 : mocks are injected a bit less aggressively",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/configuration/DefaultInjectionEngine.java",
+        "start_line": 93,
+        "end_line": 93,
+        "line_numbers": [
+          93
+        ],
+        "function_name": "injectMockCandidate",
+        "class_name": "DefaultInjectionEngine",
+        "filename": "DefaultInjectionEngine.java",
+        "code_snippet": "    private void injectMockCandidate(Class<?> awaitingInjectionClazz, Set<Object> mocks, Object fieldInstance) {\n        for(Field field : orderedInstanceFieldsFrom(awaitingInjectionClazz)) {\n            mockCandidateFilter.filterCandidate(mocks, field, fieldInstance).thenInject();\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockitousage.bugs.InjectionByTypeShouldFirstLookForExactTypeThenAncestorTest::mock_should_be_injected_once_and_in_the_best_matching_type"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/configuration/DefaultInjectionEngine.java b/src/org/mockito/internal/configuration/DefaultInjectionEngine.java\nindex 846fbf7..213ebf3 100644\n--- a/src/org/mockito/internal/configuration/DefaultInjectionEngine.java\n+++ b/src/org/mockito/internal/configuration/DefaultInjectionEngine.java\n@@ -90,8 +90,7 @@ public class DefaultInjectionEngine {\n \n     private void injectMockCandidate(Class<?> awaitingInjectionClazz, Set<Object> mocks, Object fieldInstance) {\n         for(Field field : orderedInstanceFieldsFrom(awaitingInjectionClazz)) {\n+            Object injected = mockCandidateFilter.filterCandidate(mocks, field, fieldInstance).thenInject();\n+            mocks.remove(injected);\n-            mockCandidateFilter.filterCandidate(mocks, field, fieldInstance).thenInject();\n         }\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

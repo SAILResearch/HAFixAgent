@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_9",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 01:58:10",
+      "end_time": "2026-06-26 02:54:40",
+      "duration_seconds": 3389,
+      "duration_human": "56m 29s"
+    },
+    "model_cost": 0.2272,
+    "model_calls": 34,
+    "token_usage": {
+      "input_tokens": 2099961,
+      "output_tokens": 78936,
+      "total_tokens": 2178897,
+      "cached_input_tokens": 1378432,
+      "uncached_input_tokens": 721529
+    },
+    "agent_steps": 34,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 0c9db271ed..53eda6ca1a 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -1446,10 +1446,18 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject):\n         \"\"\"\n         Return the indices that would sort the Categorical.\n \n-        .. versionchanged:: 0.25.0\n-\n-           Changed to sort missing values at the end.\n-\n+        if isna(key):\n+            if not self._na_value_in_categories:\n+                return -1\n+            # Only treat as matching if key is actually our _na_value\n+            if not (key is self._na_value or key == self._na_value):\n+                # For numpy NA values, check dtype\n+                if hasattr(key, \"dtype\") and hasattr(self._na_value, \"dtype\"):\n+                    if key.dtype != self._na_value.dtype:\n+                        return -1\n+                elif type(key) != type(self._na_value):\n+                    return -1\n+            key = self._na_value\n         Parameters\n         ----------\n         ascending : bool, default True\n@@ -1831,14 +1839,30 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject):\n \n     def __contains__(self, key) -> bool:\n         \"\"\"\n-        Returns True if `key` is in this Categorical.\n+        Returns True if key is in this Categorical.\n         \"\"\"\n+        from pandas import isna\n+        import numpy as np\n+        from pandas.api.types import is_datetime64_any_dtype, is_timedelta64_dtype, is_period_dtype\n+        \n         # if key is a NaN, check if any NaN is in self.\n         if is_scalar(key) and isna(key):\n-            return self.isna().any()\n-\n+            if not self.isna().any():\n+                return False\n+            \n+            # Special handling for NA type mismatches\n+            if isinstance(key, (np.datetime64, np.timedelta64)):\n+                # Check the dtype of our categories\n+                cat_dtype = self.categories.dtype\n+                if isinstance(key, np.timedelta64) and (is_datetime64_any_dtype(cat_dtype) or is_period_dtype(cat_dtype)):\n+                    # key is timedelta64 NaT, categories are datetime or period\n+                    return False\n+                elif isinstance(key, np.datetime64) and (is_timedelta64_dtype(cat_dtype) or is_period_dtype(cat_dtype)):\n+                    # key is datetime64 NaT, categories are timedelta or period\n+                    return False\n+            return True\n+        \n         return contains(self, key, container=self._codes)\n-\n     def _tidy_repr(self, max_vals=10, footer=True) -> str:\n         \"\"\"\n         a short repr displaying only max_vals and an optional (but default\ndiff --git a/pandas/core/indexes/category.py b/pandas/core/indexes/category.py\nindex 0cf6698d31..17b5c44ce4 100644\n--- a/pandas/core/indexes/category.py\n+++ b/pandas/core/indexes/category.py\n@@ -366,12 +366,24 @@ class CategoricalIndex(ExtensionIndex, accessor.PandasDelegate):\n     def __contains__(self, key: Any) -> bool:\n         # if key is a NaN, check if any NaN is in self.\n         if is_scalar(key) and isna(key):\n-            return self.hasnans\n+            if not self.hasnans:\n+                return False\n+            \n+            # Special handling for NA type mismatches\n+            if isinstance(key, (np.datetime64, np.timedelta64)):\n+                # Check the dtype of our categories\n+                from pandas.api.types import is_datetime64_any_dtype, is_timedelta64_dtype, is_period_dtype\n+                cat_dtype = self.categories.dtype\n+                if isinstance(key, np.timedelta64) and (is_datetime64_any_dtype(cat_dtype) or is_period_dtype(cat_dtype)):\n+                    # key is timedelta64 NaT, categories are datetime or period\n+                    return False\n+                elif isinstance(key, np.datetime64) and (is_timedelta64_dtype(cat_dtype) or is_period_dtype(cat_dtype)):\n+                    # key is datetime64 NaT, categories are timedelta or period\n+                    return False\n+            return True\n \n         hash(key)\n         return contains(self, key, container=self._engine)\n-\n-    @doc(Index.astype)\n     def astype(self, dtype, copy=True):\n         if is_interval_dtype(dtype):\n             from pandas import IntervalIndex\ndiff --git a/pandas/tests/indexes/categorical/test_indexing.py b/pandas/tests/indexes/categorical/test_indexing.py\nindex a36568bbbe..9cf901c079 100644\n--- a/pandas/tests/indexes/categorical/test_indexing.py\n+++ b/pandas/tests/indexes/categorical/test_indexing.py\n@@ -285,6 +285,43 @@ class TestContains:\n         ci = CategoricalIndex(list(\"aabbca\") + [np.nan], categories=list(\"cabdef\"))\n         assert np.nan in ci\n \n+    @pytest.mark.parametrize(\"unwrap\", [True, False])\n+    def test_contains_na_dtype(self, unwrap):\n+        dti = pd.date_range(\"2016-01-01\", periods=100).insert(0, pd.NaT)\n+        pi = dti.to_period(\"D\")\n+        tdi = dti - dti[-1]\n+        ci = CategoricalIndex(dti)\n+\n+        obj = ci\n+        if unwrap:\n+            obj = ci._data\n+\n+        assert np.nan in obj\n+        assert None in obj\n+        assert pd.NaT in obj\n+        assert np.datetime64(\"NaT\") in obj\n+        assert np.timedelta64(\"NaT\") not in obj\n+\n+        obj2 = CategoricalIndex(tdi)\n+        if unwrap:\n+            obj2 = obj2._data\n+\n+        assert np.nan in obj2\n+        assert None in obj2\n+        assert pd.NaT in obj2\n+        assert np.datetime64(\"NaT\") not in obj2\n+        assert np.timedelta64(\"NaT\") in obj2\n+\n+        obj3 = CategoricalIndex(pi)\n+        if unwrap:\n+            obj3 = obj3._data\n+\n+        assert np.nan in obj3\n+        assert None in obj3\n+        assert pd.NaT in obj3\n+        assert np.datetime64(\"NaT\") not in obj3\n+        assert np.timedelta64(\"NaT\") not in obj3\n+\n     @pytest.mark.parametrize(\n         \"item, expected\",\n         [\n"
+  },
+  "timestamp": "2026-06-26 02:54:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_9",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_9/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: CategoricalIndex.__contains__ incorrect NaTs (#33947)",
+    "fault_locations": [
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 109,
+        "end_line": 109,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 547,
+        "end_line": 547,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1272,
+        "end_line": 1272,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1273,
+        "end_line": 1273,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1274,
+        "end_line": 1274,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1275,
+        "end_line": 1275,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1276,
+        "end_line": 1276,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1277,
+        "end_line": 1277,
+        "suspiciousness": 0.952381,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/categorical/test_indexing.py::TestContains::test_contains_na_dtype"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 109,
+      "end_line": 109,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 547,
+      "end_line": 547,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1272,
+      "end_line": 1272,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1273,
+      "end_line": 1273,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1274,
+      "end_line": 1274,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1275,
+      "end_line": 1275,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1276,
+      "end_line": 1276,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1277,
+      "end_line": 1277,
+      "suspiciousness": 0.952381,
+      "rank": 10
+    }
+  ]
+}

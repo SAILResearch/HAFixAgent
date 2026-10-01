@@ -1,0 +1,168 @@
+{
+  "project_name": "Compress",
+  "bug_id": "42",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 00:50:00",
+      "end_time": "2025-10-01 00:50:56",
+      "duration_seconds": 56,
+      "duration_human": "56.0s"
+    },
+    "model_cost": 0.0039,
+    "model_calls": 11,
+    "token_usage": {
+      "input_tokens": 42253,
+      "output_tokens": 787,
+      "total_tokens": 43040,
+      "cached_input_tokens": 39104,
+      "uncached_input_tokens": 3149
+    },
+    "agent_steps": 12,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\nindex 5030da57..2df054cc 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n@@ -294,7 +294,8 @@ public int getUnixMode() {\n      * @return true if the entry represents a unix symlink, false otherwise.\n      */\n     public boolean isUnixSymlink() {\n-        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n+        int unixMode = getUnixMode();\n+        return unixMode == SHORT_MASK ? false : (unixMode & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n     }\n \n     /**\n"
+  },
+  "timestamp": "2025-09-30 20:50:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_42",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_42",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "isUnixSymlink returns true for Zip entries with Unix permissions 177777\nThis issue was originally reported in MASSEMBLY-842, but it seems the root cause in inside Commons Compress.\n\nConsider the attached {{invalid-entry.jar}}, whose contents, as shown by the {{zipinfo}} utility, is:\n\n{noformat}\n?rwsrwsrwt  2.0 unx        0 b- stor 17-Jan-15 16:06 META-INF/maven/\ndrwxr-xr-x  2.0 unx        0 b- stor 17-Jan-15 16:06 META-INF/\n{noformat}\n\nThere are some JAR files created by the Maven Assembly Plugin with content similar to this, and the entry {{META-INF/maven/}} has permissions 177777 (octal). Constructing a {{ZipFile}} from this file, the method {{isUnixSymlink}} incorrectly returns {{true}} for the entry {{META-INF/maven/}} (and it correctly returns {{false}} for the entry {{META-INF/}}.\n\nHere is a sample Java code that can be used to see the behaviour:\n\n{code:java}\npublic static void main(String[] args) throws IOException {\n    try (ZipFile zipFile = new ZipFile(new File(\"invalid-entry.jar\"))) {\n        printAttributes(zipFile, \"META-INF/\");\n        printAttributes(zipFile, \"META-INF/maven/\");\n    }\n}\n\nprivate static void printAttributes(ZipFile zipFile, String name) {\n    ZipArchiveEntry entry = zipFile.getEntriesInPhysicalOrder(name).iterator().next();\n    System.out.printf(\"%-17s: symlink:%-5s - unixMode:%s%n\", name, entry.isUnixSymlink(), entry.getUnixMode());\n}\n{code}\n\nThis code outputs:\n\n{noformat}\nMETA-INF/        : symlink:false - unixMode:16877\nMETA-INF/maven/  : symlink:true  - unixMode:65535\n{noformat}\n\nThe {{?rwsrwsrwt}} permissions show that the Zip entry is broken in the first place, but I think {{isUnixSymlink}} should still return {{false}} in that case, and not consider this entry to be a symlink.\n\nIt seems the fix would be to update {{isUnixSymlink}} and check whether the unix mode is equal to {{SHORT_MASK}}, and return {{false}} in that case as it would indicate a broken entry. This change does not break any existing tests, but I'm not sure if this is the proper fix.\n\n{code:java}\npublic boolean isUnixSymlink() {\n    int unixMode = getUnixMode();\n    return unixMode == SHORT_MASK ? false : (unixMode & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n}\n{code}\n",
+    "commit_message": "COMPRESS-379 fix symlink logic",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+        "start_line": 297,
+        "end_line": 297,
+        "line_numbers": [
+          297
+        ],
+        "function_name": "isUnixSymlink",
+        "class_name": "ZipArchiveEntry",
+        "filename": "ZipArchiveEntry.java",
+        "code_snippet": "    public boolean isUnixSymlink() {\n        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.ZipArchiveEntryTest::isUnixSymlinkIsFalseIfMoreThanOneFlagIsSet"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/UnixStat.java b/src/main/java/org/apache/commons/compress/archivers/zip/UnixStat.java\nindex a1b20be3..8fc36068 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/UnixStat.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/UnixStat.java\n@@ -32,7 +32,6 @@\n      * Bits used to indicate the filesystem object type.\n      * @since 1.14\n      */\n+    int FILE_TYPE_FLAG = 0170000;\n     /**\n      * Indicates symbolic links.\n      */\ndiff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\nindex 2abd22b5..5030da57 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n@@ -294,7 +294,7 @@ public int getUnixMode() {\n      * @return true if the entry represents a unix symlink, false otherwise.\n      */\n     public boolean isUnixSymlink() {\n+        return (getUnixMode() & UnixStat.FILE_TYPE_FLAG) == UnixStat.LINK_FLAG;\n-        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n     }\n \n     /**",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Julius Davies",
+        "commit_date": "2013-01-14 16:42:48",
+        "commit_message": "COMPRESS-214 - better support for unix symlinks",
+        "commit_hash": "1120914c8b6c0ba6e75328791d9fe639b946e2fa"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "isUnixSymlink",
+          "getUnixSymlink",
+          "getUnixMode"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "isUnixSymlink",
+          "getUnixSymlink",
+          "getUnixMode",
+          "copy"
+        ],
+        "functions_name_modified_file": [
+          "setExternalAttributes",
+          "getName",
+          "getUnixMode",
+          "removeExtraField",
+          "addExtraField",
+          "hashCode",
+          "getExternalAttributes",
+          "removeUnparseableExtraFieldData",
+          "setSize",
+          "isDirectory",
+          "getPlatform",
+          "mergeExtraFields",
+          "getSize",
+          "getMethod",
+          "setName",
+          "equals",
+          "clone",
+          "setGeneralPurposeBit",
+          "setUnixMode",
+          "getUnixSymlink",
+          "setInternalAttributes",
+          "getInternalAttributes",
+          "ZipArchiveEntry",
+          "setCentralDirectoryExtra",
+          "addAsFirstExtraField",
+          "isUnixSymlink",
+          "getLastModifiedDate",
+          "setExtraFields",
+          "setExtra",
+          "getUnparseableExtraFieldData",
+          "setMethod",
+          "setPlatform",
+          "getExtraField",
+          "getGeneralPurposeBit"
+        ],
+        "functions_name_all_files": [
+          "setExternalAttributes",
+          "getName",
+          "getUnixMode",
+          "removeExtraField",
+          "addExtraField",
+          "hashCode",
+          "getExternalAttributes",
+          "removeUnparseableExtraFieldData",
+          "setSize",
+          "isDirectory",
+          "getPlatform",
+          "mergeExtraFields",
+          "getSize",
+          "getMethod",
+          "setName",
+          "equals",
+          "clone",
+          "copy",
+          "setGeneralPurposeBit",
+          "setUnixMode",
+          "getUnixSymlink",
+          "setInternalAttributes",
+          "getInternalAttributes",
+          "ZipArchiveEntry",
+          "setCentralDirectoryExtra",
+          "addAsFirstExtraField",
+          "isUnixSymlink",
+          "getLastModifiedDate",
+          "setExtraFields",
+          "setExtra",
+          "getUnparseableExtraFieldData",
+          "setMethod",
+          "setPlatform",
+          "IOUtils",
+          "getExtraField",
+          "getGeneralPurposeBit"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    /**\n     * Returns true if this entry represents a unix symlink,\n     * in which case the entry's content contains the target path\n     * for the symlink.\n     *\n     * @return true if the entry represents a unix symlink, false otherwise.\n     */\n    public boolean isUnixSymlink() {\n        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+          "src/main/java/org/apache/commons/compress/utils/IOUtils.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\nindex a337ae38..4cd09fd2 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n@@ -17,14 +17,18 @@\n  */\n package org.apache.commons.compress.archivers.zip;\n \n+import org.apache.commons.compress.archivers.ArchiveEntry;\n+import org.apache.commons.compress.utils.IOUtils;\n+\n import java.io.File;\n+import java.io.IOException;\n+import java.io.InputStream;\n import java.util.ArrayList;\n import java.util.Arrays;\n import java.util.Date;\n import java.util.LinkedHashMap;\n import java.util.List;\n import java.util.zip.ZipException;\n-import org.apache.commons.compress.archivers.ArchiveEntry;\n \n /**\n  * Extension that adds better handling of extra fields and provides\n@@ -266,6 +270,83 @@ public int getUnixMode() {\n             (int) ((getExternalAttributes() >> SHORT_SHIFT) & SHORT_MASK);\n     }\n \n+    /**\n+     * Returns true if this entry represents a unix symlink,\n+     * in which case the entry's content contains the target path\n+     * for the symlink.\n+     *\n+     * @return true if the entry represents a unix symlink, false otherwise.\n+     */\n+    public boolean isUnixSymlink() {\n+        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n+    }\n+\n+    /**\n+     * <p>\n+     * Convenience method to return this entry's content as a String if isUnixSymlink()\n+     * returns true, otherwise returns null.\n+     * This method assumes the symlink's target path has been stored in the zip file using the\n+     * UTF-8 character encoding.\n+     * </p><p>\n+     * Unfortunately, there is no reliable way to automatically obtain the target path's\n+     * character encoding (within the zip file) should it differ from UTF-8.  Zip files\n+     * do not remember the character set used to encode zip contents.\n+     * Entry names do not have this problem (thanks to various flags and extra fields),\n+     * but symlink targets are not so lucky.  If you happen to know the character set that was used\n+     * to encode symlink paths in the zip file, feel free to use the overloaded version:\n+     * <code>getUnixSymlink(ZipFile zf, String pathCharset)</code>.\n+     * </p><p>\n+     * This method can only be used in conjunction with a ZipFile object (since we need\n+     * the entry's contents); users of ZipArchiveInputStream will need to create their\n+     * own logic.\n+     * </p>\n+     *\n+     * @param zf ZipFile object that contains this ZipArchiveEntry's contents.\n+     * @return entry's content as a String (UTF-8 character set assumed).\n+     * @throws IOException problem with content's input stream\n+     */\n+    public String getUnixSymlink(ZipFile zf) throws IOException {\n+        return getUnixSymlink(zf, \"UTF-8\");\n+    }\n+\n+    /**\n+     * <p>\n+     * Convenience method to return this entry's content as a String if isUnixSymlink()\n+     * returns true, otherwise returns null.\n+     * </p><p>\n+     * Unfortunately, there is no reliable way to automatically obtain the target path's\n+     * character encoding (within the zip file) should it differ from UTF-8.  Zip files\n+     * do not remember the character set used to encode zip contents.\n+     * Entry names do not have this problem (thanks to various flags and extra fields),\n+     * but symlink targets are not so lucky.\n+     * </p><p>\n+     * This method can only be used in conjunction with a ZipFile object (since we need\n+     * the entry's contents); users of ZipArchiveInputStream will need to create their\n+     * own logic.\n+     * </p>\n+     *\n+     * @param zf          ZipFile object that contains this ZipArchiveEntry's contents.\n+     * @param pathCharset the character set used to encode the symlink's target path.\n+     * @return entry's content as a String (using the provided character set).\n+     * @throws IOException problem with content's input stream\n+     */\n+    public String getUnixSymlink(ZipFile zf, String pathCharset) throws IOException {\n+        if (isUnixSymlink()) {\n+            InputStream in = null;\n+            try {\n+                in = zf.getInputStream(this);\n+                byte[] symlinkBytes = IOUtils.toByteArray(in);\n+                return new String(symlinkBytes, pathCharset);\n+            } finally {\n+                if (in != null) {\n+                    in.close();\n+                }\n+            }\n+        } else {\n+            return null;\n+        }\n+    }\n+\n     /**\n      * Platform specification to put into the &quot;version made\n      * by&quot; part of the central file header."
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

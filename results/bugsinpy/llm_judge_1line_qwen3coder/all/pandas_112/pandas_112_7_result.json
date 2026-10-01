@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_112",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 17:21:31",
+      "end_time": "2026-06-20 17:23:34",
+      "duration_seconds": 124,
+      "duration_human": "2m 4s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 491664,
+      "output_tokens": 3358,
+      "total_tokens": 495022,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 491664
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/interval.py b/pandas/core/indexes/interval.py\nindex 2555caac29..360c5a12a4 100644\n--- a/pandas/core/indexes/interval.py\n+++ b/pandas/core/indexes/interval.py\n@@ -19,6 +19,7 @@ from pandas.core.dtypes.cast import (\n )\n from pandas.core.dtypes.common import (\n     ensure_platform_int,\n+    is_categorical,\n     is_datetime64tz_dtype,\n     is_datetime_or_timedelta_dtype,\n     is_dtype_equal,\n@@ -36,6 +37,7 @@ from pandas.core.dtypes.generic import ABCSeries\n from pandas.core.dtypes.missing import isna\n \n from pandas._typing import AnyArrayLike\n+from pandas.core.algorithms import take_1d\n from pandas.core.arrays.interval import IntervalArray, _interval_shared_docs\n import pandas.core.common as com\n import pandas.core.indexes.base as ibase\n@@ -958,6 +960,10 @@ class IntervalIndex(IntervalMixin, Index):\n             left_indexer = self.left.get_indexer(target_as_index.left)\n             right_indexer = self.right.get_indexer(target_as_index.right)\n             indexer = np.where(left_indexer == right_indexer, left_indexer, -1)\n+        elif is_categorical(target_as_index):\n+            # get an indexer for unique categories then propagate to codes via take_1d\n+            categories_indexer = self.get_indexer(target_as_index.categories)\n+            indexer = take_1d(categories_indexer, target_as_index.codes, fill_value=-1)\n         elif not is_object_dtype(target_as_index):\n             # homogeneous scalar index: use IntervalTree\n             target_as_index = self._maybe_convert_i8(target_as_index)\ndiff --git a/pandas/tests/frame/test_analytics.py b/pandas/tests/frame/test_analytics.py\nindex 6c822fd5a6..cef389a6c4 100644\n--- a/pandas/tests/frame/test_analytics.py\n+++ b/pandas/tests/frame/test_analytics.py\n@@ -2272,6 +2272,15 @@ class TestDataFrameAnalytics:\n \n         tm.assert_frame_equal(result, expected)\n \n+    def test_round_interval_category_columns(self):\n+        # GH 30063\n+        columns = pd.CategoricalIndex(pd.interval_range(0, 2))\n+        df = DataFrame([[0.66, 1.1], [0.3, 0.25]], columns=columns)\n+\n+        result = df.round()\n+        expected = DataFrame([[1.0, 1.0], [0.0, 0.0]], columns=columns)\n+        tm.assert_frame_equal(result, expected)\n+\n     # ---------------------------------------------------------------------\n     # Clip\n \n"
+  },
+  "timestamp": "2026-06-20 17:23:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_112",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_112/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Support categorical targets in IntervalIndex.get_indexer (#30181)",
+    "fault_locations": [
+      {
+        "file": "pandas/tests/indexes/interval/test_indexing.py",
+        "start_line": 6,
+        "end_line": 6,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_analytics.py::TestDataFrameAnalytics::test_round_interval_category_columns"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

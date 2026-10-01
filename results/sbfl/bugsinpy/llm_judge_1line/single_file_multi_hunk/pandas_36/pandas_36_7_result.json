@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_36",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 01:14:21",
+      "end_time": "2026-06-26 02:12:25",
+      "duration_seconds": 3484,
+      "duration_human": "58m 4s"
+    },
+    "model_cost": 0.3682,
+    "model_calls": 34,
+    "token_usage": {
+      "input_tokens": 2344164,
+      "output_tokens": 99989,
+      "total_tokens": 2444153,
+      "cached_input_tokens": 1132480,
+      "uncached_input_tokens": 1211684
+    },
+    "agent_steps": 34,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/algorithms.py b/pandas/core/algorithms.py\nindex 9afdb82467..975367946a 100644\n--- a/pandas/core/algorithms.py\n+++ b/pandas/core/algorithms.py\n@@ -959,17 +959,50 @@ def checked_add_with_arr(arr, b, arr_mask=None, b_mask=None):\n     mask1 = b2 > 0\n     mask2 = b2 < 0\n \n+    # Get min and max as Python ints\n+    min_val = np.iinfo(np.int64).min\n+    max_val = np.iinfo(np.int64).max\n+    \n     if not mask1.any():\n-        to_raise = ((np.iinfo(np.int64).min - b2 > arr) & not_nan).any()\n+        # All b2 <= 0\n+        # Check: arr + b2 < min_val\n+        # Instead of computing min_val - b2 which can overflow,\n+        # check if arr < min_val - b2 using safe comparison\n+        # Convert to object dtype to avoid overflow\n+        with np.errstate(over='ignore'):\n+            # This might still overflow, but we'll handle it\n+            diff = min_val - b2\n+            # If overflow occurred, diff will be wrong\n+            # So we need a safer approach\n+            # For negative b2, min_val - b2 = min_val + abs(b2)\n+            # This can overflow if abs(b2) is large\n+            # Instead, check if arr - min_val < -b2\n+            # Both sides are non-negative\n+            arr_u = arr.view('uint64')\n+            min_u = np.uint64(min_val)\n+            b2_neg_u = (-b2).astype('uint64')\n+            to_raise = ((arr_u - min_u < b2_neg_u) & not_nan).any()\n     elif not mask2.any():\n-        to_raise = ((np.iinfo(np.int64).max - b2 < arr) & not_nan).any()\n+        # All b2 >= 0\n+        to_raise = ((max_val - b2 < arr) & not_nan).any()\n     else:\n-        to_raise = (\n-            ((np.iinfo(np.int64).max - b2[mask1] < arr[mask1]) & not_nan[mask1]).any()\n-            or (\n-                (np.iinfo(np.int64).min - b2[mask2] > arr[mask2]) & not_nan[mask2]\n-            ).any()\n-        )\n+        # Mixed signs\n+        # For positive b2\n+        pos_check = ((max_val - b2[mask1] < arr[mask1]) & not_nan[mask1]).any() if mask1.any() else False\n+        \n+        # For negative b2: use safe comparison\n+        if mask2.any():\n+            arr_neg = arr[mask2]\n+            b2_neg = b2[mask2]\n+            not_nan_neg = not_nan[mask2]\n+            arr_neg_u = arr_neg.view('uint64')\n+            min_u = np.uint64(min_val)\n+            b2_neg_neg_u = (-b2_neg).astype('uint64')\n+            neg_check = ((arr_neg_u - min_u < b2_neg_neg_u) & not_nan_neg).any()\n+        else:\n+            neg_check = False\n+            \n+        to_raise = pos_check or neg_check\n \n     if to_raise:\n         raise OverflowError(\"Overflow in int64 addition\")\ndiff --git a/pandas/core/dtypes/missing.py b/pandas/core/dtypes/missing.py\nindex d461db2d05..00e1f2f6ff 100644\n--- a/pandas/core/dtypes/missing.py\n+++ b/pandas/core/dtypes/missing.py\n@@ -284,9 +284,12 @@ def _isna_ndarraylike_old(obj):\n             vec = libmissing.isnaobj_old(values.ravel())\n             result[:] = vec.reshape(shape)\n \n-    elif is_datetime64_dtype(dtype):\n+    elif is_datetime64_dtype(dtype) or (hasattr(dtype, \"name\") and dtype.name and dtype.name.startswith(\"datetime64\")):\n         # this is the NaT pattern\n         result = values.view(\"i8\") == iNaT\n+    elif is_period_dtype(dtype):\n+        # this is the NaT pattern for period\n+        result = values.view(\"i8\") == iNaT\n     else:\n         result = ~np.isfinite(values)\n \ndiff --git a/pandas/tests/dtypes/test_missing.py b/pandas/tests/dtypes/test_missing.py\nindex 7ba59786bb..cad46d0a23 100644\n--- a/pandas/tests/dtypes/test_missing.py\n+++ b/pandas/tests/dtypes/test_missing.py\n@@ -185,6 +185,21 @@ class TestIsNA:\n         exp = np.zeros(len(mask), dtype=bool)\n         tm.assert_numpy_array_equal(mask, exp)\n \n+    def test_isna_old_datetimelike(self):\n+        # isna_old should work for dt64tz, td64, and period, not just tznaive\n+        dti = pd.date_range(\"2016-01-01\", periods=3)\n+        dta = dti._data\n+        dta[-1] = pd.NaT\n+        expected = np.array([False, False, True], dtype=bool)\n+\n+        objs = [dta, dta.tz_localize(\"US/Eastern\"), dta - dta, dta.to_period(\"D\")]\n+\n+        for obj in objs:\n+            with cf.option_context(\"mode.use_inf_as_na\", True):\n+                result = pd.isna(obj)\n+\n+            tm.assert_numpy_array_equal(result, expected)\n+\n     @pytest.mark.parametrize(\n         \"value, expected\",\n         [\n"
+  },
+  "timestamp": "2026-06-26 02:12:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_36",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_36/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: isna_old with td64, dt64tz, period (#33158)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 933,
+        "end_line": 933,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 934,
+        "end_line": 934,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 938,
+        "end_line": 938,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 942,
+        "end_line": 942,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 944,
+        "end_line": 944,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 945,
+        "end_line": 945,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 959,
+        "end_line": 959,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 960,
+        "end_line": 960,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 962,
+        "end_line": 962,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 963,
+        "end_line": 963,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/dtypes//test_missing.py::TestIsNA::test_isna_old_datetimelike"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 933,
+      "end_line": 933,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 934,
+      "end_line": 934,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 938,
+      "end_line": 938,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 942,
+      "end_line": 942,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 944,
+      "end_line": 944,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 945,
+      "end_line": 945,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 959,
+      "end_line": 959,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 960,
+      "end_line": 960,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 962,
+      "end_line": 962,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 963,
+      "end_line": 963,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

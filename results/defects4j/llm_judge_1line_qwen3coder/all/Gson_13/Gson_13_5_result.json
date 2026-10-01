@@ -1,0 +1,166 @@
+{
+  "project_name": "Gson",
+  "bug_id": "13",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:46:15",
+      "end_time": "2026-06-20 01:48:51",
+      "duration_seconds": 155,
+      "duration_human": "2m 35s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 574701,
+      "output_tokens": 4017,
+      "total_tokens": 578718,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 574701
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java\nindex 877742bf..52c1d4db 100644\n--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java\n+++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java\n@@ -728,7 +728,7 @@ public class JsonReader implements Closeable {\n     }\n \n     // We've read a complete number. Decide if it's a PEEKED_LONG or a PEEKED_NUMBER.\n-    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative)) {\n+    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value!=0 || false==negative) && (value != Long.MIN_VALUE || negative)) {\n       peekedLong = negative ? value : -value;\n       pos += i;\n       return peeked = PEEKED_LONG;\n"
+  },
+  "timestamp": "2026-06-20 01:48:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_13",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_13",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "Negative zero\nHi,\r\n\r\nI have been cross testing various json parsers looking for those that expose the lexical of json numbers and not only their bound java.lang.Number. Because of the lazy parsing done by gson with `LazilyParsedNumber`,  that keeps the lexical, all my roundtrip tests pass apart one: the lexical  `-0` that is treated as it were `0`\r\n\r\nI read some threads about negative zero: \r\nhttps://www.ietf.org/mail-archive/web/json/current/msg03668.html\r\nhttps://www.ietf.org/mail-archive/web/json/current/msg01520.html\r\nhttps://www.ietf.org/mail-archive/web/json/current/msg01523.html\r\nhttps://www.ietf.org/mail-archive/web/json/current/msg01525.html\r\n\r\nI created this issue thinking that `-0` is a float, the same as `-0.0`, since a signed zero makes sense only in floating point numbers and also because in Java only Double/Float preserve sign of zero.  This would have the implication that `-0` could not be validated by jsonschema `type` `integer` , and that a jsonschema implementation would have the need to know if a `-0` is present in json data, but probably this is not the case.\r\n\r\nAfter I started to (re)consider that `-0` could be an integer, only that seems that in no programming language there is an integer that preserves sign for zero.\r\n\r\nIn any case, differentiating between `0` and `-0`  at lexical level would allow a client of gson to be able to refuse the value `-0`.\r\n\r\nGson could easily support differentiating between `0` and `-0`: in code `-0` is [treated as an integer (PEEKED_LONG) in JsonReader](https://github.com/google/gson/blob/master/gson/src/main/java/com/google/gson/stream/JsonReader.java#L731) so its value is stored in a Java `long` that cannot represent negative zero. I noted that `-0.0` roundtrips correctly because is treated as a PEEKED_NUMBER that is kept as a Java String. So the case of `-0` could be trapped and treated as `-0.0`, as a PEEKED_NUMBER, in this way the `toString()` method of `LazilyParsedNumber` will return `-0` and gson will be able to roundtrip any valid number value found in source, only clients using `Number.toString()` will notice any difference.\r\n\r\nMy proposal is to change [this code](https://github.com/google/gson/blob/master/gson/src/main/java/com/google/gson/stream/JsonReader.java#L731)  from\r\n\r\n          if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative)) {\r\n    \r\nto \r\n\r\n          if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value!=0 || false==negative) && (value != Long.MIN_VALUE || negative)) {\r\n    \r\n\r\nThanks,\r\nMichele\r\n\n",
+    "commit_message": "negative zero test and fix (#1069)",
+    "fault_locations": [
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 731,
+        "end_line": 731,
+        "line_numbers": [
+          731
+        ],
+        "function_name": "peekNumber",
+        "class_name": "JsonReader",
+        "filename": "JsonReader.java",
+        "code_snippet": "  private int peekNumber() throws IOException {\n    // Like nextNonWhitespace, this uses locals 'p' and 'l' to save inner-loop field access.\n    char[] buffer = this.buffer;\n    int p = pos;\n    int l = limit;\n\n    long value = 0; // Negative to accommodate Long.MIN_VALUE more easily.\n    boolean negative = false;\n    boolean fitsInLong = true;\n    int last = NUMBER_CHAR_NONE;\n\n    int i = 0;\n\n    charactersOfNumber:\n    for (; true; i++) {\n      if (p + i == l) {\n        if (i == buffer.length) {\n          // Though this looks like a well-formed number, it's too long to continue reading. Give up\n          // and let the application handle this as an unquoted literal.\n          return PEEKED_NONE;\n        }\n        if (!fillBuffer(i + 1)) {\n          break;\n        }\n        p = pos;\n        l = limit;\n      }\n\n      char c = buffer[p + i];\n      switch (c) {\n      case '-':\n        if (last == NUMBER_CHAR_NONE) {\n          negative = true;\n          last = NUMBER_CHAR_SIGN;\n          continue;\n        } else if (last == NUMBER_CHAR_EXP_E) {\n          last = NUMBER_CHAR_EXP_SIGN;\n          continue;\n        }\n        return PEEKED_NONE;\n\n      case '+':\n        if (last == NUMBER_CHAR_EXP_E) {\n          last = NUMBER_CHAR_EXP_SIGN;\n          continue;\n        }\n        return PEEKED_NONE;\n\n      case 'e':\n      case 'E':\n        if (last == NUMBER_CHAR_DIGIT || last == NUMBER_CHAR_FRACTION_DIGIT) {\n          last = NUMBER_CHAR_EXP_E;\n          continue;\n        }\n        return PEEKED_NONE;\n\n      case '.':\n        if (last == NUMBER_CHAR_DIGIT) {\n          last = NUMBER_CHAR_DECIMAL;\n          continue;\n        }\n        return PEEKED_NONE;\n\n      default:\n        if (c < '0' || c > '9') {\n          if (!isLiteral(c)) {\n            break charactersOfNumber;\n          }\n          return PEEKED_NONE;\n        }\n        if (last == NUMBER_CHAR_SIGN || last == NUMBER_CHAR_NONE) {\n          value = -(c - '0');\n          last = NUMBER_CHAR_DIGIT;\n        } else if (last == NUMBER_CHAR_DIGIT) {\n          if (value == 0) {\n            return PEEKED_NONE; // Leading '0' prefix is not allowed (since it could be octal).\n          }\n          long newValue = value * 10 - (c - '0');\n          fitsInLong &= value > MIN_INCOMPLETE_INTEGER\n              || (value == MIN_INCOMPLETE_INTEGER && newValue < value);\n          value = newValue;\n        } else if (last == NUMBER_CHAR_DECIMAL) {\n          last = NUMBER_CHAR_FRACTION_DIGIT;\n        } else if (last == NUMBER_CHAR_EXP_E || last == NUMBER_CHAR_EXP_SIGN) {\n          last = NUMBER_CHAR_EXP_DIGIT;\n        }\n      }\n    }\n\n    // We've read a complete number. Decide if it's a PEEKED_LONG or a PEEKED_NUMBER.\n    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative)) {\n      peekedLong = negative ? value : -value;\n      pos += i;\n      return peeked = PEEKED_LONG;\n    } else if (last == NUMBER_CHAR_DIGIT || last == NUMBER_CHAR_FRACTION_DIGIT\n        || last == NUMBER_CHAR_EXP_DIGIT) {\n      peekedNumberLength = i;\n      return peeked = PEEKED_NUMBER;\n    } else {\n      return PEEKED_NONE;\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.gson.stream.JsonReaderTest::testNegativeZero"
+    ],
+    "golden_patch": "diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java\nindex 9cbc62f4..877742bf 100644\n--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java\n+++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java\n@@ -728,7 +728,7 @@ public class JsonReader implements Closeable {\n     }\n \n     // We've read a complete number. Decide if it's a PEEKED_LONG or a PEEKED_NUMBER.\n+    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative) && (value!=0 || false==negative)) {\n-    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative)) {\n       peekedLong = negative ? value : -value;\n       pos += i;\n       return peeked = PEEKED_LONG;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jesse Wilson",
+        "commit_date": "2012-09-02 16:12:19",
+        "commit_message": "Change number parsing to use one big loop. This changes it to return JsonToken.STRING for very long (>8k digits) numbers.",
+        "commit_hash": "b3b919770bd6e1aa14abc9ee1a1406af251e1d1c"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "get"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "get"
+        ],
+        "functions_name_modified_file": [
+          "peek",
+          "peekNumber",
+          "nextBoolean",
+          "skipValue",
+          "hasNext",
+          "isLiteral",
+          "beginObject",
+          "endArray",
+          "nextString",
+          "getColumnNumber",
+          "syntaxError",
+          "skipToEndOfLine",
+          "peekKeyword",
+          "getLineNumber",
+          "fillBuffer",
+          "doPeek",
+          "nextDouble",
+          "nextQuotedValue",
+          "nextInt",
+          "skipQuotedValue",
+          "isLenient",
+          "consumeNonExecutePrefix",
+          "checkLenient",
+          "close",
+          "setLenient",
+          "JsonReader",
+          "nextUnquotedValue",
+          "push",
+          "readEscapeCharacter",
+          "nextNonWhitespace",
+          "nextNull",
+          "endObject",
+          "nextLong",
+          "beginArray",
+          "skipUnquotedValue",
+          "nextName",
+          "skipTo"
+        ],
+        "functions_name_all_files": [
+          "peek",
+          "peekNumber",
+          "nextBoolean",
+          "skipValue",
+          "hasNext",
+          "isLiteral",
+          "beginObject",
+          "endArray",
+          "nextString",
+          "getColumnNumber",
+          "syntaxError",
+          "skipToEndOfLine",
+          "peekKeyword",
+          "getLineNumber",
+          "fillBuffer",
+          "doPeek",
+          "nextDouble",
+          "nextQuotedValue",
+          "nextInt",
+          "skipQuotedValue",
+          "isLenient",
+          "consumeNonExecutePrefix",
+          "checkLenient",
+          "close",
+          "setLenient",
+          "JsonReader",
+          "nextUnquotedValue",
+          "push",
+          "readEscapeCharacter",
+          "nextNonWhitespace",
+          "nextNull",
+          "endObject",
+          "nextLong",
+          "beginArray",
+          "skipUnquotedValue",
+          "nextName",
+          "skipTo"
+        ],
+        "function_code_before": "    result = peekNumber();\n    if (result != PEEKED_NONE) {\n      return result;\n    }",
+        "function_code_after": "    result = peekNumber();\n    if (result != PEEKED_NONE) {\n      return result;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "gson/src/main/java/com/google/gson/stream/JsonReader.java"
+        ],
+        "file_patches": {
+          "gson/src/main/java/com/google/gson/stream/JsonReader.java": "diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java\nindex d6b580ea..413e2e98 100644\n--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java\n+++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java\n@@ -624,83 +624,116 @@ public class JsonReader implements Closeable {\n     return peeked = peeking;\n   }\n \n+  private static final int NUMBER_CHAR_NONE = 0;\n+  private static final int NUMBER_CHAR_SIGN = 1;\n+  private static final int NUMBER_CHAR_DIGIT = 2;\n+  private static final int NUMBER_CHAR_DECIMAL = 3;\n+  private static final int NUMBER_CHAR_FRACTION_DIGIT = 4;\n+  private static final int NUMBER_CHAR_EXP_E = 5;\n+  private static final int NUMBER_CHAR_EXP_SIGN = 6;\n+  private static final int NUMBER_CHAR_EXP_DIGIT = 7;\n+\n   private int peekNumber() throws IOException {\n+    // Like nextNonWhitespace, this uses locals 'p' and 'l' to save inner-loop field access.\n+    char[] buffer = this.buffer;\n+    int p = pos;\n+    int l = limit;\n+\n     long value = 0; // Negative to accommodate Long.MIN_VALUE more easily.\n     boolean negative = false;\n     boolean fitsInLong = true;\n-    int i = 0;\n-    int c = get(i);\n+    int last = NUMBER_CHAR_NONE;\n \n-    // TODO: figure out a way to speed up repopulating 'c'\n-\n-    if (c == '-') {\n-      negative = true;\n-      c = get(++i);\n-    }\n+    int i = 0;\n \n-    if (c == '0') {\n-      c = get(++i);\n-    } else if (c >= '1' && c <= '9') {\n-      value -= (c - '0');\n-      c = get(++i);\n-      while (c >= '0' && c <= '9') {\n-        long newValue = value * 10 - (c - '0');\n-        fitsInLong &= value > MIN_INCOMPLETE_INTEGER\n-            || (value == MIN_INCOMPLETE_INTEGER && newValue < value);\n-        value = newValue;\n-        c = get(++i);\n+    charactersOfNumber:\n+    for (; true; i++) {\n+      if (p + i == l) {\n+        if (i == buffer.length) {\n+          // Though this looks like a well-formed number, it's too long to continue reading. Give up\n+          // and let the application handle this as an unquoted literal.\n+          return PEEKED_NONE;\n+        }\n+        if (!fillBuffer(i + 1)) {\n+          break;\n+        }\n+        p = pos;\n+        l = limit;\n       }\n-    } else {\n-      return PEEKED_NONE;\n-    }\n \n-    if (c == -1 || !isLiteral((char) c)) {\n-      if (fitsInLong && (value != Long.MIN_VALUE || negative)) {\n-        peekedLong = negative ? value : -value;\n-        pos += i;\n-        return peeked = PEEKED_LONG;\n-      } else {\n-        peekedNumberLength = i;\n-        return peeked = PEEKED_NUMBER;\n-      }\n-    }\n+      char c = buffer[p + i];\n+      switch (c) {\n+      case '-':\n+        if (last == NUMBER_CHAR_NONE) {\n+          negative = true;\n+          last = NUMBER_CHAR_SIGN;\n+          continue;\n+        } else if (last == NUMBER_CHAR_EXP_E) {\n+          last = NUMBER_CHAR_EXP_SIGN;\n+          continue;\n+        }\n+        return PEEKED_NONE;\n \n-    if (c == '.') {\n-      c = get(++i);\n-      while (c >= '0' && c <= '9') {\n-        c = get(++i);\n-      }\n-    }\n+      case '+':\n+        if (last == NUMBER_CHAR_EXP_E) {\n+          last = NUMBER_CHAR_EXP_SIGN;\n+          continue;\n+        }\n+        return PEEKED_NONE;\n \n-    if (c == 'e' || c == 'E') {\n-      c = get(++i);\n-      if (c == '+' || c == '-') {\n-        c = get(++i);\n-      }\n-      if (c >= '0' && c <= '9') {\n-        c = get(++i);\n-        while (c >= '0' && c <= '9') {\n-          c = get(++i);\n+      case 'e':\n+      case 'E':\n+        if (last == NUMBER_CHAR_DIGIT || last == NUMBER_CHAR_FRACTION_DIGIT) {\n+          last = NUMBER_CHAR_EXP_E;\n+          continue;\n+        }\n+        return PEEKED_NONE;\n+\n+      case '.':\n+        if (last == NUMBER_CHAR_DIGIT) {\n+          last = NUMBER_CHAR_DECIMAL;\n+          continue;\n         }\n-      } else {\n         return PEEKED_NONE;\n+\n+      default:\n+        if (c < '0' || c > '9') {\n+          if (!isLiteral(c)) {\n+            break charactersOfNumber;\n+          }\n+          return PEEKED_NONE;\n+        }\n+        if (last == NUMBER_CHAR_SIGN || last == NUMBER_CHAR_NONE) {\n+          value = -(c - '0');\n+          last = NUMBER_CHAR_DIGIT;\n+        } else if (last == NUMBER_CHAR_DIGIT) {\n+          if (value == 0) {\n+            return PEEKED_NONE; // Leading '0' prefix is not allowed (since it could be octal).\n+          }\n+          long newValue = value * 10 - (c - '0');\n+          fitsInLong &= value > MIN_INCOMPLETE_INTEGER\n+              || (value == MIN_INCOMPLETE_INTEGER && newValue < value);\n+          value = newValue;\n+        } else if (last == NUMBER_CHAR_DECIMAL) {\n+          last = NUMBER_CHAR_FRACTION_DIGIT;\n+        } else if (last == NUMBER_CHAR_EXP_E || last == NUMBER_CHAR_EXP_SIGN) {\n+          last = NUMBER_CHAR_EXP_DIGIT;\n+        }\n       }\n     }\n \n-    if (c == -1 || !isLiteral((char) c)) {\n+    // We've read a complete number. Decide if it's a PEEKED_LONG or a PEEKED_NUMBER.\n+    if (last == NUMBER_CHAR_DIGIT && fitsInLong && (value != Long.MIN_VALUE || negative)) {\n+      peekedLong = negative ? value : -value;\n+      pos += i;\n+      return peeked = PEEKED_LONG;\n+    } else if (last == NUMBER_CHAR_DIGIT || last == NUMBER_CHAR_FRACTION_DIGIT\n+        || last == NUMBER_CHAR_EXP_DIGIT) {\n       peekedNumberLength = i;\n       return peeked = PEEKED_NUMBER;\n+    } else {\n+      return PEEKED_NONE;\n     }\n-\n-    return PEEKED_NONE;\n-  }\n-\n-  /**\n-   * Returns a character at position {@code pos + offset}, reading additional\n-   * bytes into the buffer if necessary.\n-   */\n-  private int get(int offset) throws IOException {\n-    return (pos + offset < limit || fillBuffer(offset + 1)) ? buffer[pos + offset] : -1;\n   }\n \n   private boolean isLiteral(char c) throws IOException {"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

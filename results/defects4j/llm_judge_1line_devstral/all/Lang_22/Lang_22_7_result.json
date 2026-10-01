@@ -1,0 +1,151 @@
+{
+  "project_name": "Lang",
+  "bug_id": "22",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 09:32:42",
+      "end_time": "2026-06-27 09:36:13",
+      "duration_seconds": 211,
+      "duration_human": "3m 31s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 790662,
+      "output_tokens": 9360,
+      "total_tokens": 800022,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 790662
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/math/Fraction.java b/src/main/java/org/apache/commons/lang3/math/Fraction.java\nindex b36a156a4..2078cd852 100644\n--- a/src/main/java/org/apache/commons/lang3/math/Fraction.java\n+++ b/src/main/java/org/apache/commons/lang3/math/Fraction.java\n@@ -584,44 +584,27 @@ public final class Fraction extends Number implements Comparable<Fraction> {\n         if (Math.abs(u) <= 1 || Math.abs(v) <= 1) {\n             return 1;\n         }\n-        // keep u and v negative, as negative integers range down to\n-        // -2^31, while positive numbers can only be as large as 2^31-1\n-        // (i.e. we can't necessarily negate a negative number without\n-        // overflow)\n-        if (u>0) { u=-u; } // make u negative\n-        if (v>0) { v=-v; } // make v negative\n-        // B1. [Find power of 2]\n-        int k=0;\n-        while ((u&1)==0 && (v&1)==0 && k<31) { // while u and v are both even...\n-            u/=2; v/=2; k++; // cast out twos.\n-        }\n-        if (k==31) {\n-            throw new ArithmeticException(\"overflow: gcd is 2^31\");\n-        }\n-        // B2. Initialize: u and v have been divided by 2^k and at least\n-        //     one is odd.\n-        int t = ((u&1)==1) ? v : -(u/2)/*B3*/;\n-        // t negative: u was odd, v may be even (t replaces v)\n-        // t positive: u was even, v is odd (t replaces u)\n-        do {\n-            /* assert u<0 && v<0; */\n-            // B4/B3: cast out twos from t.\n-            while ((t&1)==0) { // while t is even..\n-                t/=2; // cast out twos\n-            }\n-            // B5 [reset max(u,v)]\n-            if (t>0) {\n-                u = -t;\n-            } else {\n-                v = t;\n+        // Special case: if either operand is Integer.MIN_VALUE, handle it carefully\n+        if (u == Integer.MIN_VALUE || v == Integer.MIN_VALUE) {\n+            // Integer.MIN_VALUE is -2^31, which is odd\n+            // If the other operand is even, we can factor out the 2 from it\n+            if ((u == Integer.MIN_VALUE && (v & 1) == 0) ||\n+                (v == Integer.MIN_VALUE && (u & 1) == 0)) {\n+                // The even operand is a power of 2\n+                // gcd(-2^31, 2^k) = 2^k where k is the power of 2\n+                int even_val = (u == Integer.MIN_VALUE) ? v : u;\n+                int k = 0;\n+                int temp = even_val;\n+                while ((temp & 1) == 0 && k < 31) {\n+                    temp /= 2;\n+                    k++;\n+                }\n+                // Now temp is odd, and gcd(-2^31, temp) = 1 since they are coprime\n+                return (1 << k);\n             }\n-            // B6/B3. at this point both u and v should be odd.\n-            t = (v - u)/2;\n-            // |u| larger: t positive (replace u)\n-            // |v| larger: t negative (replace v)\n-        } while (t!=0);\n-        return -u*(1<<k); // gcd is u*2^k\n-    }\n+            // If the other operand is odd, gcd is 1\n+            return 1;\n+        }\n \n     // Arithmetic\n     //-------------------------------------------------------------------\n"
+  },
+  "timestamp": "2026-06-27 09:36:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_22",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_22",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "org.apache.commons.lang3.math.Fraction does not reduce (Integer.MIN_VALUE, 2^k)\nThe greatestCommonDivisor method in class Fraction does not find the gcd of Integer.MIN_VALUE and 2^k, and this case can be triggered by taking Integer.MIN_VALUE as the numerator. Note that the case of taking Integer.MIN_VALUE as the denominator is handled explicitly in the getReducedFraction factory method.\n\n{code:title=FractionTest.java|borderStyle=solid}\n\t// additional test cases\n\tpublic void testReducedFactory_int_int() {\n\t\t// ...\n\t\tf = Fraction.getReducedFraction(Integer.MIN_VALUE, 2);\n\t\tassertEquals(Integer.MIN_VALUE / 2, f.getNumerator());\n\t\tassertEquals(1, f.getDenominator());\n\n\tpublic void testReduce() {\n\t\t// ...\n\t\tf = Fraction.getFraction(Integer.MIN_VALUE, 2);\n\t\tresult = f.reduce();\n\t\tassertEquals(Integer.MIN_VALUE / 2, result.getNumerator());\n\t\tassertEquals(1, result.getDenominator());\n{code} \n",
+    "commit_message": "Adding first method check from Math's MathUtils.gcd method; and unit tests showing that this was needed. Bug reported and solved by Christian Semrau [LANG-662]",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/math/Fraction.java",
+        "start_line": 584,
+        "end_line": 584,
+        "line_numbers": [
+          584
+        ],
+        "function_name": "greatestCommonDivisor",
+        "class_name": "Fraction",
+        "filename": "Fraction.java",
+        "code_snippet": "    private static int greatestCommonDivisor(int u, int v) {\n        // From Commons Math:\n        //if either operand is abs 1, return 1:\n        if (Math.abs(u) <= 1 || Math.abs(v) <= 1) {\n            return 1;\n        }\n        // keep u and v negative, as negative integers range down to\n        // -2^31, while positive numbers can only be as large as 2^31-1\n        // (i.e. we can't necessarily negate a negative number without\n        // overflow)\n        if (u>0) { u=-u; } // make u negative\n        if (v>0) { v=-v; } // make v negative\n        // B1. [Find power of 2]\n        int k=0;\n        while ((u&1)==0 && (v&1)==0 && k<31) { // while u and v are both even...\n            u/=2; v/=2; k++; // cast out twos.\n        }\n        if (k==31) {\n            throw new ArithmeticException(\"overflow: gcd is 2^31\");\n        }\n        // B2. Initialize: u and v have been divided by 2^k and at least\n        //     one is odd.\n        int t = ((u&1)==1) ? v : -(u/2)/*B3*/;\n        // t negative: u was odd, v may be even (t replaces v)\n        // t positive: u was even, v is odd (t replaces u)\n        do {\n            /* assert u<0 && v<0; */\n            // B4/B3: cast out twos from t.\n            while ((t&1)==0) { // while t is even..\n                t/=2; // cast out twos\n            }\n            // B5 [reset max(u,v)]\n            if (t>0) {\n                u = -t;\n            } else {\n                v = t;\n            }\n            // B6/B3. at this point both u and v should be odd.\n            t = (v - u)/2;\n            // |u| larger: t positive (replace u)\n            // |v| larger: t negative (replace v)\n        } while (t!=0);\n        return -u*(1<<k); // gcd is u*2^k\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.math.FractionTest::testReducedFactory_int_int",
+      "org.apache.commons.lang3.math.FractionTest::testReduce"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/math/Fraction.java b/src/main/java/org/apache/commons/lang3/math/Fraction.java\nindex bf15a49..b36a156 100644\n--- a/src/main/java/org/apache/commons/lang3/math/Fraction.java\n+++ b/src/main/java/org/apache/commons/lang3/math/Fraction.java\n@@ -580,14 +580,8 @@ public final class Fraction extends Number implements Comparable<Fraction> {\n      */\n     private static int greatestCommonDivisor(int u, int v) {\n         // From Commons Math:\n+        if ((u == 0) || (v == 0)) {\n+            if ((u == Integer.MIN_VALUE) || (v == Integer.MIN_VALUE)) {\n+                throw new ArithmeticException(\"overflow: gcd is 2^31\");\n+            }\n+            return Math.abs(u) + Math.abs(v);\n+        }\n         //if either operand is abs 1, return 1:\n+        if (Math.abs(u) == 1 || Math.abs(v) == 1) {\n-        if (Math.abs(u) <= 1 || Math.abs(v) <= 1) {\n             return 1;\n         }\n         // keep u and v negative, as negative integers range down to",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Matthew Jason Benson",
+        "commit_date": "2007-11-27 12:24:59",
+        "commit_message": "[LANG-380] return when either arg == 0 plus early return when either == 1",
+        "commit_hash": "deae2ba23824971dea68c2aee5648a99d9cf1856"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "getNumerator",
+          "compareTo",
+          "add",
+          "multiplyBy",
+          "abs",
+          "pow",
+          "getProperNumerator",
+          "addSub",
+          "getReducedFraction",
+          "toString",
+          "intValue",
+          "mulAndCheck",
+          "toProperString",
+          "equals",
+          "subtract",
+          "longValue",
+          "Fraction",
+          "getDenominator",
+          "doubleValue",
+          "negate",
+          "greatestCommonDivisor",
+          "subAndCheck",
+          "hashCode",
+          "floatValue",
+          "getFraction",
+          "mulPosAndCheck",
+          "invert",
+          "divideBy",
+          "addAndCheck",
+          "reduce",
+          "getProperWhole"
+        ],
+        "functions_name_all_files": [
+          "getNumerator",
+          "compareTo",
+          "add",
+          "multiplyBy",
+          "abs",
+          "pow",
+          "getProperNumerator",
+          "addSub",
+          "getReducedFraction",
+          "toString",
+          "intValue",
+          "mulAndCheck",
+          "toProperString",
+          "equals",
+          "subtract",
+          "longValue",
+          "Fraction",
+          "getDenominator",
+          "doubleValue",
+          "negate",
+          "greatestCommonDivisor",
+          "subAndCheck",
+          "hashCode",
+          "floatValue",
+          "getFraction",
+          "mulPosAndCheck",
+          "invert",
+          "divideBy",
+          "addAndCheck",
+          "reduce",
+          "getProperWhole"
+        ],
+        "function_code_before": "        int gcd = greatestCommonDivisor(numerator, denominator);\n        numerator /= gcd;\n        denominator /= gcd;\n        return new Fraction(numerator, denominator);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> instance from a <code>double</code> value.</p>\n     *\n     * <p>This method uses the <a href=\"http://archives.math.utk.edu/articles/atuyl/confrac/\">\n     *  continued fraction algorithm</a>, computing a maximum of\n     *  25 convergents and bounding the denominator by 10,000.</p>\n     *\n     * @param value  the double value to convert\n     * @return a new fraction instance that is close to the value\n     * @throws ArithmeticException if <code>|value| > Integer.MAX_VALUE</code> \n     *  or <code>value = NaN</code>\n     * @throws ArithmeticException if the calculated denominator is <code>zero</code>\n     * @throws ArithmeticException if the the algorithm does not converge\n     */\n    public static Fraction getFraction(double value) {",
+        "function_code_after": "        int gcd = greatestCommonDivisor(numerator, denominator);\n        numerator /= gcd;\n        denominator /= gcd;\n        return new Fraction(numerator, denominator);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> instance from a <code>double</code> value.</p>\n     *\n     * <p>This method uses the <a href=\"http://archives.math.utk.edu/articles/atuyl/confrac/\">\n     *  continued fraction algorithm</a>, computing a maximum of\n     *  25 convergents and bounding the denominator by 10,000.</p>\n     *\n     * @param value  the double value to convert\n     * @return a new fraction instance that is close to the value\n     * @throws ArithmeticException if <code>|value| > Integer.MAX_VALUE</code> \n     *  or <code>value = NaN</code>\n     * @throws ArithmeticException if the calculated denominator is <code>zero</code>\n     * @throws ArithmeticException if the the algorithm does not converge\n     */\n    public static Fraction getFraction(double value) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/java/org/apache/commons/lang/math/Fraction.java"
+        ],
+        "file_patches": {
+          "src/java/org/apache/commons/lang/math/Fraction.java": "diff --git a/src/java/org/apache/commons/lang/math/Fraction.java b/src/java/org/apache/commons/lang/math/Fraction.java\nindex c00c2c745..5f8e5655b 100644\n--- a/src/java/org/apache/commons/lang/math/Fraction.java\n+++ b/src/java/org/apache/commons/lang/math/Fraction.java\n@@ -567,11 +567,14 @@ public final class Fraction extends Number implements Comparable {\n      * @return the greatest common divisor, never zero\n      */\n     private static int greatestCommonDivisor(int u, int v) {\n+        //if either op. is abs 0 or 1, return 1:\n+        if (Math.abs(u) <= 1 || Math.abs(v) <= 1) {\n+            return 1;\n+        }\n         // keep u and v negative, as negative integers range down to\n         // -2^31, while positive numbers can only be as large as 2^31-1\n         // (i.e. we can't necessarily negate a negative number without\n         // overflow)\n-        /* assert u!=0 && v!=0; */\n         if (u>0) { u=-u; } // make u negative\n         if (v>0) { v=-v; } // make v negative\n         // B1. [Find power of 2]"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

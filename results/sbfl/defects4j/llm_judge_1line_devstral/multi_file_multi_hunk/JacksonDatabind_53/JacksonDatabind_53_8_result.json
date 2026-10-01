@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_53",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 11:58:52",
+      "end_time": "2026-06-30 12:01:01",
+      "duration_seconds": 129,
+      "duration_human": "2m 9s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 941344,
+      "output_tokens": 5362,
+      "total_tokens": 946706,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 941344
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex d74a2e99f..502dd7de1 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.*;\n import com.fasterxml.jackson.databind.annotation.*;\n import com.fasterxml.jackson.databind.cfg.HandlerInstantiator;\n import com.fasterxml.jackson.databind.cfg.MapperConfig;\n+import com.fasterxml.jackson.databind.type.TypeFactory;\n import com.fasterxml.jackson.databind.jsontype.NamedType;\n import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;\n import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;\n@@ -997,6 +998,44 @@ public class JacksonAnnotationIntrospector\n         return (ann == null) ? null : _classIfExplicit(ann.contentAs());\n     }\n     \n+    @Override\n+    public JavaType refineDeserializationType(MapperConfig<?> config, Annotated a, JavaType baseType) throws JsonMappingException {\n+        JavaType type = baseType;\n+        final TypeFactory tf = config.getTypeFactory();\n+        \n+        // Handle the main type refinement\n+        Class<?> valueClass = findDeserializationType(a, type);\n+        if ((valueClass != null) && !type.hasRawClass(valueClass)) {\n+            try {\n+                type = tf.constructSpecializedType(type, valueClass);\n+            } catch (IllegalArgumentException iae) {\n+                throw new JsonMappingException(null,\n+                        String.format(\"Failed to narrow type %s with annotation (value %s), from %s: %s\",\n+                                type, valueClass.getName(), a.getName(), iae.getMessage()),\n+                                iae);\n+            }\n+        }\n+        \n+        // Handle container content types\n+        JavaType contentType = type.getContentType();\n+        if (contentType != null) {\n+            Class<?> contentClass = findDeserializationContentType(a, contentType);\n+            if (contentClass != null) {\n+                try {\n+                    contentType = tf.constructSpecializedType(contentType, contentClass);\n+                    type = type.withContentType(contentType);\n+                } catch (IllegalArgumentException iae) {\n+                    throw new JsonMappingException(null,\n+                            String.format(\"Failed to narrow value type of %s with concrete-type annotation (value %s), from %s: %s\",\n+                                    type, contentClass.getName(), a.getName(), iae.getMessage()),\n+                                    iae);\n+                }\n+            }\n+        }\n+        \n+        return type;\n+    }\n+    \n     @Deprecated\n     @Override\n     public Class<?> findDeserializationType(Annotated am, JavaType baseType) {\n"
+  },
+  "timestamp": "2026-06-30 12:01:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_53",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_53",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Problem with type specialization for Maps with `@JsonDeserialize(as=subtype)`\nIf I have json that looks like\n\n```\n{\n  \"something\": [\n        {\n           \"id\": \"a uuid\",\n           \"property\": \"value\"\n         }\n  ]\n}\n```\n\nAnd I have a java pojo with an annotation like this:\n\n```\n    @JsonDeserialize(as = MyHashMap.class)\n    private void setSomething(Map<UUID, Foo> incomingValue) {\n```\n\nWhere MyHashMap.java has some custom logic using generics that allow us to map the array json above into a Map where \"id\" is the key and everything else serializes into the value.  We use generics on MyHashMap to enforce that every value implements a certain interface that respects the contract of returning an \"id\" property.  In this example Foo.java implements this interface MyCustomIdInterface.java.\n\nWhen using 2.6.6 this worked fine, but if I switch to 2.7.x then it breaks with the error:\n\n`Can not construct instance of MyCustomIdInterface, problem: abstract types either need to be mapped to concrete types, have custom deserializer, or be instantiated with additional type information`\n\nin 2.7.x, it looks like jackson resolves to using AbstractDeserializer based on MyCustomIdInterface but in 2.6.6 it resolves to using BeanDeserializer based on Foo.java.\n\nIs this a bug or is there some default/feature flag that changed here?\n\n",
+    "commit_message": "Fix #1215",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 266,
+        "end_line": 266,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 267,
+        "end_line": 267,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 271,
+        "end_line": 271,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TypeRefinementForMap1215Test::testMapRefinement"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 266,
+      "end_line": 266,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 267,
+      "end_line": 267,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 271,
+      "end_line": 271,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

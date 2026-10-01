@@ -1,0 +1,76 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "58",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:34:02",
+      "end_time": "2026-06-26 19:34:57",
+      "duration_seconds": 55,
+      "duration_human": "55.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 307094,
+      "output_tokens": 3200,
+      "total_tokens": 310294,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 307094
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 19:34:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_58",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_58",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Jsoup.isValid returns true even when htmlFragment includes tags not on whitelist\nCaused by Jsoup.isValid performing a destructive parse before testing for validity.  The html returned from parseBodyFragment is not what was passed in.\n\nAccording to documentation, html, head tags etc. should be specifically added to whitelist if they should be allowed.\n\nTest cases below.\n\n```\npackage jsoup;\n\nimport junit.framework.Assert;\nimport org.jsoup.Jsoup;\nimport org.jsoup.nodes.Document;\nimport org.jsoup.parser.Parser;\nimport org.jsoup.safety.Cleaner;\nimport org.jsoup.safety.Whitelist;\nimport org.junit.Test;\nimport org.junit.runner.RunWith;\nimport org.junit.runners.Parameterized;\n\nimport java.util.Arrays;\nimport java.util.Collection;\n\n@RunWith(Parameterized.class)\npublic class JsoupTest\n{\n    private String htmlFragment;\n\n    public JsoupTest(String htmlFragment)\n    {\n        this.htmlFragment = htmlFragment;\n    }\n\n    @Parameterized.Parameters\n    public static Collection<String[]> dirtyHtml()\n    {\n        String[][] htmlFragments = new String[][] { {\"<html></html>\"},\n                                                    {\"<head></head>\"},\n                                                    {\"<body></body>\"}\n        };\n\n        return Arrays.asList(htmlFragments);\n    }\n\n    @Test\n    public void emptyWhitelistReturnsFalseForAllTags()\n    {\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, new Whitelist()));\n    }\n\n    @Test\n    public void whitelistNoneReturnsFalseForAllTags()\n    {\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, Whitelist.none()));\n    }\n\n    @Test\n    public void typicalWhitelistReturnsFalseForNonIncludedTags()\n    {\n        Whitelist whitelist = new Whitelist();\n        whitelist.addTags(\"p\");\n\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, whitelist));\n    }\n\n    @Test\n    public void codeFromSource()\n    {\n        Document dirty = Parser.parseBodyFragment(htmlFragment, \"\");\n        Cleaner cleaner = new Cleaner(Whitelist.none());\n\n        Assert.assertEquals(false, cleaner.isValid(dirty));\n    }\n\n}\n```\n\n",
+    "commit_message": "Update isValid and cleaner methods",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 250,
+        "end_line": 250,
+        "line_numbers": [
+          250
+        ],
+        "function_name": "isValid",
+        "class_name": "Jsoup",
+        "filename": "Jsoup.java",
+        "code_snippet": "    public static boolean isValid(String bodyHtml, Whitelist whitelist) {\n        return new Cleaner(whitelist).isValid(parseBodyFragment(bodyHtml, \"\"));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 78,
+        "end_line": 78,
+        "line_numbers": [
+          78
+        ],
+        "function_name": "isValid",
+        "class_name": "Cleaner",
+        "filename": "Cleaner.java",
+        "code_snippet": "    public boolean isValid(Document dirtyDocument) {\n        Validate.notNull(dirtyDocument);\n\n        Document clean = Document.createShell(dirtyDocument.baseUri());\n        int numDiscarded = copySafeNodes(dirtyDocument.body(), clean.body());\n        return numDiscarded == 0;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.safety.CleanerTest::testIsValidBodyHtml",
+      "org.jsoup.safety.CleanerTest::testIsValidDocument"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/Jsoup.java b/src/main/java/org/jsoup/Jsoup.java\nindex 84a5e34..d25c186 100644\n--- a/src/main/java/org/jsoup/Jsoup.java\n+++ b/src/main/java/org/jsoup/Jsoup.java\n@@ -247,7 +247,7 @@ public class Jsoup {\n      @see #clean(String, org.jsoup.safety.Whitelist) \n      */\n     public static boolean isValid(String bodyHtml, Whitelist whitelist) {\n+        return new Cleaner(whitelist).isValidBodyHtml(bodyHtml);\n-        return new Cleaner(whitelist).isValid(parseBodyFragment(bodyHtml, \"\"));\n     }\n     \n }\ndiff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex 0751c22..197219b 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -126,10 +126,6 @@ public class Parser {\n      *\n      * @return list of nodes parsed from the input HTML. Note that the context element, if supplied, is not modified.\n      */\n+    public static List<Node> parseFragment(String fragmentHtml, Element context, String baseUri, ParseErrorList errorList) {\n+        HtmlTreeBuilder treeBuilder = new HtmlTreeBuilder();\n+        return treeBuilder.parseFragment(fragmentHtml, context, baseUri, errorList, treeBuilder.defaultSettings());\n+    }\n \n     /**\n      * Parse a fragment of XML into a list of nodes.\ndiff --git a/src/main/java/org/jsoup/safety/Cleaner.java b/src/main/java/org/jsoup/safety/Cleaner.java\nindex 1223bbe..7e0eb28 100644\n--- a/src/main/java/org/jsoup/safety/Cleaner.java\n+++ b/src/main/java/org/jsoup/safety/Cleaner.java\n@@ -14,7 +14,6 @@ import org.jsoup.parser.Tag;\n import org.jsoup.select.NodeTraversor;\n import org.jsoup.select.NodeVisitor;\n \n+import java.util.List;\n \n \n /**\n@@ -76,19 +75,9 @@ public class Cleaner {\n \n         Document clean = Document.createShell(dirtyDocument.baseUri());\n         int numDiscarded = copySafeNodes(dirtyDocument.body(), clean.body());\n+        return numDiscarded == 0\n+            && dirtyDocument.head().childNodes().size() == 0; // because we only look at the body, but we start from a shell, make sure there's nothing in the head\n-        return numDiscarded == 0;\n     }\n \n+    public boolean isValidBodyHtml(String bodyHtml) {\n+        Document clean = Document.createShell(\"\");\n+        Document dirty = Document.createShell(\"\");\n+        ParseErrorList errorList = ParseErrorList.tracking(1);\n+        List<Node> nodes = Parser.parseFragment(bodyHtml, dirty.body(), \"\", errorList);\n+        dirty.body().insertChildren(0, nodes);\n+        int numDiscarded = copySafeNodes(dirty.body(), clean.body());\n+        return numDiscarded == 0 && errorList.size() == 0;\n+    }\n \n     /**\n      Iterates the input and copies trusted nodes (tags, attributes, text) into the destination.",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

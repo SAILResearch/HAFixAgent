@@ -1,0 +1,83 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_15",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:39:21",
+      "end_time": "2026-06-20 16:41:31",
+      "duration_seconds": 130,
+      "duration_human": "2m 10s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 553441,
+      "output_tokens": 4622,
+      "total_tokens": 558063,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 553441
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/callbacks.py b/keras/callbacks.py\nindex ad3522d65..769c8a77b 100644\n--- a/keras/callbacks.py\n+++ b/keras/callbacks.py\n@@ -10,6 +10,8 @@ import six\n \n import numpy as np\n import time\n+import io\n+import sys\n import json\n import warnings\n \n@@ -1122,7 +1124,12 @@ class CSVLogger(Callback):\n         self.writer = None\n         self.keys = None\n         self.append_header = True\n-        self.file_flags = 'b' if six.PY2 and os.name == 'nt' else ''\n+        if six.PY2:\n+            self.file_flags = 'b'\n+            self._open_args = {}\n+        else:\n+            self.file_flags = ''\n+            self._open_args = {'newline': '\\n'}\n         super(CSVLogger, self).__init__()\n \n     def on_train_begin(self, logs=None):\n@@ -1130,9 +1137,12 @@ class CSVLogger(Callback):\n             if os.path.exists(self.filename):\n                 with open(self.filename, 'r' + self.file_flags) as f:\n                     self.append_header = not bool(len(f.readline()))\n-            self.csv_file = open(self.filename, 'a' + self.file_flags)\n+            mode = 'a'\n         else:\n-            self.csv_file = open(self.filename, 'w' + self.file_flags)\n+            mode = 'w'\n+        self.csv_file = io.open(self.filename,\n+                                mode + self.file_flags,\n+                                **self._open_args)\n \n     def on_epoch_end(self, epoch, logs=None):\n         logs = logs or {}\n@@ -1156,9 +1166,12 @@ class CSVLogger(Callback):\n         if not self.writer:\n             class CustomDialect(csv.excel):\n                 delimiter = self.sep\n-\n+            fieldnames = ['epoch'] + self.keys\n+            if six.PY2:\n+                fieldnames = [unicode(x) for x in fieldnames]\n             self.writer = csv.DictWriter(self.csv_file,\n-                                         fieldnames=['epoch'] + self.keys, dialect=CustomDialect)\n+                                         fieldnames=fieldnames,\n+                                         dialect=CustomDialect)\n             if self.append_header:\n                 self.writer.writeheader()\n \ndiff --git a/tests/keras/test_callbacks.py b/tests/keras/test_callbacks.py\nindex 6e9c781fe..e83eb8b51 100644\n--- a/tests/keras/test_callbacks.py\n+++ b/tests/keras/test_callbacks.py\n@@ -556,11 +556,15 @@ def test_CSVLogger(tmpdir):\n \n     # case 3, reuse of CSVLogger object\n     model.fit(X_train, y_train, batch_size=batch_size,\n-              validation_data=(X_test, y_test), callbacks=cbks, epochs=1)\n+              validation_data=(X_test, y_test), callbacks=cbks, epochs=2)\n \n     import re\n     with open(filepath) as csvfile:\n-        output = \" \".join(csvfile.readlines())\n+        list_lines = csvfile.readlines()\n+        for line in list_lines:\n+            assert line.count(sep) == 4\n+        assert len(list_lines) == 5\n+        output = \" \".join(list_lines)\n         assert len(re.findall('epoch', output)) == 1\n \n     os.remove(filepath)\n"
+  },
+  "timestamp": "2026-06-20 16:41:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_15/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fixed the windows line endings in the CSVCallback. (#11124)",
+    "fault_locations": [
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 1125,
+        "end_line": 1125,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 1133,
+        "end_line": 1133,
+        "function_name": "on_train_begin",
+        "class_name": ""
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 1135,
+        "end_line": 1135,
+        "function_name": "on_train_begin",
+        "class_name": ""
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 1159,
+        "end_line": 1159,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 1161,
+        "end_line": 1161,
+        "function_name": "on_epoch_end",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/test_callbacks.py::test_CSVLogger"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

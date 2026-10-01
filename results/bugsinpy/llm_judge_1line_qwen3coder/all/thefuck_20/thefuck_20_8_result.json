@@ -1,0 +1,62 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_20",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 19:42:06",
+      "end_time": "2026-06-20 19:44:25",
+      "duration_seconds": 138,
+      "duration_human": "2m 18s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 31,
+    "token_usage": {
+      "input_tokens": 312238,
+      "output_tokens": 4345,
+      "total_tokens": 316583,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 312238
+    },
+    "agent_steps": 31,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/rules/test_dirty_unzip.py b/tests/rules/test_dirty_unzip.py\nindex d68e936..9c0b4e5 100644\n--- a/tests/rules/test_dirty_unzip.py\n+++ b/tests/rules/test_dirty_unzip.py\n@@ -43,6 +43,8 @@ def test_side_effect(zip_error, script):\n \n @pytest.mark.parametrize('script,fixed', [\n     ('unzip foo', 'unzip foo -d foo'),\n+    (R\"unzip foo\\ bar.zip\", R\"unzip foo\\ bar.zip -d 'foo bar'\"),\n+    (R\"unzip 'foo bar.zip'\", R\"unzip 'foo bar.zip' -d 'foo bar'\"),\n     ('unzip foo.zip', 'unzip foo.zip -d foo')])\n def test_get_new_command(zip_error, script, fixed):\n     assert get_new_command(Command(script=script)) == fixed\ndiff --git a/thefuck/rules/dirty_unzip.py b/thefuck/rules/dirty_unzip.py\nindex d0a1248..d0a5f37 100644\n--- a/thefuck/rules/dirty_unzip.py\n+++ b/thefuck/rules/dirty_unzip.py\n@@ -1,5 +1,6 @@\n import os\n import zipfile\n+import shlex\n from thefuck.utils import for_app\n \n \n@@ -13,7 +14,9 @@ def _zip_file(command):\n     # unzip [-flags] file[.zip] [file(s) ...] [-x file(s) ...]\n     #                ^          ^ files to unzip from the archive\n     #                archive to unzip\n-    for c in command.script.split()[1:]:\n+    # Use shlex.split to properly handle shell quoting and escaping\n+    parts = shlex.split(command.script)\n+    for c in parts[1:]:\n         if not c.startswith('-'):\n             if c.endswith('.zip'):\n                 return c\n@@ -28,7 +31,28 @@ def match(command):\n \n \n def get_new_command(command):\n-    return '{} -d {}'.format(command.script, _zip_file(command)[:-4])\n+    # Use shlex.split to properly parse the command\n+    parts = shlex.split(command.script)\n+    \n+    # Find the zip file from the parsed parts\n+    zip_file = None\n+    for c in parts[1:]:\n+        if not c.startswith('-'):\n+            if c.endswith('.zip'):\n+                zip_file = c\n+                break\n+            else:\n+                zip_file = '{}.zip'.format(c)\n+                break\n+    \n+    # The directory name is the zip file name without .zip extension\n+    dir_name = zip_file[:-4]\n+    \n+    # Quote the directory name for shell safety\n+    quoted_dir = shlex.quote(dir_name)\n+    \n+    # Reconstruct the command: keep original script but add -d with quoted directory\n+    return '{} -d {}'.format(command.script, quoted_dir)\n \n \n def side_effect(old_cmd, command):\n"
+  },
+  "timestamp": "2026-06-20 19:44:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_20",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_20/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Fix the unzip rules and filenames with spaces",
+    "fault_locations": [
+      {
+        "file": "thefuck/rules/dirty_unzip.py",
+        "start_line": 16,
+        "end_line": 16,
+        "function_name": "_zip_file",
+        "class_name": ""
+      },
+      {
+        "file": "thefuck/rules/dirty_unzip.py",
+        "start_line": 31,
+        "end_line": 31,
+        "function_name": "get_new_command",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/rules/test_dirty_unzip.py::test_get_new_command"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

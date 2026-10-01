@@ -1,0 +1,191 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_3",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 12:41:02",
+      "end_time": "2026-06-29 12:42:54",
+      "duration_seconds": 112,
+      "duration_human": "1m 52s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 413018,
+      "output_tokens": 4476,
+      "total_tokens": 417494,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 413018
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveOutputStream.java\nindex 005e3e76..e69de29b 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveOutputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveOutputStream.java\n@@ -1,319 +0,0 @@\n-/*\n- * Licensed to the Apache Software Foundation (ASF) under one\n- * or more contributor license agreements.  See the NOTICE file\n- * distributed with this work for additional information\n- * regarding copyright ownership.  The ASF licenses this file\n- * to you under the Apache License, Version 2.0 (the\n- * \"License\"); you may not use this file except in compliance\n- * with the License.  You may obtain a copy of the License at\n- *\n- * http://www.apache.org/licenses/LICENSE-2.0\n- *\n- * Unless required by applicable law or agreed to in writing,\n- * software distributed under the License is distributed on an\n- * \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\n- * KIND, either express or implied.  See the License for the\n- * specific language governing permissions and limitations\n- * under the License.\n- */\n-package org.apache.commons.compress.archivers.tar;\n-\n-import java.io.File;\n-import java.io.IOException;\n-import java.io.OutputStream;\n-import org.apache.commons.compress.archivers.ArchiveEntry;\n-import org.apache.commons.compress.archivers.ArchiveOutputStream;\n-\n-/**\n- * The TarOutputStream writes a UNIX tar archive as an OutputStream.\n- * Methods are provided to put entries, and then write their contents\n- * by writing to this stream using write().\n- * @NotThreadSafe\n- */\n-public class TarArchiveOutputStream extends ArchiveOutputStream {\n-    /** Fail if a long file name is required in the archive. */\n-    public static final int LONGFILE_ERROR = 0;\n-\n-    /** Long paths will be truncated in the archive. */\n-    public static final int LONGFILE_TRUNCATE = 1;\n-\n-    /** GNU tar extensions are used to store long file names in the archive. */\n-    public static final int LONGFILE_GNU = 2;\n-\n-    private long      currSize;\n-    private String    currName;\n-    private long      currBytes;\n-    private final byte[]    recordBuf;\n-    private int       assemLen;\n-    private final byte[]    assemBuf;\n-    protected final TarBuffer buffer;\n-    private int       longFileMode = LONGFILE_ERROR;\n-\n-    private boolean closed = false;\n-\n-    /* Indicates if putArchiveEntry has been called without closeArchiveEntry */\n-    \n-    private final OutputStream out;\n-\n-    /**\n-     * Constructor for TarInputStream.\n-     * @param os the output stream to use\n-     */\n-    public TarArchiveOutputStream(OutputStream os) {\n-        this(os, TarBuffer.DEFAULT_BLKSIZE, TarBuffer.DEFAULT_RCDSIZE);\n-    }\n-\n-    /**\n-     * Constructor for TarInputStream.\n-     * @param os the output stream to use\n-     * @param blockSize the block size to use\n-     */\n-    public TarArchiveOutputStream(OutputStream os, int blockSize) {\n-        this(os, blockSize, TarBuffer.DEFAULT_RCDSIZE);\n-    }\n-\n-    /**\n-     * Constructor for TarInputStream.\n-     * @param os the output stream to use\n-     * @param blockSize the block size to use\n-     * @param recordSize the record size to use\n-     */\n-    public TarArchiveOutputStream(OutputStream os, int blockSize, int recordSize) {\n-        out = os;\n-\n-        this.buffer = new TarBuffer(os, blockSize, recordSize);\n-        this.assemLen = 0;\n-        this.assemBuf = new byte[recordSize];\n-        this.recordBuf = new byte[recordSize];\n-    }\n-\n-    /**\n-     * Set the long file mode.\n-     * This can be LONGFILE_ERROR(0), LONGFILE_TRUNCATE(1) or LONGFILE_GNU(2).\n-     * This specifies the treatment of long file names (names >= TarConstants.NAMELEN).\n-     * Default is LONGFILE_ERROR.\n-     * @param longFileMode the mode to use\n-     */\n-    public void setLongFileMode(int longFileMode) {\n-        this.longFileMode = longFileMode;\n-    }\n-\n-\n-    /**\n-     * Ends the TAR archive without closing the underlying OutputStream.\n-     * \n-     * An archive consists of a series of file entries terminated by an\n-     * end-of-archive entry, which consists of two 512 blocks of zero bytes. \n-     * POSIX.1 requires two EOF records, like some other implementations.\n-     * \n-     * @throws IOException on error\n-     */\n-    public void finish() throws IOException {\n-        writeEOFRecord();\n-        writeEOFRecord();\n-    }\n-\n-    /**\n-     * Ends the TAR archive and closes the underlying OutputStream.\n-     * This means that finish() is called followed by calling the\n-     * TarBuffer's close().\n-     * @throws IOException on error\n-     */\n-    public void close() throws IOException {\n-        if (!closed) {\n-            finish();\n-            buffer.close();\n-            out.close();\n-            closed = true;\n-        }\n-    }\n-\n-    /**\n-     * Get the record size being used by this stream's TarBuffer.\n-     *\n-     * @return The TarBuffer record size.\n-     */\n-    public int getRecordSize() {\n-        return buffer.getRecordSize();\n-    }\n-\n-    /**\n-     * Put an entry on the output stream. This writes the entry's\n-     * header record and positions the output stream for writing\n-     * the contents of the entry. Once this method is called, the\n-     * stream is ready for calls to write() to write the entry's\n-     * contents. Once the contents are written, closeArchiveEntry()\n-     * <B>MUST</B> be called to ensure that all buffered data\n-     * is completely written to the output stream.\n-     *\n-     * @param archiveEntry The TarEntry to be written to the archive.\n-     * @throws IOException on error\n-     * @throws ClassCastException if archiveEntry is not an instance of TarArchiveEntry\n-     */\n-    public void putArchiveEntry(ArchiveEntry archiveEntry) throws IOException {\n-        TarArchiveEntry entry = (TarArchiveEntry) archiveEntry;\n-        if (entry.getName().length() >= TarConstants.NAMELEN) {\n-\n-            if (longFileMode == LONGFILE_GNU) {\n-                // create a TarEntry for the LongLink, the contents\n-                // of which are the entry's name\n-                TarArchiveEntry longLinkEntry = new TarArchiveEntry(TarConstants.GNU_LONGLINK,\n-                                                                    TarConstants.LF_GNUTYPE_LONGNAME);\n-\n-                final byte[] nameBytes = entry.getName().getBytes(); // TODO is it correct to use the default charset here?\n-                longLinkEntry.setSize(nameBytes.length + 1); // +1 for NUL\n-                putArchiveEntry(longLinkEntry);\n-                write(nameBytes);\n-                write(0); // NUL terminator\n-                closeArchiveEntry();\n-            } else if (longFileMode != LONGFILE_TRUNCATE) {\n-                throw new RuntimeException(\"file name '\" + entry.getName()\n-                                           + \"' is too long ( > \"\n-                                           + TarConstants.NAMELEN + \" bytes)\");\n-            }\n-        }\n-\n-        entry.writeEntryHeader(recordBuf);\n-        buffer.writeRecord(recordBuf);\n-\n-        currBytes = 0;\n-\n-        if (entry.isDirectory()) {\n-            currSize = 0;\n-        } else {\n-            currSize = entry.getSize();\n-        }\n-        currName = entry.getName();\n-    }\n-\n-    /**\n-     * Close an entry. This method MUST be called for all file\n-     * entries that contain data. The reason is that we must\n-     * buffer data written to the stream in order to satisfy\n-     * the buffer's record based writes. Thus, there may be\n-     * data fragments still being assembled that must be written\n-     * to the output stream before this entry is closed and the\n-     * next entry written.\n-     * @throws IOException on error\n-     */\n-    public void closeArchiveEntry() throws IOException {\n-        if (assemLen > 0) {\n-            for (int i = assemLen; i < assemBuf.length; ++i) {\n-                assemBuf[i] = 0;\n-            }\n-\n-            buffer.writeRecord(assemBuf);\n-\n-            currBytes += assemLen;\n-            assemLen = 0;\n-        }\n-\n-        if (currBytes < currSize) {\n-            throw new IOException(\"entry '\" + currName + \"' closed at '\"\n-                                  + currBytes\n-                                  + \"' before the '\" + currSize\n-                                  + \"' bytes specified in the header were written\");\n-        }\n-    }\n-\n-    /**\n-     * Writes bytes to the current tar archive entry. This method\n-     * is aware of the current entry and will throw an exception if\n-     * you attempt to write bytes past the length specified for the\n-     * current entry. The method is also (painfully) aware of the\n-     * record buffering required by TarBuffer, and manages buffers\n-     * that are not a multiple of recordsize in length, including\n-     * assembling records from small buffers.\n-     *\n-     * @param wBuf The buffer to write to the archive.\n-     * @param wOffset The offset in the buffer from which to get bytes.\n-     * @param numToWrite The number of bytes to write.\n-     * @throws IOException on error\n-     */\n-    public void write(byte[] wBuf, int wOffset, int numToWrite) throws IOException {\n-        if ((currBytes + numToWrite) > currSize) {\n-            throw new IOException(\"request to write '\" + numToWrite\n-                                  + \"' bytes exceeds size in header of '\"\n-                                  + currSize + \"' bytes for entry '\"\n-                                  + currName + \"'\");\n-\n-            //\n-            // We have to deal with assembly!!!\n-            // The programmer can be writing little 32 byte chunks for all\n-            // we know, and we must assemble complete records for writing.\n-            // REVIEW Maybe this should be in TarBuffer? Could that help to\n-            // eliminate some of the buffer copying.\n-            //\n-        }\n-\n-        if (assemLen > 0) {\n-            if ((assemLen + numToWrite) >= recordBuf.length) {\n-                int aLen = recordBuf.length - assemLen;\n-\n-                System.arraycopy(assemBuf, 0, recordBuf, 0,\n-                                 assemLen);\n-                System.arraycopy(wBuf, wOffset, recordBuf,\n-                                 assemLen, aLen);\n-                buffer.writeRecord(recordBuf);\n-\n-                currBytes += recordBuf.length;\n-                wOffset += aLen;\n-                numToWrite -= aLen;\n-                assemLen = 0;\n-            } else {\n-                System.arraycopy(wBuf, wOffset, assemBuf, assemLen,\n-                                 numToWrite);\n-\n-                wOffset += numToWrite;\n-                assemLen += numToWrite;\n-                numToWrite = 0;\n-            }\n-        }\n-\n-        //\n-        // When we get here we have EITHER:\n-        // o An empty \"assemble\" buffer.\n-        // o No bytes to write (numToWrite == 0)\n-        //\n-        while (numToWrite > 0) {\n-            if (numToWrite < recordBuf.length) {\n-                System.arraycopy(wBuf, wOffset, assemBuf, assemLen,\n-                                 numToWrite);\n-\n-                assemLen += numToWrite;\n-\n-                break;\n-            }\n-\n-            buffer.writeRecord(wBuf, wOffset);\n-\n-            int num = recordBuf.length;\n-\n-            currBytes += num;\n-            numToWrite -= num;\n-            wOffset += num;\n-        }\n-    }\n-\n-    /**\n-     * Write an EOF (end of archive) record to the tar archive.\n-     * An EOF record consists of a record of all zeros.\n-     */\n-    private void writeEOFRecord() throws IOException {\n-        for (int i = 0; i < recordBuf.length; ++i) {\n-            recordBuf[i] = 0;\n-        }\n-\n-        buffer.writeRecord(recordBuf);\n-    }\n-\n-    // used to be implemented via FilterOutputStream\n-    public void flush() throws IOException {\n-        out.flush();\n-    }\n-\n-    public ArchiveEntry createArchiveEntry(File inputFile, String entryName)\n-            throws IOException {\n-        return new TarArchiveEntry(inputFile, entryName);\n-    }\n-}\n"
+  },
+  "timestamp": "2026-06-29 12:42:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_3",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_3",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Are the public finish() methods ArchiveOutputStream implementations necessary and safe?\nSome of the ArchiveOutputStream implementations have public finish() methods. These are currently only called from the close() methods.\n\nSeems to me that there is no need to allow the finish() methods to be called externally, and the user can corrupt the output if they do.\n\nSurely the close() method is all that is needed?\n",
+    "commit_message": "COMPRESS-64: finish() does not close archive entries by default any longer",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 336,
+        "end_line": 336,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java",
+        "start_line": 318,
+        "end_line": 318,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/ar/ArArchiveOutputStream.java",
+        "start_line": 169,
+        "end_line": 169,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/ar/ArArchiveOutputStream.java",
+        "start_line": 170,
+        "end_line": 170,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+        "start_line": 235,
+        "end_line": 235,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+        "start_line": 236,
+        "end_line": 236,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+        "start_line": 237,
+        "end_line": 237,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+        "start_line": 44,
+        "end_line": 44,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+        "start_line": 36,
+        "end_line": 36,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+        "start_line": 37,
+        "end_line": 37,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.ArchiveOutputStreamTest::testFinish"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 336,
+      "end_line": 336,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java",
+      "start_line": 318,
+      "end_line": 318,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/ar/ArArchiveOutputStream.java",
+      "start_line": 169,
+      "end_line": 169,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/ar/ArArchiveOutputStream.java",
+      "start_line": 170,
+      "end_line": 170,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+      "start_line": 235,
+      "end_line": 235,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+      "start_line": 236,
+      "end_line": 236,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java",
+      "start_line": 237,
+      "end_line": 237,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+      "start_line": 44,
+      "end_line": 44,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+      "start_line": 36,
+      "end_line": 36,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/jar/JarArchiveEntry.java",
+      "start_line": 37,
+      "end_line": 37,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 10
+    }
+  ]
+}

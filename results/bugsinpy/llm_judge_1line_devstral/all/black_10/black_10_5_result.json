@@ -1,0 +1,62 @@
+{
+  "project_name": "black",
+  "bug_id": "black_10",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 19:58:04",
+      "end_time": "2026-06-27 19:59:10",
+      "duration_seconds": 66,
+      "duration_human": "1m 6s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 428059,
+      "output_tokens": 2710,
+      "total_tokens": 430769,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 428059
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/blib2to3/pgen2/driver.py b/blib2to3/pgen2/driver.py\nindex 72d9f47..66762f9 100644\n--- a/blib2to3/pgen2/driver.py\n+++ b/blib2to3/pgen2/driver.py\n@@ -1,117 +1,3 @@\n-# Copyright 2004-2005 Elemental Security, Inc. All Rights Reserved.\n-# Licensed to PSF under a Contributor Agreement.\n-\n-# Modifications:\n-# Copyright 2006 Google, Inc. All Rights Reserved.\n-# Licensed to PSF under a Contributor Agreement.\n-\n-\"\"\"Parser driver.\n-\n-This provides a high-level interface to parse a file into a syntax tree.\n-\n-\"\"\"\n-\n-__author__ = \"Guido van Rossum <guido@python.org>\"\n-\n-__all__ = [\"Driver\", \"load_grammar\"]\n-\n-# Python imports\n-import codecs\n-import io\n-import os\n-import logging\n-import pkgutil\n-import sys\n-\n-# Pgen imports\n-from . import grammar, parse, token, tokenize, pgen\n-\n-\n-class Driver(object):\n-\n-    def __init__(self, grammar, convert=None, logger=None):\n-        self.grammar = grammar\n-        if logger is None:\n-            logger = logging.getLogger()\n-        self.logger = logger\n-        self.convert = convert\n-\n-    def parse_tokens(self, tokens, debug=False):\n-        \"\"\"Parse a series of tokens and return the syntax tree.\"\"\"\n-        # XXX Move the prefix computation into a wrapper around tokenize.\n-        p = parse.Parser(self.grammar, self.convert)\n-        p.setup()\n-        lineno = 1\n-        column = 0\n-        indent_columns = []\n-        type = value = start = end = line_text = None\n-        prefix = \"\"\n-        for quintuple in tokens:\n-            type, value, start, end, line_text = quintuple\n-            if start != (lineno, column):\n-                assert (lineno, column) <= start, ((lineno, column), start)\n-                s_lineno, s_column = start\n-                if lineno < s_lineno:\n-                    prefix += \"\\n\" * (s_lineno - lineno)\n-                    lineno = s_lineno\n-                    column = 0\n-                if column < s_column:\n-                    prefix += line_text[column:s_column]\n-                    column = s_column\n-            if type in (tokenize.COMMENT, tokenize.NL):\n-                prefix += value\n-                lineno, column = end\n-                if value.endswith(\"\\n\"):\n-                    lineno += 1\n-                    column = 0\n-                continue\n-            if type == token.OP:\n-                type = grammar.opmap[value]\n-            if debug:\n-                self.logger.debug(\"%s %r (prefix=%r)\",\n-                                  token.tok_name[type], value, prefix)\n-            if type == token.INDENT:\n-                indent_columns.append(len(value))\n-                _prefix = prefix + value\n-                prefix = \"\"\n-                value = \"\"\n-            elif type == token.DEDENT:\n-                _indent_col = indent_columns.pop()\n-                prefix, _prefix = self._partially_consume_prefix(prefix, _indent_col)\n-            if p.addtoken(type, value, (prefix, start)):\n-                if debug:\n-                    self.logger.debug(\"Stop.\")\n-                break\n-            prefix = \"\"\n-            if type in {token.INDENT, token.DEDENT}:\n-                prefix = _prefix\n-            lineno, column = end\n-            if value.endswith(\"\\n\"):\n-                lineno += 1\n-                column = 0\n-        else:\n-            # We never broke out -- EOF is too soon (how can this happen???)\n-            raise parse.ParseError(\"incomplete input\",\n-                                   type, value, (prefix, start))\n-        return p.rootnode\n-\n-    def parse_stream_raw(self, stream, debug=False):\n-        \"\"\"Parse a stream and return the syntax tree.\"\"\"\n-        tokens = tokenize.generate_tokens(stream.readline)\n-        return self.parse_tokens(tokens, debug)\n-\n-    def parse_stream(self, stream, debug=False):\n-        \"\"\"Parse a stream and return the syntax tree.\"\"\"\n-        return self.parse_stream_raw(stream, debug)\n-\n-    def parse_file(self, filename, encoding=None, debug=False):\n-        \"\"\"Parse a file and return the syntax tree.\"\"\"\n-        with io.open(filename, \"r\", encoding=encoding) as stream:\n-            return self.parse_stream(stream, debug)\n-\n-    def parse_string(self, text, debug=False):\n-        \"\"\"Parse a string and return the syntax tree.\"\"\"\n-        tokens = tokenize.generate_tokens(io.StringIO(text).readline)\n         return self.parse_tokens(tokens, debug)\n \n     def _partially_consume_prefix(self, prefix, column):\n@@ -143,81 +29,9 @@ class Driver(object):\n                 wait_for_nl = True\n         return ''.join(lines), current_line\n \n-\n def _generate_pickle_name(gt, cache_dir=None):\n     head, tail = os.path.splitext(gt)\n     if tail == \".txt\":\n         tail = \"\"\n     name = head + tail + \".\".join(map(str, sys.version_info)) + \".pickle\"\n     if cache_dir:\n-        return os.path.join(cache_dir, os.path.basename(name))\n-    else:\n-        return name\n-\n-\n-def load_grammar(gt=\"Grammar.txt\", gp=None,\n-                 save=True, force=False, logger=None):\n-    \"\"\"Load the grammar (maybe from a pickle).\"\"\"\n-    if logger is None:\n-        logger = logging.getLogger()\n-    gp = _generate_pickle_name(gt) if gp is None else gp\n-    if force or not _newer(gp, gt):\n-        logger.info(\"Generating grammar tables from %s\", gt)\n-        g = pgen.generate_grammar(gt)\n-        if save:\n-            logger.info(\"Writing grammar tables to %s\", gp)\n-            try:\n-                g.dump(gp)\n-            except OSError as e:\n-                logger.info(\"Writing failed: %s\", e)\n-    else:\n-        g = grammar.Grammar()\n-        g.load(gp)\n-    return g\n-\n-\n-def _newer(a, b):\n-    \"\"\"Inquire whether file a was written since file b.\"\"\"\n-    if not os.path.exists(a):\n-        return False\n-    if not os.path.exists(b):\n-        return True\n-    return os.path.getmtime(a) >= os.path.getmtime(b)\n-\n-\n-def load_packaged_grammar(package, grammar_source, cache_dir=None):\n-    \"\"\"Normally, loads a pickled grammar by doing\n-        pkgutil.get_data(package, pickled_grammar)\n-    where *pickled_grammar* is computed from *grammar_source* by adding the\n-    Python version and using a ``.pickle`` extension.\n-\n-    However, if *grammar_source* is an extant file, load_grammar(grammar_source)\n-    is called instead. This facilitates using a packaged grammar file when needed\n-    but preserves load_grammar's automatic regeneration behavior when possible.\n-\n-    \"\"\"\n-    if os.path.isfile(grammar_source):\n-        gp = _generate_pickle_name(grammar_source, cache_dir) if cache_dir else None\n-        return load_grammar(grammar_source, gp=gp)\n-    pickled_name = _generate_pickle_name(os.path.basename(grammar_source), cache_dir)\n-    data = pkgutil.get_data(package, pickled_name)\n-    g = grammar.Grammar()\n-    g.loads(data)\n-    return g\n-\n-\n-def main(*args):\n-    \"\"\"Main program, when run as a script: produce grammar pickle files.\n-\n-    Calls load_grammar for each argument, a path to a grammar text file.\n-    \"\"\"\n-    if not args:\n-        args = sys.argv[1:]\n-    logging.basicConfig(level=logging.INFO, stream=sys.stdout,\n-                        format='%(message)s')\n-    for gt in args:\n-        load_grammar(gt, save=True, force=True)\n-    return True\n-\n-if __name__ == \"__main__\":\n-    sys.exit(int(not main()))\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex b3f1f82..92031ca 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -509,6 +509,19 @@ class BlackTestCase(unittest.TestCase):\n         black.assert_equivalent(source, actual)\n         black.assert_stable(source, actual, line_length=ll)\n \n+    def test_comment_indentation(self) -> None:\n+        contents_tab = \"if 1:\\n\\tif 2:\\n\\t\\tpass\\n\\t# comment\\n\\tpass\\n\"\n+        contents_spc = \"if 1:\\n    if 2:\\n        pass\\n    # comment\\n    pass\\n\"\n+\n+        self.assertFormatEqual(fs(contents_spc), contents_spc)\n+        self.assertFormatEqual(fs(contents_tab), contents_spc)\n+\n+        contents_tab = \"if 1:\\n\\tif 2:\\n\\t\\tpass\\n\\t\\t# comment\\n\\tpass\\n\"\n+        contents_spc = \"if 1:\\n    if 2:\\n        pass\\n        # comment\\n    pass\\n\"\n+\n+        self.assertFormatEqual(fs(contents_tab), contents_spc)\n+        self.assertFormatEqual(fs(contents_spc), contents_spc)\n+\n     def test_report_verbose(self) -> None:\n         report = black.Report(verbose=True)\n         out_lines = []\n"
+  },
+  "timestamp": "2026-06-27 19:59:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_10",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_10/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Fix indent calculation with tabs when computing prefixes (#595)",
+    "fault_locations": [
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 134,
+        "end_line": 134,
+        "function_name": "_partially_consume_prefix",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 136,
+        "end_line": 137,
+        "function_name": "_partially_consume_prefix",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_comment_indentation"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

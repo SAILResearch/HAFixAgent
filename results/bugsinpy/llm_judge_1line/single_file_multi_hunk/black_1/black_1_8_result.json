@@ -1,0 +1,69 @@
+{
+  "project_name": "black",
+  "bug_id": "black_1",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 06:32:13",
+      "end_time": "2026-03-24 07:03:21",
+      "duration_seconds": 1868,
+      "duration_human": "31m 8s"
+    },
+    "model_cost": 0.1152,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 682108,
+      "output_tokens": 64863,
+      "total_tokens": 746971,
+      "cached_input_tokens": 354112,
+      "uncached_input_tokens": 327996
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex 2a913fc..d707a72 100644\n--- a/black.py\n+++ b/black.py\n@@ -576,10 +576,26 @@ def path_empty(\n             ctx.exit(0)\n \n \n+def shutdown(loop: asyncio.AbstractEventLoop) -> None:\n+    if not loop.is_closed():\n+        loop.close()\n+\n def reformat_one(\n     src: Path, fast: bool, write_back: WriteBack, mode: Mode, report: \"Report\"\n ) -> None:\n     \"\"\"Reformat a single file under `src` without spawning child processes.\n+    loop = asyncio.get_event_loop()\n+    worker_count = os.cpu_count()\n+    if sys.platform == \"win32\":\n+        # Work around https://bugs.python.org/issue26903\n+        worker_count = min(worker_count, 61)\n+    try:\n+        executor = ProcessPoolExecutor(max_workers=worker_count)\n+    except OSError:\n+        # Fall back to sequential processing in case of failure (e.g., no multiprocessing support)\n+        for src in sorted(sources):\n+            reformat_one(src, fast=fast, write_back=write_back, mode=mode, report=report)\n+        return\n \n     `fast`, `write_back`, and `mode` options are passed to\n     :func:`format_file_in_place` or :func:`format_stdin_to_stdout`.\n@@ -596,55 +612,80 @@ def reformat_one(\n                 res_src = src.resolve()\n                 if res_src in cache and cache[res_src] == get_cache_info(res_src):\n                     changed = Changed.CACHED\n-            if changed is not Changed.CACHED and format_file_in_place(\n                 src, fast=fast, write_back=write_back, mode=mode\n             ):\n                 changed = Changed.YES\n-            if (write_back is WriteBack.YES and changed is not Changed.CACHED) or (\n-                write_back is WriteBack.CHECK and changed is Changed.NO\n-            ):\n-                write_cache(cache, [src], mode)\n-        report.done(src, changed)\n-    except Exception as exc:\n-        report.failed(src, str(exc))\n-\n-\n-def reformat_many(\n+    sources: Set[Path], fast: bool, write_back: WriteBack, mode: Mode, report: \"Report\"\n     sources: Set[Path], fast: bool, write_back: WriteBack, mode: Mode, report: \"Report\"\n ) -> None:\n+) -> None:\n+    \"\"\"Reformat multiple files using a ProcessPoolExecutor.\"\"\"\n     \"\"\"Reformat multiple files using a ProcessPoolExecutor.\"\"\"\n     loop = asyncio.get_event_loop()\n+    loop = asyncio.get_event_loop()\n+    worker_count = os.cpu_count()\n     worker_count = os.cpu_count()\n+    if sys.platform == \"win32\":\n     if sys.platform == \"win32\":\n         # Work around https://bugs.python.org/issue26903\n+        # Work around https://bugs.python.org/issue26903\n+        worker_count = min(worker_count, 61)\n         worker_count = min(worker_count, 61)\n     executor = ProcessPoolExecutor(max_workers=worker_count)\n+    executor = ProcessPoolExecutor(max_workers=worker_count)\n     try:\n+    try:\n+        loop.run_until_complete(\n         loop.run_until_complete(\n+            schedule_formatting(\n             schedule_formatting(\n                 sources=sources,\n+                sources=sources,\n+                fast=fast,\n                 fast=fast,\n                 write_back=write_back,\n+                write_back=write_back,\n+                mode=mode,\n                 mode=mode,\n                 report=report,\n+                report=report,\n+                loop=loop,\n                 loop=loop,\n                 executor=executor,\n+                executor=executor,\n             )\n+            )\n+        )\n         )\n     finally:\n-        shutdown(loop)\n+    finally:\n         executor.shutdown()\n+        executor.shutdown()\n+        shutdown(loop)\n+        shutdown(loop)\n+\n+\n \n \n async def schedule_formatting(\n+async def schedule_formatting(\n+    sources: Set[Path],\n     sources: Set[Path],\n     fast: bool,\n+    fast: bool,\n+    write_back: WriteBack,\n     write_back: WriteBack,\n     mode: Mode,\n+    mode: Mode,\n     report: \"Report\",\n+    report: \"Report\",\n+    loop: asyncio.AbstractEventLoop,\n     loop: asyncio.AbstractEventLoop,\n     executor: Executor,\n+    executor: Executor,\n ) -> None:\n+) -> None:\n+    \"\"\"Run formatting of `sources` in parallel using the provided `executor`.\n     \"\"\"Run formatting of `sources` in parallel using the provided `executor`.\n \n     (Use ProcessPoolExecutors for actual parallelism.)\n@@ -6374,3 +6415,6 @@ def fix_docstring(docstring: str, prefix: str) -> str:\n \n if __name__ == \"__main__\":\n     patched_main()\n+ndef shutdown(loop: asyncio.AbstractEventLoop) -> None:\n+    if not loop.is_closed():\n+        loop.close()\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 11bba1f..a0e57dc 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -1273,6 +1273,27 @@ class BlackTestCase(unittest.TestCase):\n             self.assertIn(one, cache)\n             self.assertIn(two, cache)\n \n+    @patch(\"black.ProcessPoolExecutor\", autospec=True)\n+    def test_works_in_mono_process_only_environment(self, mock_executor) -> None:\n+        mock_executor.side_effect = OSError()\n+        mode = black.FileMode()\n+        with cache_dir() as workspace:\n+            one = (workspace / \"one.py\").resolve()\n+            with one.open(\"w\") as fobj:\n+                fobj.write(\"print('hello')\")\n+            two = (workspace / \"two.py\").resolve()\n+            with two.open(\"w\") as fobj:\n+                fobj.write(\"print('hello')\")\n+            black.write_cache({}, [one], mode)\n+            self.invokeBlack([str(workspace)])\n+            with one.open(\"r\") as fobj:\n+                self.assertEqual(fobj.read(), \"print('hello')\")\n+            with two.open(\"r\") as fobj:\n+                self.assertEqual(fobj.read(), 'print(\"hello\")\\n')\n+            cache = black.read_cache(mode)\n+            self.assertIn(one, cache)\n+            self.assertIn(two, cache)\n+\n     def test_no_cache_when_writeback_diff(self) -> None:\n         mode = black.FileMode()\n         with cache_dir() as workspace:\n"
+  },
+  "timestamp": "2026-03-24 03:03:21 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_1/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "permits black to run in AWS Lambda: (#1141)",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 621,
+        "end_line": 621,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 636,
+        "end_line": 636,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 646,
+        "end_line": 646,
+        "function_name": "schedule_formatting",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_works_in_mono_process_only_environment"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

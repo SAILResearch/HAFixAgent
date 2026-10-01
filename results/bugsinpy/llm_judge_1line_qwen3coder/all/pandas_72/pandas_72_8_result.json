@@ -1,0 +1,69 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_72",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 19:08:46",
+      "end_time": "2026-06-20 19:12:28",
+      "duration_seconds": 221,
+      "duration_human": "3m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 577000,
+      "output_tokens": 6782,
+      "total_tokens": 583782,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 577000
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py\nindex a93211edf1..2ffb9260c3 100644\n--- a/pandas/core/internals/blocks.py\n+++ b/pandas/core/internals/blocks.py\n@@ -877,6 +877,12 @@ class Block(PandasObject):\n         # length checking\n         check_setitem_lengths(indexer, value, values)\n \n+        exact_match = (\n+            len(arr_value.shape)\n+            and arr_value.shape[0] == values.shape[0]\n+            and arr_value.size == values.size\n+        )\n+\n         if is_empty_indexer(indexer, arr_value):\n             # GH#8669 empty indexers\n             pass\n@@ -886,17 +892,23 @@ class Block(PandasObject):\n             #  be e.g. a list; see GH#6043\n             values[indexer] = value\n \n-        # if we are an exact match (ex-broadcasting),\n-        # then use the resultant dtype\n         elif (\n-            len(arr_value.shape)\n-            and arr_value.shape[0] == values.shape[0]\n-            and arr_value.size == values.size\n+            exact_match\n+            and is_categorical_dtype(arr_value.dtype)\n+            and not is_categorical_dtype(values)\n         ):\n+            # GH25495 - If the current dtype is not categorical,\n+            # we need to create a new categorical block\n+            values[indexer] = value\n+            return self.make_block(Categorical(self.values, dtype=arr_value.dtype))\n+\n+        # if we are an exact match (ex-broadcasting),\n+        # then use the resultant dtype\n+        elif exact_match:\n             values[indexer] = value\n             try:\n                 values = values.astype(arr_value.dtype)\n-            except ValueError:\n+            except (ValueError, TypeError):\n                 pass\n \n         # set\ndiff --git a/pandas/tests/frame/indexing/test_categorical.py b/pandas/tests/frame/indexing/test_categorical.py\nindex 5de38915f0..a29c193676 100644\n--- a/pandas/tests/frame/indexing/test_categorical.py\n+++ b/pandas/tests/frame/indexing/test_categorical.py\n@@ -354,6 +354,16 @@ class TestDataFrameIndexingCategorical:\n                 df.value, range(0, 105, 10), right=False, labels=labels\n             )\n \n+    def test_setitem_single_row_categorical(self):\n+        # GH 25495\n+        df = DataFrame({\"Alpha\": [\"a\"], \"Numeric\": [0]})\n+        categories = pd.Categorical(df[\"Alpha\"], categories=[\"a\", \"b\", \"c\"])\n+        df.loc[:, \"Alpha\"] = categories\n+\n+        result = df[\"Alpha\"]\n+        expected = Series(categories, index=df.index, name=\"Alpha\")\n+        tm.assert_series_equal(result, expected)\n+\n     def test_loc_indexing_preserves_index_category_dtype(self):\n         # GH 15166\n         df = DataFrame(\n"
+  },
+  "timestamp": "2026-06-20 19:12:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_72",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_72/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: GH25495 incorrect dtype when using .loc to set Categorical value for column in 1-row DataFrame (#29393)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 879,
+        "end_line": 879,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 889,
+        "end_line": 890,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 892,
+        "end_line": 894,
+        "function_name": "setitem",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/indexing/test_categorical.py::TestDataFrameIndexingCategorical::test_setitem_single_row_categorical"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

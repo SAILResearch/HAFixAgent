@@ -1,0 +1,63 @@
+{
+  "project_name": "Closure",
+  "bug_id": "71",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:09:42",
+      "end_time": "2026-06-19 23:16:24",
+      "duration_seconds": 402,
+      "duration_human": "6m 42s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 648565,
+      "output_tokens": 7150,
+      "total_tokens": 655715,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 648565
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:16:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_71",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_71",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "no warnings when @private prop is redeclared on subclass\n<b>What steps will reproduce the problem?</b>\n/** @constructor */ function Foo() { /** @private */ this.x_ = 3; }\r\n\r\nthen, in a separate file:\r\n/** @constructor \r\n * @extends {Foo} */ function SubFoo() { /** @private */ this.x_ = 3; }\r\n\r\nthen, compile with --jscomp_error=visibility\r\n\r\nExpected: You should get an error.\r\nActual: No error.\r\n\r\nYou get an error as appropriate if the second @private annotation is removed.",
+    "commit_message": "Emit a warning when a private property overrides another private property, with both defined in the ctor. Fixes issue 254",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/CheckAccessControls.java",
+        "start_line": 416,
+        "end_line": 416,
+        "line_numbers": [
+          416
+        ],
+        "function_name": "checkPropertyVisibility",
+        "class_name": "CheckAccessControls",
+        "filename": "CheckAccessControls.java",
+        "code_snippet": "  private void checkPropertyVisibility(NodeTraversal t,\n      Node getprop, Node parent) {\n    ObjectType objectType =\n        ObjectType.cast(dereference(getprop.getFirstChild().getJSType()));\n    String propertyName = getprop.getLastChild().getString();\n\n    if (objectType != null) {\n      // Is this a normal property access, or are we trying to override\n      // an existing property?\n      boolean isOverride = t.inGlobalScope() &&\n          parent.getType() == Token.ASSIGN &&\n          parent.getFirstChild() == getprop;\n\n      // Find the lowest property defined on a class with visibility\n      // information.\n      if (isOverride) {\n        objectType = objectType.getImplicitPrototype();\n      }\n      JSDocInfo docInfo = null;\n      for (; objectType != null;\n           objectType = objectType.getImplicitPrototype()) {\n        docInfo = objectType.getOwnPropertyJSDocInfo(propertyName);\n        if (docInfo != null &&\n            docInfo.getVisibility() != Visibility.INHERITED) {\n          break;\n        }\n      }\n\n      if (objectType == null) {\n        // We couldn't find a visibility modifier; assume it's public.\n        return;\n      }\n\n      boolean sameInput =\n          t.getInput().getName().equals(docInfo.getSourceName());\n      Visibility visibility = docInfo.getVisibility();\n      JSType ownerType = normalizeClassType(objectType);\n      if (isOverride) {\n        // Check an ASSIGN statement that's trying to override a property\n        // on a superclass.\n        JSDocInfo overridingInfo = parent.getJSDocInfo();\n        Visibility overridingVisibility = overridingInfo == null ?\n            Visibility.INHERITED : overridingInfo.getVisibility();\n\n        // Check that (a) the property *can* be overridden, and\n        // (b) that the visibility of the override is the same as the\n        // visibility of the original property.\n        if (visibility == Visibility.PRIVATE && !sameInput) {\n          compiler.report(\n              t.makeError(getprop, PRIVATE_OVERRIDE,\n                  objectType.toString()));\n        } else if (overridingVisibility != Visibility.INHERITED &&\n            overridingVisibility != visibility) {\n          compiler.report(\n              t.makeError(getprop, VISIBILITY_MISMATCH,\n                  visibility.name(), objectType.toString(),\n                  overridingVisibility.name()));\n        }\n      } else {\n        if (sameInput) {\n          // private access is always allowed in the same file.\n          return;\n        } else if (visibility == Visibility.PRIVATE &&\n            (currentClass == null || ownerType.differsFrom(currentClass))) {\n          if (docInfo.isConstructor() &&\n              isValidPrivateConstructorAccess(parent)) {\n            return;\n          }\n\n          // private access is not allowed outside the file from a different\n          // enclosing class.\n          compiler.report(\n              t.makeError(getprop,\n                  BAD_PRIVATE_PROPERTY_ACCESS,\n                  propertyName,\n                  validator.getReadableJSTypeName(\n                      getprop.getFirstChild(), true)));\n        } else if (visibility == Visibility.PROTECTED) {\n          // There are 3 types of legal accesses of a protected property:\n          // 1) Accesses in the same file\n          // 2) Overriding the property in a subclass\n          // 3) Accessing the property from inside a subclass\n          // The first two have already been checked for.\n          if (currentClass == null || !currentClass.isSubtype(ownerType)) {\n            compiler.report(\n                t.makeError(getprop,  BAD_PROTECTED_PROPERTY_ACCESS,\n                    propertyName,\n                    validator.getReadableJSTypeName(\n                        getprop.getFirstChild(), true)));\n          }\n        }\n      }\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CheckAccessControlsTest::testNoPrivateAccessForProperties6",
+      "com.google.javascript.jscomp.CheckAccessControlsTest::testNoPrivateAccessForProperties8"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/CheckAccessControls.java b/src/com/google/javascript/jscomp/CheckAccessControls.java\nindex 09eaa26..b23fd7a 100644\n--- a/src/com/google/javascript/jscomp/CheckAccessControls.java\n+++ b/src/com/google/javascript/jscomp/CheckAccessControls.java\n@@ -413,7 +413,7 @@ class CheckAccessControls implements ScopedCallback, HotSwapCompilerPass {\n     if (objectType != null) {\n       // Is this a normal property access, or are we trying to override\n       // an existing property?\n+      boolean isOverride = parent.getJSDocInfo() != null &&\n-      boolean isOverride = t.inGlobalScope() &&\n           parent.getType() == Token.ASSIGN &&\n           parent.getFirstChild() == getprop;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

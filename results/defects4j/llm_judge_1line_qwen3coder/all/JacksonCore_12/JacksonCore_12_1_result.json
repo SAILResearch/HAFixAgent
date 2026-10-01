@@ -1,0 +1,115 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "12",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:11:50",
+      "end_time": "2026-06-20 00:14:01",
+      "duration_seconds": 131,
+      "duration_human": "2m 11s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 467029,
+      "output_tokens": 3362,
+      "total_tokens": 470391,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 467029
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:14:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_12",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_12",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "JsonParser.getTokenLocation() doesn't update after field names.\nThere's a unit test to repro the issue below.  Basically, when you're on a FIELD_NAME token, if you call getTokenLocation() and then nextToken() and then getTokenLocation() again, you'll get the same location for both calls to getTokenLocation(), even though you've advanced to a new token.\n\nThe issue seems to be the _nextToken logic in ReaderBasedJsonParser and UTF8StreamJsonParser.  When calling nextToken() on a FIELD_NAME, it calls _nextAfterName(), which updates _currToken but doesn't update _tokenInputRow and _tokenInputCol for the new token's location.\n\nI started to try to fix it, but the _nextToken logic is spread across so much code that it looked like it'd be a pretty major surgery.  Not something I'm willing to do at this point. :-)\n\n```\npublic void testTokenLocationAfterFieldName() throws Exception\n{\n    _testTokenLocationAfterFieldName(false);\n    _testTokenLocationAfterFieldName(true);\n}\n\nprivate void _testTokenLocationAfterFieldName(Boolean useStream) throws Exception\n{\n    final String DOC = \"{\\\"name\\\":123}\";\n    JsonFactory jf = new JsonFactory();\n    JsonParser jp = useStream ?\n            jf.createJsonParser(new ByteArrayInputStream(DOC.getBytes(\"UTF-8\")))\n            : jf.createJsonParser(new StringReader(DOC));\n\n    assertEquals(JsonToken.START_OBJECT, jp.nextToken());\n    assertEquals(JsonToken.FIELD_NAME, jp.nextToken());\n    assertEquals(JsonToken.VALUE_NUMBER_INT, jp.nextToken());\n    assertEquals(1, jp.getTokenLocation().getLineNr());\n    assertEquals(9, jp.getTokenLocation().getColumnNr());\n    jp.close();\n}\n```\n\n",
+    "commit_message": "Fix #37",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 622,
+        "end_line": 622,
+        "line_numbers": [
+          622
+        ],
+        "function_name": "",
+        "class_name": "ReaderBasedJsonParser",
+        "filename": "ReaderBasedJsonParser.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 773,
+        "end_line": 773,
+        "line_numbers": [
+          773
+        ],
+        "function_name": "",
+        "class_name": "ReaderBasedJsonParser",
+        "filename": "ReaderBasedJsonParser.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 851,
+        "end_line": 851,
+        "line_numbers": [
+          851
+        ],
+        "function_name": "",
+        "class_name": "ReaderBasedJsonParser",
+        "filename": "ReaderBasedJsonParser.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2672,
+        "end_line": 2673,
+        "line_numbers": [
+          2672,
+          2673
+        ],
+        "function_name": "getTokenLocation",
+        "class_name": "ReaderBasedJsonParser",
+        "filename": "ReaderBasedJsonParser.java",
+        "code_snippet": "    public JsonLocation getTokenLocation()\n    {\n        final Object src = _ioContext.getSourceReference();\n        return new JsonLocation(src,\n                -1L, getTokenCharacterOffset(),\n                getTokenLineNr(),\n                getTokenColumnNr());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+        "start_line": 3622,
+        "end_line": 3622,
+        "line_numbers": [
+          3622
+        ],
+        "function_name": "getTokenLocation",
+        "class_name": "UTF8StreamJsonParser",
+        "filename": "UTF8StreamJsonParser.java",
+        "code_snippet": "    public JsonLocation getTokenLocation()\n    {\n        final Object src = _ioContext.getSourceReference();\n        if (_currToken == JsonToken.FIELD_NAME) {\n            return new JsonLocation(src,\n                    _nameInputTotal, -1L, _nameInputRow, _tokenInputCol);\n        }\n        return new JsonLocation(src,\n                getTokenCharacterOffset(), -1L, getTokenLineNr(),\n                getTokenColumnNr());\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.LocationInObjectTest::testOffsetWithObjectFieldsUsingReader"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\nindex c2c413f0..60919c88 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n@@ -619,6 +619,7 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         if (_parsingContext.expectComma()) {\n             i = _skipComma(i);\n         }\n-        _updateLocation();\n \n         /* And should we now have a name? Always true for Object contexts, since\n          * the intermediate 'expect-value' state is never retained.\n@@ -626,13 +627,11 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         boolean inObject = _parsingContext.inObject();\n         if (inObject) {\n             // First, field name itself:\n+            _updateNameLocation();\n             String name = (i == INT_QUOTE) ? _parseName() : _handleOddName(i);\n             _parsingContext.setCurrentName(name);\n             _currToken = JsonToken.FIELD_NAME;\n             i = _skipColon();\n         }\n+        _updateLocation();\n \n         // Ok: we must have a value... what is it?\n \n@@ -771,14 +770,13 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         if (_parsingContext.expectComma()) {\n             i = _skipComma(i);\n         }\n-        _updateLocation();\n \n         if (!_parsingContext.inObject()) {\n+            _updateLocation();\n             _nextTokenNotInObject(i);\n             return false;\n         }\n \n+        _updateNameLocation();\n         if (i == INT_QUOTE) {\n             // when doing literal match, must consider escaping:\n             char[] nameChars = sstr.asQuotedChars();\n@@ -850,19 +848,17 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         if (_parsingContext.expectComma()) {\n             i = _skipComma(i);\n         }\n-        _updateLocation();\n         if (!_parsingContext.inObject()) {\n+            _updateLocation();\n             _nextTokenNotInObject(i);\n             return null;\n         }\n \n+        _updateNameLocation();\n         String name = (i == INT_QUOTE) ? _parseName() : _handleOddName(i);\n         _parsingContext.setCurrentName(name);\n         _currToken = JsonToken.FIELD_NAME;\n         i = _skipColon();\n \n+        _updateLocation();\n         if (i == INT_QUOTE) {\n             _tokenIncomplete = true;\n             _nextToken = JsonToken.VALUE_STRING;\n@@ -918,7 +914,6 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n     private final void _isNextTokenNameYes(int i) throws IOException\n     {\n         _currToken = JsonToken.FIELD_NAME;\n+        _updateLocation();\n \n         switch (i) {\n         case '\"':\n@@ -969,7 +964,6 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         _parsingContext.setCurrentName(name);\n         _currToken = JsonToken.FIELD_NAME;\n         i = _skipColon();\n+        _updateLocation();\n         if (i == INT_QUOTE) {\n             _tokenIncomplete = true;\n             _nextToken = JsonToken.VALUE_STRING;\n@@ -2674,12 +2668,9 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n     public JsonLocation getTokenLocation()\n     {\n         final Object src = _ioContext.getSourceReference();\n+        if (_currToken == JsonToken.FIELD_NAME) {\n+            return new JsonLocation(src,\n+                    -1L, _nameInputTotal, _nameInputRow, _tokenInputCol);\n+        }\n         return new JsonLocation(src,\n+                -1L, _tokenInputTotal, _tokenInputRow,\n-                -1L, getTokenCharacterOffset(),\n-                getTokenLineNr(),\n                 getTokenColumnNr());\n     }\n \ndiff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\nindex b0c007b7..589a34c4 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n@@ -3619,7 +3619,7 @@ public class UTF8StreamJsonParser\n                     _nameInputTotal, -1L, _nameInputRow, _tokenInputCol);\n         }\n         return new JsonLocation(src,\n+                _tokenInputTotal, -1L, _tokenInputRow,\n-                getTokenCharacterOffset(), -1L, getTokenLineNr(),\n                 getTokenColumnNr());\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

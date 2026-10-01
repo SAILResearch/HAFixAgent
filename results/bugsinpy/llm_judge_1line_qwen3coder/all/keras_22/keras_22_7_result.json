@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_22",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-23 11:04:29",
+      "end_time": "2026-06-23 11:07:50",
+      "duration_seconds": 202,
+      "duration_human": "3m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 795773,
+      "output_tokens": 3481,
+      "total_tokens": 799254,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 795773
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/keras/layers/core_test.py b/tests/keras/layers/core_test.py\nindex 1d3ac1967..dd60f5a46 100644\n--- a/tests/keras/layers/core_test.py\n+++ b/tests/keras/layers/core_test.py\n@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose\n from keras import backend as K\n from keras import layers\n from keras.models import Model\n+from keras.models import Sequential\n from keras.utils.test_utils import layer_test\n from keras.utils.test_utils import keras_test\n from keras import regularizers\n@@ -343,5 +344,30 @@ def test_activity_regularization():\n     model.compile('rmsprop', 'mse')\n \n \n+@keras_test\n+def test_sequential_as_downstream_of_masking_layer():\n+\n+    inputs = layers.Input(shape=(3, 4))\n+    x = layers.Masking(mask_value=0., input_shape=(3, 4))(inputs)\n+    s = Sequential()\n+    s.add(layers.Dense(5, input_shape=(4,)))\n+    s.add(layers.Activation('relu'))\n+    x = layers.wrappers.TimeDistributed(s)(x)\n+    model = Model(inputs=inputs, outputs=x)\n+    model.compile(optimizer='rmsprop', loss='mse')\n+    model_input = np.random.randint(low=1, high=5, size=(10, 3, 4))\n+    for i in range(4):\n+        model_input[i, i:, :] = 0.\n+    model.fit(model_input,\n+              np.random.random((10, 3, 5)), epochs=1, batch_size=6)\n+\n+    mask_outputs = [model.layers[1].compute_mask(model.layers[1].input)]\n+    mask_outputs += [model.layers[2].compute_mask(model.layers[2].input, mask_outputs[-1])]\n+    func = K.function([model.input], mask_outputs)\n+    mask_outputs_val = func([model_input])\n+    assert np.array_equal(mask_outputs_val[0], np.any(model_input, axis=-1))\n+    assert np.array_equal(mask_outputs_val[1], np.any(model_input, axis=-1))\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-23 11:07:50 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_22",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_22/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Make InputLayer support masking (#10794)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/input_layer.py",
+        "start_line": 44,
+        "end_line": 45,
+        "function_name": "__init__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/core_test.py::test_sequential_as_downstream_of_masking_layer"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

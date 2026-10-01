@@ -1,0 +1,117 @@
+{
+  "project_name": "Lang",
+  "bug_id": "13",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 05:13:41",
+      "end_time": "2026-06-20 05:15:59",
+      "duration_seconds": 139,
+      "duration_human": "2m 19s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 17,
+    "token_usage": {
+      "input_tokens": 139132,
+      "output_tokens": 1369,
+      "total_tokens": 140501,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 139132
+    },
+    "agent_steps": 17,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/SerializationUtils.java b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\nindex 1ee636cba..6bec18b5c 100644\n--- a/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n@@ -265,7 +265,11 @@ public class SerializationUtils {\n             try {\n                 return Class.forName(name, false, classLoader);\n             } catch (ClassNotFoundException ex) {\n+                try {\n                     return Class.forName(name, false, Thread.currentThread().getContextClassLoader());\n+                } catch (ClassNotFoundException ex2) {\n+                    return super.resolveClass(desc);\n+                }\n             }\n         }\n \n"
+  },
+  "timestamp": "2026-06-20 05:15:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_13",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_13",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "SerializationUtils throws ClassNotFoundException when cloning primitive classes\nIf a serializable object contains a reference to a primitive class, e.g. int.class or int[].class, the SerializationUtils throw a ClassNotFoundException when trying to clone that object.\n\n{noformat}\nimport org.apache.commons.lang3.SerializationUtils;\nimport org.junit.Test;\n\n\npublic class SerializationUtilsTest {\n\n\t\n\t@Test\n\tpublic void primitiveTypeClassSerialization(){\n\t\tClass<?> primitiveType = int.class;\n\t\t\n\t\tClass<?> clone = SerializationUtils.clone(primitiveType);\n\t\tassertEquals(primitiveType, clone);\n\t}\n}\n{noformat} \n\nThe problem was already reported as a java bug http://bugs.sun.com/view_bug.do?bug_id=4171142 and ObjectInputStream is fixed since java version 1.4.\nThe SerializationUtils problem arises because the SerializationUtils internally use the ClassLoaderAwareObjectInputStream that overrides the ObjectInputStream's\nresoleClass method without delegating to the super method in case of a ClassNotFoundException.\n\nI understand the intention of the ClassLoaderAwareObjectInputStream, but this implementation should also implement a fallback to the original implementation.\n\nFor example:\n{noformat}\n        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {\n            String name = desc.getName();\n            try {\n                return Class.forName(name, false, classLoader);\n            } catch (ClassNotFoundException ex) {\n            \ttry {\n            \t     return Class.forName(name, false, Thread.currentThread().getContextClassLoader());\n            \t} catch (Exception e) {\n\t\t     return super.resolveClass(desc);\n\t\t}\n            }\n        }\n{noformat}\n\nHere is the code in ObjectInputStream that fixed the java bug.\n{noformat}\n    protected Class<?> resolveClass(ObjectStreamClass desc)\n\tthrows IOException, ClassNotFoundException\n    {\n\tString name = desc.getName();\n\ttry {\n\t    return Class.forName(name, false, latestUserDefinedLoader());\n\t} catch (ClassNotFoundException ex) {\n\t    Class cl = (Class) primClasses.get(name);\n\t    if (cl != null) {\n\t\treturn cl;\n\t    } else {\n\t\tthrow ex;\n\t    }\n\t}\n    }\n{noformat}\n",
+    "commit_message": "[LANG-788] SerializationUtils throws ClassNotFoundException when cloning primitive classes",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/SerializationUtils.java",
+        "start_line": 238,
+        "end_line": 238,
+        "line_numbers": [
+          238
+        ],
+        "function_name": "",
+        "class_name": "ClassLoaderAwareObjectInputStream",
+        "filename": "SerializationUtils.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/SerializationUtils.java",
+        "start_line": 253,
+        "end_line": 253,
+        "line_numbers": [
+          253
+        ],
+        "function_name": "",
+        "class_name": "ClassLoaderAwareObjectInputStream",
+        "filename": "SerializationUtils.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.SerializationUtilsTest::testPrimitiveTypeClassSerialization"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/SerializationUtils.java b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\nindex 7c89b61..1ee636c 100644\n--- a/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n@@ -236,8 +236,6 @@ public class SerializationUtils {\n      * class here is a workaround, see the JIRA issue LANG-626. </p>\n      */\n      static class ClassLoaderAwareObjectInputStream extends ObjectInputStream {\n+        private static final Map<String, Class<?>> primitiveTypes = \n+                new HashMap<String, Class<?>>();\n         private ClassLoader classLoader;\n         \n         /**\n@@ -251,15 +249,6 @@ public class SerializationUtils {\n             super(in);\n             this.classLoader = classLoader;\n \n+            primitiveTypes.put(\"byte\", byte.class);\n+            primitiveTypes.put(\"short\", short.class);\n+            primitiveTypes.put(\"int\", int.class);\n+            primitiveTypes.put(\"long\", long.class);\n+            primitiveTypes.put(\"float\", float.class);\n+            primitiveTypes.put(\"double\", double.class);\n+            primitiveTypes.put(\"boolean\", boolean.class);\n+            primitiveTypes.put(\"char\", char.class);\n+            primitiveTypes.put(\"void\", void.class);\n         }\n \n         /**\n@@ -276,15 +265,7 @@ public class SerializationUtils {\n             try {\n                 return Class.forName(name, false, classLoader);\n             } catch (ClassNotFoundException ex) {\n+                try {\n                     return Class.forName(name, false, Thread.currentThread().getContextClassLoader());\n+                } catch (ClassNotFoundException cnfe) {\n+                    Class<?> cls = primitiveTypes.get(name);\n+                    if (cls != null)\n+                        return cls;\n+                    else\n+                        throw cnfe;\n+                }\n             }\n         }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Henri Yandell",
+        "commit_date": "2011-08-02 02:57:04",
+        "commit_message": "Applying Sven Ludwig's patch from LANG-626. This modifies the SerializationUtils.clone method to use the threadContextLoader if it is unable to find a class using the object's current classloader. This should (hopefully) help with Weblogic and Tomcat situations where Lang is outside the web-inf for some reason (likely user error with Tomcat, by design for Weblogic)",
+        "commit_hash": "b82ab99340a46e28320d6b48dd1d5e6fc3bce98e"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "ClassLoaderAwareObjectInputStream",
+          "resolveClass"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "ClassLoaderAwareObjectInputStream",
+          "resolveClass"
+        ],
+        "functions_name_modified_file": [
+          "ClassLoaderAwareObjectInputStream",
+          "SerializationUtils",
+          "serialize",
+          "resolveClass",
+          "deserialize"
+        ],
+        "functions_name_all_files": [
+          "ClassLoaderAwareObjectInputStream",
+          "SerializationUtils",
+          "serialize",
+          "resolveClass",
+          "deserialize"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/lang3/SerializationUtils.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/lang3/SerializationUtils.java": "diff --git a/src/main/java/org/apache/commons/lang3/SerializationUtils.java b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\nindex bd8238ae7..9cf3891f2 100644\n--- a/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/SerializationUtils.java\n@@ -22,6 +22,7 @@ import java.io.IOException;\n import java.io.InputStream;\n import java.io.ObjectInputStream;\n import java.io.ObjectOutputStream;\n+import java.io.ObjectStreamClass;\n import java.io.OutputStream;\n import java.io.Serializable;\n \n@@ -73,14 +74,36 @@ public class SerializationUtils {\n      * @throws SerializationException (runtime) if the serialization fails\n      */\n     public static <T extends Serializable> T clone(T object) {\n-        /*\n-         * when we serialize and deserialize an object,\n-         * it is reasonable to assume the deserialized object\n-         * is of the same type as the original serialized object\n-         */\n-        @SuppressWarnings(\"unchecked\")\n-        final T result = (T) deserialize(serialize(object));\n-        return result;\n+        if (object == null) {\n+            return null;\n+        }\n+        byte[] objectData = serialize(object);\n+        ByteArrayInputStream bais = new ByteArrayInputStream(objectData);\n+\n+        ClassLoaderAwareObjectInputStream in = null;\n+        try {\n+            // stream closed in the finally\n+            in = new ClassLoaderAwareObjectInputStream(bais, object.getClass().getClassLoader());\n+            /*\n+             * when we serialize and deserialize an object,\n+             * it is reasonable to assume the deserialized object\n+             * is of the same type as the original serialized object\n+             */\n+            return (T) in.readObject();\n+\n+        } catch (ClassNotFoundException ex) {\n+            throw new SerializationException(\"ClassNotFoundException while reading cloned object data\", ex);\n+        } catch (IOException ex) {\n+            throw new SerializationException(\"IOException while reading cloned object data\", ex);\n+        } finally {\n+            try {\n+                if (in != null) {\n+                    in.close();\n+                }\n+            } catch (IOException ex) {\n+                throw new SerializationException(\"IOException on closing cloned object data InputStream.\", ex);\n+            }\n+        }\n     }\n \n     // Serialize\n@@ -195,4 +218,52 @@ public class SerializationUtils {\n         return deserialize(bais);\n     }\n \n+    /**\n+     * <p>Custom specialization of the standard JDK {@link java.io.ObjectInputStream}\n+     * that uses a custom  <code>ClassLoader</code> to resolve a class.\n+     * If the specified <code>ClassLoader</code> is not able to resolve the class,\n+     * the context classloader of the current thread will be used.\n+     * This way, the standard deserialization work also in web-application\n+     * containers and application servers, no matter in which of the\n+     * <code>ClassLoader</code> the particular class that encapsulates\n+     * serialization/deserialization lives. </p>\n+     * \n+     * <p>For more in-depth information about the problem for which this\n+     * class here is a workaround, see the JIRA issue LANG-626. </p>\n+     */\n+     static class ClassLoaderAwareObjectInputStream extends ObjectInputStream {\n+        private ClassLoader classLoader;\n+\n+        /**\n+         * Constructor.\n+         * @param in The <code>InputStream</code>.\n+         * @param classLoader classloader to use\n+         * @throws IOException if an I/O error occurs while reading stream header.\n+         * @see java.io.ObjectInputStream\n+         */\n+        public ClassLoaderAwareObjectInputStream(InputStream in, ClassLoader classLoader) throws IOException {\n+            super(in);\n+            this.classLoader = classLoader;\n+        }\n+\n+        /**\n+         * Overriden version that uses the parametrized <code>ClassLoader</code> or the <code>ClassLoader</code>\n+         * of the current <code>Thread</code> to resolve the class.\n+         * @param desc An instance of class <code>ObjectStreamClass</code>.\n+         * @return A <code>Class</code> object corresponding to <code>desc</code>.\n+         * @throws IOException Any of the usual Input/Output exceptions.\n+         * @throws ClassNotFoundException If class of a serialized object cannot be found.\n+         */\n+        @Override\n+        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {\n+            String name = desc.getName();\n+            try {\n+                return Class.forName(name, false, classLoader);\n+            } catch (ClassNotFoundException ex) {\n+                return Class.forName(name, false, Thread.currentThread().getContextClassLoader());\n+            }\n+        }\n+\n+    }\n+\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

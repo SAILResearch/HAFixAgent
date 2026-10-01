@@ -1,0 +1,194 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_40",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 22:12:17",
+      "end_time": "2026-06-29 22:15:30",
+      "duration_seconds": 193,
+      "duration_human": "3m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 49,
+    "token_usage": {
+      "input_tokens": 555159,
+      "output_tokens": 10866,
+      "total_tokens": 566025,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 555159
+    },
+    "agent_steps": 49,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/utils/BitInputStream.java b/src/main/java/org/apache/commons/compress/utils/BitInputStream.java\nindex 86dda14e..35773b7d 100644\n--- a/src/main/java/org/apache/commons/compress/utils/BitInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/utils/BitInputStream.java\n@@ -82,7 +82,7 @@ public class BitInputStream implements Closeable {\n         if (count < 0 || count > MAXIMUM_CACHE_SIZE) {\n             throw new IllegalArgumentException(\"count must not be negative or greater than \" + MAXIMUM_CACHE_SIZE);\n         }\n-        while (bitsCachedSize < count) {\n+        while (bitsCachedSize < count && bitsCachedSize < 57) {\n             final long nextByte = in.read();\n             if (nextByte < 0) {\n                 return nextByte;\n@@ -95,9 +95,31 @@ public class BitInputStream implements Closeable {\n             }\n             bitsCachedSize += 8;\n         }\n+        int overflowBits = 0;\n+        long overflow = 0l;\n+        if (bitsCachedSize < count) {\n             // bitsCachedSize >= 57 and left-shifting it 8 bits would cause an overflow\n+            int bitsToAddCount = count - bitsCachedSize;\n+            overflowBits = 8 - bitsToAddCount;\n+            final long nextByte = in.read();\n+            if (nextByte < 0) {\n+                return nextByte;\n+            }\n+            if (byteOrder == ByteOrder.LITTLE_ENDIAN) {\n+                long bitsToAdd = nextByte & MASKS[bitsToAddCount];\n+                bitsCached |= (bitsToAdd << bitsCachedSize);\n+                overflow = (nextByte >>> bitsToAddCount) & MASKS[overflowBits];\n+            } else {\n+                bitsCached <<= bitsToAddCount;\n+                long bitsToAdd = (nextByte >>> (overflowBits)) & MASKS[bitsToAddCount];\n+                bitsCached |= bitsToAdd;\n+                overflow = nextByte & MASKS[overflowBits];\n+            }\n+            bitsCachedSize = count;\n+        }\n         \n         final long bitsOut;\n+        if (overflowBits == 0) {\n             if (byteOrder == ByteOrder.LITTLE_ENDIAN) {\n                 bitsOut = (bitsCached & MASKS[count]);\n                 bitsCached >>>= count;\n@@ -105,6 +127,11 @@ public class BitInputStream implements Closeable {\n                 bitsOut = (bitsCached >> (bitsCachedSize - count)) & MASKS[count];\n             }\n             bitsCachedSize -= count;\n+        } else {\n+            bitsOut = bitsCached & MASKS[count];\n+            bitsCached = overflow;\n+            bitsCachedSize = overflowBits;\n+        }\n         return bitsOut;\n     }\n }\n"
+  },
+  "timestamp": "2026-06-29 22:15:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_40",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_40",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Overflow in BitInputStream\nin Class BitInputStream.java(\\src\\main\\java\\org\\apache\\commons\\compress\\utils),\nfuncion:\n\n public long readBits(final int count) throws IOException {\n        if (count < 0 || count > MAXIMUM_CACHE_SIZE) {\n            throw new IllegalArgumentException(\"count must not be negative or greater than \" + MAXIMUM_CACHE_SIZE);\n        }\n        while (bitsCachedSize < count) {\n            final long nextByte = in.read();\n            if (nextByte < 0) {\n                return nextByte;\n            }\n            if (byteOrder == ByteOrder.LITTLE_ENDIAN) {\n                bitsCached |= (nextByte << bitsCachedSize);\n            } else {\n                bitsCached <<= 8;\n                bitsCached |= nextByte;\n            }\n            bitsCachedSize += 8;\n        }\n\n        final long bitsOut;\n        if (byteOrder == ByteOrder.LITTLE_ENDIAN) {\n            bitsOut = (bitsCached & MASKS[count]);\n            bitsCached >>>= count;\n        } else {\n            bitsOut = (bitsCached >> (bitsCachedSize - count)) & MASKS[count];\n        }\n        bitsCachedSize -= count;\n        return bitsOut;\n    }\n\n\n\nI think here \"bitsCached |= (nextByte << bitsCachedSize);\" will overflow in some cases. for example, below is a test case:\n\npublic static void test() {\n\n        ByteArrayInputStream in = new ByteArrayInputStream(new byte[]{87, 45, 66, 15,\n                                                                      90, 29, 88, 61, 33, 74});\n        BitInputStream bin = new BitInputStream(in, ByteOrder.LITTLE_ENDIAN);\n        try {\n            long ret = bin.readBits(5);\n            ret = bin.readBits(63);\n            ret = bin.readBits(12);\n        } catch (Exception e) {\n            e.printStackTrace();\n        }\n}\n\noverflow occur in \"bin.readBits(63);\" , so ,result in wrong result from  \"bin.readBits(12);\" \n\n",
+    "commit_message": "COMPRESS-363 properly handle overflow inside BitInputStream",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 93,
+        "end_line": 93,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 94,
+        "end_line": 94,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 90,
+        "end_line": 90,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 96,
+        "end_line": 96,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 97,
+        "end_line": 97,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 101,
+        "end_line": 101,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 107,
+        "end_line": 107,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+        "start_line": 85,
+        "end_line": 85,
+        "suspiciousness": 0.2626128657194451,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.utils.BitInputStreamTest::littleEndianWithOverflow",
+      "org.apache.commons.compress.utils.BitInputStreamTest::bigEndianWithOverflow"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 93,
+      "end_line": 93,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 94,
+      "end_line": 94,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 90,
+      "end_line": 90,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 96,
+      "end_line": 96,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 97,
+      "end_line": 97,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 101,
+      "end_line": 101,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 107,
+      "end_line": 107,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/utils/BitInputStream.java",
+      "start_line": 85,
+      "end_line": 85,
+      "suspiciousness": 0.2626128657194451,
+      "rank": 10
+    }
+  ]
+}

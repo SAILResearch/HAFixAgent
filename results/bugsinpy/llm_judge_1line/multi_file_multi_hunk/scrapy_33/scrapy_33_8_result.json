@@ -1,0 +1,225 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_33",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 07:37:10",
+      "end_time": "2026-03-24 07:54:51",
+      "duration_seconds": 1061,
+      "duration_human": "17m 41s"
+    },
+    "model_cost": 0.0418,
+    "model_calls": 22,
+    "token_usage": {
+      "input_tokens": 223490,
+      "output_tokens": 36428,
+      "total_tokens": 259918,
+      "cached_input_tokens": 123840,
+      "uncached_input_tokens": 99650
+    },
+    "agent_steps": 22,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/core/engine.py b/scrapy/core/engine.py\nindex 40f19e4c3..3b6d8a4fc 100644\n--- a/scrapy/core/engine.py\n+++ b/scrapy/core/engine.py\n@@ -17,6 +17,7 @@ from scrapy.http import Response, Request\n from scrapy.utils.misc import load_object\n from scrapy.utils.reactor import CallLaterOnce\n from scrapy.utils.log import logformatter_adapter\n+from scrapy.utils.log import failure_to_exc_info\n \n logger = logging.getLogger(__name__)\n \ndiff --git a/scrapy/core/scraper.py b/scrapy/core/scraper.py\nindex e5d8acea2..da5cd5f30 100644\n--- a/scrapy/core/scraper.py\n+++ b/scrapy/core/scraper.py\n@@ -11,6 +11,7 @@ from scrapy.utils.defer import defer_result, defer_succeed, parallel, iter_errba\n from scrapy.utils.spider import iterate_spider_output\n from scrapy.utils.misc import load_object\n from scrapy.utils.log import logformatter_adapter\n+from scrapy.utils.log import failure_to_exc_info\n from scrapy.exceptions import CloseSpider, DropItem, IgnoreRequest\n from scrapy import signals\n from scrapy.http import Request, Response\ndiff --git a/scrapy/downloadermiddlewares/robotstxt.py b/scrapy/downloadermiddlewares/robotstxt.py\nindex 9083482f0..c01fcce53 100644\n--- a/scrapy/downloadermiddlewares/robotstxt.py\n+++ b/scrapy/downloadermiddlewares/robotstxt.py\n@@ -11,6 +11,7 @@ from six.moves.urllib import robotparser\n from scrapy.exceptions import NotConfigured, IgnoreRequest\n from scrapy.http import Request\n from scrapy.utils.httpobj import urlparse_cached\n+from scrapy.utils.log import failure_to_exc_info\n \n logger = logging.getLogger(__name__)\n \ndiff --git a/scrapy/extensions/feedexport.py b/scrapy/extensions/feedexport.py\nindex 7c6849a73..cef4e7493 100644\n--- a/scrapy/extensions/feedexport.py\n+++ b/scrapy/extensions/feedexport.py\n@@ -18,6 +18,7 @@ from twisted.internet import defer, threads\n from w3lib.url import file_uri_to_path\n \n from scrapy import signals\n+from scrapy.utils.log import failure_to_exc_info\n from scrapy.utils.ftp import ftp_makedirs_cwd\n from scrapy.exceptions import NotConfigured\n from scrapy.utils.misc import load_object\ndiff --git a/scrapy/pipelines/files.py b/scrapy/pipelines/files.py\nindex c0192b867..b44e0c748 100644\n--- a/scrapy/pipelines/files.py\n+++ b/scrapy/pipelines/files.py\n@@ -10,6 +10,7 @@ import os.path\n import rfc822\n import time\n import logging\n+from scrapy.utils.log import failure_to_exc_info\n from six.moves.urllib.parse import urlparse\n from collections import defaultdict\n import six\n@@ -212,7 +213,7 @@ class FilesPipeline(MediaPipeline):\n         dfd.addErrback(\n             lambda f:\n             logger.error(self.__class__.__name__ + '.store.stat_file',\n-                         extra={'spider': info.spider, 'failure': f})\n+                         extra={'spider': info.spider, 'failure': f}, exc_info=failure_to_exc_info(f))\n         )\n         return dfd\n \ndiff --git a/scrapy/pipelines/media.py b/scrapy/pipelines/media.py\nindex 55ef05ad4..c82a3c089 100644\n--- a/scrapy/pipelines/media.py\n+++ b/scrapy/pipelines/media.py\n@@ -8,6 +8,7 @@ from twisted.python.failure import Failure\n from scrapy.utils.defer import mustbe_deferred, defer_result\n from scrapy.utils.request import request_fingerprint\n from scrapy.utils.misc import arg_to_iter\n+from scrapy.utils.log import failure_to_exc_info\n \n logger = logging.getLogger(__name__)\n \n@@ -70,7 +71,7 @@ class MediaPipeline(object):\n         dfd.addCallback(self._check_media_to_download, request, info)\n         dfd.addBoth(self._cache_result_and_execute_waiters, fp, info)\n         dfd.addErrback(lambda f: logger.error(\n-            f.value, extra={'spider': info.spider, 'failure': f})\n+            f.value, extra={'spider': info.spider, 'failure': f}, exc_info=failure_to_exc_info(f))\n         )\n         return dfd.addBoth(lambda _: wad)  # it must return wad at last\n \n@@ -127,6 +128,6 @@ class MediaPipeline(object):\n                     logger.error(\n                         '%(class)s found errors processing %(item)s',\n                         {'class': self.__class__.__name__, 'item': item},\n-                        extra={'spider': info.spider, 'failure': value}\n+                        extra={'spider': info.spider, 'failure': value}, exc_info=failure_to_exc_info(value)\n                     )\n         return item\ndiff --git a/scrapy/utils/log.py b/scrapy/utils/log.py\nindex 23b246491..8703f87a7 100644\n--- a/scrapy/utils/log.py\n+++ b/scrapy/utils/log.py\n@@ -13,6 +13,17 @@ import scrapy\n from scrapy.settings import overridden_settings, Settings\n from scrapy.exceptions import ScrapyDeprecationWarning\n \n+def failure_to_exc_info(failure):\n+    \"\"\"Convert a Twisted Failure to an exc_info tuple.\n+\n+    This function is used to convert a Twisted Failure object to a tuple\n+    suitable for use as the exc_info argument in logging.\n+    \"\"\"\n+    if isinstance(failure, Failure):\n+        return (failure.type, failure.value, failure.tb)\n+    return None\n+\n+\n logger = logging.getLogger(__name__)\n \n \ndiff --git a/scrapy/utils/signal.py b/scrapy/utils/signal.py\nindex d4cc41305..13991bf52 100644\n--- a/scrapy/utils/signal.py\n+++ b/scrapy/utils/signal.py\n@@ -8,6 +8,7 @@ from twisted.python.failure import Failure\n from scrapy.xlib.pydispatch.dispatcher import Any, Anonymous, liveReceivers, \\\n     getAllReceivers, disconnect\n from scrapy.xlib.pydispatch.robustapply import robustApply\n+from scrapy.utils.log import failure_to_exc_info\n \n logger = logging.getLogger(__name__)\n \ndiff --git a/tests/test_pipeline_media.py b/tests/test_pipeline_media.py\nindex 7217eee90..fd8b28ce1 100644\n--- a/tests/test_pipeline_media.py\n+++ b/tests/test_pipeline_media.py\n@@ -9,6 +9,7 @@ from scrapy.http import Request, Response\n from scrapy.spiders import Spider\n from scrapy.utils.request import request_fingerprint\n from scrapy.pipelines.media import MediaPipeline\n+from scrapy.utils.log import failure_to_exc_info\n from scrapy.utils.signal import disconnect_all\n from scrapy import signals\n \n@@ -66,7 +67,7 @@ class BaseMediaPipelineTestCase(unittest.TestCase):\n         assert len(l.records) == 1\n         record = l.records[0]\n         assert record.levelname == 'ERROR'\n-        assert record.failure is fail\n+        self.assertTupleEqual(record.exc_info, failure_to_exc_info(fail))\n \n         # disable failure logging and check again\n         self.pipe.LOG_FAILED_RESULTS = False\ndiff --git a/tests/test_utils_log.py b/tests/test_utils_log.py\nindex 7448dbfc0..45527b03b 100644\n--- a/tests/test_utils_log.py\n+++ b/tests/test_utils_log.py\n@@ -1,6 +1,5 @@\n # -*- coding: utf-8 -*-\n from __future__ import print_function\n-import os\n import sys\n import logging\n import unittest\n@@ -8,46 +7,24 @@ import unittest\n from testfixtures import LogCapture\n from twisted.python.failure import Failure\n \n-from scrapy.utils.log import (FailureFormatter, TopLevelFormatter,\n+from scrapy.utils.log import (failure_to_exc_info, TopLevelFormatter,\n                               LogCounterHandler, StreamLogger)\n from scrapy.utils.test import get_crawler\n \n \n-class FailureFormatterTest(unittest.TestCase):\n+class FailureToExcInfoTest(unittest.TestCase):\n \n-    def setUp(self):\n-        self.logger = logging.getLogger('test')\n-        self.filter = FailureFormatter()\n-        self.logger.addFilter(self.filter)\n-\n-    def tearDown(self):\n-        self.logger.removeFilter(self.filter)\n-\n-    def test_failure_format(self):\n-        with LogCapture() as l:\n-            try:\n-                0/0\n-            except ZeroDivisionError:\n-                self.logger.error('test log msg', exc_info=True)\n-                failure = Failure()\n-\n-            self.logger.error('test log msg', extra={'failure': failure})\n-\n-        self.assertEqual(len(l.records), 2)\n-        exc_record, failure_record = l.records\n-        self.assertTupleEqual(failure_record.exc_info, exc_record.exc_info)\n+    def test_failure(self):\n+        try:\n+            0/0\n+        except ZeroDivisionError:\n+            exc_info = sys.exc_info()\n+            failure = Failure()\n \n-        formatter = logging.Formatter()\n-        self.assertMultiLineEqual(formatter.format(failure_record),\n-                                  formatter.format(exc_record))\n-\n-    def test_non_failure_format(self):\n-        with LogCapture() as l:\n-            self.logger.error('test log msg', extra={'failure': 3})\n+        self.assertTupleEqual(exc_info, failure_to_exc_info(failure))\n \n-        self.assertEqual(len(l.records), 1)\n-        self.assertMultiLineEqual(l.records[0].getMessage(),\n-                                  'test log msg' + os.linesep + '3')\n+    def test_non_failure(self):\n+        self.assertIsNone(failure_to_exc_info('test'))\n \n \n class TopLevelFormatterTest(unittest.TestCase):\n"
+  },
+  "timestamp": "2026-03-24 03:54:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_33",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_33/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "Replace FailureFormatter with direct exc_info conversions in log calls",
+    "fault_locations": [
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 19,
+        "end_line": 19,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 138,
+        "end_line": 138,
+        "function_name": "_next_request_from_scheduler",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 141,
+        "end_line": 141,
+        "function_name": "_next_request_from_scheduler",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 144,
+        "end_line": 144,
+        "function_name": "_next_request_from_scheduler",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 156,
+        "end_line": 156,
+        "function_name": "_handle_downloader_output",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/engine.py",
+        "start_line": 271,
+        "end_line": 271,
+        "function_name": "errback",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/scraper.py",
+        "start_line": 13,
+        "end_line": 13,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/scraper.py",
+        "start_line": 110,
+        "end_line": 110,
+        "function_name": "enqueue_scrape",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/scraper.py",
+        "start_line": 156,
+        "end_line": 156,
+        "function_name": "handle_spider_error",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/scraper.py",
+        "start_line": 205,
+        "end_line": 205,
+        "function_name": "_log_download_errors",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/core/scraper.py",
+        "start_line": 230,
+        "end_line": 230,
+        "function_name": "_itemproc_finished",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/downloadermiddlewares/robotstxt.py",
+        "start_line": 62,
+        "end_line": 62,
+        "function_name": "_logerror",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/extensions/feedexport.py",
+        "start_line": 187,
+        "end_line": 187,
+        "function_name": "close_spider",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 1,
+        "end_line": 3,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 14,
+        "end_line": 17,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 20,
+        "end_line": 20,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 22,
+        "end_line": 27,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 30,
+        "end_line": 33,
+        "function_name": "msg",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 35,
+        "end_line": 40,
+        "function_name": "msg",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 43,
+        "end_line": 46,
+        "function_name": "err",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/log.py",
+        "start_line": 48,
+        "end_line": 51,
+        "function_name": "err",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/pipelines/files.py",
+        "start_line": 215,
+        "end_line": 215,
+        "function_name": "media_to_download",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/pipelines/media.py",
+        "start_line": 73,
+        "end_line": 73,
+        "function_name": "_process_request",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/pipelines/media.py",
+        "start_line": 130,
+        "end_line": 130,
+        "function_name": "item_completed",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/utils/signal.py",
+        "start_line": 50,
+        "end_line": 50,
+        "function_name": "logerror",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_pipeline_media.BaseMediaPipelineTestCase.test_default_item_completed",
+      "python -m unittest -q tests.test_utils_log.FailureToExcInfoTest.test_failure",
+      "python -m unittest -q tests.test_utils_log.FailureToExcInfoTest.test_non_failure"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

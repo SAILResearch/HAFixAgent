@@ -1,0 +1,84 @@
+{
+  "project_name": "Math",
+  "bug_id": "77",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 17:36:03",
+      "end_time": "2026-06-26 17:39:19",
+      "duration_seconds": 195,
+      "duration_human": "3m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1358525,
+      "output_tokens": 3840,
+      "total_tokens": 1362365,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1358525
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\nindex 37c4417e2..22d0a280f 100644\n--- a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\n+++ b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\n@@ -718,7 +718,7 @@ public class ArrayRealVector extends AbstractRealVector implements Serializable\n     public double getLInfNorm() {\n         double max = 0;\n         for (double a : data) {\n-            max += Math.max(max, Math.abs(a));\n+            max = Math.max(max, Math.abs(a));\n         }\n         return max;\n     }\ndiff --git a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\nindex e02596003..eb5be1b68 100644\n--- a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\n+++ b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\n@@ -495,15 +495,6 @@ public class OpenMapRealVector extends AbstractRealVector implements SparseRealV\n         return max;\n     }\n \n-    public double getLInfNorm() {\n-        double max = 0;\n-        Iterator iter = entries.iterator();\n-        while (iter.hasNext()) {\n-            iter.advance();\n-            max += iter.value();\n-        }\n-        return max;\n-    }\n     /**\n      * Optimized method to compute LInfDistance.\n      * @param v The vector to compute from\n"
+  },
+  "timestamp": "2026-06-26 17:39:19 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_77",
+    "repo_path": "/defects4j/framework/bin/temp/Math_77",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "getLInfNorm() uses wrong formula in both ArrayRealVector and OpenMapRealVector (in different ways)\nthe L_infinity norm of a finite dimensional vector is just the max of the absolute value of its entries.\n\nThe current implementation in ArrayRealVector has a typo:\n\n{code}\n    public double getLInfNorm() {\n        double max = 0;\n        for (double a : data) {\n            max += Math.max(max, Math.abs(a));\n        }\n        return max;\n    }\n{code}\n\nthe += should just be an =.\n\nThere is sadly a unit test assuring us that this is the correct behavior (effectively a regression-only test, not a test for correctness).\n\nWorse, the implementation in OpenMapRealVector is not even positive semi-definite:\n\n{code}   \n    public double getLInfNorm() {\n        double max = 0;\n        Iterator iter = entries.iterator();\n        while (iter.hasNext()) {\n            iter.advance();\n            max += iter.value();\n        }\n        return max;\n    }\n{code}\n\nI would suggest that this method be moved up to the AbstractRealVector superclass and implemented using the sparseIterator():\n\n{code}\n  public double getLInfNorm() {\n    double norm = 0;\n    Iterator<Entry> it = sparseIterator();\n    Entry e;\n    while(it.hasNext() && (e = it.next()) != null) {\n      norm = Math.max(norm, Math.abs(e.getValue()));\n    }\n    return norm;\n  }\n{code}\n\nUnit tests with negative valued vectors would be helpful to check for this kind of thing in the future.",
+    "commit_message": "fixed a wrong implementation of the Linf vector norm JIRA: MATH-326",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+        "start_line": 721,
+        "end_line": 721,
+        "line_numbers": [
+          721
+        ],
+        "function_name": "getLInfNorm",
+        "class_name": "ArrayRealVector",
+        "filename": "ArrayRealVector.java",
+        "code_snippet": "    public double getLInfNorm() {\n        double max = 0;\n        for (double a : data) {\n            max += Math.max(max, Math.abs(a));\n        }\n        return max;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java",
+        "start_line": 498,
+        "end_line": 506,
+        "line_numbers": [
+          498,
+          499,
+          500,
+          501,
+          502,
+          503,
+          504,
+          505,
+          506
+        ],
+        "function_name": "getLInfNorm",
+        "class_name": "OpenMapRealVector",
+        "filename": "OpenMapRealVector.java",
+        "code_snippet": "    public double getLInfNorm() {\n        double max = 0;\n        Iterator iter = entries.iterator();\n        while (iter.hasNext()) {\n            iter.advance();\n            max += iter.value();\n        }\n        return max;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.linear.ArrayRealVectorTest::testBasicFunctions",
+      "org.apache.commons.math.linear.SparseRealVectorTest::testBasicFunctions"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\nindex 22d0a28..37c4417 100644\n--- a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\n+++ b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java\n@@ -718,7 +718,7 @@ public class ArrayRealVector extends AbstractRealVector implements Serializable\n     public double getLInfNorm() {\n         double max = 0;\n         for (double a : data) {\n+            max = Math.max(max, Math.abs(a));\n-            max += Math.max(max, Math.abs(a));\n         }\n         return max;\n     }\ndiff --git a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\nindex eb5be1b..e025960 100644\n--- a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\n+++ b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java\n@@ -495,6 +495,15 @@ public class OpenMapRealVector extends AbstractRealVector implements SparseRealV\n         return max;\n     }\n \n-    public double getLInfNorm() {\n-        double max = 0;\n-        Iterator iter = entries.iterator();\n-        while (iter.hasNext()) {\n-            iter.advance();\n-            max += iter.value();\n-        }\n-        return max;\n-    }\n     /**\n      * Optimized method to compute LInfDistance.\n      * @param v The vector to compute from",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

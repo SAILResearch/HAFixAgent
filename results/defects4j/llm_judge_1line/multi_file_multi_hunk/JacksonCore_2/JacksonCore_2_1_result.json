@@ -1,0 +1,65 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "2",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 17:12:14",
+      "end_time": "2025-09-30 17:16:34",
+      "duration_seconds": 261,
+      "duration_human": "4m 21s"
+    },
+    "model_cost": 0.0312,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 384394,
+      "output_tokens": 3739,
+      "total_tokens": 388133,
+      "cached_input_tokens": 371456,
+      "uncached_input_tokens": 12938
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\nindex 15faeb8b..44959e04 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n@@ -1241,6 +1241,12 @@ public final class UTF8StreamJsonParser\n         --_inputPtr; // to push back trailing char (comma etc)\n         _textBuffer.setCurrentLength(outPtr);\n         // As per #105, need separating space between root values; check here\n+        if (_inputPtr < _inputEnd) {\n+            int next = _inputBuffer[_inputPtr] & 0xFF;\n+            if (next > 0x20 && next != 0x2C && next != 0x7D && next != 0x5D) { // not space, comma, }, ]\n+                _reportMissingRootWS(next);\n+            }\n+        }\n \n         // And there we have it!\n         return resetInt(negative, intLen);\n@@ -1277,6 +1283,12 @@ public final class UTF8StreamJsonParser\n         --_inputPtr; // to push back trailing char (comma etc)\n         _textBuffer.setCurrentLength(outPtr);\n         // As per #105, need separating space between root values; check here\n+        if (_inputPtr < _inputEnd) {\n+            int next = _inputBuffer[_inputPtr] & 0xFF;\n+            if (next > 0x20 && next != 0x2C && next != 0x7D && next != 0x5D) { // not space, comma, }, ]\n+                _reportMissingRootWS(next);\n+            }\n+        }\n \n         // And there we have it!\n         return resetInt(negative, intPartLength);\n@@ -1404,6 +1416,12 @@ public final class UTF8StreamJsonParser\n         if (!eof) {\n             --_inputPtr;\n             // As per #105, need separating space between root values; check here\n+            if (_inputPtr < _inputEnd) {\n+                int next = _inputBuffer[_inputPtr] & 0xFF;\n+                if (next > 0x20 && next != 0x2C && next != 0x7D && next != 0x5D) { // not space, comma, }, ]\n+                    _reportMissingRootWS(next);\n+                }\n+            }\n         }\n         _textBuffer.setCurrentLength(outPtr);\n \n"
+  },
+  "timestamp": "2025-09-30 17:16:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_2",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_2",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "Parser parsers numbers eagerly; does not report error with missing space\n(note: moved from https://github.com/FasterXML/jackson-databind/issues/260)\n\n---\n\nIf you give input like:\n\n```\n123true\n```\n\nit will first successfully parse integer 123, and then boolean `true`. This should instead result in a parse exception.\n\n",
+    "commit_message": "Fix #105, not detecting missing white-space between root-level numbers",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+        "start_line": 2575,
+        "end_line": 2577,
+        "line_numbers": [
+          2575,
+          2576,
+          2577
+        ],
+        "function_name": "_skipWSOrEnd",
+        "class_name": "UTF8StreamJsonParser",
+        "filename": "UTF8StreamJsonParser.java",
+        "code_snippet": "    private int _skipWSOrEnd() throws IOException\n    {\n        final int[] codes = _icWS;\n        while ((_inputPtr < _inputEnd) || loadMore()) {\n            final int i = _inputBuffer[_inputPtr++] & 0xFF;\n            switch (codes[i]) {\n            case 0: // done!\n                return i;\n            case 1: // skip\n                continue;\n            case 2: // 2-byte UTF\n                _skipUtf8_2(i);\n                break;\n            case 3: // 3-byte UTF\n                _skipUtf8_3(i);\n                break;\n            case 4: // 4-byte UTF\n                _skipUtf8_4(i);\n                break;\n            case INT_LF:\n                ++_currInputRow;\n                _currInputRowStart = _inputPtr;\n                break;\n            case INT_CR:\n                _skipCR();\n                break;\n            case '/':\n                _skipComment();\n                break;\n            case '#':\n                if (!_skipYAMLComment()) {\n                    return i;\n                }\n                break;\n            default: // e.g. -1\n                if (i < 32) {\n                    _throwInvalidSpace(i);\n                }\n                _reportInvalidChar(i);\n            }\n        }\n        // We ran out of input...\n        _handleEOF();\n        return -1;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.TestParserErrorHandling::testMangledNumbersBytes",
+      "com.fasterxml.jackson.core.json.TestParserErrorHandling::testMangledNumbersChars"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\nindex 98b56302..12af5fb0 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n@@ -949,9 +949,6 @@ public final class ReaderBasedJsonParser\n             --ptr; // need to push back following separator\n             _inputPtr = ptr;\n             // As per #105, need separating space between root values; check here\n+            if (_parsingContext.inRoot()) {\n+                _verifyRootSpace(ch);\n+            }\n             int len = ptr-startPtr;\n             _textBuffer.resetWithShared(_inputBuffer, startPtr, len);\n             return reset(negative, intLen, fractLen, expLen);\n@@ -1081,9 +1078,6 @@ public final class ReaderBasedJsonParser\n         // Ok; unless we hit end-of-input, need to push last char read back\n         if (!eof) {\n             --_inputPtr;\n+            if (_parsingContext.inRoot()) {\n+                _verifyRootSpace(c);\n+            }\n         }\n         _textBuffer.setCurrentLength(outPtr);\n         // And there we have it!\n@@ -1165,24 +1159,7 @@ public final class ReaderBasedJsonParser\n      * NOTE: caller MUST ensure there is at least one character available;\n      * and that input pointer is AT given char (not past)\n      */\n+    private final void _verifyRootSpace(int ch) throws IOException\n+    {\n         // caller had pushed it back, before calling; reset\n+        ++_inputPtr;\n+        switch (ch) {\n+        case ' ':\n+        case '\\t':\n+            return;\n+        case '\\r':\n+            _skipCR();\n+            return;\n+        case '\\n':\n+            ++_currInputRow;\n+            _currInputRowStart = _inputPtr;\n+            return;\n+        }\n+        _reportMissingRootWS(ch);\n+    }\n     \n     /*\n     /**********************************************************\ndiff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\nindex 83ae5b7a..15faeb8b 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n@@ -1241,9 +1241,6 @@ public final class UTF8StreamJsonParser\n         --_inputPtr; // to push back trailing char (comma etc)\n         _textBuffer.setCurrentLength(outPtr);\n         // As per #105, need separating space between root values; check here\n+        if (_parsingContext.inRoot()) {\n+            _verifyRootSpace(c);\n+        }\n \n         // And there we have it!\n         return resetInt(negative, intLen);\n@@ -1280,9 +1277,6 @@ public final class UTF8StreamJsonParser\n         --_inputPtr; // to push back trailing char (comma etc)\n         _textBuffer.setCurrentLength(outPtr);\n         // As per #105, need separating space between root values; check here\n+        if (_parsingContext.inRoot()) {\n+            _verifyRootSpace(_inputBuffer[_inputPtr++] & 0xFF);\n+        }\n \n         // And there we have it!\n         return resetInt(negative, intPartLength);\n@@ -1410,9 +1404,6 @@ public final class UTF8StreamJsonParser\n         if (!eof) {\n             --_inputPtr;\n             // As per #105, need separating space between root values; check here\n+            if (_parsingContext.inRoot()) {\n+                _verifyRootSpace(c);\n+            }\n         }\n         _textBuffer.setCurrentLength(outPtr);\n \n@@ -1427,25 +1418,8 @@ public final class UTF8StreamJsonParser\n      * NOTE: caller MUST ensure there is at least one character available;\n      * and that input pointer is AT given char (not past)\n      */\n+    private final void _verifyRootSpace(int ch) throws IOException\n+    {\n         // caller had pushed it back, before calling; reset\n+        ++_inputPtr;\n         // TODO? Handle UTF-8 char decoding for error reporting\n+        switch (ch) {\n+        case ' ':\n+        case '\\t':\n+            return;\n+        case '\\r':\n+            _skipCR();\n+            return;\n+        case '\\n':\n+            ++_currInputRow;\n+            _currInputRowStart = _inputPtr;\n+            return;\n+        }\n+        _reportMissingRootWS(ch);\n+    }\n \n     /*\n     /**********************************************************\n@@ -2598,6 +2572,9 @@ public final class UTF8StreamJsonParser\n                 }\n                 break;\n             default: // e.g. -1\n-                if (i < 32) {\n-                    _throwInvalidSpace(i);\n-                }\n                 _reportInvalidChar(i);\n             }\n         }",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

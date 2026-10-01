@@ -1,0 +1,242 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "104",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 08:44:51",
+      "end_time": "2026-06-20 08:46:47",
+      "duration_seconds": 117,
+      "duration_human": "1m 57s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 876699,
+      "output_tokens": 3128,
+      "total_tokens": 879827,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 876699
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 08:46:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_104",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_104",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Large ISO-8601 Dates are formatted/serialized incorrectly\n**The problem**\r\n\r\n```\r\njava.text.ParseException: Cannot parse date \"\u75dd055-12-02T16:47:04.192+0000\": not compatible with any of standard forms (\"yyyy-MM-dd'T'HH:mm:ss.SSSZ\", \"yyyy-MM-dd'T'HH:mm:ss.SSS\", \"EEE, dd MMM yyyy HH:mm:ss zzz\", \"yyyy-MM-dd\")\r\n\tat com.fasterxml.jackson.databind.util.StdDateFormat.parse(StdDateFormat.java:372)\r\n```\r\n\r\nYears > 9999 are not rendered as 5 numbers or more, but with a non numerical characters for the thousands digit..\r\n\r\n**The testcase**\r\n\r\n```\r\npublic class MyTestCase{\r\n  public static void main(String[] args) throws JsonProcessingException, ParseException {\r\n    StdDateFormat formatter = new StdDateFormat();\r\n    System.out.println(formatter.format(new Date(Long.MIN_VALUE)));\r\n    System.out.println(formatter.format(new Date(Long.MAX_VALUE)));\r\n    System.out.println(formatter.parse(formatter.format(new Date(Long.MIN_VALUE))));\r\n    System.out.println(formatter.parse(formatter.format(new Date(Long.MAX_VALUE))));\r\n\r\n    assert formatter.parse(formatter.format(new Date(Long.MAX_VALUE))).getTime() == Long.MAX_VALUE;\r\n    // Will fail due to lack of support for negative dates.\r\n    //assert formatter.parse(formatter.format(new Date(Long.MIN_VALUE))).getTime() == Long.MIN_VALUE;\r\n  }\r\n}\r\n```\r\n**Expected**\r\n\r\na) All dates are formatted correctly, meaning, years bigger than 9999.\r\nb) or some sort of exception telling the data is not supported.\r\n\r\n**The location** \r\n`'0' + something`\r\nhttps://github.com/FasterXML/jackson-databind/blob/master/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java#L442\r\n\r\n**Suggestion**\r\na) Adding '0' with an integer is not a safe operation. But if you are doing it, you need an upper bound check, e.g.:\r\n```\r\n private static void pad2(StringBuffer buffer, int value) {\r\n     int tens = value / 10;\r\n+    if (tens >= 10) {\r\n+        pad2(buffer, tens);\r\n+        buffer.append((char) ('0' + value % 10));\r\n+        return;\r\n+    }\r\n     if (tens == 0) {\r\n         buffer.append('0');\r\n     } else {\r\n         buffer.append((char) ('0' + tens));\r\n         value -= 10 * tens;\r\n     }\r\n     buffer.append((char) ('0' + value));\r\n }\r\n \r\n private static void pad3(StringBuffer buffer, int value) {\r\n     int h = value / 100;\r\n+    if (h >= 100) {\r\n+        pad3(buffer, h);\r\n+        pad2(buffer, value % 100);\r\n+        return;\r\n+    }\r\n     if (h == 0) {\r\n         buffer.append('0');\r\n     } else {\r\n         buffer.append((char) ('0' + h));\r\n         value -= (h * 100);\r\n     }\r\n     pad2(buffer, value);\r\n }\r\n```\r\nb) Or if you do not want to support such high years, then throw some sort of exception. E.g.:\r\n```\r\n     protected void _format(TimeZone tz, Locale loc, Date date,\r\n             StringBuffer buffer)\r\n     {\r\n         Calendar cal = _getCalendar(tz);\r\n         cal.setTime(date);\r\n\r\n+        int year = cal.get(Calendar.YEAR);\r\n+        if (cal.get(Calendar.ERA) == 0) {\r\n+            year = -year + 1;\r\n+        }\r\n+        if (year < 0 || 9999 < year) {\r\n+            throw new IndexOutOfBoundsException(\"Year not within the range [0,9999]: \" + Integer.toString(year))\r\n+        }\r\n \r\n-        pad4(buffer, cal.get(Calendar.YEAR));\r\n+        pad4(buffer, year);\r\n         buffer.append('-');\r\n         pad2(buffer, cal.get(Calendar.MONTH) + 1);\r\n         buffer.append('-');\r\n         pad2(buffer, cal.get(Calendar.DAY_OF_MONTH));\r\n```\n",
+    "commit_message": "Fix #2167",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 440,
+        "end_line": 440,
+        "line_numbers": [
+          440
+        ],
+        "function_name": "_format",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    protected void _format(TimeZone tz, Locale loc, Date date,\n            StringBuffer buffer)\n    {\n        Calendar cal = _getCalendar(tz);\n        cal.setTime(date);\n        // [databind#2167]: handle range beyond [1, 9999]\n        final int year = cal.get(Calendar.YEAR);\n\n        // Assuming GregorianCalendar, special handling needed for BCE (aka BC)\n                // 22-Nov-2018, tatu: Handling beyond 4-digits is not well specified wrt ISO-8601, but\n                //   it seems that plus prefix IS mandated. Padding is an open question, but since agreeement\n                //   for max length would be needed, we ewould need to limit to arbitrary length\n                //   like five digits (erroring out if beyond or padding to that as minimum).\n                //   Instead, let's just print number out as is and let decoder try to make sense of it.\n            pad4(buffer, year);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.MONTH) + 1);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.DAY_OF_MONTH));\n        buffer.append('T');\n        pad2(buffer, cal.get(Calendar.HOUR_OF_DAY));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.MINUTE));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.SECOND));\n        buffer.append('.');\n        pad3(buffer, cal.get(Calendar.MILLISECOND));\n\n        int offset = tz.getOffset(cal.getTimeInMillis());\n        if (offset != 0) {\n            int hours = Math.abs((offset / (60 * 1000)) / 60);\n            int minutes = Math.abs((offset / (60 * 1000)) % 60);\n            buffer.append(offset < 0 ? '-' : '+');\n            pad2(buffer, hours);\n            if( _tzSerializedWithColon ) {\n            \t\tbuffer.append(':');\n            }\n            pad2(buffer, minutes);\n        } else {\n            // 24-Jun-2017, tatu: While `Z` would be conveniently short, older specs\n            //   mandate use of full `+0000`\n//            formatted.append('Z');\n\t        \tif( _tzSerializedWithColon ) {\n\t            buffer.append(\"+00:00\");\n\t        \t}\n\t        \telse {\n\t        \t\tbuffer.append(\"+0000\");\n\t        \t}\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 449,
+        "end_line": 449,
+        "line_numbers": [
+          449
+        ],
+        "function_name": "_format",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    protected void _format(TimeZone tz, Locale loc, Date date,\n            StringBuffer buffer)\n    {\n        Calendar cal = _getCalendar(tz);\n        cal.setTime(date);\n        // [databind#2167]: handle range beyond [1, 9999]\n        final int year = cal.get(Calendar.YEAR);\n\n        // Assuming GregorianCalendar, special handling needed for BCE (aka BC)\n                // 22-Nov-2018, tatu: Handling beyond 4-digits is not well specified wrt ISO-8601, but\n                //   it seems that plus prefix IS mandated. Padding is an open question, but since agreeement\n                //   for max length would be needed, we ewould need to limit to arbitrary length\n                //   like five digits (erroring out if beyond or padding to that as minimum).\n                //   Instead, let's just print number out as is and let decoder try to make sense of it.\n            pad4(buffer, year);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.MONTH) + 1);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.DAY_OF_MONTH));\n        buffer.append('T');\n        pad2(buffer, cal.get(Calendar.HOUR_OF_DAY));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.MINUTE));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.SECOND));\n        buffer.append('.');\n        pad3(buffer, cal.get(Calendar.MILLISECOND));\n\n        int offset = tz.getOffset(cal.getTimeInMillis());\n        if (offset != 0) {\n            int hours = Math.abs((offset / (60 * 1000)) / 60);\n            int minutes = Math.abs((offset / (60 * 1000)) % 60);\n            buffer.append(offset < 0 ? '-' : '+');\n            pad2(buffer, hours);\n            if( _tzSerializedWithColon ) {\n            \t\tbuffer.append(':');\n            }\n            pad2(buffer, minutes);\n        } else {\n            // 24-Jun-2017, tatu: While `Z` would be conveniently short, older specs\n            //   mandate use of full `+0000`\n//            formatted.append('Z');\n\t        \tif( _tzSerializedWithColon ) {\n\t            buffer.append(\"+00:00\");\n\t        \t}\n\t        \telse {\n\t        \t\tbuffer.append(\"+0000\");\n\t        \t}\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 452,
+        "end_line": 452,
+        "line_numbers": [
+          452
+        ],
+        "function_name": "_format",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    protected void _format(TimeZone tz, Locale loc, Date date,\n            StringBuffer buffer)\n    {\n        Calendar cal = _getCalendar(tz);\n        cal.setTime(date);\n        // [databind#2167]: handle range beyond [1, 9999]\n        final int year = cal.get(Calendar.YEAR);\n\n        // Assuming GregorianCalendar, special handling needed for BCE (aka BC)\n                // 22-Nov-2018, tatu: Handling beyond 4-digits is not well specified wrt ISO-8601, but\n                //   it seems that plus prefix IS mandated. Padding is an open question, but since agreeement\n                //   for max length would be needed, we ewould need to limit to arbitrary length\n                //   like five digits (erroring out if beyond or padding to that as minimum).\n                //   Instead, let's just print number out as is and let decoder try to make sense of it.\n            pad4(buffer, year);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.MONTH) + 1);\n        buffer.append('-');\n        pad2(buffer, cal.get(Calendar.DAY_OF_MONTH));\n        buffer.append('T');\n        pad2(buffer, cal.get(Calendar.HOUR_OF_DAY));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.MINUTE));\n        buffer.append(':');\n        pad2(buffer, cal.get(Calendar.SECOND));\n        buffer.append('.');\n        pad3(buffer, cal.get(Calendar.MILLISECOND));\n\n        int offset = tz.getOffset(cal.getTimeInMillis());\n        if (offset != 0) {\n            int hours = Math.abs((offset / (60 * 1000)) / 60);\n            int minutes = Math.abs((offset / (60 * 1000)) % 60);\n            buffer.append(offset < 0 ? '-' : '+');\n            pad2(buffer, hours);\n            if( _tzSerializedWithColon ) {\n            \t\tbuffer.append(':');\n            }\n            pad2(buffer, minutes);\n        } else {\n            // 24-Jun-2017, tatu: While `Z` would be conveniently short, older specs\n            //   mandate use of full `+0000`\n//            formatted.append('Z');\n\t        \tif( _tzSerializedWithColon ) {\n\t            buffer.append(\"+00:00\");\n\t        \t}\n\t        \telse {\n\t        \t\tbuffer.append(\"+0000\");\n\t        \t}\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 489,
+        "end_line": 489,
+        "line_numbers": [
+          489
+        ],
+        "function_name": "pad2",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    private static void pad2(StringBuffer buffer, int value) {\n        int tens = value / 10;\n        if (tens == 0) {\n            buffer.append('0');\n        } else {\n            buffer.append((char) ('0' + tens));\n            value -= 10 * tens;\n        }\n        buffer.append((char) ('0' + value));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 492,
+        "end_line": 492,
+        "line_numbers": [
+          492
+        ],
+        "function_name": "pad2",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    private static void pad2(StringBuffer buffer, int value) {\n        int tens = value / 10;\n        if (tens == 0) {\n            buffer.append('0');\n        } else {\n            buffer.append((char) ('0' + tens));\n            value -= 10 * tens;\n        }\n        buffer.append((char) ('0' + value));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 501,
+        "end_line": 501,
+        "line_numbers": [
+          501
+        ],
+        "function_name": "pad3",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    private static void pad3(StringBuffer buffer, int value) {\n        int h = value / 100;\n        if (h == 0) {\n            buffer.append('0');\n        } else {\n            buffer.append((char) ('0' + h));\n            value -= (h * 100);\n        }\n        pad2(buffer, value);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 531,
+        "end_line": 531,
+        "line_numbers": [
+          531
+        ],
+        "function_name": "toString",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    public String toString() {\n        return String.format(\"DateFormat %s: (timezone: %s, locale: %s, lenient: %s)\",\n                getClass().getName(), _timezone, _locale, _lenient);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java",
+        "start_line": 535,
+        "end_line": 535,
+        "line_numbers": [
+          535
+        ],
+        "function_name": "toPattern",
+        "class_name": "StdDateFormat",
+        "filename": "StdDateFormat.java",
+        "code_snippet": "    public String toPattern() { // same as SimpleDateFormat\n        StringBuilder sb = new StringBuilder(100);\n        sb.append(\"[one of: '\")\n            .append(DATE_FORMAT_STR_ISO8601)\n            .append(\"', '\")\n            .append(DATE_FORMAT_STR_RFC1123)\n            .append(\"' (\")\n            ;\n        sb.append(Boolean.FALSE.equals(_lenient) ?\n                \"strict\" : \"lenient\")\n            .append(\")]\");\n        return sb.toString();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.jdk.DateSerializationTest::testDateISO8601_10k",
+      "com.fasterxml.jackson.databind.ser.jdk.DateSerializationTest::testDateISO8601_BCE"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java b/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\nindex 02afe5fce..5ea467d0d 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\n@@ -438,19 +438,12 @@ public class StdDateFormat\n         final int year = cal.get(Calendar.YEAR);\n \n         // Assuming GregorianCalendar, special handling needed for BCE (aka BC)\n+        if (cal.get(Calendar.ERA) == GregorianCalendar.BC) {\n+            _formatBCEYear(buffer, year);\n+        } else {\n+            if (year > 9999) {\n                 // 22-Nov-2018, tatu: Handling beyond 4-digits is not well specified wrt ISO-8601, but\n                 //   it seems that plus prefix IS mandated. Padding is an open question, but since agreeement\n                 //   for max length would be needed, we ewould need to limit to arbitrary length\n                 //   like five digits (erroring out if beyond or padding to that as minimum).\n                 //   Instead, let's just print number out as is and let decoder try to make sense of it.\n+                buffer.append('+');\n+            }\n             pad4(buffer, year);\n+        }\n         buffer.append('-');\n         pad2(buffer, cal.get(Calendar.MONTH) + 1);\n         buffer.append('-');\n@@ -487,20 +480,11 @@ public class StdDateFormat\n         }\n     }\n \n+    protected void _formatBCEYear(StringBuffer buffer, int bceYearNoSign) {\n         // Ok. First of all, BCE 1 output (given as value `1` in era BCE) needs to become\n         // \"+0000\", but rest (from `2` up, in that era) need minus sign.\n+        if (bceYearNoSign == 1) {\n+            buffer.append(\"+0000\");\n+            return;\n+        }\n+        final int isoYear = bceYearNoSign - 1;\n+        buffer.append('-');\n         // as with CE, 4 digit variant needs padding; beyond that not (although that part is\n         // open to debate, needs agreement with receiver)\n         // But `pad4()` deals with \"big\" numbers now so:\n+        pad4(buffer, isoYear);\n+    }\n \n     private static void pad2(StringBuffer buffer, int value) {\n         int tens = value / 10;\n@@ -529,11 +513,7 @@ public class StdDateFormat\n         if (h == 0) {\n             buffer.append('0').append('0');\n         } else {\n+            if (h > 99) { // [databind#2167]: handle above 9999 correctly\n+                buffer.append(h);\n+            } else {\n                 pad2(buffer, h);\n+            }\n             value -= (100 * h);\n         }\n         pad2(buffer, value);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2017-08-26 00:53:42",
+        "commit_message": "Add release notes wrt #1749",
+        "commit_hash": "97134ae0ca56a1ef40e46ec1332085a4e4577c47"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "parse",
+          "_format",
+          "pad2",
+          "getISO8601Format",
+          "toPattern",
+          "_parseAsISO8601",
+          "_parseDateFromLong",
+          "_parse4D",
+          "toString",
+          "hashCode",
+          "parseAsRFC1123",
+          "withLocale",
+          "format",
+          "setLenient",
+          "pad3",
+          "_parse2D",
+          "getTimeZone",
+          "_parseDate",
+          "pad4",
+          "equals",
+          "parseAsISO8601",
+          "setTimeZone",
+          "withTimeZone",
+          "getDefaultTimeZone",
+          "_clearFormats",
+          "withLenient",
+          "isLenient",
+          "StdDateFormat",
+          "looksLikeISO8601",
+          "getRFC1123Format",
+          "clone"
+        ],
+        "functions_name_all_files": [
+          "parse",
+          "_format",
+          "pad2",
+          "getISO8601Format",
+          "toPattern",
+          "_parseAsISO8601",
+          "_parseDateFromLong",
+          "_parse4D",
+          "toString",
+          "hashCode",
+          "parseAsRFC1123",
+          "withLocale",
+          "format",
+          "setLenient",
+          "pad3",
+          "_parse2D",
+          "getTimeZone",
+          "_parseDate",
+          "pad4",
+          "equals",
+          "parseAsISO8601",
+          "setTimeZone",
+          "withTimeZone",
+          "getDefaultTimeZone",
+          "_clearFormats",
+          "withLenient",
+          "isLenient",
+          "StdDateFormat",
+          "looksLikeISO8601",
+          "getRFC1123Format",
+          "clone"
+        ],
+        "function_code_before": "        _format(tz, _locale, date, toAppendTo);\n        return toAppendTo;\n    }\n    \n    protected void _format(TimeZone tz, Locale loc, Date date,\n            StringBuffer buffer)\n    {",
+        "function_code_after": "        _format(tz, _locale, date, toAppendTo);\n        return toAppendTo;\n    }\n    \n    protected void _format(TimeZone tz, Locale loc, Date date,\n            StringBuffer buffer)\n    {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java b/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\nindex 71b5e8443..623b4706b 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/StdDateFormat.java\n@@ -102,24 +102,20 @@ public class StdDateFormat\n         DATE_FORMAT_ISO8601.setTimeZone(DEFAULT_TIMEZONE);\n     }\n \n+    /**\n+     * A singleton instance can be used for cloning purposes, as a blueprint of sorts.\n+     */\n+    public final static StdDateFormat instance = new StdDateFormat();\n+\n     /**\n      * Blueprint \"Calendar\" instance for use during formatting. Cannot be used as is,\n      * due to thread-safety issues, but can be used for constructing actual instances \n      * more cheaply by cloning.\n+     *\n+     * @since 2.9.1\n      */\n     protected static final Calendar CALENDAR = new GregorianCalendar(DEFAULT_TIMEZONE, DEFAULT_LOCALE);\n-    \n-    /**\n-     * The calendar used by this instance.\n-     */\n-    private transient Calendar _calendar;\n \n-    \n-    /**\n-     * A singleton instance can be used for cloning purposes, as a blueprint of sorts.\n-     */\n-    public final static StdDateFormat instance = new StdDateFormat();\n-    \n     /**\n      * Caller may want to explicitly override timezone to use; if so,\n      * we will have non-null value here.\n@@ -137,6 +133,13 @@ public class StdDateFormat\n      * @since 2.7\n      */\n     protected Boolean _lenient;\n+\n+    /**\n+     * Lazily instantiated calendar used by this instance for serialization ({@link #format(Date)}).\n+     *\n+     * @since 2.9.1\n+     */\n+    private transient Calendar _calendar;\n     \n     private transient DateFormat _formatRFC1123;\n \n@@ -365,30 +368,31 @@ public class StdDateFormat\n     protected void _format(TimeZone tz, Locale loc, Date date,\n             StringBuffer buffer)\n     {\n-    \t\tif( _calendar==null ) {\n-    \t\t\t_calendar = (Calendar)CALENDAR.clone();\n-    \t\t}\n-        if( !_calendar.getTimeZone().equals(tz) ) {\n-        \t\t_calendar.setTimeZone(tz);\n+        Calendar cal = _calendar;\n+        if (cal == null ) {\n+            _calendar = cal = (Calendar)CALENDAR.clone();\n+        }\n+        if (!cal.getTimeZone().equals(tz) ) {\n+            cal.setTimeZone(tz);\n         }\n         // Note: Calendar locale not updated since we don't need it here...\n-        _calendar.setTime(date);\n+        cal.setTime(date);\n \n-        pad4(buffer, _calendar.get(Calendar.YEAR));\n+        pad4(buffer, cal.get(Calendar.YEAR));\n         buffer.append('-');\n-        pad2(buffer, _calendar.get(Calendar.MONTH) + 1);\n+        pad2(buffer, cal.get(Calendar.MONTH) + 1);\n         buffer.append('-');\n-        pad2(buffer, _calendar.get(Calendar.DAY_OF_MONTH));\n+        pad2(buffer, cal.get(Calendar.DAY_OF_MONTH));\n         buffer.append('T');\n-        pad2(buffer, _calendar.get(Calendar.HOUR_OF_DAY));\n+        pad2(buffer, cal.get(Calendar.HOUR_OF_DAY));\n         buffer.append(':');\n-        pad2(buffer, _calendar.get(Calendar.MINUTE));\n+        pad2(buffer, cal.get(Calendar.MINUTE));\n         buffer.append(':');\n-        pad2(buffer, _calendar.get(Calendar.SECOND));\n+        pad2(buffer, cal.get(Calendar.SECOND));\n         buffer.append('.');\n-        pad3(buffer, _calendar.get(Calendar.MILLISECOND));\n+        pad3(buffer, cal.get(Calendar.MILLISECOND));\n \n-        int offset = tz.getOffset(_calendar.getTimeInMillis());\n+        int offset = tz.getOffset(cal.getTimeInMillis());\n         if (offset != 0) {\n             int hours = Math.abs((offset / (60 * 1000)) / 60);\n             int minutes = Math.abs((offset / (60 * 1000)) % 60);"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

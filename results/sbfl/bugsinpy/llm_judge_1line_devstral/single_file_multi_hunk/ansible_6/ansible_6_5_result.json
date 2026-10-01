@@ -1,0 +1,195 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_6",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 17:28:48",
+      "end_time": "2026-06-30 17:30:44",
+      "duration_seconds": 117,
+      "duration_human": "1m 57s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 688543,
+      "output_tokens": 3403,
+      "total_tokens": 691946,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 688543
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py\nindex 24b13d97a1..5bd70f8c1e 100644\n--- a/lib/ansible/galaxy/collection.py\n+++ b/lib/ansible/galaxy/collection.py\n@@ -210,7 +210,7 @@ class CollectionRequirement:\n             '<': operator.lt,\n         }\n \n-        for req in list(requirements.split(',')):\n+        for req in list(str(requirements).split(',')):\n             op_pos = 2 if len(req) > 1 and req[1] == '=' else 1\n             op = op_map.get(req[:op_pos])\n \n@@ -226,7 +226,7 @@ class CollectionRequirement:\n                 elif requirement == '*' or version == '*':\n                     continue\n \n-            if not op(LooseVersion(version), LooseVersion(requirement)):\n+            if not op(LooseVersion(str(version)), LooseVersion(str(requirement))):\n                 break\n         else:\n             return True\n@@ -286,7 +286,7 @@ class CollectionRequirement:\n             manifest = info['manifest_file']['collection_info']\n             namespace = manifest['namespace']\n             name = manifest['name']\n-            version = manifest['version']\n+            version = str(manifest[version])\n             dependencies = manifest['dependencies']\n         else:\n             display.warning(\"Collection at '%s' does not have a MANIFEST.json file, cannot detect version.\"\ndiff --git a/test/units/galaxy/test_collection_install.py b/test/units/galaxy/test_collection_install.py\nindex 3efd833b18..e7564c102c 100644\n--- a/test/units/galaxy/test_collection_install.py\n+++ b/test/units/galaxy/test_collection_install.py\n@@ -118,8 +118,8 @@ def reset_cli_args():\n \n \n @pytest.fixture()\n-def collection_artifact(request, tmp_path_factory):\n-    test_dir = to_text(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Input'))\n+def collection_artifact(request, tmpdir_factory):\n+    test_dir = to_text(tmpdir_factory.mktemp('test_collections_input'))\n     namespace = 'ansible_namespace'\n     collection = 'collection'\n \n@@ -165,13 +165,14 @@ def test_build_requirement_from_path(collection_artifact):\n     assert actual.dependencies == {}\n \n \n-def test_build_requirement_from_path_with_manifest(collection_artifact):\n+@pytest.mark.parametrize('version', ['1.1.1', 1.1, 1])\n+def test_build_requirement_from_path_with_manifest(version, collection_artifact):\n     manifest_path = os.path.join(collection_artifact[0], b'MANIFEST.json')\n     manifest_value = json.dumps({\n         'collection_info': {\n             'namespace': 'namespace',\n             'name': 'name',\n-            'version': '1.1.1',\n+            'version': version,\n             'dependencies': {\n                 'ansible_namespace.collection': '*'\n             }\n@@ -188,8 +189,8 @@ def test_build_requirement_from_path_with_manifest(collection_artifact):\n     assert actual.b_path == collection_artifact[0]\n     assert actual.api is None\n     assert actual.skip is True\n-    assert actual.versions == set([u'1.1.1'])\n-    assert actual.latest_version == u'1.1.1'\n+    assert actual.versions == set([to_text(version)])\n+    assert actual.latest_version == to_text(version)\n     assert actual.dependencies == {'ansible_namespace.collection': '*'}\n \n \n@@ -203,6 +204,42 @@ def test_build_requirement_from_path_invalid_manifest(collection_artifact):\n         collection.CollectionRequirement.from_path(collection_artifact[0], True)\n \n \n+def test_build_requirement_from_path_no_version(collection_artifact, monkeypatch):\n+    manifest_path = os.path.join(collection_artifact[0], b'MANIFEST.json')\n+    manifest_value = json.dumps({\n+        'collection_info': {\n+            'namespace': 'namespace',\n+            'name': 'name',\n+            'version': '',\n+            'dependencies': {}\n+        }\n+    })\n+    with open(manifest_path, 'wb') as manifest_obj:\n+        manifest_obj.write(to_bytes(manifest_value))\n+\n+    mock_display = MagicMock()\n+    monkeypatch.setattr(Display, 'display', mock_display)\n+\n+    actual = collection.CollectionRequirement.from_path(collection_artifact[0], True)\n+\n+    # While the folder name suggests a different collection, we treat MANIFEST.json as the source of truth.\n+    assert actual.namespace == u'namespace'\n+    assert actual.name == u'name'\n+    assert actual.b_path == collection_artifact[0]\n+    assert actual.api is None\n+    assert actual.skip is True\n+    assert actual.versions == set(['*'])\n+    assert actual.latest_version == u'*'\n+    assert actual.dependencies == {}\n+\n+    assert mock_display.call_count == 1\n+\n+    actual_warn = ' '.join(mock_display.mock_calls[0][1][0].split('\\n'))\n+    expected_warn = \"Collection at '%s' does not have a valid version set, falling back to '*'. Found version: ''\" \\\n+        % to_text(collection_artifact[0])\n+    assert expected_warn in actual_warn\n+\n+\n def test_build_requirement_from_tar(collection_artifact):\n     actual = collection.CollectionRequirement.from_tar(collection_artifact[1], True, True)\n \n@@ -216,8 +253,8 @@ def test_build_requirement_from_tar(collection_artifact):\n     assert actual.dependencies == {}\n \n \n-def test_build_requirement_from_tar_fail_not_tar(tmp_path_factory):\n-    test_dir = to_bytes(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Input'))\n+def test_build_requirement_from_tar_fail_not_tar(tmpdir_factory):\n+    test_dir = to_bytes(tmpdir_factory.mktemp('test_collections_input'))\n     test_file = os.path.join(test_dir, b'fake.tar.gz')\n     with open(test_file, 'wb') as test_obj:\n         test_obj.write(b\"\\x00\\x01\\x02\\x03\")\n@@ -227,8 +264,8 @@ def test_build_requirement_from_tar_fail_not_tar(tmp_path_factory):\n         collection.CollectionRequirement.from_tar(test_file, True, True)\n \n \n-def test_build_requirement_from_tar_no_manifest(tmp_path_factory):\n-    test_dir = to_bytes(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Input'))\n+def test_build_requirement_from_tar_no_manifest(tmpdir_factory):\n+    test_dir = to_bytes(tmpdir_factory.mktemp('test_collections_input'))\n \n     json_data = to_bytes(json.dumps(\n         {\n@@ -250,8 +287,8 @@ def test_build_requirement_from_tar_no_manifest(tmp_path_factory):\n         collection.CollectionRequirement.from_tar(tar_path, True, True)\n \n \n-def test_build_requirement_from_tar_no_files(tmp_path_factory):\n-    test_dir = to_bytes(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Input'))\n+def test_build_requirement_from_tar_no_files(tmpdir_factory):\n+    test_dir = to_bytes(tmpdir_factory.mktemp('test_collections_input'))\n \n     json_data = to_bytes(json.dumps(\n         {\n@@ -272,8 +309,8 @@ def test_build_requirement_from_tar_no_files(tmp_path_factory):\n         collection.CollectionRequirement.from_tar(tar_path, True, True)\n \n \n-def test_build_requirement_from_tar_invalid_manifest(tmp_path_factory):\n-    test_dir = to_bytes(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Input'))\n+def test_build_requirement_from_tar_invalid_manifest(tmpdir_factory):\n+    test_dir = to_bytes(tmpdir_factory.mktemp('test_collections_input'))\n \n     json_data = b\"not a json\"\n \n@@ -497,13 +534,20 @@ def test_add_collection_requirements(versions, requirement, expected_filter, exp\n     assert req.latest_version == expected_latest\n \n \n-def test_add_collection_requirement_to_unknown_installed_version():\n+def test_add_collection_requirement_to_unknown_installed_version(monkeypatch):\n+    mock_display = MagicMock()\n+    monkeypatch.setattr(Display, 'display', mock_display)\n+\n     req = collection.CollectionRequirement('namespace', 'name', None, 'https://galaxy.com', ['*'], '*', False,\n                                            skip=True)\n \n-    expected = \"Cannot meet requirement namespace.name:1.0.0 as it is already installed at version 'unknown'.\"\n-    with pytest.raises(AnsibleError, match=expected):\n-        req.add_requirement(str(req), '1.0.0')\n+    req.add_requirement('parent.collection', '1.0.0')\n+    assert req.latest_version == '*'\n+\n+    assert mock_display.call_count == 1\n+\n+    actual_warn = ' '.join(mock_display.mock_calls[0][1][0].split('\\n'))\n+    assert \"Failed to validate the collection requirement 'namespace.name:1.0.0' for parent.collection\" in actual_warn\n \n \n def test_add_collection_wildcard_requirement_to_unknown_installed_version():\n"
+  },
+  "timestamp": "2026-06-30 17:30:46 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_6/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "galaxy - Fix collection install dep resolver for bad versions (#67405)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 225,
+        "end_line": 225,
+        "suspiciousness": 0.236793,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.168607,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 106,
+        "end_line": 106,
+        "suspiciousness": 0.168607,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 123,
+        "end_line": 123,
+        "suspiciousness": 0.138094,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 124,
+        "end_line": 124,
+        "suspiciousness": 0.138094,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 125,
+        "end_line": 125,
+        "suspiciousness": 0.138094,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 126,
+        "end_line": 126,
+        "suspiciousness": 0.138094,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 127,
+        "end_line": 127,
+        "suspiciousness": 0.138094,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.107301,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 223,
+        "end_line": 223,
+        "suspiciousness": 0.098044,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/galaxy/test_collection_install.py::test_build_requirement_from_path_with_manifest",
+      "pytest test/units/galaxy/test_collection_install.py::test_build_requirement_from_path_no_version",
+      "pytest test/units/galaxy/test_collection_install.py::test_add_collection_requirement_to_unknown_installed_version"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 225,
+      "end_line": 225,
+      "suspiciousness": 0.236793,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.168607,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 106,
+      "end_line": 106,
+      "suspiciousness": 0.168607,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 123,
+      "end_line": 123,
+      "suspiciousness": 0.138094,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 124,
+      "end_line": 124,
+      "suspiciousness": 0.138094,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 125,
+      "end_line": 125,
+      "suspiciousness": 0.138094,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 126,
+      "end_line": 126,
+      "suspiciousness": 0.138094,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 127,
+      "end_line": 127,
+      "suspiciousness": 0.138094,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.107301,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 223,
+      "end_line": 223,
+      "suspiciousness": 0.098044,
+      "rank": 10
+    }
+  ]
+}

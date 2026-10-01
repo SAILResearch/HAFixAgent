@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_120",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 20:23:31",
+      "end_time": "2026-06-30 20:25:25",
+      "duration_seconds": 114,
+      "duration_human": "1m 54s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 649544,
+      "output_tokens": 4803,
+      "total_tokens": 654347,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 649544
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/ops.py b/pandas/core/groupby/ops.py\nindex 47ca2b2190..5fd74ff49c 100644\n--- a/pandas/core/groupby/ops.py\n+++ b/pandas/core/groupby/ops.py\n@@ -299,6 +299,25 @@ class BaseGrouper:\n         if not self.compressed and len(self.groupings) == 1:\n             return self.groupings[0].result_index.rename(self.names[0])\n \n+        codes = self.reconstructed_codes\n+        levels = [ping.result_index for ping in self.groupings]\n+        \n+        # When observed=False and we have categorical groupers,\n+        # we need to include all combinations of categories\n+        if all(not ping.observed and is_categorical_dtype(ping.grouper.dtype) for ping in self.groupings):\n+            # Generate all combinations of category codes\n+            from itertools import product\n+            all_codes = list(product(*[range(len(ping.grouper.categories)) for ping in self.groupings]))\n+            result = MultiIndex(\n+                levels=levels, codes=all_codes, verify_integrity=False, names=self.names\n+            )\n+        else:\n+            result = MultiIndex(\n+                levels=levels, codes=codes, verify_integrity=False, names=self.names\n+            )\n+        return result\n+            return self.groupings[0].result_index.rename(self.names[0])\n+\n         codes = self.reconstructed_codes\n         levels = [ping.result_index for ping in self.groupings]\n         result = MultiIndex(\ndiff --git a/pandas/tests/groupby/test_categorical.py b/pandas/tests/groupby/test_categorical.py\nindex 663e03aa1b..5f78e4860f 100644\n--- a/pandas/tests/groupby/test_categorical.py\n+++ b/pandas/tests/groupby/test_categorical.py\n@@ -1252,3 +1252,82 @@ def test_get_nonexistent_category():\n                 {\"var\": [rows.iloc[-1][\"var\"]], \"val\": [rows.iloc[-1][\"vau\"]]}\n             )\n         )\n+\n+\n+def test_series_groupby_on_2_categoricals_unobserved(\n+    reduction_func: str, observed: bool\n+):\n+    # GH 17605\n+\n+    if reduction_func == \"ngroup\":\n+        pytest.skip(\"ngroup is not truly a reduction\")\n+\n+    df = pd.DataFrame(\n+        {\n+            \"cat_1\": pd.Categorical(list(\"AABB\"), categories=list(\"ABCD\")),\n+            \"cat_2\": pd.Categorical(list(\"AB\") * 2, categories=list(\"ABCD\")),\n+            \"value\": [0.1] * 4,\n+        }\n+    )\n+    args = {\"nth\": [0]}.get(reduction_func, [])\n+\n+    expected_length = 4 if observed else 16\n+\n+    series_groupby = df.groupby([\"cat_1\", \"cat_2\"], observed=observed)[\"value\"]\n+    agg = getattr(series_groupby, reduction_func)\n+    result = agg(*args)\n+\n+    assert len(result) == expected_length\n+\n+\n+@pytest.mark.parametrize(\n+    \"func, zero_or_nan\",\n+    [\n+        (\"all\", np.NaN),\n+        (\"any\", np.NaN),\n+        (\"count\", 0),\n+        (\"first\", np.NaN),\n+        (\"idxmax\", np.NaN),\n+        (\"idxmin\", np.NaN),\n+        (\"last\", np.NaN),\n+        (\"mad\", np.NaN),\n+        (\"max\", np.NaN),\n+        (\"mean\", np.NaN),\n+        (\"median\", np.NaN),\n+        (\"min\", np.NaN),\n+        (\"nth\", np.NaN),\n+        (\"nunique\", 0),\n+        (\"prod\", np.NaN),\n+        (\"quantile\", np.NaN),\n+        (\"sem\", np.NaN),\n+        (\"size\", 0),\n+        (\"skew\", np.NaN),\n+        (\"std\", np.NaN),\n+        (\"sum\", np.NaN),\n+        (\"var\", np.NaN),\n+    ],\n+)\n+def test_series_groupby_on_2_categoricals_unobserved_zeroes_or_nans(func, zero_or_nan):\n+    # GH 17605\n+    # Tests whether the unobserved categories in the result contain 0 or NaN\n+    df = pd.DataFrame(\n+        {\n+            \"cat_1\": pd.Categorical(list(\"AABB\"), categories=list(\"ABC\")),\n+            \"cat_2\": pd.Categorical(list(\"AB\") * 2, categories=list(\"ABC\")),\n+            \"value\": [0.1] * 4,\n+        }\n+    )\n+    unobserved = [tuple(\"AC\"), tuple(\"BC\"), tuple(\"CA\"), tuple(\"CB\"), tuple(\"CC\")]\n+    args = {\"nth\": [0]}.get(func, [])\n+\n+    series_groupby = df.groupby([\"cat_1\", \"cat_2\"], observed=False)[\"value\"]\n+    agg = getattr(series_groupby, func)\n+    result = agg(*args)\n+\n+    for idx in unobserved:\n+        val = result.loc[idx]\n+        assert (pd.isna(zero_or_nan) and pd.isna(val)) or (val == zero_or_nan)\n+\n+    # If we expect unobserved values to be zero, we also expect the dtype to be int\n+    if zero_or_nan == 0:\n+        assert np.issubdtype(result.dtype, np.integer)\n"
+  },
+  "timestamp": "2026-06-30 20:25:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_120",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_120/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Series groupby does not include nan counts for all categorical labels (#17605) (#29690)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1039,
+        "end_line": 1039,
+        "suspiciousness": 0.808247,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1041,
+        "end_line": 1041,
+        "suspiciousness": 0.808247,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1043,
+        "end_line": 1043,
+        "suspiciousness": 0.808247,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1044,
+        "end_line": 1044,
+        "suspiciousness": 0.808247,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1049,
+        "end_line": 1049,
+        "suspiciousness": 0.808247,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1050,
+        "end_line": 1050,
+        "suspiciousness": 0.808247,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1053,
+        "end_line": 1053,
+        "suspiciousness": 0.808247,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1054,
+        "end_line": 1054,
+        "suspiciousness": 0.808247,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1061,
+        "end_line": 1061,
+        "suspiciousness": 0.808247,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 1155,
+        "end_line": 1155,
+        "suspiciousness": 0.808247,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_categorical.py::test_series_groupby_on_2_categoricals_unobserved",
+      "pytest pandas/tests/groupby/test_categorical.py::test_series_groupby_on_2_categoricals_unobserved_zeroes_or_nans"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1039,
+      "end_line": 1039,
+      "suspiciousness": 0.808247,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1041,
+      "end_line": 1041,
+      "suspiciousness": 0.808247,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1043,
+      "end_line": 1043,
+      "suspiciousness": 0.808247,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1044,
+      "end_line": 1044,
+      "suspiciousness": 0.808247,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1049,
+      "end_line": 1049,
+      "suspiciousness": 0.808247,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1050,
+      "end_line": 1050,
+      "suspiciousness": 0.808247,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1053,
+      "end_line": 1053,
+      "suspiciousness": 0.808247,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1054,
+      "end_line": 1054,
+      "suspiciousness": 0.808247,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1061,
+      "end_line": 1061,
+      "suspiciousness": 0.808247,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/multi.py",
+      "start_line": 1155,
+      "end_line": 1155,
+      "suspiciousness": 0.808247,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "matplotlib",
+  "bug_id": "matplotlib_15",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 16:20:38",
+      "end_time": "2026-06-29 16:25:38",
+      "duration_seconds": 300,
+      "duration_human": "5m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1063015,
+      "output_tokens": 4642,
+      "total_tokens": 1067657,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1063015
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/matplotlib/colors.py b/lib/matplotlib/colors.py\nindex 52d2b24389..015bf2cc5a 100644\n--- a/lib/matplotlib/colors.py\n+++ b/lib/matplotlib/colors.py\n@@ -1202,8 +1202,8 @@ class SymLogNorm(Normalize):\n     *linthresh* allows the user to specify the size of this range\n     (-*linthresh*, *linthresh*).\n     \"\"\"\n-    def __init__(self, linthresh, linscale=1.0,\n-                 vmin=None, vmax=None, clip=False):\n+    def __init__(self, linthresh, linscale=1.0, vmin=None, vmax=None,\n+                 clip=False, base=None):\n         \"\"\"\n         Parameters\n         ----------\n@@ -1213,14 +1213,28 @@ class SymLogNorm(Normalize):\n         linscale : float, default: 1\n             This allows the linear range (-*linthresh* to *linthresh*) to be\n             stretched relative to the logarithmic range. Its value is the\n-            number of decades to use for each half of the linear range. For\n-            example, when *linscale* == 1.0 (the default), the space used for\n-            the positive and negative halves of the linear range will be equal\n-            to one decade in the logarithmic range.\n+            number of powers of *base* (decades for base 10) to use for each\n+            half of the linear range. For example, when *linscale* == 1.0\n+            (the default), the space used for the positive and negative halves\n+            of the linear range will be equal to a decade in the logarithmic\n+            range if ``base=10``.\n+        base : float, default: None\n+            For v3.2 the default is the old value of ``np.e``, but that is\n+            deprecated for v3.3 when base will default to 10.  During the\n+            transition, specify the *base* kwarg to avoid a deprecation\n+            warning.\n         \"\"\"\n         Normalize.__init__(self, vmin, vmax, clip)\n+        if base is None:\n+            self._base = np.e\n+            cbook.warn_deprecated(\"3.3\", message=\"default base will change \"\n+                \"from np.e to 10.  To suppress this warning specify the base \"\n+                \"kwarg.\")\n+        else:\n+            self._base = base\n+        self._log_base = np.log(self._base)\n         self.linthresh = float(linthresh)\n-        self._linscale_adj = (linscale / (1.0 - np.e ** -1))\n+        self._linscale_adj = (linscale / (1.0 - self._base ** -1))\n         if vmin is not None and vmax is not None:\n             self._transform_vmin_vmax()\n \n@@ -1255,7 +1269,8 @@ class SymLogNorm(Normalize):\n         with np.errstate(invalid=\"ignore\"):\n             masked = np.abs(a) > self.linthresh\n         sign = np.sign(a[masked])\n-        log = (self._linscale_adj + np.log(np.abs(a[masked]) / self.linthresh))\n+        log = (self._linscale_adj +\n+               np.log(np.abs(a[masked]) / self.linthresh) / self._log_base)\n         log *= sign * self.linthresh\n         a[masked] = log\n         a[~masked] *= self._linscale_adj\n@@ -1265,7 +1280,8 @@ class SymLogNorm(Normalize):\n         \"\"\"Inverse inplace Transformation.\"\"\"\n         masked = np.abs(a) > (self.linthresh * self._linscale_adj)\n         sign = np.sign(a[masked])\n-        exp = np.exp(sign * a[masked] / self.linthresh - self._linscale_adj)\n+        exp = np.power(self._base,\n+                       sign * a[masked] / self.linthresh - self._linscale_adj)\n         exp *= sign * self.linthresh\n         a[masked] = exp\n         a[~masked] /= self._linscale_adj\ndiff --git a/lib/matplotlib/tests/test_colors.py b/lib/matplotlib/tests/test_colors.py\nindex 05a81e26de..d1cedfeb14 100644\n--- a/lib/matplotlib/tests/test_colors.py\n+++ b/lib/matplotlib/tests/test_colors.py\n@@ -398,7 +398,7 @@ def test_SymLogNorm():\n     \"\"\"\n     Test SymLogNorm behavior\n     \"\"\"\n-    norm = mcolors.SymLogNorm(3, vmax=5, linscale=1.2)\n+    norm = mcolors.SymLogNorm(3, vmax=5, linscale=1.2, base=np.e)\n     vals = np.array([-30, -1, 2, 6], dtype=float)\n     normed_vals = norm(vals)\n     expected = [0., 0.53980074, 0.826991, 1.02758204]\n@@ -408,16 +408,30 @@ def test_SymLogNorm():\n     _mask_tester(norm, vals)\n \n     # Ensure that specifying vmin returns the same result as above\n-    norm = mcolors.SymLogNorm(3, vmin=-30, vmax=5, linscale=1.2)\n+    norm = mcolors.SymLogNorm(3, vmin=-30, vmax=5, linscale=1.2, base=np.e)\n     normed_vals = norm(vals)\n     assert_array_almost_equal(normed_vals, expected)\n \n+    # test something more easily checked.\n+    norm = mcolors.SymLogNorm(1, vmin=-np.e**3, vmax=np.e**3, base=np.e)\n+    nn = norm([-np.e**3, -np.e**2, -np.e**1, -1,\n+              0, 1, np.e**1, np.e**2, np.e**3])\n+    xx = np.array([0., 0.109123, 0.218246, 0.32737, 0.5, 0.67263,\n+                   0.781754, 0.890877, 1.])\n+    assert_array_almost_equal(nn, xx)\n+    norm = mcolors.SymLogNorm(1, vmin=-10**3, vmax=10**3, base=10)\n+    nn = norm([-10**3, -10**2, -10**1, -1,\n+              0, 1, 10**1, 10**2, 10**3])\n+    xx = np.array([0., 0.121622, 0.243243, 0.364865, 0.5, 0.635135,\n+                   0.756757, 0.878378, 1.])\n+    assert_array_almost_equal(nn, xx)\n+\n \n def test_SymLogNorm_colorbar():\n     \"\"\"\n     Test un-called SymLogNorm in a colorbar.\n     \"\"\"\n-    norm = mcolors.SymLogNorm(0.1, vmin=-1, vmax=1, linscale=1)\n+    norm = mcolors.SymLogNorm(0.1, vmin=-1, vmax=1, linscale=1, base=np.e)\n     fig = plt.figure()\n     mcolorbar.ColorbarBase(fig.add_subplot(111), norm=norm)\n     plt.close(fig)\n@@ -428,7 +442,7 @@ def test_SymLogNorm_single_zero():\n     Test SymLogNorm to ensure it is not adding sub-ticks to zero label\n     \"\"\"\n     fig = plt.figure()\n-    norm = mcolors.SymLogNorm(1e-5, vmin=-1, vmax=1)\n+    norm = mcolors.SymLogNorm(1e-5, vmin=-1, vmax=1, base=np.e)\n     cbar = mcolorbar.ColorbarBase(fig.add_subplot(111), norm=norm)\n     ticks = cbar.get_ticks()\n     assert sum(ticks == 0) == 1\n@@ -905,9 +919,10 @@ def test_ndarray_subclass_norm(recwarn):\n     mydata = data.view(MyArray)\n \n     for norm in [mcolors.Normalize(), mcolors.LogNorm(),\n-                 mcolors.SymLogNorm(3, vmax=5, linscale=1),\n+                 mcolors.SymLogNorm(3, vmax=5, linscale=1, base=np.e),\n                  mcolors.Normalize(vmin=mydata.min(), vmax=mydata.max()),\n-                 mcolors.SymLogNorm(3, vmin=mydata.min(), vmax=mydata.max()),\n+                 mcolors.SymLogNorm(3, vmin=mydata.min(), vmax=mydata.max(),\n+                                    base=np.e),\n                  mcolors.PowerNorm(1)]:\n         assert_array_equal(norm(mydata), norm(data))\n         fig, ax = plt.subplots()\ndiff --git a/pytest.ini b/pytest.ini\nindex e3fbd46fff..9950fd13cf 100644\n--- a/pytest.ini\n+++ b/pytest.ini\n@@ -1,6 +1,6 @@\n # Additional configuration is in matplotlib/testing/conftest.py.\n [pytest]\n-minversion = 3.6\n+minversion = 3.3.2\n \n testpaths = lib\n python_files = test_*.py\n"
+  },
+  "timestamp": "2026-06-29 16:25:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "matplotlib",
+    "bug_id": "matplotlib_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/matplotlib_15/matplotlib",
+    "github_url": "https://github.com/matplotlib/matplotlib",
+    "description": "",
+    "commit_message": "FIX: add base kwarg to symlognorm",
+    "fault_locations": [
+      {
+        "file": "lib/matplotlib/backend_bases.py",
+        "start_line": 1594,
+        "end_line": 1594,
+        "suspiciousness": 0.47619,
+        "rank": 1
+      },
+      {
+        "file": "lib/matplotlib/backend_bases.py",
+        "start_line": 1595,
+        "end_line": 1595,
+        "suspiciousness": 0.47619,
+        "rank": 2
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 401,
+        "end_line": 401,
+        "suspiciousness": 0.47619,
+        "rank": 3
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 434,
+        "end_line": 434,
+        "suspiciousness": 0.47619,
+        "rank": 4
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 444,
+        "end_line": 444,
+        "suspiciousness": 0.47619,
+        "rank": 5
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 445,
+        "end_line": 445,
+        "suspiciousness": 0.47619,
+        "rank": 6
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 911,
+        "end_line": 911,
+        "suspiciousness": 0.47619,
+        "rank": 7
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 912,
+        "end_line": 912,
+        "suspiciousness": 0.47619,
+        "rank": 8
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 915,
+        "end_line": 915,
+        "suspiciousness": 0.47619,
+        "rank": 9
+      },
+      {
+        "file": "lib/matplotlib/tests/test_colors.py",
+        "start_line": 918,
+        "end_line": 918,
+        "suspiciousness": 0.47619,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest lib/matplotlib/tests/test_colors.py::test_SymLogNorm"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/matplotlib/backend_bases.py",
+      "start_line": 1594,
+      "end_line": 1594,
+      "suspiciousness": 0.47619,
+      "rank": 1
+    },
+    {
+      "file": "lib/matplotlib/backend_bases.py",
+      "start_line": 1595,
+      "end_line": 1595,
+      "suspiciousness": 0.47619,
+      "rank": 2
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 401,
+      "end_line": 401,
+      "suspiciousness": 0.47619,
+      "rank": 3
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 434,
+      "end_line": 434,
+      "suspiciousness": 0.47619,
+      "rank": 4
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 444,
+      "end_line": 444,
+      "suspiciousness": 0.47619,
+      "rank": 5
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 445,
+      "end_line": 445,
+      "suspiciousness": 0.47619,
+      "rank": 6
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 911,
+      "end_line": 911,
+      "suspiciousness": 0.47619,
+      "rank": 7
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 912,
+      "end_line": 912,
+      "suspiciousness": 0.47619,
+      "rank": 8
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 915,
+      "end_line": 915,
+      "suspiciousness": 0.47619,
+      "rank": 9
+    },
+    {
+      "file": "lib/matplotlib/tests/test_colors.py",
+      "start_line": 918,
+      "end_line": 918,
+      "suspiciousness": 0.47619,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,251 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "18",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 22:23:15",
+      "end_time": "2025-10-01 22:31:41",
+      "duration_seconds": 506,
+      "duration_human": "8m 26s"
+    },
+    "model_cost": 0.0533,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 640080,
+      "output_tokens": 9799,
+      "total_tokens": 649879,
+      "cached_input_tokens": 619008,
+      "uncached_input_tokens": 21072
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\nindex b4ce3e956..eef2e404d 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n@@ -67,6 +67,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n      * iterator is closed, to denote closing.\n      */\n     protected JsonParser _parser;\n+    protected JsonStreamContext _recoveryContext;\n \n     /**\n      * Context to resynchronize to, in case an exception is encountered\n@@ -123,6 +124,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n             _updatedValue = null;\n         } else {\n             _updatedValue = (T) valueToUpdate;\n+        _recoveryContext = p.getParsingContext();\n         }\n \n         /* Ok: one more thing; we may have to skip START_ARRAY, assuming\n@@ -138,6 +140,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n         if (managedParser && (p != null) && p.isExpectedStartArrayToken()) {\n                 // If pointing to START_ARRAY, context should be that ARRAY\n                 p.clearCurrentToken();\n+                _recoveryContext = p.getParsingContext();\n                 // regardless, recovery context should be whatever context we have now,\n                 // with sole exception of pointing to a start marker, in which case it's\n                 // the parent\n@@ -252,6 +255,11 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n                 value = _updatedValue;\n             }\n             return value;\n+        } catch (JsonProcessingException e) {\n+            if (_recoveryContext != null) {\n+                _handleRecovery(_parser, _recoveryContext);\n+            }\n+            throw e;\n         } finally {\n             /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n              *   matter what, to avoid infinite loop for certain failure cases.\n@@ -345,6 +353,48 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n \n     /*\n     /**********************************************************\n+    /**\n+     * Helper method called when a processing exception is caught, to try to\n+     * recover by synchronizing parser to match expected structure.\n+     * \n+     * @since 2.3\n+     */\n+    protected void _handleRecovery(JsonParser p, JsonStreamContext context) throws IOException {\n+        // First: if we have recovery context, try to skip to matching end marker\n+        if (context != null) {\n+            JsonStreamContext curr = p.getParsingContext();\n+            // If we are within context, need to find closing marker\n+            if (curr.inArray()) {\n+                _skipToEnd(p, JsonToken.END_ARRAY);\n+            } else if (curr.inObject()) {\n+                _skipToEnd(p, JsonToken.END_OBJECT);\n+            }\n+            // otherwise it's root context, can't really do much\n+        }\n+    }\n+\n+    /**\n+     * Helper method to skip tokens until specified end marker is found.\n+     * \n+     * @since 2.3\n+     */\n+    protected void _skipToEnd(JsonParser p, JsonToken endMarker) throws IOException {\n+        int depth = 0;\n+        JsonToken t;\n+        while ((t = p.nextToken()) != null) {\n+            if (t == endMarker) {\n+                if (depth == 0) {\n+                    break;\n+                }\n+                --depth;\n+            } else if (t == JsonToken.START_ARRAY) {\n+                ++depth;\n+            } else if (t == JsonToken.START_OBJECT) {\n+                ++depth;\n+            }\n+        }\n+    }\n+\n     /* Helper methods\n     /**********************************************************\n      */\n"
+  },
+  "timestamp": "2025-10-01 18:31:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_18",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_18",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Add basic error-recovery for `ObjectReader.readValues()`\n(follow up for #733)\n\nIn case of `JsonProcessingException`, `MappingIterator` will currently be left pointing right after whatever token was last tokenized (or character following tokenization error). While this is better than indeterminate state, ideally it should try to do some error recover. And although it may not be possible to recover successfully from all kinds of issues, it should be possible to do best effort given that iterator has some knowledge of state when it was opened; that is, it can try to heuristically match closing `END_OBJECT`, depending on nesting level it was created at.\n\nIn addition it may make sense to add a switch to prevent using of any automated heuristics, for those users who want full control over recovery.\n\n",
+    "commit_message": "Fix #734 (error recovery for `ObjectReader.readValues()`)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 69,
+        "end_line": 69,
+        "line_numbers": [
+          69
+        ],
+        "function_name": "",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 98,
+        "end_line": 98,
+        "line_numbers": [
+          98
+        ],
+        "function_name": "",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 138,
+        "end_line": 138,
+        "line_numbers": [
+          138
+        ],
+        "function_name": "",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 210,
+        "end_line": 210,
+        "line_numbers": [
+          210
+        ],
+        "function_name": "hasNextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public boolean hasNextValue() throws IOException\n    {\n        if (_parser == null) {\n            return false;\n            // fall-through\n        }\n        if (!_hasNextChecked) {\n            JsonToken t = _parser.getCurrentToken();\n            _hasNextChecked = true;\n            if (t == null) { // un-initialized or cleared; find next\n                t = _parser.nextToken();\n                // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n                if (t == null || t == JsonToken.END_ARRAY) {\n                    JsonParser jp = _parser;\n                    _parser = null;\n                    if (_closeParser) {\n                        jp.close();\n                    }\n                    return false;\n                }\n            }\n            // fall through\n        }\n        return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 213,
+        "end_line": 214,
+        "line_numbers": [
+          213,
+          214
+        ],
+        "function_name": "hasNextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public boolean hasNextValue() throws IOException\n    {\n        if (_parser == null) {\n            return false;\n            // fall-through\n        }\n        if (!_hasNextChecked) {\n            JsonToken t = _parser.getCurrentToken();\n            _hasNextChecked = true;\n            if (t == null) { // un-initialized or cleared; find next\n                t = _parser.nextToken();\n                // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n                if (t == null || t == JsonToken.END_ARRAY) {\n                    JsonParser jp = _parser;\n                    _parser = null;\n                    if (_closeParser) {\n                        jp.close();\n                    }\n                    return false;\n                }\n            }\n            // fall through\n        }\n        return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 216,
+        "end_line": 216,
+        "line_numbers": [
+          216
+        ],
+        "function_name": "hasNextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public boolean hasNextValue() throws IOException\n    {\n        if (_parser == null) {\n            return false;\n            // fall-through\n        }\n        if (!_hasNextChecked) {\n            JsonToken t = _parser.getCurrentToken();\n            _hasNextChecked = true;\n            if (t == null) { // un-initialized or cleared; find next\n                t = _parser.nextToken();\n                // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n                if (t == null || t == JsonToken.END_ARRAY) {\n                    JsonParser jp = _parser;\n                    _parser = null;\n                    if (_closeParser) {\n                        jp.close();\n                    }\n                    return false;\n                }\n            }\n            // fall through\n        }\n        return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 221,
+        "end_line": 224,
+        "line_numbers": [
+          221,
+          222,
+          223,
+          224
+        ],
+        "function_name": "hasNextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public boolean hasNextValue() throws IOException\n    {\n        if (_parser == null) {\n            return false;\n            // fall-through\n        }\n        if (!_hasNextChecked) {\n            JsonToken t = _parser.getCurrentToken();\n            _hasNextChecked = true;\n            if (t == null) { // un-initialized or cleared; find next\n                t = _parser.nextToken();\n                // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n                if (t == null || t == JsonToken.END_ARRAY) {\n                    JsonParser jp = _parser;\n                    _parser = null;\n                    if (_closeParser) {\n                        jp.close();\n                    }\n                    return false;\n                }\n            }\n            // fall through\n        }\n        return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 236,
+        "end_line": 236,
+        "line_numbers": [
+          236
+        ],
+        "function_name": "nextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public T nextValue() throws IOException\n    {\n        if (!_hasNextChecked) {\n            if (!hasNextValue()) {\n                return _throwNoSuchElement();\n            }\n        }\n        if (_parser == null) {\n            return _throwNoSuchElement();\n        }\n        _hasNextChecked = false;\n\n        try {\n            T value;\n            if (_updatedValue == null) {\n                value = _deserializer.deserialize(_parser, _context);\n            } else{\n                _deserializer.deserialize(_parser, _context, _updatedValue);\n                value = _updatedValue;\n            }\n            return value;\n        } finally {\n            /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n             *   matter what, to avoid infinite loop for certain failure cases.\n             *   For 2.6 need to improve further.\n             */\n            _parser.clearCurrentToken();\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+        "start_line": 241,
+        "end_line": 244,
+        "line_numbers": [
+          241,
+          242,
+          243,
+          244
+        ],
+        "function_name": "nextValue",
+        "class_name": "MappingIterator",
+        "filename": "MappingIterator.java",
+        "code_snippet": "    public T nextValue() throws IOException\n    {\n        if (!_hasNextChecked) {\n            if (!hasNextValue()) {\n                return _throwNoSuchElement();\n            }\n        }\n        if (_parser == null) {\n            return _throwNoSuchElement();\n        }\n        _hasNextChecked = false;\n\n        try {\n            T value;\n            if (_updatedValue == null) {\n                value = _deserializer.deserialize(_parser, _context);\n            } else{\n                _deserializer.deserialize(_parser, _context, _updatedValue);\n                value = _updatedValue;\n            }\n            return value;\n        } finally {\n            /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n             *   matter what, to avoid infinite loop for certain failure cases.\n             *   For 2.6 need to improve further.\n             */\n            _parser.clearCurrentToken();\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleRootRecovery",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testRootBeans",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleArrayRecovery"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\nindex c0e79c8c0..b4ce3e956 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n@@ -25,24 +25,20 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n     /**\n      * State in which iterator is closed\n      */\n+    protected final static int STATE_CLOSED = 0;\n     \n     /**\n      * State in which value read failed\n      */\n+    protected final static int STATE_NEED_RESYNC = 1;\n     \n     /**\n      * State in which no recovery is needed, but \"hasNextValue()\" needs\n      * to be called first\n      */\n+    protected final static int STATE_MAY_HAVE_VALUE = 2;\n \n     /**\n      * State in which \"hasNextValue()\" has been succesfully called\n      * and deserializer can be called to fetch value\n      */\n+    protected final static int STATE_HAS_VALUE = 3;\n \n     /*\n     /**********************************************************\n@@ -70,13 +66,12 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n      * as not <code>null</code> but set as <code>null</null> when\n      * iterator is closed, to denote closing.\n      */\n+    protected final JsonParser _parser;\n-    protected JsonParser _parser;\n \n     /**\n      * Context to resynchronize to, in case an exception is encountered\n      * but caller wants to try to read more elements.\n      */\n+    protected final JsonStreamContext _seqContext;\n     \n     /**\n      * If not null, \"value to update\" instead of creating a new instance\n@@ -100,7 +95,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n     /**\n      * State of the iterator\n      */\n+    protected int _state;\n-    protected boolean _hasNextChecked;\n \n     /*\n     /**********************************************************\n@@ -140,25 +135,12 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n          * and if not, caller needs to hand us JsonParser instead, pointing to\n          * the first token of the first element.\n          */\n+        if (p == null) { // can this occur?\n+            _seqContext = null;\n+            _state = STATE_CLOSED;\n+        } else {\n+            JsonStreamContext sctxt = p.getParsingContext();\n+            if (managedParser && p.isExpectedStartArrayToken()) {\n-        if (managedParser && (p != null) && p.isExpectedStartArrayToken()) {\n                 // If pointing to START_ARRAY, context should be that ARRAY\n                 p.clearCurrentToken();\n+            } else {\n                 // regardless, recovery context should be whatever context we have now,\n                 // with sole exception of pointing to a start marker, in which case it's\n                 // the parent\n+                JsonToken t = p.getCurrentToken();\n+                if ((t == JsonToken.START_OBJECT) || (t == JsonToken.START_ARRAY)) {\n+                    sctxt = sctxt.getParent();\n+                }\n+            }\n+            _seqContext = sctxt;\n+            _state = STATE_MAY_HAVE_VALUE;\n         }\n     }\n \n@@ -204,12 +186,9 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n     \n     @Override\n     public void close() throws IOException {\n+        if (_state != STATE_CLOSED) {\n+            _state = STATE_CLOSED;\n             if (_parser != null) {\n                 _parser.close();\n             }\n+        }\n     }\n \n     /*\n@@ -228,28 +207,25 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n      */\n     public boolean hasNextValue() throws IOException\n     {\n+        switch (_state) {\n+        case STATE_CLOSED:\n-        if (_parser == null) {\n             return false;\n+        case STATE_NEED_RESYNC:\n+            _resync();\n             // fall-through\n+        case STATE_MAY_HAVE_VALUE:\n-        }\n-        if (!_hasNextChecked) {\n             JsonToken t = _parser.getCurrentToken();\n-            _hasNextChecked = true;\n             if (t == null) { // un-initialized or cleared; find next\n                 t = _parser.nextToken();\n                 // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n                 if (t == null || t == JsonToken.END_ARRAY) {\n+                    _state = STATE_CLOSED;\n+                    if (_closeParser && (_parser != null)) {\n+                        _parser.close();\n-                    JsonParser jp = _parser;\n-                    _parser = null;\n-                    if (_closeParser) {\n-                        jp.close();\n                     }\n                     return false;\n                 }\n             }\n+            _state = STATE_HAS_VALUE;\n+            return true;\n+        case STATE_HAS_VALUE:\n             // fall through\n         }\n         return true;\n@@ -257,20 +233,16 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n \n     public T nextValue() throws IOException\n     {\n+        switch (_state) {\n+        case STATE_CLOSED:\n+            return _throwNoSuchElement();\n+        case STATE_NEED_RESYNC: // fall-through, will do re-sync\n+        case STATE_MAY_HAVE_VALUE:\n-        if (!_hasNextChecked) {\n             if (!hasNextValue()) {\n                 return _throwNoSuchElement();\n             }\n+            break;\n+        case STATE_HAS_VALUE:\n+            break;\n         }\n-        if (_parser == null) {\n-            return _throwNoSuchElement();\n-        }\n-        _hasNextChecked = false;\n \n+        int nextState = STATE_NEED_RESYNC;\n         try {\n             T value;\n             if (_updatedValue == null) {\n@@ -279,10 +251,8 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n                 _deserializer.deserialize(_parser, _context, _updatedValue);\n                 value = _updatedValue;\n             }\n+            nextState = STATE_MAY_HAVE_VALUE;\n             return value;\n         } finally {\n+            _state = nextState;\n             /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n              *   matter what, to avoid infinite loop for certain failure cases.\n              *   For 2.6 need to improve further.\n@@ -379,28 +349,8 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n     /**********************************************************\n      */\n \n+    protected void _resync() throws IOException\n+    {\n+        final JsonParser p = _parser;\n         // First, a quick check to see if we might have been lucky and no re-sync needed\n+        if (p.getParsingContext() == _seqContext) {\n+            return;\n+        }\n \n+        while (true) {\n+            JsonToken t = p.nextToken();\n+            if ((t == JsonToken.END_ARRAY) || (t == JsonToken.END_OBJECT)) {\n+                if (p.getParsingContext() == _seqContext) {\n+                    p.clearCurrentToken();\n+                    return;\n+                }\n+            } else if ((t == JsonToken.START_ARRAY) || (t == JsonToken.START_OBJECT)) {\n+                p.skipChildren();\n+            } else if (t == null) {\n+                return;\n+            }\n+        }\n+    }\n \n     protected <R> R _throwNoSuchElement() {\n         throw new NoSuchElementException();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2013-02-04 19:24:40",
+        "commit_message": "Implemented #159",
+        "commit_hash": "de7e924f9be180f48bb94e205290554d359cb936"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "getParser",
+          "getParserSchema",
+          "readAll"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "getParser",
+          "getParserSchema",
+          "readAll"
+        ],
+        "functions_name_modified_file": [
+          "hasNextValue",
+          "MappingIterator",
+          "next",
+          "getParser",
+          "readAll",
+          "nextValue",
+          "close",
+          "remove",
+          "getParserSchema",
+          "hasNext"
+        ],
+        "functions_name_all_files": [
+          "getParser",
+          "acceptJsonFormatVisitor",
+          "close",
+          "nextValue",
+          "remove",
+          "isEmpty",
+          "serializeContentsUsing",
+          "readAll",
+          "serializeTypedContents",
+          "_findAndAddDynamic",
+          "getContentSerializer",
+          "serializeWithType",
+          "serialize",
+          "withValueSerializer",
+          "ObjectArraySerializer",
+          "hasNext",
+          "AsArraySerializerBase",
+          "serializeContents",
+          "hasSingleElement",
+          "getParserSchema",
+          "getContentType",
+          "EnumMapSerializer",
+          "_withValueTypeSerializer",
+          "hasNextValue",
+          "createContextual",
+          "next",
+          "getSchema",
+          "withResolved",
+          "MappingIterator"
+        ],
+        "function_code_before": "            return hasNextValue();\n        } catch (JsonMappingException e) {",
+        "function_code_after": "            return hasNextValue();\n        } catch (JsonMappingException e) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/AsArraySerializerBase.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/EnumMapSerializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/ObjectArraySerializer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/MappingIterator.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\nindex 3ca16ea73..4f1065b2a 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n@@ -138,7 +138,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n \n     /*\n     /**********************************************************\n-    /* Extended API\n+    /* Extended API, iteration\n     /**********************************************************\n      */\n \n@@ -194,4 +194,58 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n         _parser.clearCurrentToken();\n         return result;\n     }\n+\n+    /**\n+     * Convenience method for reading all entries accessible via\n+     * this iterator\n+     * \n+     * @return\n+     * \n+     * @since 2.2\n+     */\n+    public List<T> readAll() throws IOException {\n+    \treturn readAll(new ArrayList<T>());\n+    }\n+\n+    /**\n+     * Convenience method for reading all entries accessible via\n+     * this iterator\n+     * \n+     * @return\n+     * \n+     * @since 2.2\n+     */\n+    public List<T> readAll(List<T> resultList) throws IOException\n+    {\n+    \twhile (hasNextValue()) {\n+    \t\tresultList.add(nextValue());\n+    \t}\n+    \treturn resultList;\n+    }\n+    \n+    /*\n+    /**********************************************************\n+    /* Extended API, accessors\n+    /**********************************************************\n+     */\n+\n+    /**\n+     * Accessor for getting underlying parser this iterator uses.\n+     * \n+     * @since 2.2\n+     */\n+    public JsonParser getParser() {\n+    \treturn _parser;\n+    }\n+\n+    /**\n+     * Accessor for accessing {@link FormatSchema} that the underlying parser\n+     * (as per {@link #getParser}) is using, if any; only parser of schema-aware\n+     * formats use schemas.\n+     * \n+     * @since 2.2\n+     */\n+    public FormatSchema getParserSchema() {\n+    \treturn _parser.getSchema();\n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

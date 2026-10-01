@@ -1,0 +1,62 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "14",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:01:44",
+      "end_time": "2026-06-20 00:04:00",
+      "duration_seconds": 136,
+      "duration_human": "2m 16s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 649618,
+      "output_tokens": 3299,
+      "total_tokens": 652917,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 649618
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:04:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_14",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_14",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "make verify() possible if there is inlined different method call on other mock\nTo reproduce, run this as a test case:\r\n\t\r\n\tprivate static interface Foo {void setFoo(String bar);}\r\n\tprivate static interface Bar {String getBar();}\r\n\t\r\n\t@Test\r\n\tpublic void testVerifyFails() throws Exception {\r\n\t\tFoo foo = Mockito.mock(Foo.class);\r\n\t\tBar bar = Mockito.mock(Bar.class);\r\n\t\tbar.getBar();\r\n\t\tverify(foo).setFoo(bar.getBar());\r\n\t}\r\n\r\nThe verify should fail, since setFoo(String) was never called, but it will\r\nsucceed.\r\n\r\nI'm using 1.8 on Linux, JDK 1.6.\r\n\r\nIf you comment out the second-to-last line:\r\n//              bar.getBar();\r\nit will fail, complaining like this:\r\n# Wanted but not invoked:\r\n# bar.getBar();\r\n\r\nSo what seems to be happening is that the mock invocation of getBar(),\r\npassed as the parameter to the setFoo(String) invocation, confuses verify()\r\ninto thinking that it should verify getBar(), rather than setFoo(String).",
+    "commit_message": "Fixed issue 138 When verify contains extra calls to other mocks (highly unlikely) then Mockito was verifying wrong invocation. Now it is all good.",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/MockitoCore.java",
+        "start_line": 73,
+        "end_line": 73,
+        "line_numbers": [
+          73
+        ],
+        "function_name": "verify",
+        "class_name": "MockitoCore",
+        "filename": "MockitoCore.java",
+        "code_snippet": "    public <T> T verify(T mock, VerificationMode mode) {\n        if (mock == null) {\n            reporter.nullPassedToVerify();\n        } else if (!mockUtil.isMock(mock)) {\n            reporter.notAMockPassedToVerify();\n        }\n        mockingProgress.verificationStarted(mode);\n        return mock;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockitousage.bugs.VerifyingWithAnExtraCallToADifferentMockTest::shouldAllowVerifyingWhenOtherMockCallIsInTheSameLine"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/MockHandler.java b/src/org/mockito/internal/MockHandler.java\nindex b6c1b78..bc18218 100644\n--- a/src/org/mockito/internal/MockHandler.java\n+++ b/src/org/mockito/internal/MockHandler.java\n@@ -17,7 +17,6 @@ import org.mockito.internal.stubbing.InvocationContainerImpl;\n import org.mockito.internal.stubbing.OngoingStubbingImpl;\n import org.mockito.internal.stubbing.StubbedInvocationMatcher;\n import org.mockito.internal.stubbing.VoidMethodStubbableImpl;\n+import org.mockito.internal.verification.MockAwareVerificationMode;\n import org.mockito.internal.verification.VerificationDataImpl;\n import org.mockito.stubbing.Answer;\n import org.mockito.stubbing.VoidMethodStubbable;\n@@ -74,11 +73,9 @@ public class MockHandler<T> implements MockitoInvocationHandler, MockHandlerInte\n         if (verificationMode != null) {\n             //We need to check if verification was started on the correct mock \n             // - see VerifyingWithAnExtraCallToADifferentMockTest\n+            if (verificationMode instanceof MockAwareVerificationMode && ((MockAwareVerificationMode) verificationMode).getMock() == invocation.getMock()) {\n                 VerificationDataImpl data = new VerificationDataImpl(invocationContainerImpl.getInvocations(), invocationMatcher);            \n                 verificationMode.verify(data);\n                 return null;\n+            }\n         }\n         \n         invocationContainerImpl.setInvocationForPotentialStubbing(invocationMatcher);\ndiff --git a/src/org/mockito/internal/MockitoCore.java b/src/org/mockito/internal/MockitoCore.java\nindex ae0d72b..fc99ea9 100755\n--- a/src/org/mockito/internal/MockitoCore.java\n+++ b/src/org/mockito/internal/MockitoCore.java\n@@ -20,7 +20,6 @@ import org.mockito.internal.progress.ThreadSafeMockingProgress;\n import org.mockito.internal.stubbing.OngoingStubbingImpl;\n import org.mockito.internal.stubbing.StubberImpl;\n import org.mockito.internal.util.MockUtil;\n+import org.mockito.internal.verification.MockAwareVerificationMode;\n import org.mockito.internal.verification.VerificationDataImpl;\n import org.mockito.internal.verification.VerificationModeFactory;\n import org.mockito.internal.verification.api.InOrderContext;\n@@ -71,7 +70,7 @@ public class MockitoCore {\n         } else if (!mockUtil.isMock(mock)) {\n             reporter.notAMockPassedToVerify();\n         }\n+        mockingProgress.verificationStarted(new MockAwareVerificationMode(mock, mode));\n-        mockingProgress.verificationStarted(mode);\n         return mock;\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

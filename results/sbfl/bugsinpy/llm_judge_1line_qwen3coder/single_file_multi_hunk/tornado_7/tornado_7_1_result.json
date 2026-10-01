@@ -1,0 +1,191 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_7",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 12:20:56",
+      "end_time": "2026-06-29 12:33:18",
+      "duration_seconds": 742,
+      "duration_human": "12m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 455003,
+      "output_tokens": 6839,
+      "total_tokens": 461842,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 455003
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/test/ioloop_test.py b/tornado/test/ioloop_test.py\nindex f3cd32ae..603eb202 100644\n--- a/tornado/test/ioloop_test.py\n+++ b/tornado/test/ioloop_test.py\n@@ -604,56 +604,70 @@ class TestIOLoopFutures(AsyncTestCase):\n         event1 = threading.Event()\n         event2 = threading.Event()\n \n-        def callback(self_event, other_event):\n+        def sync_func(self_event, other_event):\n             self_event.set()\n-            time.sleep(0.01)\n-            self.assertTrue(other_event.is_set())\n+            other_event.wait()\n+            # Note that return value doesn't actually do anything,\n+            # it is just passed through to our final assertion to\n+            # make sure it is passed through properly.\n             return self_event\n \n+        # Run two synchronous functions, which would deadlock if not\n+        # run in parallel.\n         res = yield [\n-            IOLoop.current().run_in_executor(None, callback, event1, event2),\n-            IOLoop.current().run_in_executor(None, callback, event2, event1)\n+            IOLoop.current().run_in_executor(None, sync_func, event1, event2),\n+            IOLoop.current().run_in_executor(None, sync_func, event2, event1)\n         ]\n \n         self.assertEqual([event1, event2], res)\n \n     @skipBefore35\n+    @gen_test\n     def test_run_in_executor_native(self):\n         event1 = threading.Event()\n         event2 = threading.Event()\n \n-        def callback(self_event, other_event):\n+        def sync_func(self_event, other_event):\n             self_event.set()\n-            time.sleep(0.01)\n-            self.assertTrue(other_event.is_set())\n             other_event.wait()\n             return self_event\n \n+        # Go through an async wrapper to ensure that the result of\n+        # run_in_executor works with await and not just gen.coroutine\n+        # (simply passing the underlying concurrrent future would do that).\n         namespace = exec_test(globals(), locals(), \"\"\"\n-            async def main():\n-                res = await gen.multi([\n-                    IOLoop.current().run_in_executor(None, callback, event1, event2),\n-                    IOLoop.current().run_in_executor(None, callback, event2, event1)\n-                ])\n-                self.assertEqual([event1, event2], res)\n+            async def async_wrapper(self_event, other_event):\n+                return await IOLoop.current().run_in_executor(\n+                    None, sync_func, self_event, other_event)\n         \"\"\")\n-        IOLoop.current().run_sync(namespace['main'])\n \n+        res = yield [\n+            namespace[\"async_wrapper\"](event1, event2),\n+            namespace[\"async_wrapper\"](event2, event1)\n+            ]\n+\n+        self.assertEqual([event1, event2], res)\n+\n+    @gen_test\n     def test_set_default_executor(self):\n-        class MyExecutor(futures.Executor):\n+        count = [0]\n+\n+        class MyExecutor(futures.ThreadPoolExecutor):\n             def submit(self, func, *args):\n-                return Future()\n+                count[0] += 1\n+                return super(MyExecutor, self).submit(func, *args)\n \n         event = threading.Event()\n \n-        def future_func():\n+        def sync_func():\n             event.set()\n \n-        executor = MyExecutor()\n+        executor = MyExecutor(1)\n         loop = IOLoop.current()\n         loop.set_default_executor(executor)\n-        loop.run_in_executor(None, future_func)\n-        loop.add_timeout(0.01, lambda: self.assertFalse(event.is_set()))\n+        yield loop.run_in_executor(None, sync_func)\n+        self.assertEqual(1, count[0])\n+        self.assertTrue(event.is_set())\n \n \n class TestIOLoopRunSync(unittest.TestCase):\n"
+  },
+  "timestamp": "2026-06-29 12:33:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_7",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_7/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "Fixes for IOLoop.run_in_executor",
+    "fault_locations": [
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1050,
+        "end_line": 1050,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1051,
+        "end_line": 1051,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1052,
+        "end_line": 1052,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1056,
+        "end_line": 1056,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1057,
+        "end_line": 1057,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 1061,
+        "end_line": 1061,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 824,
+        "end_line": 824,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 825,
+        "end_line": 825,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 826,
+        "end_line": 826,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "tornado/gen.py",
+        "start_line": 827,
+        "end_line": 827,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.ioloop_test.TestIOLoopFutures.test_run_in_executor_native"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1050,
+      "end_line": 1050,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1051,
+      "end_line": 1051,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1052,
+      "end_line": 1052,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1056,
+      "end_line": 1056,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1057,
+      "end_line": 1057,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 1061,
+      "end_line": 1061,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 824,
+      "end_line": 824,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 825,
+      "end_line": 825,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 826,
+      "end_line": 826,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "tornado/gen.py",
+      "start_line": 827,
+      "end_line": 827,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

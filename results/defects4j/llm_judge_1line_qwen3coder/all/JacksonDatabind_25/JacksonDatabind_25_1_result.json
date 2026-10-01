@@ -1,0 +1,101 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "25",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:16:35",
+      "end_time": "2026-06-20 00:19:02",
+      "duration_seconds": 146,
+      "duration_human": "2m 26s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 604334,
+      "output_tokens": 4271,
+      "total_tokens": 608605,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 604334
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:19:02 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_25",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_25",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Exception deserializing a byte[] when the target type comes from an annotation\nWhen trying to deserialize a `byte[]` from a `Map` when the deserialization type comes from an annotation, I'm seeing the following exception:\n\n```\njava.lang.IllegalArgumentException: Can not deserialize Class [B (of type array) as a Bean\n        at com.fasterxml.jackson.databind.deser.BeanDeserializerFactory.isPotentialBeanType(BeanDeserializerFactory.java:808)\n        at com.fasterxml.jackson.databind.deser.BeanDeserializerFactory.createBeanDeserializer(BeanDeserializerFactory.java:138)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createDeserializer2(DeserializerCache.java:403)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createDeserializer(DeserializerCache.java:352)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createAndCache2(DeserializerCache.java:264)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createAndCacheValueDeserializer(DeserializerCache.java:244)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache.findValueDeserializer(DeserializerCache.java:142)\n        at com.fasterxml.jackson.databind.DeserializationContext.findContextualValueDeserializer(DeserializationContext.java:428)\n        at com.fasterxml.jackson.databind.deser.std.StdDeserializer.findDeserializer(StdDeserializer.java:947)\n        at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.resolve(BeanDeserializerBase.java:439)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createAndCache2(DeserializerCache.java:296)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache._createAndCacheValueDeserializer(DeserializerCache.java:244)\n        at com.fasterxml.jackson.databind.deser.DeserializerCache.findValueDeserializer(DeserializerCache.java:142)\n        at com.fasterxml.jackson.databind.DeserializationContext.findRootValueDeserializer(DeserializationContext.java:461)\n        at com.fasterxml.jackson.databind.ObjectMapper._findRootDeserializer(ObjectMapper.java:3804)\n        at com.fasterxml.jackson.databind.ObjectMapper._convert(ObjectMapper.java:3418)\n        at com.fasterxml.jackson.databind.ObjectMapper.convertValue(ObjectMapper.java:3351)\n```\n\nThe below is a repro.\n\n``` java\npublic class JacksonTest {\n\n    static class Foo {\n        @JsonProperty\n        @JsonDeserialize(as=byte[].class)\n        Object someBytes;\n    }\n\n    public void testFooFromMap() {\n\n        Map<String, Object> map = new HashMap<>();\n        map.put(\"someBytes\", \"HelloWorld\".getBytes());\n\n        ObjectMapper m = new ObjectMapper();\n        m.convertValue(map, Foo.class);\n    }\n}\n```\n\nI discovered this on 2.5.1, but I tried 2.6.0 and it's exhibiting the same behavior.\n\nThanks!\n\n",
+    "commit_message": "Fix #890",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+        "start_line": 1757,
+        "end_line": 1757,
+        "line_numbers": [
+          1757
+        ],
+        "function_name": "modifyTypeByAnnotation",
+        "class_name": "BasicDeserializerFactory",
+        "filename": "BasicDeserializerFactory.java",
+        "code_snippet": "    protected <T extends JavaType> T modifyTypeByAnnotation(DeserializationContext ctxt,\n            Annotated a, T type)\n        throws JsonMappingException\n    {\n        // first: let's check class for the instance itself:\n        AnnotationIntrospector intr = ctxt.getAnnotationIntrospector();\n        Class<?> subclass = intr.findDeserializationType(a, type);\n        if (subclass != null) {\n            try {\n                type = (T) type.narrowBy(subclass);\n            } catch (IllegalArgumentException iae) {\n                throw new JsonMappingException(\"Failed to narrow type \"+type+\" with concrete-type annotation (value \"+subclass.getName()+\"), method '\"+a.getName()+\"': \"+iae.getMessage(), null, iae);\n            }\n        }\n\n        // then key class\n        if (type.isContainerType()) {\n            Class<?> keyClass = intr.findDeserializationKeyType(a, type.getKeyType());\n            if (keyClass != null) {\n                // illegal to use on non-Maps\n                if (!(type instanceof MapLikeType)) {\n                    throw new JsonMappingException(\"Illegal key-type annotation: type \"+type+\" is not a Map(-like) type\");\n                }\n                try {\n                    type = (T) ((MapLikeType) type).narrowKey(keyClass);\n                } catch (IllegalArgumentException iae) {\n                    throw new JsonMappingException(\"Failed to narrow key type \"+type+\" with key-type annotation (\"+keyClass.getName()+\"): \"+iae.getMessage(), null, iae);\n                }\n            }\n            JavaType keyType = type.getKeyType();\n            /* 21-Mar-2011, tatu: ... and associated deserializer too (unless already assigned)\n             *   (not 100% why or how, but this does seem to get called more than once, which\n             *   is not good: for now, let's just avoid errors)\n             */\n            if (keyType != null && keyType.getValueHandler() == null) {\n                Object kdDef = intr.findKeyDeserializer(a);\n                KeyDeserializer kd = ctxt.keyDeserializerInstance(a, kdDef);\n                if (kd != null) {\n                    type = (T) ((MapLikeType) type).withKeyValueHandler(kd);\n                    keyType = type.getKeyType(); // just in case it's used below\n                }\n            }            \n           \n           // and finally content class; only applicable to structured types\n           Class<?> cc = intr.findDeserializationContentType(a, type.getContentType());\n           if (cc != null) {\n               try {\n                   type = (T) type.narrowContentsBy(cc);\n               } catch (IllegalArgumentException iae) {\n                   throw new JsonMappingException(\"Failed to narrow content type \"+type+\" with content-type annotation (\"+cc.getName()+\"): \"+iae.getMessage(), null, iae);\n               }\n           }\n           // ... as well as deserializer for contents:\n           JavaType contentType = type.getContentType();\n           if (contentType.getValueHandler() == null) { // as with above, avoid resetting (which would trigger exception)\n               Object cdDef = intr.findContentDeserializer(a);\n                JsonDeserializer<?> cd = ctxt.deserializerInstance(a, cdDef);\n                if (cd != null) {\n                    type = (T) type.withContentValueHandler(cd);\n                }\n            }\n        }\n        return type;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/DeserializerCache.java",
+        "start_line": 477,
+        "end_line": 477,
+        "line_numbers": [
+          477
+        ],
+        "function_name": "modifyTypeByAnnotation",
+        "class_name": "DeserializerCache",
+        "filename": "DeserializerCache.java",
+        "code_snippet": "    private JavaType modifyTypeByAnnotation(DeserializationContext ctxt,\n            Annotated a, JavaType type)\n        throws JsonMappingException\n    {\n        // first: let's check class for the instance itself:\n        AnnotationIntrospector intr = ctxt.getAnnotationIntrospector();\n        Class<?> subclass = intr.findDeserializationType(a, type);\n        if (subclass != null) {\n            try {\n                type = type.narrowBy(subclass);\n            } catch (IllegalArgumentException iae) {\n                throw new JsonMappingException(\"Failed to narrow type \"+type+\" with concrete-type annotation (value \"+subclass.getName()+\"), method '\"+a.getName()+\"': \"+iae.getMessage(), null, iae);\n            }\n        }\n\n        // then key class\n        if (type.isContainerType()) {\n            Class<?> keyClass = intr.findDeserializationKeyType(a, type.getKeyType());\n            if (keyClass != null) {\n                // illegal to use on non-Maps\n                if (!(type instanceof MapLikeType)) {\n                    throw new JsonMappingException(\"Illegal key-type annotation: type \"+type+\" is not a Map(-like) type\");\n                }\n                try {\n                    type = ((MapLikeType) type).narrowKey(keyClass);\n                } catch (IllegalArgumentException iae) {\n                    throw new JsonMappingException(\"Failed to narrow key type \"+type+\" with key-type annotation (\"+keyClass.getName()+\"): \"+iae.getMessage(), null, iae);\n                }\n            }\n            JavaType keyType = type.getKeyType();\n            /* 21-Mar-2011, tatu: ... and associated deserializer too (unless already assigned)\n             *   (not 100% why or how, but this does seem to get called more than once, which\n             *   is not good: for now, let's just avoid errors)\n             */\n            if (keyType != null && keyType.getValueHandler() == null) {\n                Object kdDef = intr.findKeyDeserializer(a);\n                if (kdDef != null) {\n                    KeyDeserializer kd = ctxt.keyDeserializerInstance(a, kdDef);\n                    if (kd != null) {\n                        type = ((MapLikeType) type).withKeyValueHandler(kd);\n                        keyType = type.getKeyType(); // just in case it's used below\n                    }\n                }\n            }            \n            \n            // and finally content class; only applicable to structured types\n            Class<?> cc = intr.findDeserializationContentType(a, type.getContentType());\n            if (cc != null) {\n                try {\n                    type = type.narrowContentsBy(cc);\n                } catch (IllegalArgumentException iae) {\n                    throw new JsonMappingException(\"Failed to narrow content type \"+type+\" with content-type annotation (\"+cc.getName()+\"): \"+iae.getMessage(), null, iae);\n                }\n            }\n            // ... as well as deserializer for contents:\n            JavaType contentType = type.getContentType();\n            if (contentType.getValueHandler() == null) { // as with above, avoid resetting (which would trigger exception)\n                Object cdDef = intr.findContentDeserializer(a);\n                if (cdDef != null) {\n                    JsonDeserializer<?> cd = null;\n                    if (cdDef instanceof JsonDeserializer<?>) {\n                        cdDef = (JsonDeserializer<?>) cdDef;\n                    } else {\n                        Class<?> cdClass = _verifyAsClass(cdDef, \"findContentDeserializer\", JsonDeserializer.None.class);\n                        if (cdClass != null) {\n                            cd = ctxt.deserializerInstance(a, cdClass);\n                        }\n                    }\n                    if (cd != null) {\n                        type = type.withContentValueHandler(cd);\n                    }\n                }\n            }\n        }\n        return type;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java",
+        "start_line": 177,
+        "end_line": 177,
+        "line_numbers": [
+          177
+        ],
+        "function_name": "_findDeserializer",
+        "class_name": "TypeDeserializerBase",
+        "filename": "TypeDeserializerBase.java",
+        "code_snippet": "    protected final JsonDeserializer<Object> _findDeserializer(DeserializationContext ctxt,\n            String typeId) throws IOException\n    {\n        JsonDeserializer<Object> deser = _deserializers.get(typeId);\n        if (deser == null) {\n            /* As per [Databind#305], need to provide contextual info. But for\n             * backwards compatibility, let's start by only supporting this\n             * for base class, not via interface. Later on we can add this\n             * to the interface, assuming deprecation at base class helps.\n             */\n            JavaType type = _idResolver.typeFromId(ctxt, typeId);\n            if (type == null) {\n                // As per [JACKSON-614], use the default impl if no type id available:\n                deser = _findDefaultImplDeserializer(ctxt);\n                if (deser == null) {\n                    deser = _handleUnknownTypeId(ctxt, typeId, _idResolver, _baseType);\n                }\n            } else {\n                /* 16-Dec-2010, tatu: Since nominal type we get here has no (generic) type parameters,\n                 *   we actually now need to explicitly narrow from base type (which may have parameterization)\n                 *   using raw type.\n                 *\n                 *   One complication, though; can not change 'type class' (simple type to container); otherwise\n                 *   we may try to narrow a SimpleType (Object.class) into MapType (Map.class), losing actual\n                 *   type in process (getting SimpleType of Map.class which will not work as expected)\n                 */\n                if ((_baseType != null)\n                        && _baseType.getClass() == type.getClass()) {\n                    /* 09-Aug-2015, tatu: Not sure if the second part of the check makes sense;\n                     *   but it appears to check that JavaType impl class is the same which is\n                     *   important for some reason?\n                     *   Disabling the check will break 2 Enum-related tests.\n                     */\n                    type = _baseType.narrowBy(type.getRawClass());\n                }\n                deser = ctxt.findContextualValueDeserializer(type, _property);\n            }\n            _deserializers.put(typeId, deser);\n        }\n        return deser;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleAbstractTypeResolver.java",
+        "start_line": 80,
+        "end_line": 80,
+        "line_numbers": [
+          80
+        ],
+        "function_name": "findTypeMapping",
+        "class_name": "SimpleAbstractTypeResolver",
+        "filename": "SimpleAbstractTypeResolver.java",
+        "code_snippet": "    public JavaType findTypeMapping(DeserializationConfig config, JavaType type)\n    {\n        // this is the main mapping base, so let's \n        Class<?> src = type.getRawClass();\n        Class<?> dst = _mappings.get(new ClassKey(src));\n        if (dst == null) {\n            return null;\n        }\n        // 09-Aug-2015, tatu: Instead of direct call via JavaType, better use TypeFactory\n        return type.narrowBy(dst);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestArrayDeserialization::testByteArrayTypeOverride890"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\nindex 8a737aade..a0cbf1615 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n@@ -1754,7 +1754,7 @@ public abstract class BasicDeserializerFactory\n         Class<?> subclass = intr.findDeserializationType(a, type);\n         if (subclass != null) {\n             try {\n+                type = (T) ctxt.getTypeFactory().constructSpecializedType(type, subclass);\n-                type = (T) type.narrowBy(subclass);\n             } catch (IllegalArgumentException iae) {\n                 throw new JsonMappingException(\"Failed to narrow type \"+type+\" with concrete-type annotation (value \"+subclass.getName()+\"), method '\"+a.getName()+\"': \"+iae.getMessage(), null, iae);\n             }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/DeserializerCache.java b/src/main/java/com/fasterxml/jackson/databind/deser/DeserializerCache.java\nindex c6f12c10b..d79c8c883 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/DeserializerCache.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/DeserializerCache.java\n@@ -474,7 +474,7 @@ public final class DeserializerCache\n         Class<?> subclass = intr.findDeserializationType(a, type);\n         if (subclass != null) {\n             try {\n+                type = ctxt.getTypeFactory().constructSpecializedType(type, subclass);\n-                type = type.narrowBy(subclass);\n             } catch (IllegalArgumentException iae) {\n                 throw new JsonMappingException(\"Failed to narrow type \"+type+\" with concrete-type annotation (value \"+subclass.getName()+\"), method '\"+a.getName()+\"': \"+iae.getMessage(), null, iae);\n             }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java\nindex ef865d1ab..b991c7aa2 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java\n@@ -174,7 +174,7 @@ public abstract class TypeDeserializerBase\n                      *   important for some reason?\n                      *   Disabling the check will break 2 Enum-related tests.\n                      */\n+                    type = ctxt.getTypeFactory().constructSpecializedType(_baseType, type.getRawClass());\n-                    type = _baseType.narrowBy(type.getRawClass());\n                 }\n                 deser = ctxt.findContextualValueDeserializer(type, _property);\n             }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/module/SimpleAbstractTypeResolver.java b/src/main/java/com/fasterxml/jackson/databind/module/SimpleAbstractTypeResolver.java\nindex ff707118c..82de4d230 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/module/SimpleAbstractTypeResolver.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/module/SimpleAbstractTypeResolver.java\n@@ -77,7 +77,7 @@ public class SimpleAbstractTypeResolver\n             return null;\n         }\n         // 09-Aug-2015, tatu: Instead of direct call via JavaType, better use TypeFactory\n+        return config.getTypeFactory().constructSpecializedType(type, dst);\n-        return type.narrowBy(dst);\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

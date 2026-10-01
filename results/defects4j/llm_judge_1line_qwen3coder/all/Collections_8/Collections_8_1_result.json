@@ -1,0 +1,62 @@
+{
+  "project_name": "Collections",
+  "bug_id": "8",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:39:50",
+      "end_time": "2026-06-20 00:43:36",
+      "duration_seconds": 227,
+      "duration_human": "3m 47s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 627308,
+      "output_tokens": 6766,
+      "total_tokens": 634074,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 627308
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java b/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\nindex 6efc1420..725d592c 100644\n--- a/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\n+++ b/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\n@@ -130,7 +130,13 @@ public class UnboundedFifoBuffer extends AbstractCollection implements Buffer, S\n     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {\n         in.defaultReadObject();\n         int size = in.readInt();\n-        buffer = new Object[size + 1];\n+        // When deserializing an empty buffer, use a reasonable minimum capacity\n+        // to ensure the expansion formula works correctly\n+        if (size == 0) {\n+            buffer = new Object[33]; // 32 + 1, matching default constructor\n+        } else {\n+            buffer = new Object[size + 1];\n+        }\n         for (int i = 0; i < size; i++) {\n             buffer[i] = in.readObject();\n         }\n"
+  },
+  "timestamp": "2026-06-20 00:43:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Collections",
+    "bug_id": "Collections_8",
+    "repo_path": "/defects4j/framework/bin/temp/Collections_8",
+    "github_url": "https://github.com/apache/commons-collections.git",
+    "description": "Serialization/Deserialization doesn't work well with empty buffers.\nWhen I serialize the queue to disk an it has elements, all works ok, but when I serialize an empty queue I have some problems when I create a new object using the serialized file.\n\nWhen I deserialize the queue it has a 'buffer' with size 1 (with null content), 'tail' and 'head' fields are 0 (they are declared transient). So, when I try to add a new object to the queue, the sentence:\n\n Object[] tmp = new Object[((buffer.length - 1) * 2) + 1];\n\nIs executed in the add() method to increase the buffer length, but the buffer remains with the same size! (buffer.length = 1 --> (1 - 1) * 2 + 1 = 1). So, the object is added and when the tail is going to be incremented, it is reset to 0!! \n\n    private int increment(int index) {\n        index++;\n        if (index >= buffer.length) {\n            index = 0;\n        }\n        return index;\n    }\n\n\nSo it is impossible to add new elements after an empty queue has been serialized / deserialized.\n\nI attach a simple TestCase where this is proved. The example works when you use XMLEncoder to serialize the buffer but doesn't work if you use ObjectOutputStream or XStream.",
+    "commit_message": "Applying a unit test for COLLECTIONS-220. AbstractTestObject is refactored to provide a utility method that serializes and then deserializes. Dave Meikle's fix for said unit test is also applied.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java",
+        "start_line": 133,
+        "end_line": 133,
+        "line_numbers": [
+          133
+        ],
+        "function_name": "readObject",
+        "class_name": "UnboundedFifoBuffer",
+        "filename": "UnboundedFifoBuffer.java",
+        "code_snippet": "    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {\n        in.defaultReadObject();\n        int size = in.readInt();\n        buffer = new Object[size + 1];\n        for (int i = 0; i < size; i++) {\n            buffer[i] = in.readObject();\n        }\n        head = 0;\n        tail = size;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.collections.buffer.TestUnboundedFifoBuffer::testCollections220"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java b/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\nindex 964683e0..6efc1420 100644\n--- a/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\n+++ b/src/java/org/apache/commons/collections/buffer/UnboundedFifoBuffer.java\n@@ -115,7 +115,6 @@ public class UnboundedFifoBuffer extends AbstractCollection implements Buffer, S\n     private void writeObject(ObjectOutputStream out) throws IOException {\n         out.defaultWriteObject();\n         out.writeInt(size());\n+        out.writeInt(buffer.length);\n         for (Iterator it = iterator(); it.hasNext();) {\n             out.writeObject(it.next());\n         }\n@@ -131,8 +130,7 @@ public class UnboundedFifoBuffer extends AbstractCollection implements Buffer, S\n     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {\n         in.defaultReadObject();\n         int size = in.readInt();\n+        int length = in.readInt();\n+        buffer = new Object[length];\n-        buffer = new Object[size + 1];\n         for (int i = 0; i < size; i++) {\n             buffer[i] = in.readObject();\n         }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

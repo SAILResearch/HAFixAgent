@@ -1,0 +1,53 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_15",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 17:58:53",
+      "end_time": "2026-06-27 17:59:45",
+      "duration_seconds": 52,
+      "duration_human": "52.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 15,
+    "token_usage": {
+      "input_tokens": 46719,
+      "output_tokens": 671,
+      "total_tokens": 47390,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 46719
+    },
+    "agent_steps": 15,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex d67beb9e..ff36b3f8 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -482,7 +482,7 @@ class SimpleTaskState(object):\n     def get_necessary_tasks(self):\n         necessary_tasks = set()\n         for task in self.get_active_tasks():\n-            if task.status not in (DONE, DISABLED) or \\\n+            if task.status not in (DONE, DISABLED, UNKNOWN) or \\\n                     getattr(task, 'scheduler_disable_time', None) is not None:\n                 necessary_tasks.update(task.deps)\n                 necessary_tasks.add(task.id)\ndiff --git a/test/central_planner_test.py b/test/central_planner_test.py\nindex e03685d3..2f3e47ec 100644\n--- a/test/central_planner_test.py\n+++ b/test/central_planner_test.py\n@@ -21,7 +21,8 @@ from helpers import unittest\n from nose.plugins.attrib import attr\n \n import luigi.notifications\n-from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, CentralPlannerScheduler\n+from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, \\\n+    UNKNOWN, CentralPlannerScheduler\n \n luigi.notifications.DEBUG = True\n WORKER = 'myworker'\n@@ -1086,5 +1087,42 @@ class CentralPlannerTest(unittest.TestCase):\n             self.assertTrue(0 <= res < NUM_PENDING)\n             self.sch.add_task(worker=WORKER, task_id=str(res), status=DONE)\n \n-if __name__ == '__main__':\n-    unittest.main()\n+    def test_assistants_dont_nurture_finished_statuses(self):\n+        \"\"\"\n+        Assistants should not affect longevity of DONE tasks\n+\n+        Also check for statuses DISABLED and UNKNOWN.\n+        \"\"\"\n+        self.sch = CentralPlannerScheduler(retry_delay=100000000000)  # Never pendify failed tasks\n+        self.setTime(1)\n+        self.sch.add_worker('assistant', [('assistant', True)])\n+        self.sch.ping(worker='assistant')\n+        self.sch.add_task(worker='uploader', task_id='running', status=PENDING)\n+        self.assertEqual(self.sch.get_work(worker='assistant', assistant=True)['task_id'], 'running')\n+\n+        self.setTime(2)\n+        self.sch.add_task(worker='uploader', task_id='done', status=DONE)\n+        self.sch.add_task(worker='uploader', task_id='disabled', status=DISABLED)\n+        self.sch.add_task(worker='uploader', task_id='pending', status=PENDING)\n+        self.sch.add_task(worker='uploader', task_id='failed', status=FAILED)\n+        self.sch.add_task(worker='uploader', task_id='unknown', status=UNKNOWN)\n+\n+        self.setTime(100000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+\n+        self.setTime(200000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+        nurtured_statuses = ['PENDING', 'FAILED', 'RUNNING']\n+        not_nurtured_statuses = ['DONE', 'UNKNOWN', 'DISABLED']\n+\n+        for status in nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([status.lower()]), set(self.sch.task_list(status, '')))\n+\n+        for status in not_nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([]), set(self.sch.task_list(status, '')))\n+\n+        self.assertEqual(3, len(self.sch.task_list(None, '')))  # None == All statuses\n"
+  },
+  "timestamp": "2026-06-27 17:59:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_15/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "assistants bugfix: Also prune UNKNOWN tasks",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 485,
+        "end_line": 486,
+        "function_name": "get_necessary_tasks",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/central_planner_test.py::CentralPlannerTest::test_assistants_dont_nurture_finished_statuses"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null
+}

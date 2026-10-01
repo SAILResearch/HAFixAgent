@@ -1,0 +1,63 @@
+{
+  "project_name": "Math",
+  "bug_id": "69",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 19:04:55",
+      "end_time": "2025-10-10 19:06:17",
+      "duration_seconds": 82,
+      "duration_human": "1m 22s"
+    },
+    "model_cost": 0.004,
+    "model_calls": 11,
+    "token_usage": {
+      "input_tokens": 36062,
+      "output_tokens": 965,
+      "total_tokens": 37027,
+      "cached_input_tokens": 31040,
+      "uncached_input_tokens": 5022
+    },
+    "agent_steps": 11,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/genetics/RandomKey.java b/src/main/java/org/apache/commons/math/genetics/RandomKey.java\nindex 99621fa5a..a2a49083a 100644\n--- a/src/main/java/org/apache/commons/math/genetics/RandomKey.java\n+++ b/src/main/java/org/apache/commons/math/genetics/RandomKey.java\n@@ -49,7 +49,7 @@ import java.util.List;\n  * For details, see:\n  * <ul>\n  * <li>Bean, J.C.: Genetic algorithms and random keys for sequencing and\n- * optimization. ORSA Journal on Computing 6 (1994) 154\u2013160</li>\n+ * optimization. ORSA Journal on Computing 6 (1994) 154-160</li>\n  * <li>Rothlauf, F.: Representations for Genetic and Evolutionary Algorithms.\n  * Volume 104 of Studies in Fuzziness and Soft Computing. Physica-Verlag,\n  * Heidelberg (2002)</li>\ndiff --git a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\nindex 83b4c4130..dc83314f6 100644\n--- a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\n+++ b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\n@@ -168,7 +168,7 @@ public class PearsonsCorrelation {\n                 } else {\n                     double r = correlationMatrix.getEntry(i, j);\n                     double t = Math.abs(r * Math.sqrt((nObs - 2)/(1 - r * r)));\n-                    out[i][j] = 2 * (1 - tDistribution.cumulativeProbability(t));\n+                    out[i][j] = 2 * tDistribution.cumulativeProbability(-t);\n                 }\n             }\n         }\n"
+  },
+  "timestamp": "2025-10-10 19:06:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_69",
+    "repo_path": "/defects4j/framework/bin/temp/Math_69",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "PearsonsCorrelation.getCorrelationPValues() precision limited by machine epsilon\nSimilar to the issue described in MATH-201, using PearsonsCorrelation.getCorrelationPValues() with many treatments results in p-values that are continuous down to 2.2e-16 but that drop to 0 after that.\n\nIn MATH-201, the problem was described as such:\n> So in essence, the p-value returned by TTestImpl.tTest() is:\n> \n> 1.0 - (cumulativeProbability(t) - cumulativeProbabily(-t))\n> \n> For large-ish t-statistics, cumulativeProbabilty(-t) can get quite small, and cumulativeProbabilty(t) can get very close to 1.0. When \n> cumulativeProbability(-t) is less than the machine epsilon, we get p-values equal to zero because:\n> \n> 1.0 - 1.0 + 0.0 = 0.0\n\nThe solution in MATH-201 was to modify the p-value calculation to this:\n> p = 2.0 * cumulativeProbability(-t)\n\nHere, the problem is similar.  From PearsonsCorrelation.getCorrelationPValues():\n  p = 2 * (1 - tDistribution.cumulativeProbability(t));\n\nDirectly calculating the p-value using identical code as PearsonsCorrelation.getCorrelationPValues(), but with the following change seems to solve the problem:\n  p = 2 * (tDistribution.cumulativeProbability(-t));\n\n\n\n\n",
+    "commit_message": "Fixed loss of significance error in PersonsCorrelation p-value computation causing p-values smaller than the machine epsilon (~1E-16) to be reported as 0. JIRA: MATH-371 Reported and patched by Kevin Childs",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java",
+        "start_line": 171,
+        "end_line": 171,
+        "line_numbers": [
+          171
+        ],
+        "function_name": "getCorrelationPValues",
+        "class_name": "PearsonsCorrelation",
+        "filename": "PearsonsCorrelation.java",
+        "code_snippet": "    public RealMatrix getCorrelationPValues() throws MathException {\n        TDistribution tDistribution = new TDistributionImpl(nObs - 2);\n        int nVars = correlationMatrix.getColumnDimension();\n        double[][] out = new double[nVars][nVars];\n        for (int i = 0; i < nVars; i++) {\n            for (int j = 0; j < nVars; j++) {\n                if (i == j) {\n                    out[i][j] = 0d;\n                } else {\n                    double r = correlationMatrix.getEntry(i, j);\n                    double t = Math.abs(r * Math.sqrt((nObs - 2)/(1 - r * r)));\n                    out[i][j] = 2 * (1 - tDistribution.cumulativeProbability(t));\n                }\n            }\n        }\n        return new BlockRealMatrix(out);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.stat.correlation.PearsonsCorrelationTest::testPValueNearZero",
+      "org.apache.commons.math.stat.correlation.SpearmansRankCorrelationTest::testPValueNearZero"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\nindex dc83314..83b4c41 100644\n--- a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\n+++ b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java\n@@ -168,7 +168,7 @@ public class PearsonsCorrelation {\n                 } else {\n                     double r = correlationMatrix.getEntry(i, j);\n                     double t = Math.abs(r * Math.sqrt((nObs - 2)/(1 - r * r)));\n+                    out[i][j] = 2 * tDistribution.cumulativeProbability(-t);\n-                    out[i][j] = 2 * (1 - tDistribution.cumulativeProbability(t));\n                 }\n             }\n         }",
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

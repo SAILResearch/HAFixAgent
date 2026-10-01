@@ -1,0 +1,77 @@
+{
+  "project_name": "cookiecutter",
+  "bug_id": "cookiecutter_2",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 18:24:00",
+      "end_time": "2026-06-20 18:27:51",
+      "duration_seconds": 231,
+      "duration_human": "3m 51s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 29,
+    "token_usage": {
+      "input_tokens": 596892,
+      "output_tokens": 3809,
+      "total_tokens": 600701,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 596892
+    },
+    "agent_steps": 29,
+    "checkout_success": true,
+    "patch": "diff --git a/cookiecutter/hooks.py b/cookiecutter/hooks.py\nindex 20ccae2..57bc26f 100644\n--- a/cookiecutter/hooks.py\n+++ b/cookiecutter/hooks.py\n@@ -54,11 +54,14 @@ def find_hook(hook_name, hooks_dir='hooks'):\n         logger.debug('No hooks/dir in template_dir')\n         return None\n \n+    scripts = []\n     for hook_file in os.listdir(hooks_dir):\n         if valid_hook(hook_file, hook_name):\n-            return os.path.abspath(os.path.join(hooks_dir, hook_file))\n+            scripts.append(os.path.abspath(os.path.join(hooks_dir, hook_file)))\n \n-    return None\n+    if len(scripts) == 0:\n+        return None\n+    return scripts\n \n \n def run_script(script_path, cwd='.'):\n@@ -119,9 +122,10 @@ def run_hook(hook_name, project_dir, context):\n     :param project_dir: The directory to execute the script from.\n     :param context: Cookiecutter project context.\n     \"\"\"\n-    script = find_hook(hook_name)\n-    if script is None:\n+    scripts = find_hook(hook_name)\n+    if not scripts:\n         logger.debug('No %s hook found', hook_name)\n         return\n-    logger.debug('Running hook %s', hook_name)\n-    run_script_with_context(script, project_dir, context)\n+    for script in scripts:\n+        logger.debug('Running hook %s', hook_name)\n+        run_script_with_context(script, project_dir, context)\ndiff --git a/tests/test_hooks.py b/tests/test_hooks.py\nindex be4038f..bd374ad 100644\n--- a/tests/test_hooks.py\n+++ b/tests/test_hooks.py\n@@ -9,7 +9,7 @@ import pytest\n from cookiecutter import hooks, utils, exceptions\n \n \n-def make_test_repo(name):\n+def make_test_repo(name, multiple_hooks=False):\n     \"\"\"Create test repository for test setup methods.\"\"\"\n     hook_dir = os.path.join(name, 'hooks')\n     template = os.path.join(name, 'input{{hooks}}')\n@@ -47,6 +47,26 @@ def make_test_repo(name):\n         # Set the execute bit\n         os.chmod(filename, os.stat(filename).st_mode | stat.S_IXUSR)\n \n+    # Adding an additional pre script\n+    if multiple_hooks:\n+        if sys.platform.startswith('win'):\n+            pre = 'pre_gen_project.bat'\n+            with open(os.path.join(hook_dir, pre), 'w') as f:\n+                f.write(\"@echo off\\n\")\n+                f.write(\"\\n\")\n+                f.write(\"echo post generation hook\\n\")\n+                f.write(\"echo. >shell_pre.txt\\n\")\n+        else:\n+            pre = 'pre_gen_project.sh'\n+            filename = os.path.join(hook_dir, pre)\n+            with open(filename, 'w') as f:\n+                f.write(\"#!/bin/bash\\n\")\n+                f.write(\"\\n\")\n+                f.write(\"echo 'post generation hook';\\n\")\n+                f.write(\"touch 'shell_pre.txt'\\n\")\n+            # Set the execute bit\n+            os.chmod(filename, os.stat(filename).st_mode | stat.S_IXUSR)\n+\n     return post\n \n \n@@ -68,11 +88,11 @@ class TestFindHooks(object):\n         with utils.work_in(self.repo_path):\n             expected_pre = os.path.abspath('hooks/pre_gen_project.py')\n             actual_hook_path = hooks.find_hook('pre_gen_project')\n-            assert expected_pre == actual_hook_path\n+            assert expected_pre == actual_hook_path[0]\n \n             expected_post = os.path.abspath('hooks/{}'.format(self.post_hook))\n             actual_hook_path = hooks.find_hook('post_gen_project')\n-            assert expected_post == actual_hook_path\n+            assert expected_post == actual_hook_path[0]\n \n     def test_no_hooks(self):\n         \"\"\"`find_hooks` should return None if the hook could not be found.\"\"\"\n@@ -98,7 +118,7 @@ class TestExternalHooks(object):\n \n     def setup_method(self, method):\n         \"\"\"External hooks related tests setup fixture.\"\"\"\n-        self.post_hook = make_test_repo(self.repo_path)\n+        self.post_hook = make_test_repo(self.repo_path, multiple_hooks=True)\n \n     def teardown_method(self, method):\n         \"\"\"External hooks related tests teardown fixture.\"\"\"\n@@ -108,6 +128,8 @@ class TestExternalHooks(object):\n             os.remove('python_pre.txt')\n         if os.path.exists('shell_post.txt'):\n             os.remove('shell_post.txt')\n+        if os.path.exists('shell_pre.txt'):\n+            os.remove('shell_pre.txt')\n         if os.path.exists('tests/shell_post.txt'):\n             os.remove('tests/shell_post.txt')\n         if os.path.exists('tests/test-hooks/input{{hooks}}/python_pre.txt'):\n@@ -163,6 +185,7 @@ class TestExternalHooks(object):\n         with utils.work_in(self.repo_path):\n             hooks.run_hook('pre_gen_project', tests_dir, {})\n             assert os.path.isfile(os.path.join(tests_dir, 'python_pre.txt'))\n+            assert os.path.isfile(os.path.join(tests_dir, 'shell_pre.txt'))\n \n             hooks.run_hook('post_gen_project', tests_dir, {})\n             assert os.path.isfile(os.path.join(tests_dir, 'shell_post.txt'))\n"
+  },
+  "timestamp": "2026-06-20 18:27:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "cookiecutter",
+    "bug_id": "cookiecutter_2",
+    "repo_path": "/BugsInPy/framework/bin/temp/cookiecutter_2/cookiecutter",
+    "github_url": "https://github.com/cookiecutter/cookiecutter",
+    "description": "",
+    "commit_message": "Changed: Generated projects can use multiple type hooks at same time. (sh + py) (#974)",
+    "fault_locations": [
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 59,
+        "end_line": 59,
+        "function_name": "find_hook",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 61,
+        "end_line": 61,
+        "function_name": "find_hook",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 122,
+        "end_line": 123,
+        "function_name": "run_hook",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 127,
+        "end_line": 127,
+        "function_name": "run_hook",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "tox tests/test_hooks.py::TestFindHooks::test_find_hook",
+      "tox tests/test_hooks.py::TestExternalHooks::test_run_hook"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

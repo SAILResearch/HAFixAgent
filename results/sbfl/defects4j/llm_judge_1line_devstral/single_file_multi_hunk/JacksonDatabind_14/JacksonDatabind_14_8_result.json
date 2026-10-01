@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_14",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 11:30:09",
+      "end_time": "2026-06-30 11:34:37",
+      "duration_seconds": 268,
+      "duration_human": "4m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 746009,
+      "output_tokens": 15333,
+      "total_tokens": 761342,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 746009
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-30 11:34:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_14",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_14",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Custom deserializer with parent object update\nHi, I have custom deserializer for `DataA`. An instance of `DataA` is contained in `DataB`, when updating an existing instance of `DataB` (as opposed to creating a new one) I get an exception when deserializing via a `JsonNode` object (deserializing via a `String` object works). \n\n``` java\nimport java.io.IOException;\n\nimport org.junit.Assert;\nimport org.junit.Test;\n\nimport com.fasterxml.jackson.core.JsonParser;\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.core.JsonToken;\nimport com.fasterxml.jackson.databind.DeserializationContext;\nimport com.fasterxml.jackson.databind.JsonNode;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport com.fasterxml.jackson.databind.deser.std.StdDeserializer;\nimport com.fasterxml.jackson.databind.module.SimpleModule;\n\npublic class TestDeserTest {\n    static class DataA {\n        public int i = 1;\n        public int j = 2;\n\n    }\n\n    static class DataB {\n        public DataA da = new DataA();\n        public int k = 3;\n    }\n\n    static class DataADeserializer extends StdDeserializer<DataA> {\n        private static final long serialVersionUID = 1L;\n\n        DataADeserializer() {\n            super(DataA.class);\n        }\n\n        public DataA deserialize(JsonParser jp, DeserializationContext ctxt)\n                throws JsonProcessingException, IOException {\n            assert (jp.getCurrentToken() == JsonToken.START_OBJECT);\n            JsonNode node = jp.getCodec().readTree(jp);\n\n            DataA da = new DataA();\n            da.i = 5;\n            return da;\n        }\n    }\n\n    @Test\n    public void test() throws IOException {\n        ObjectMapper mapper = new ObjectMapper();\n        SimpleModule module = new SimpleModule();\n        module.addDeserializer(DataA.class, new DataADeserializer());\n        mapper.registerModule(module);\n\n        DataB db = new DataB();\n        db.da.i = 11;\n        db.k = 13;\n        String jsonBString = mapper.writeValueAsString(db);\n        JsonNode jsonBNode = mapper.valueToTree(db);\n\n        // create parent\n        DataB dbNewViaString = mapper.readValue(jsonBString, DataB.class);\n        Assert.assertEquals(5, dbNewViaString.da.i);\n        Assert.assertEquals(13, dbNewViaString.k);\n\n        DataB dbNewViaNode = mapper.treeToValue(jsonBNode, DataB.class);\n        Assert.assertEquals(5, dbNewViaNode.da.i);\n        Assert.assertEquals(13, dbNewViaNode.k);\n\n        // update parent\n        DataB dbUpdViaString = new DataB();\n        DataB dbUpdViaNode = new DataB();\n\n        Assert.assertEquals(1, dbUpdViaString.da.i);\n        Assert.assertEquals(3, dbUpdViaString.k);\n        mapper.readerForUpdating(dbUpdViaString).readValue(jsonBString);\n        Assert.assertEquals(5, dbUpdViaString.da.i);\n        Assert.assertEquals(13, dbUpdViaString.k);\n\n        Assert.assertEquals(1, dbUpdViaNode.da.i);\n        Assert.assertEquals(3, dbUpdViaNode.k);\n        // FAILS HERE:\n        mapper.readerForUpdating(dbUpdViaNode).readValue(jsonBNode);\n        Assert.assertEquals(5, dbUpdViaNode.da.i);\n        Assert.assertEquals(13, dbUpdViaNode.k);\n    }\n}\n```\n\nThe trace:\n\n``` java\ncom.fasterxml.jackson.databind.exc.UnrecognizedPropertyException: Unrecognized field \"i\" (class myorg.TestDeserTest$DataB), not marked as ignorable (2 known properties: \"da\", \"k\"])\n at [Source: N/A; line: -1, column: -1] (through reference chain: myorg.DataB[\"da\"]->myorg.DataB[\"i\"])\n    at com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException.from(UnrecognizedPropertyException.java:51)\n    at com.fasterxml.jackson.databind.DeserializationContext.reportUnknownProperty(DeserializationContext.java:817)\n    at com.fasterxml.jackson.databind.deser.std.StdDeserializer.handleUnknownProperty(StdDeserializer.java:954)\n    at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.handleUnknownProperty(BeanDeserializerBase.java:1324)\n    at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.handleUnknownVanilla(BeanDeserializerBase.java:1302)\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.vanillaDeserialize(BeanDeserializer.java:249)\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:136)\n    at com.fasterxml.jackson.databind.ObjectReader._bindAsTree(ObjectReader.java:1478)\n    at com.fasterxml.jackson.databind.ObjectReader.readTree(ObjectReader.java:1020)\n    at myorg.TestDeserTest$DataADeserializer.deserialize(TestDeserTest.java:39)\n    at myorg.TestDeserTest$DataADeserializer.deserialize(TestDeserTest.java:1)\n    at com.fasterxml.jackson.databind.deser.SettableBeanProperty.deserialize(SettableBeanProperty.java:523)\n    at com.fasterxml.jackson.databind.deser.impl.FieldProperty.deserializeAndSet(FieldProperty.java:101)\n    at com.fasterxml.jackson.databind.deser.impl.BeanPropertyMap.findDeserializeAndSet(BeanPropertyMap.java:285)\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:220)\n    at com.fasterxml.jackson.databind.ObjectReader._bindAndClose(ObjectReader.java:1443)\n    at com.fasterxml.jackson.databind.ObjectReader.readValue(ObjectReader.java:1154)\n    at myorg.TestDeserTest.test(TestDeserTest.java:81)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    at java.lang.reflect.Method.invoke(Method.java:606)\n    at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)\n    at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)\n    at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)\n    at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)\n    at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)\n    at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)\n    at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)\n    at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)\n    at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)\n    at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)\n    at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)\n    at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)\n    at org.junit.runners.ParentRunner.run(ParentRunner.java:363)\n    at org.eclipse.jdt.internal.junit4.runner.JUnit4TestReference.run(JUnit4TestReference.java:50)\n    at org.eclipse.jdt.internal.junit.runner.TestExecution.run(TestExecution.java:38)\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:459)\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:675)\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:382)\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:192)\n\n```\n\n",
+    "commit_message": "Fix #744",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1003,
+        "end_line": 1003,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1022,
+        "end_line": 1022,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1153,
+        "end_line": 1153,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1156,
+        "end_line": 1156,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+        "start_line": 326,
+        "end_line": 326,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java",
+        "start_line": 214,
+        "end_line": 214,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1471,
+        "end_line": 1471,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1472,
+        "end_line": 1472,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1475,
+        "end_line": 1475,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1476,
+        "end_line": 1476,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.convert.TestUpdateValue::testIssue744"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1003,
+      "end_line": 1003,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1022,
+      "end_line": 1022,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1153,
+      "end_line": 1153,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1156,
+      "end_line": 1156,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+      "start_line": 326,
+      "end_line": 326,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java",
+      "start_line": 214,
+      "end_line": 214,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1471,
+      "end_line": 1471,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1472,
+      "end_line": 1472,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1475,
+      "end_line": 1475,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+      "start_line": 1476,
+      "end_line": 1476,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_4",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:24:20",
+      "end_time": "2026-03-23 07:57:13",
+      "duration_seconds": 1973,
+      "duration_human": "32m 53s"
+    },
+    "model_cost": 0.2396,
+    "model_calls": 31,
+    "token_usage": {
+      "input_tokens": 1693057,
+      "output_tokens": 70023,
+      "total_tokens": 1763080,
+      "cached_input_tokens": 912128,
+      "uncached_input_tokens": 780929
+    },
+    "agent_steps": 31,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/contrib/redshift.py b/luigi/contrib/redshift.py\nindex 5901685c..0ab50dc6 100644\n--- a/luigi/contrib/redshift.py\n+++ b/luigi/contrib/redshift.py\n@@ -353,7 +353,7 @@ class S3CopyToTable(rdbms.CopyToTable, _CredentialsMixin):\n         \"\"\"\n         logger.info(\"Inserting file: %s\", f)\n         colnames = ''\n-        if len(self.columns) > 0:\n+        if self.columns and len(self.columns) > 0:\n             colnames = \",\".join([x[0] for x in self.columns])\n             colnames = '({})'.format(colnames)\n \ndiff --git a/test/contrib/redshift_test.py b/test/contrib/redshift_test.py\nindex d7a46b6a..5e7f1f2a 100644\n--- a/test/contrib/redshift_test.py\n+++ b/test/contrib/redshift_test.py\n@@ -40,9 +40,11 @@ class DummyS3CopyToTableBase(luigi.contrib.redshift.S3CopyToTable):\n     user = 'dummy_user'\n     password = 'dummy_password'\n     table = luigi.Parameter(default='dummy_table')\n-    columns = (\n-        ('some_text', 'varchar(255)'),\n-        ('some_int', 'int'),\n+    columns = luigi.TupleParameter(\n+        default=(\n+            ('some_text', 'varchar(255)'),\n+            ('some_int', 'int'),\n+        )\n     )\n \n     copy_options = ''\n@@ -253,6 +255,120 @@ class TestS3CopyToTable(unittest.TestCase):\n             (task.table,),\n         )\n \n+    @mock.patch(\"luigi.contrib.redshift.RedshiftTarget\")\n+    def test_s3_copy_with_valid_columns(self, mock_redshift_target):\n+        task = DummyS3CopyToTableKey()\n+        task.run()\n+\n+        # The mocked connection cursor passed to\n+        # S3CopyToTable.copy(self, cursor, f).\n+        mock_cursor = (mock_redshift_target.return_value\n+                                           .connect\n+                                           .return_value\n+                                           .cursor\n+                                           .return_value)\n+\n+        # `mock_redshift_target` is the mocked `RedshiftTarget` object\n+        # returned by S3CopyToTable.output(self).\n+        mock_redshift_target.assert_called_once_with(\n+            database=task.database,\n+            host=task.host,\n+            update_id=task.task_id,\n+            user=task.user,\n+            table=task.table,\n+            password=task.password,\n+        )\n+\n+        # To get the proper intendation in the multiline `COPY` statement the\n+        # SQL string was copied from redshift.py.\n+        mock_cursor.execute.assert_called_with(\"\"\"\n+         COPY {table} {colnames} from '{source}'\n+         CREDENTIALS '{creds}'\n+         {options}\n+         ;\"\"\".format(\n+            table='dummy_table',\n+            colnames='(some_text,some_int)',\n+            source='s3://bucket/key',\n+            creds='aws_access_key_id=key;aws_secret_access_key=secret',\n+            options='')\n+        )\n+\n+    @mock.patch(\"luigi.contrib.redshift.RedshiftTarget\")\n+    def test_s3_copy_with_default_columns(self, mock_redshift_target):\n+        task = DummyS3CopyToTableKey(columns=[])\n+        task.run()\n+\n+        # The mocked connection cursor passed to\n+        # S3CopyToTable.copy(self, cursor, f).\n+        mock_cursor = (mock_redshift_target.return_value\n+                                           .connect\n+                                           .return_value\n+                                           .cursor\n+                                           .return_value)\n+\n+        # `mock_redshift_target` is the mocked `RedshiftTarget` object\n+        # returned by S3CopyToTable.output(self).\n+        mock_redshift_target.assert_called_once_with(\n+            database=task.database,\n+            host=task.host,\n+            update_id=task.task_id,\n+            user=task.user,\n+            table=task.table,\n+            password=task.password,\n+        )\n+\n+        # To get the proper intendation in the multiline `COPY` statement the\n+        # SQL string was copied from redshift.py.\n+        mock_cursor.execute.assert_called_with(\"\"\"\n+         COPY {table} {colnames} from '{source}'\n+         CREDENTIALS '{creds}'\n+         {options}\n+         ;\"\"\".format(\n+            table='dummy_table',\n+            colnames='',\n+            source='s3://bucket/key',\n+            creds='aws_access_key_id=key;aws_secret_access_key=secret',\n+            options='')\n+        )\n+\n+    @mock.patch(\"luigi.contrib.redshift.RedshiftTarget\")\n+    def test_s3_copy_with_nonetype_columns(self, mock_redshift_target):\n+        task = DummyS3CopyToTableKey(columns=None)\n+        task.run()\n+\n+        # The mocked connection cursor passed to\n+        # S3CopyToTable.copy(self, cursor, f).\n+        mock_cursor = (mock_redshift_target.return_value\n+                                           .connect\n+                                           .return_value\n+                                           .cursor\n+                                           .return_value)\n+\n+        # `mock_redshift_target` is the mocked `RedshiftTarget` object\n+        # returned by S3CopyToTable.output(self).\n+        mock_redshift_target.assert_called_once_with(\n+            database=task.database,\n+            host=task.host,\n+            update_id=task.task_id,\n+            user=task.user,\n+            table=task.table,\n+            password=task.password,\n+        )\n+\n+        # To get the proper intendation in the multiline `COPY` statement the\n+        # SQL string was copied from redshift.py.\n+        mock_cursor.execute.assert_called_with(\"\"\"\n+         COPY {table} {colnames} from '{source}'\n+         CREDENTIALS '{creds}'\n+         {options}\n+         ;\"\"\".format(\n+            table='dummy_table',\n+            colnames='',\n+            source='s3://bucket/key',\n+            creds='aws_access_key_id=key;aws_secret_access_key=secret',\n+            options='')\n+        )\n+\n \n class TestS3CopyToSchemaTable(unittest.TestCase):\n     @mock.patch(\"luigi.contrib.redshift.S3CopyToTable.copy\")\n"
+  },
+  "timestamp": "2026-03-23 03:57:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_4",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_4/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Allow NoneType columns in Redshift COPY job (#2303)",
+    "fault_locations": [
+      {
+        "file": "luigi/contrib/redshift.py",
+        "start_line": 356,
+        "end_line": 356,
+        "function_name": "copy",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/contrib/redshift_test.py::TestS3CopyToTable::test_s3_copy_with_nonetype_columns"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null
+}

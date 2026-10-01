@@ -120,10 +120,14 @@ def build_history_augmentation(history_category: HistoryCategory, blame_info: Di
         code_before = function_info.get('function_code_before', '')
         code_after = function_info.get('function_code_after', '')
 
+        # Detect language from blamed files
+        _files = file_info.get('files_name_in_blame_commit', [])
+        lang = "python" if any(f.endswith('.py') for f in _files) else "java"
+
         if code_before:
-            augmentation += f"**Before:**\n```java\n{code_before[:HISTORY_LIMITS['code_before']]}\n```\n\n"
+            augmentation += f"**Before:**\n```{lang}\n{code_before[:HISTORY_LIMITS['code_before']]}\n```\n\n"
         if code_after:
-            augmentation += f"**After:**\n```java\n{code_after[:HISTORY_LIMITS['code_after']]}\n```\n\n"
+            augmentation += f"**After:**\n```{lang}\n{code_after[:HISTORY_LIMITS['code_after']]}\n```\n\n"
 
     elif history_category == HistoryCategory.baseline_file_code_patch_blame:
         # Show patch from blame commit

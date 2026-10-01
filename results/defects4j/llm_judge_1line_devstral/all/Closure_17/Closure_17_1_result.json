@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "17",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:15:09",
+      "end_time": "2026-06-26 18:22:56",
+      "duration_seconds": 467,
+      "duration_human": "7m 47s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 460327,
+      "output_tokens": 3004,
+      "total_tokens": 463331,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 460327
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 18:22:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_17",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_17",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "@const dumps type cast information\nThe following code compiles fine:\r\n\r\n/**\r\n* Class defining an interface with two numbers.\r\n* @interface\r\n*/\r\nfunction TwoNumbers() {}\r\n\r\n/** @type number */\r\nTwoNumbers.prototype.first;\r\n\r\n/** @type number */\r\nTwoNumbers.prototype.second;\r\n\r\nvar SOME_DEFAULT =\r\n  /** @type {TwoNumbers} */ ({first: 1, second: 2});\r\n\r\n/**\r\n * Class with a two number member.\r\n * @constructor\r\n */\r\nfunction HasTwoNumbers() {\r\n  /** @type {TwoNumbers} */\r\n  this.twoNumbers = this.getTwoNumbers();\r\n}\r\n\r\n/**\r\n * Get the default two numbers.\r\n * @return {TwoNumbers}\r\n */\r\nHasTwoNumbers.prototype.getTwoNumbers = function() {\r\n  return SOME_DEFAULT;\r\n};\r\n\r\nNow realizing that SOME_DEFAULTS is actually a preset constant which should not change I would like to say for that line (just adding an @const)\r\n\r\n/** @const */ var SOME_DEFAULT =\r\n  /** @type {TwoNumbers} */ ({first: 1, second: 2});\r\n\r\nHowever that starts throwing warnings as adding the @const makes the compiler dump the type. (Does the value get inlined without the typecast?)\r\n\r\nExpected:\r\nCompiles fine.\r\n\r\nError can be reproduced on:\r\nhttp://closure-compiler.appspot.com/home\r\ncopy-past the attached file in there, it throws a warning and does not compile.",
+    "commit_message": "When declaring @const vars initialized to a type-casted value, prefer the type-cast as the declared type. fixes issue 688",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypedScopeCreator.java",
+        "start_line": 1291,
+        "end_line": 1291,
+        "line_numbers": [
+          1291
+        ],
+        "function_name": "getDeclaredType",
+        "class_name": "AbstractScopeBuilder",
+        "filename": "TypedScopeCreator.java",
+        "code_snippet": "    private JSType getDeclaredType(String sourceName, JSDocInfo info,\n        Node lValue, @Nullable Node rValue) {\n      if (info != null && info.hasType()) {\n        return getDeclaredTypeInAnnotation(sourceName, lValue, info);\n      } else if (rValue != null && rValue.isFunction() &&\n          shouldUseFunctionLiteralType(\n              JSType.toMaybeFunctionType(rValue.getJSType()), info, lValue)) {\n        return rValue.getJSType();\n      } else if (info != null) {\n        if (info.hasEnumParameterType()) {\n          if (rValue != null && rValue.isObjectLit()) {\n            return rValue.getJSType();\n          } else {\n            return createEnumTypeFromNodes(\n                rValue, lValue.getQualifiedName(), info, lValue);\n          }\n        } else if (info.isConstructor() || info.isInterface()) {\n          return createFunctionTypeFromNodes(\n              rValue, lValue.getQualifiedName(), info, lValue);\n        } else {\n          // Check if this is constant, and if it has a known type.\n          if (info.isConstant()) {\n            JSType knownType = null;\n            if (rValue != null) {\n              if (rValue.getJSType() != null && !rValue.getJSType().isUnknownType()) {\n                // If rValue has a type-cast, we use the type in the type-cast.\n                // If rValue's type was already computed during scope creation,\n                // then we can safely use that.\n                return rValue.getJSType();\n              } else if (rValue.isOr()) {\n                // Check for a very specific JS idiom:\n                // var x = x || TYPE;\n                // This is used by Closure's base namespace for esoteric\n                // reasons.\n                Node firstClause = rValue.getFirstChild();\n                Node secondClause = firstClause.getNext();\n                boolean namesMatch = firstClause.isName()\n                    && lValue.isName()\n                    && firstClause.getString().equals(lValue.getString());\n                if (namesMatch && secondClause.getJSType() != null\n                    && !secondClause.getJSType().isUnknownType()) {\n                  return secondClause.getJSType();\n                }\n              }\n            }\n          }\n        }\n      }\n\n      return getDeclaredTypeInAnnotation(sourceName, lValue, info);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue688"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypedScopeCreator.java b/src/com/google/javascript/jscomp/TypedScopeCreator.java\nindex 8bc7bda..efaba2c 100644\n--- a/src/com/google/javascript/jscomp/TypedScopeCreator.java\n+++ b/src/com/google/javascript/jscomp/TypedScopeCreator.java\n@@ -1288,12 +1288,8 @@ final class TypedScopeCreator implements ScopeCreator {\n           if (info.isConstant()) {\n             JSType knownType = null;\n             if (rValue != null) {\n+              JSDocInfo rValueInfo = rValue.getJSDocInfo();\n+              if (rValueInfo != null && rValueInfo.hasType()) {\n-              if (rValue.getJSType() != null && !rValue.getJSType().isUnknownType()) {\n                 // If rValue has a type-cast, we use the type in the type-cast.\n+                return rValueInfo.getType().evaluate(scope, typeRegistry);\n+              } else if (rValue.getJSType() != null\n+                  && !rValue.getJSType().isUnknownType()) {\n                 // If rValue's type was already computed during scope creation,\n                 // then we can safely use that.\n                 return rValue.getJSType();",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

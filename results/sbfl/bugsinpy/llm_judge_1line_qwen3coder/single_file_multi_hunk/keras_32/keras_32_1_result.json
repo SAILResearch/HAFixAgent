@@ -1,0 +1,192 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_32",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 10:52:08",
+      "end_time": "2026-06-29 10:54:45",
+      "duration_seconds": 157,
+      "duration_human": "2m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 863209,
+      "output_tokens": 6826,
+      "total_tokens": 870035,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 863209
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/callbacks.py b/keras/callbacks.py\nindex 8b5ec5f34..dfb051b3a 100644\n--- a/keras/callbacks.py\n+++ b/keras/callbacks.py\n@@ -898,7 +898,7 @@ class ReduceLROnPlateau(Callback):\n             monitored has stopped increasing; in `auto`\n             mode, the direction is automatically inferred\n             from the name of the monitored quantity.\n-        epsilon: threshold for measuring the new optimum,\n+        min_delta: threshold for measuring the new optimum,\n             to only focus on significant changes.\n         cooldown: number of epochs to wait before resuming\n             normal operation after lr has been reduced.\n@@ -906,7 +906,8 @@ class ReduceLROnPlateau(Callback):\n     \"\"\"\n \n     def __init__(self, monitor='val_loss', factor=0.1, patience=10,\n-                 verbose=0, mode='auto', epsilon=1e-4, cooldown=0, min_lr=0):\n+                 verbose=0, mode='auto', min_delta=1e-4, cooldown=0, min_lr=0,\n+                 epsilon=None):\n         super(ReduceLROnPlateau, self).__init__()\n \n         self.monitor = monitor\n@@ -915,7 +916,12 @@ class ReduceLROnPlateau(Callback):\n                              'does not support a factor >= 1.0.')\n         self.factor = factor\n         self.min_lr = min_lr\n-        self.epsilon = epsilon\n+        if epsilon is not None:\n+            warnings.warn('`epsilon` argument is deprecated and will be removed, '\n+                          'use `min_delta` instead.', RuntimeWarning)\n+            self.min_delta = epsilon\n+        else:\n+            self.min_delta = min_delta\n         self.patience = patience\n         self.verbose = verbose\n         self.cooldown = cooldown\n@@ -936,10 +942,10 @@ class ReduceLROnPlateau(Callback):\n             self.mode = 'auto'\n         if (self.mode == 'min' or\n            (self.mode == 'auto' and 'acc' not in self.monitor)):\n-            self.monitor_op = lambda a, b: np.less(a, b - self.epsilon)\n+            self.monitor_op = lambda a, b: np.less(a, b - self.min_delta)\n             self.best = np.Inf\n         else:\n-            self.monitor_op = lambda a, b: np.greater(a, b + self.epsilon)\n+            self.monitor_op = lambda a, b: np.greater(a, b + self.min_delta)\n             self.best = -np.Inf\n         self.cooldown_counter = 0\n         self.wait = 0\n@@ -967,6 +973,7 @@ class ReduceLROnPlateau(Callback):\n                 self.best = current\n                 self.wait = 0\n             elif not self.in_cooldown():\n+                self.wait += 1\n                 if self.wait >= self.patience:\n                     old_lr = float(K.get_value(self.model.optimizer.lr))\n                     if old_lr > self.min_lr:\n@@ -978,7 +985,6 @@ class ReduceLROnPlateau(Callback):\n                                   'rate to %s.' % (epoch + 1, new_lr))\n                         self.cooldown_counter = self.cooldown\n                         self.wait = 0\n-                self.wait += 1\n \n     def in_cooldown(self):\n         return self.cooldown_counter > 0\ndiff --git a/tests/keras/test_callbacks.py b/tests/keras/test_callbacks.py\nindex 3a556910f..b49be2511 100644\n--- a/tests/keras/test_callbacks.py\n+++ b/tests/keras/test_callbacks.py\n@@ -334,18 +334,56 @@ def test_ReduceLROnPlateau():\n     model = make_model()\n \n     # This should reduce the LR after the first epoch (due to high epsilon).\n-    cbks = [callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, epsilon=10, patience=1, cooldown=5)]\n+    cbks = [callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, min_delta=10, patience=1, cooldown=5)]\n     model.fit(X_train, y_train, batch_size=batch_size,\n               validation_data=(X_test, y_test), callbacks=cbks, epochs=5, verbose=2)\n     assert np.allclose(float(K.get_value(model.optimizer.lr)), 0.01, atol=K.epsilon())\n \n     model = make_model()\n-    cbks = [callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, epsilon=0, patience=1, cooldown=5)]\n+    cbks = [callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, min_delta=0, patience=1, cooldown=5)]\n     model.fit(X_train, y_train, batch_size=batch_size,\n               validation_data=(X_test, y_test), callbacks=cbks, epochs=5, verbose=2)\n     assert np.allclose(float(K.get_value(model.optimizer.lr)), 0.1, atol=K.epsilon())\n \n \n+@keras_test\n+def test_ReduceLROnPlateau_patience():\n+    class DummyOptimizer(object):\n+        def __init__(self):\n+            self.lr = K.variable(1.0)\n+\n+    class DummyModel(object):\n+        def __init__(self):\n+            self.optimizer = DummyOptimizer()\n+\n+    reduce_on_plateau = callbacks.ReduceLROnPlateau(monitor='val_loss',\n+                                                    patience=2)\n+    reduce_on_plateau.model = DummyModel()\n+\n+    losses = [0.0860, 0.1096, 0.1040]\n+    lrs = []\n+\n+    for epoch in range(len(losses)):\n+        reduce_on_plateau.on_epoch_end(epoch, logs={'val_loss': losses[epoch]})\n+        lrs.append(K.get_value(reduce_on_plateau.model.optimizer.lr))\n+\n+    # The learning rates should be 1.0 except the last one\n+    assert all([lr == 1.0 for lr in lrs[:-1]]) and lrs[-1] < 1.0\n+\n+\n+@keras_test\n+def test_ReduceLROnPlateau_backwards_compatibility():\n+    import warnings\n+    with warnings.catch_warnings(record=True) as ws:\n+        reduce_on_plateau = callbacks.ReduceLROnPlateau(epsilon=1e-13)\n+        # Check if warnings are disabled\n+        if os.environ.get(\"PYTHONWARNINGS\") != \"ignore\":\n+            assert \"`epsilon` argument is deprecated\" in str(ws[0].message)\n+    assert not hasattr(reduce_on_plateau, 'epsilon')\n+    assert hasattr(reduce_on_plateau, 'min_delta')\n+    assert reduce_on_plateau.min_delta == 1e-13\n+\n+\n @keras_test\n def test_CSVLogger(tmpdir):\n     np.random.seed(1337)\n"
+  },
+  "timestamp": "2026-06-29 10:54:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_32",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_32/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fixed inconsistencies regarding ReduceLROnPlateau (#9723)",
+    "fault_locations": [
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 910,
+        "end_line": 910,
+        "suspiciousness": 0.561151,
+        "rank": 1
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 912,
+        "end_line": 912,
+        "suspiciousness": 0.561151,
+        "rank": 2
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 913,
+        "end_line": 913,
+        "suspiciousness": 0.561151,
+        "rank": 3
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 916,
+        "end_line": 916,
+        "suspiciousness": 0.561151,
+        "rank": 4
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 917,
+        "end_line": 917,
+        "suspiciousness": 0.561151,
+        "rank": 5
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 918,
+        "end_line": 918,
+        "suspiciousness": 0.561151,
+        "rank": 6
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 919,
+        "end_line": 919,
+        "suspiciousness": 0.561151,
+        "rank": 7
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 920,
+        "end_line": 920,
+        "suspiciousness": 0.561151,
+        "rank": 8
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 921,
+        "end_line": 921,
+        "suspiciousness": 0.561151,
+        "rank": 9
+      },
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 922,
+        "end_line": 922,
+        "suspiciousness": 0.561151,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/test_callbacks.py::test_ReduceLROnPlateau_patience",
+      "pytest tests/keras/test_callbacks.py::test_ReduceLROnPlateau_backwards_compatibility"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 910,
+      "end_line": 910,
+      "suspiciousness": 0.561151,
+      "rank": 1
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 912,
+      "end_line": 912,
+      "suspiciousness": 0.561151,
+      "rank": 2
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 913,
+      "end_line": 913,
+      "suspiciousness": 0.561151,
+      "rank": 3
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 916,
+      "end_line": 916,
+      "suspiciousness": 0.561151,
+      "rank": 4
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 917,
+      "end_line": 917,
+      "suspiciousness": 0.561151,
+      "rank": 5
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 918,
+      "end_line": 918,
+      "suspiciousness": 0.561151,
+      "rank": 6
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 919,
+      "end_line": 919,
+      "suspiciousness": 0.561151,
+      "rank": 7
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 920,
+      "end_line": 920,
+      "suspiciousness": 0.561151,
+      "rank": 8
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 921,
+      "end_line": 921,
+      "suspiciousness": 0.561151,
+      "rank": 9
+    },
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 922,
+      "end_line": 922,
+      "suspiciousness": 0.561151,
+      "rank": 10
+    }
+  ]
+}

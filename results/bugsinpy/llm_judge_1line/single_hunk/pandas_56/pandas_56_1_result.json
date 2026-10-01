@@ -1,0 +1,53 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_56",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 09:24:48",
+      "end_time": "2026-03-23 09:58:29",
+      "duration_seconds": 2021,
+      "duration_human": "33m 41s"
+    },
+    "model_cost": 0.2497,
+    "model_calls": 47,
+    "token_usage": {
+      "input_tokens": 1593414,
+      "output_tokens": 51184,
+      "total_tokens": 1644598,
+      "cached_input_tokens": 746240,
+      "uncached_input_tokens": 847174
+    },
+    "agent_steps": 47,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/frame.py b/pandas/core/frame.py\nindex 9fe1ec7b79..a13839a0b2 100644\n--- a/pandas/core/frame.py\n+++ b/pandas/core/frame.py\n@@ -2605,43 +2605,25 @@ class DataFrame(NDFrame):\n             result._set_is_copy(self)\n             return result\n         else:\n-            return self._get_item_cache(key)\n-\n-    def _get_value(self, index, col, takeable: bool = False):\n-        \"\"\"\n-        Quickly retrieve single value at passed column and index.\n-\n-        Parameters\n-        ----------\n-        index : row label\n-        col : column label\n-        takeable : interpret the index/col as indexers, default False\n-\n-        Returns\n-        -------\n-        scalar\n-        \"\"\"\n-        if takeable:\n-            series = self._iget_item_cache(col)\n-            return com.maybe_box_datetimelike(series._values[index])\n-\n-        series = self._get_item_cache(col)\n-        engine = self.index._engine\n-\n-        try:\n-            loc = engine.get_loc(index)\n-            return series._values[loc]\n-        except KeyError:\n-            # GH 20629\n-            if self.index.nlevels > 1:\n-                # partial indexing forbidden\n-                raise\n-\n-        # we cannot handle direct indexing\n-        # use positional\n-        col = self.columns.get_loc(col)\n-        index = self.index.get_loc(index)\n-        return self._get_value(index, col, takeable=True)\n+    def iat(self, i, j):\n+        # GH#5664\n+        # This method is identical to the IndexerMixin.iat method,\n+        # but we need it here for the correct docstring.\n+        if not is_scalar(i) or not is_scalar(j):\n+            raise ValueError(\"i and j must be scalars\")\n+        res = self._ixs(i, axis=0)\n+        if is_scalar(res) and not is_list_like(res):\n+            return res\n+        else:\n+            val = res[j]\n+            # For object dtype, convert Timestamp/Timedelta back to datetime/timedelta\n+            if hasattr(res, 'dtype') and str(res.dtype) == 'object':\n+                from pandas import Timestamp, Timedelta\n+                if isinstance(val, Timestamp):\n+                    return val.to_pydatetime()\n+                elif isinstance(val, Timedelta):\n+                    return val.to_pytimedelta()\n+            return val\n \n     def __setitem__(self, key, value):\n         key = com.apply_if_callable(key, self)\ndiff --git a/pandas/tests/indexing/test_scalar.py b/pandas/tests/indexing/test_scalar.py\nindex 899c58eb5e..c4750778e2 100644\n--- a/pandas/tests/indexing/test_scalar.py\n+++ b/pandas/tests/indexing/test_scalar.py\n@@ -1,4 +1,5 @@\n \"\"\" test scalar indexing, including at and iat \"\"\"\n+from datetime import datetime, timedelta\n \n import numpy as np\n import pytest\n@@ -288,3 +289,24 @@ class TestScalar2:\n         s = Series([1, 2])\n         result = s[np.array(0)]\n         assert result == 1\n+\n+\n+def test_iat_dont_wrap_object_datetimelike():\n+    # GH#32809 .iat calls go through DataFrame._get_value, should not\n+    #  call maybe_box_datetimelike\n+    dti = date_range(\"2016-01-01\", periods=3)\n+    tdi = dti - dti\n+    ser = Series(dti.to_pydatetime(), dtype=object)\n+    ser2 = Series(tdi.to_pytimedelta(), dtype=object)\n+    df = DataFrame({\"A\": ser, \"B\": ser2})\n+    assert (df.dtypes == object).all()\n+\n+    for result in [df.at[0, \"A\"], df.iat[0, 0], df.loc[0, \"A\"], df.iloc[0, 0]]:\n+        assert result is ser[0]\n+        assert isinstance(result, datetime)\n+        assert not isinstance(result, Timestamp)\n+\n+    for result in [df.at[1, \"B\"], df.iat[1, 1], df.loc[1, \"B\"], df.iloc[1, 1]]:\n+        assert result is ser2[1]\n+        assert isinstance(result, timedelta)\n+        assert not isinstance(result, Timedelta)\n"
+  },
+  "timestamp": "2026-03-23 05:58:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_56",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_56/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: DataFrame.iat incorrectly wrapping datetime objects (#32089)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2625,
+        "end_line": 2626,
+        "function_name": "_get_value",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_scalar.py::test_iat_dont_wrap_object_datetimelike"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null
+}

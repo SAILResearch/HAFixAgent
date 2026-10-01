@@ -1,0 +1,192 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "57",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 23:57:12",
+      "end_time": "2025-10-11 00:00:01",
+      "duration_seconds": 170,
+      "duration_human": "2m 50s"
+    },
+    "model_cost": 0.0147,
+    "model_calls": 18,
+    "token_usage": {
+      "input_tokens": 149353,
+      "output_tokens": 1623,
+      "total_tokens": 150976,
+      "cached_input_tokens": 132288,
+      "uncached_input_tokens": 17065
+    },
+    "agent_steps": 18,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex 10fddc4d6..132cd4e6c 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -1438,7 +1438,7 @@ public class ObjectReader\n         if (_dataFormatReaders != null) {\n             return _detectBindAndReadValues(_dataFormatReaders.findFormat(src, offset, length), false);\n         }\n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), \n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src, offset, length), \n                 true));\n     }\n \ndiff --git a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\ndeleted file mode 100644\nindex b6121bb30..000000000\n--- a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n+++ /dev/null\n@@ -1,181 +0,0 @@\n-package com.fasterxml.jackson.databind.introspect;\n-\n-import com.fasterxml.jackson.databind.*;\n-\n-/**\n- * Tests Scala-style JVM naming patterns for properties.\n- *\n- * Scala uses identifiers that are legal JVM names, but not legal Java names:\n- *\n- * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n- *     <li><code>prop</code> for getters</li>\n- *     <li><code>prop_=</code> for setters</li>\n- * </ul>\n- *\n- * Scala sources turn property accesses into method calls in most cases; the\n- * backing field and the particulars of the method names are implementation details.\n- *\n- * Since I can't reproduce them in Java, I've substituted legal but uncommonly\n- * used characters as placeholders.\n- */\n-public class TestScalaLikeImplicitProperties extends BaseMapTest\n-{\n-    static class NameMangler extends JacksonAnnotationIntrospector\n-    {\n-        private static final long serialVersionUID = 1L;\n-\n-        @Override\n-        public String findImplicitPropertyName(AnnotatedMember member) {\n-            String name = null;\n-            if (member instanceof AnnotatedField) {\n-                name = member.getName();\n-                if (name.endsWith(\"\u203f\")) {\n-                    return name.substring(0, name.length()-1);\n-                }\n-            } else if (member instanceof AnnotatedMethod) {\n-                name = member.getName();\n-                if (name.endsWith(\"_\u2040\")) {\n-                    return name.substring(0, name.length()-2);\n-                }\n-                if (!name.startsWith(\"get\") && !name.startsWith(\"set\")) {\n-                    return name;\n-                }\n-            } else if (member instanceof AnnotatedParameter) {\n-                // A placeholder for legitimate property name detection\n-                // such as what the JDK8 module provides\n-                return \"prop\";\n-            }\n-            return null;\n-        }\n-\n-        @Override\n-        public boolean hasCreatorAnnotation(Annotated a) {\n-            // A placeholder for legitmate creator detection.\n-            // In Scala, all primary constructors should be creators,\n-            // but I can't obtain a reference to the AnnotatedClass from the\n-            // AnnotatedConstructor, so it's simulated here.\n-            return (a instanceof AnnotatedConstructor);\n-        }\n-    }\n-\n-    static class ValProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-\n-        public ValProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class ValWithBeanProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n-\n-        public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-\n-        public VarProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarWithBeanProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n-\n-        public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class GetterSetterProperty\n-    {\n-        // Different name to represent an arbitrary implementation, not necessarily local to this class.\n-        private String _prop_impl = \"get/set\";\n-        public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n-\n-        // Getter/Setters are typically not in the constructor because they are implemented\n-        // by the end user, not the compiler. They should be detected similar to 'bean-style'\n-        // getProp/setProp pairs.\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Test methods\n-    /**********************************************************\n-     */\n-\n-    public void testValProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValProperty(\"val\")));\n-    }\n-\n-    public void testValWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValWithBeanProperty(\"val\")));\n-    }\n-\n-\n-    public void testVarProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarProperty(\"var\")));\n-        VarProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testVarWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarWithBeanProperty(\"var\")));\n-        VarWithBeanProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarWithBeanProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testGetterSetterProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"get/set\\\"}\", m.writeValueAsString(new GetterSetterProperty()));\n-        GetterSetterProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", GetterSetterProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Helper methods\n-    /**********************************************************\n-     */\n-    \n-    private ObjectMapper manglingMapper()\n-    {\n-        ObjectMapper m = new ObjectMapper();\n-        m.setAnnotationIntrospector(new NameMangler());\n-        return m;\n-    }\n-}\n"
+  },
+  "timestamp": "2025-10-11 00:00:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_57",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_57",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`ObjectReader.readValues()` ignores offset and length when reading an array\nObjectReader.readValues ignores offset and length when reading an array. If _dataFormatReaders it will always use the full array:\n\nhttps://github.com/FasterXML/jackson-databind/blob/2.7/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java#L1435\n\n",
+    "commit_message": "Fix #1362",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+        "start_line": 1441,
+        "end_line": 1441,
+        "line_numbers": [
+          1441
+        ],
+        "function_name": "readValues",
+        "class_name": "ObjectReader",
+        "filename": "ObjectReader.java",
+        "code_snippet": "    public <T> MappingIterator<T> readValues(byte[] src, int offset, int length)\n        throws IOException, JsonProcessingException\n    {\n        if (_dataFormatReaders != null) {\n            return _detectBindAndReadValues(_dataFormatReaders.findFormat(src, offset, length), false);\n        }\n        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), \n                true));\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.seq.ReadValuesTest::testRootBeans"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex 2279c1fc1..10fddc4d6 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -1438,7 +1438,7 @@ public class ObjectReader\n         if (_dataFormatReaders != null) {\n             return _detectBindAndReadValues(_dataFormatReaders.findFormat(src, offset, length), false);\n         }\n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src, offset, length),\n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), \n                 true));\n     }",
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2016-03-27 00:20:03",
+        "commit_message": "Fix related to jackson-core#209 (via pr jackson-core#263) improvement; multiple-match (or not) now matters.",
+        "commit_hash": "c67cffb2df7d0a6fdd910a099fea783e32345caf"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "_considerFilter"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "_considerFilter"
+        ],
+        "functions_name_modified_file": [
+          "withoutFeatures",
+          "_initForMultiRead",
+          "readTree",
+          "_reportUndetectableSource",
+          "getConfig",
+          "_considerFilter",
+          "_unwrapAndDeserialize",
+          "withView",
+          "_initForReading",
+          "withoutAttribute",
+          "writeTree",
+          "_bindAndClose",
+          "_detectBindAndCloseAsTree",
+          "_reportUnkownFormat",
+          "with",
+          "isEnabled",
+          "withFeatures",
+          "_bindAndCloseAsTree",
+          "forType",
+          "_verifySchemaType",
+          "ObjectReader",
+          "withHandler",
+          "withValueToUpdate",
+          "withFormatDetection",
+          "treeAsTokens",
+          "createObjectNode",
+          "_bind",
+          "createDeserializationContext",
+          "_findRootDeserializer",
+          "withoutRootName",
+          "_inputStream",
+          "_prefetchRootDeserializer",
+          "without",
+          "withAttribute",
+          "at",
+          "writeValue",
+          "withAttributes",
+          "createArrayNode",
+          "withType",
+          "getFactory",
+          "getAttributes",
+          "_findTreeDeserializer",
+          "version",
+          "withRootName",
+          "getInjectableValues",
+          "_new",
+          "_detectBindAndClose",
+          "_bindAsTree",
+          "_with",
+          "getTypeFactory"
+        ],
+        "functions_name_all_files": [
+          "withoutFeatures",
+          "_initForMultiRead",
+          "readTree",
+          "_reportUndetectableSource",
+          "getConfig",
+          "_considerFilter",
+          "_unwrapAndDeserialize",
+          "withView",
+          "_initForReading",
+          "withoutAttribute",
+          "writeTree",
+          "_bindAndClose",
+          "_detectBindAndCloseAsTree",
+          "_reportUnkownFormat",
+          "with",
+          "isEnabled",
+          "withFeatures",
+          "_bindAndCloseAsTree",
+          "forType",
+          "_verifySchemaType",
+          "ObjectReader",
+          "withHandler",
+          "withValueToUpdate",
+          "withFormatDetection",
+          "treeAsTokens",
+          "createObjectNode",
+          "_bind",
+          "createDeserializationContext",
+          "_findRootDeserializer",
+          "withoutRootName",
+          "_inputStream",
+          "_prefetchRootDeserializer",
+          "without",
+          "withAttribute",
+          "at",
+          "writeValue",
+          "withAttributes",
+          "createArrayNode",
+          "withType",
+          "getFactory",
+          "getAttributes",
+          "_findTreeDeserializer",
+          "version",
+          "withRootName",
+          "getInjectableValues",
+          "_new",
+          "_detectBindAndClose",
+          "_bindAsTree",
+          "_with",
+          "getTypeFactory"
+        ],
+        "function_code_before": "    public <T> Iterator<T> readValues(JsonParser p, Class<T> valueType) throws IOException {\n        return forType(valueType).readValues(p);\n    }",
+        "function_code_after": "    public <T> Iterator<T> readValues(JsonParser p, Class<T> valueType) throws IOException {\n        return forType(valueType).readValues(p);\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\nindex 312ef0851..1d4c386d1 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java\n@@ -1163,7 +1163,7 @@ public class ObjectReader\n             return (T) _detectBindAndClose(_dataFormatReaders.findFormat(src), false);\n         }\n         \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n \n     /**\n@@ -1180,7 +1180,7 @@ public class ObjectReader\n             _reportUndetectableSource(src);\n         }\n \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n     \n     /**\n@@ -1197,7 +1197,7 @@ public class ObjectReader\n             _reportUndetectableSource(src);\n         }\n         \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n \n     /**\n@@ -1214,7 +1214,7 @@ public class ObjectReader\n             return (T) _detectBindAndClose(src, 0, src.length);\n         }\n         \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n \n     /**\n@@ -1231,7 +1231,8 @@ public class ObjectReader\n             return (T) _detectBindAndClose(src, offset, length);\n         }\n \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src, offset, length)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src, offset, length),\n+                false));\n     }\n     \n     @SuppressWarnings(\"unchecked\")\n@@ -1242,7 +1243,7 @@ public class ObjectReader\n             return (T) _detectBindAndClose(_dataFormatReaders.findFormat(_inputStream(src)), true);\n         }\n \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n \n     /**\n@@ -1259,7 +1260,7 @@ public class ObjectReader\n             return (T) _detectBindAndClose(_dataFormatReaders.findFormat(_inputStream(src)), true);\n         }\n \n-        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src)));\n+        return (T) _bindAndClose(_considerFilter(_parserFactory.createParser(src), false));\n     }\n \n     /**\n@@ -1277,7 +1278,7 @@ public class ObjectReader\n             _reportUndetectableSource(src);\n         }\n         \n-        return (T) _bindAndClose(_considerFilter(treeAsTokens(src)));\n+        return (T) _bindAndClose(_considerFilter(treeAsTokens(src), false));\n     }\n     \n     /**\n@@ -1296,7 +1297,7 @@ public class ObjectReader\n             return _detectBindAndCloseAsTree(in);\n         }\n \n-        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(in)));\n+        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(in), false));\n     }\n     \n     /**\n@@ -1315,7 +1316,7 @@ public class ObjectReader\n             _reportUndetectableSource(r);\n         }\n         \n-        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(r)));\n+        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(r), false));\n     }\n \n     /**\n@@ -1334,7 +1335,7 @@ public class ObjectReader\n             _reportUndetectableSource(json);\n         }\n \n-        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(json)));\n+        return _bindAndCloseAsTree(_considerFilter(_parserFactory.createParser(json), false));\n     }\n \n     /*\n@@ -1389,7 +1390,7 @@ public class ObjectReader\n             return _detectBindAndReadValues(_dataFormatReaders.findFormat(src), false);\n         }\n         \n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src)));\n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), true));\n     }\n     \n     /**\n@@ -1402,7 +1403,7 @@ public class ObjectReader\n         if (_dataFormatReaders != null) {\n             _reportUndetectableSource(src);\n         }\n-        JsonParser p = _considerFilter(_parserFactory.createParser(src));\n+        JsonParser p = _considerFilter(_parserFactory.createParser(src), true);\n         _initForMultiRead(p);\n         p.nextToken();\n         DeserializationContext ctxt = createDeserializationContext(p);\n@@ -1421,7 +1422,7 @@ public class ObjectReader\n         if (_dataFormatReaders != null) {\n             _reportUndetectableSource(json);\n         }\n-        JsonParser p = _considerFilter(_parserFactory.createParser(json));\n+        JsonParser p = _considerFilter(_parserFactory.createParser(json), true);\n         _initForMultiRead(p);\n         p.nextToken();\n         DeserializationContext ctxt = createDeserializationContext(p);\n@@ -1437,7 +1438,7 @@ public class ObjectReader\n         if (_dataFormatReaders != null) {\n             return _detectBindAndReadValues(_dataFormatReaders.findFormat(src, offset, length), false);\n         }\n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src)));\n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), true));\n     }\n \n     /**\n@@ -1458,7 +1459,7 @@ public class ObjectReader\n             return _detectBindAndReadValues(\n                     _dataFormatReaders.findFormat(_inputStream(src)), false);\n         }\n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src)));\n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), true));\n     }\n \n     /**\n@@ -1473,7 +1474,7 @@ public class ObjectReader\n             return _detectBindAndReadValues(\n                     _dataFormatReaders.findFormat(_inputStream(src)), true);\n         }\n-        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src)));\n+        return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), true));\n     }\n \n     /*\n@@ -1546,9 +1547,11 @@ public class ObjectReader\n     /**\n      * Consider filter when creating JsonParser.  \n      */\n-    protected JsonParser _considerFilter(final JsonParser p) {\n-        return _filter == null || FilteringParserDelegate.class.isInstance(p) \n-                ? p : new FilteringParserDelegate(p, _filter, false, false);\n+    protected JsonParser _considerFilter(final JsonParser p, boolean multiValue) {\n+        // 26-Mar-2016, tatu: Need to allow multiple-matches at least if we have\n+        //    have a multiple-value read (that is, \"readValues()\").\n+        return ((_filter == null) || FilteringParserDelegate.class.isInstance(p))\n+                ? p : new FilteringParserDelegate(p, _filter, false, multiValue);\n     }\n     \n     protected Object _bindAndClose(JsonParser p) throws IOException"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "project_name": "Lang",
+  "bug_id": "Lang_19",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 15:43:41",
+      "end_time": "2026-06-28 15:48:45",
+      "duration_seconds": 305,
+      "duration_human": "5m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1260209,
+      "output_tokens": 16925,
+      "total_tokens": 1277134,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1260209
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\nindex 68891ace7..5a387c29f 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n@@ -41,30 +41,49 @@ public class NumericEntityUnescaper extends CharSequenceTranslator {\n             int start = index + 2;\n             boolean isHex = false;\n \n+            // Check if we have at least one character after &#\n+            if(start >= seqEnd) {\n+                return 0;\n+            }\n+            \n             char firstChar = input.charAt(start);\n             if(firstChar == 'x' || firstChar == 'X') {\n                 start++;\n                 isHex = true;\n-\n-                // Check there's more than just an x after the &#\n+                \n+                // Check if we have at least one character after &#\n+                if(start >= seqEnd) {\n+                    return 0;\n+                }\n             }\n \n             int end = start;\n             // Note that this supports character codes without a ; on the end\n-            while(input.charAt(end) != ';') \n+            // Find the end of the numeric part\n+            while(end < seqEnd && isEntityChar(input.charAt(end), isHex)) \n             {\n                 end++;\n             }\n \n+            // Check if we stopped at a semicolon\n+            if(end < seqEnd && input.charAt(end) == ';') {\n+                end++; // Include the semicolon in the entity\n+            }\n+\n+            // Check if we actually parsed something\n+            if(end == start) {\n+                return 0;\n+            }\n+\n             int entityValue;\n             try {\n+                int parseEnd = (end < seqEnd && input.charAt(end - 1) == ';') ? end - 1 : end;\n                 if(isHex) {\n-                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 16);\n+                    entityValue = Integer.parseInt(input.subSequence(start, parseEnd).toString(), 16);\n                 } else {\n-                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 10);\n+                    entityValue = Integer.parseInt(input.subSequence(start, parseEnd).toString(), 10);\n                 }\n             } catch(NumberFormatException nfe) {\n-            System.err.println(\"FAIL: \" + input.subSequence(start, end) + \"[\" + start +\"][\"+ end +\"]\");\n                 return 0;\n             }\n \n@@ -76,9 +95,22 @@ public class NumericEntityUnescaper extends CharSequenceTranslator {\n                 out.write(entityValue);\n             }\n \n-\n-            return 2 + (end - start) + (isHex ? 1 : 0) + 1;\n+            return end - index;\n         }\n         return 0;\n     }\n+    \n+    /**\n+     * Checks if a character is valid for a numeric entity.\n+     * @param c The character to check\n+     * @param isHex Whether this is a hex entity\n+     * @return true if the character is valid\n+     */\n+    private boolean isEntityChar(char c, boolean isHex) {\n+        if(isHex) {\n+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');\n+        } else {\n+            return (c >= '0' && c <= '9');\n+        }\n+    }\n }\n"
+  },
+  "timestamp": "2026-06-28 15:48:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_19",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_19",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringIndexOutOfBoundsException when calling unescapeHtml4(\"&#03\")\nWhen calling unescapeHtml4() on the String \"&#03\" (or any String that contains these characters) an Exception is thrown:\n\nException in thread \"main\" java.lang.StringIndexOutOfBoundsException: String index out of range: 4\n\tat java.lang.String.charAt(String.java:686)\n\tat org.apache.commons.lang3.text.translate.NumericEntityUnescaper.translate(NumericEntityUnescaper.java:49)\n\tat org.apache.commons.lang3.text.translate.AggregateTranslator.translate(AggregateTranslator.java:53)\n\tat org.apache.commons.lang3.text.translate.CharSequenceTranslator.translate(CharSequenceTranslator.java:88)\n\tat org.apache.commons.lang3.text.translate.CharSequenceTranslator.translate(CharSequenceTranslator.java:60)\n\tat org.apache.commons.lang3.StringEscapeUtils.unescapeHtml4(StringEscapeUtils.java:351)",
+    "commit_message": "Adding tests and resolving LANG-710, reported by Benjamin Valentin. Note that this changed such that the code will now escape an unfinished entity (i.e. &#030). This matches browser behaviour.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 41,
+        "end_line": 41,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 42,
+        "end_line": 42,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 44,
+        "end_line": 44,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 46,
+        "end_line": 46,
+        "suspiciousness": 0.5,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 47,
+        "end_line": 47,
+        "suspiciousness": 0.5,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.47140452079103173,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 38,
+        "end_line": 38,
+        "suspiciousness": 0.42640143271122083,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 40,
+        "end_line": 40,
+        "suspiciousness": 0.42640143271122083,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java",
+        "start_line": 89,
+        "end_line": 89,
+        "suspiciousness": 0.3651483716701107,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java",
+        "start_line": 54,
+        "end_line": 54,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.text.translate.NumericEntityUnescaperTest::testUnfinishedEntity",
+      "org.apache.commons.lang3.text.translate.NumericEntityUnescaperTest::testOutOfBounds"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 41,
+      "end_line": 41,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 42,
+      "end_line": 42,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 44,
+      "end_line": 44,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 46,
+      "end_line": 46,
+      "suspiciousness": 0.5,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 47,
+      "end_line": 47,
+      "suspiciousness": 0.5,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.47140452079103173,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 38,
+      "end_line": 38,
+      "suspiciousness": 0.42640143271122083,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+      "start_line": 40,
+      "end_line": 40,
+      "suspiciousness": 0.42640143271122083,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java",
+      "start_line": 89,
+      "end_line": 89,
+      "suspiciousness": 0.3651483716701107,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java",
+      "start_line": 54,
+      "end_line": 54,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 10
+    }
+  ]
+}

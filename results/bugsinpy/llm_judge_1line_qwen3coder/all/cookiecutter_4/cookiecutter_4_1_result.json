@@ -1,0 +1,81 @@
+{
+  "project_name": "cookiecutter",
+  "bug_id": "cookiecutter_4",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 12:39:14",
+      "end_time": "2026-06-20 12:41:43",
+      "duration_seconds": 149,
+      "duration_human": "2m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 596814,
+      "output_tokens": 3990,
+      "total_tokens": 600804,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 596814
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/cookiecutter/exceptions.py b/cookiecutter/exceptions.py\nindex 0ad6b58..4997d79 100755\n--- a/cookiecutter/exceptions.py\n+++ b/cookiecutter/exceptions.py\n@@ -81,3 +81,11 @@ class InvalidModeException(CookiecutterException):\n     Raised when cookiecutter is called with both `no_input==True` and\n     `replay==True` at the same time.\n     \"\"\"\n+\n+\n+class FailedHookException(CookiecutterException):\n+    \"\"\"\n+    Exception for hook failures.\n+\n+    Raised when a hook script fails.\n+    \"\"\"\ndiff --git a/cookiecutter/hooks.py b/cookiecutter/hooks.py\nindex 550d6de..7639d6a 100755\n--- a/cookiecutter/hooks.py\n+++ b/cookiecutter/hooks.py\n@@ -18,6 +18,7 @@ import tempfile\n from jinja2 import Template\n \n from cookiecutter import utils\n+from cookiecutter.exceptions import FailedHookException\n \n \n _HOOKS = [\n@@ -69,7 +70,12 @@ def run_script(script_path, cwd='.'):\n         shell=run_thru_shell,\n         cwd=cwd\n     )\n-    return proc.wait()\n+    exit_status = proc.wait()\n+    if exit_status != EXIT_SUCCESS:\n+        raise FailedHookException(\n+            'Hook script failed (exit status: {})'.format(exit_status)\n+        )\n+    return exit_status\n \n \n def run_script_with_context(script_path, cwd, context):\ndiff --git a/setup.py b/setup.py\nindex eff59cf..a006322 100755\n--- a/setup.py\n+++ b/setup.py\n@@ -3,6 +3,7 @@\n import os\n import platform\n import sys\n+import io\n \n try:\n     from setuptools import setup\n@@ -21,10 +22,10 @@ if sys.argv[-1] == 'tag':\n     os.system(\"git push --tags\")\n     sys.exit()\n \n-with open('README.rst') as readme_file:\n+with io.open('README.rst', 'r', encoding='utf-8') as readme_file:\n     readme = readme_file.read()\n \n-with open('HISTORY.rst') as history_file:\n+with io.open('HISTORY.rst', 'r', encoding='utf-8') as history_file:\n     history = history_file.read().replace('.. :changelog:', '')\n \n requirements = [\ndiff --git a/tests/test_hooks.py b/tests/test_hooks.py\nindex 8df394f..e7f7ee1 100755\n--- a/tests/test_hooks.py\n+++ b/tests/test_hooks.py\n@@ -11,8 +11,9 @@ Tests for `cookiecutter.hooks` module.\n import sys\n import os\n import stat\n+import pytest\n \n-from cookiecutter import hooks, utils\n+from cookiecutter import hooks, utils, exceptions\n \n \n def make_test_repo(name):\n@@ -166,3 +167,16 @@ class TestExternalHooks(object):\n \n             hooks.run_hook('post_gen_project', tests_dir, {})\n             assert os.path.isfile(os.path.join(tests_dir, 'shell_post.txt'))\n+\n+    def test_run_failing_hook(self):\n+        hook_path = os.path.join(self.hooks_path, 'pre_gen_project.py')\n+        tests_dir = os.path.join(self.repo_path, 'input{{hooks}}')\n+\n+        with open(hook_path, 'w') as f:\n+            f.write(\"#!/usr/bin/env python\\n\")\n+            f.write(\"import sys; sys.exit(1)\\n\")\n+\n+        with utils.work_in(self.repo_path):\n+            with pytest.raises(exceptions.FailedHookException) as excinfo:\n+                hooks.run_hook('pre_gen_project', tests_dir, {})\n+            assert 'Hook script failed' in str(excinfo)\n"
+  },
+  "timestamp": "2026-06-20 12:41:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "cookiecutter",
+    "bug_id": "cookiecutter_4",
+    "repo_path": "/BugsInPy/framework/bin/temp/cookiecutter_4/cookiecutter",
+    "github_url": "https://github.com/cookiecutter/cookiecutter",
+    "description": "",
+    "commit_message": "using custom exception instead of exit status and cleanup project dir",
+    "fault_locations": [
+      {
+        "file": "cookiecutter/generate.py",
+        "start_line": 31,
+        "end_line": 31,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/generate.py",
+        "start_line": 260,
+        "end_line": 260,
+        "function_name": "generate_files",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 72,
+        "end_line": 72,
+        "function_name": "run_script",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 94,
+        "end_line": 94,
+        "function_name": "run_script_with_context",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 108,
+        "end_line": 109,
+        "function_name": "run_hook",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "tox tests/test_hooks.py::TestExternalHooks::test_run_failing_hook"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

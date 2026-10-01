@@ -1,0 +1,54 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_137",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:30:21",
+      "end_time": "2026-06-27 18:31:43",
+      "duration_seconds": 82,
+      "duration_human": "1m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 594899,
+      "output_tokens": 3143,
+      "total_tokens": 598042,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 594899
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 43e52cb011..caaf635275 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -18,7 +18,7 @@ from pandas.util._decorators import (\n )\n from pandas.util._validators import validate_bool_kwarg, validate_fillna_kwargs\n \n-from pandas.core.dtypes.cast import coerce_indexer_dtype, maybe_infer_to_datetimelike\n+from pandas.core.dtypes.cast import coerce_indexer_dtype, construct_1d_ndarray_preserving_na, maybe_infer_to_datetimelike\n from pandas.core.dtypes.common import (\n     ensure_int64,\n     ensure_object,\n@@ -523,7 +523,8 @@ class Categorical(ExtensionArray, PandasObject):\n         if is_integer_dtype(dtype) and self.isna().any():\n             msg = \"Cannot convert float NaN to integer\"\n             raise ValueError(msg)\n-        return np.array(self, dtype=dtype, copy=copy)\n+        values = self._internal_get_values()\n+        return construct_1d_ndarray_preserving_na(values, dtype=dtype, copy=copy)\n \n     @cache_readonly\n     def size(self) -> int:\ndiff --git a/pandas/tests/extension/test_categorical.py b/pandas/tests/extension/test_categorical.py\nindex c342777b0e..e70e4f2fe5 100644\n--- a/pandas/tests/extension/test_categorical.py\n+++ b/pandas/tests/extension/test_categorical.py\n@@ -207,6 +207,22 @@ class TestCasting(base.BaseCastingTests):\n         with pytest.raises((ValueError, TypeError), match=msg):\n             s.astype(int)\n \n+    @pytest.mark.parametrize(\n+        \"expected\",\n+        [\n+            pd.Series([\"2019\", \"2020\"], dtype=\"datetime64[ns, UTC]\"),\n+            pd.Series([0, 0], dtype=\"timedelta64[ns]\"),\n+            pd.Series([pd.Period(\"2019\"), pd.Period(\"2020\")], dtype=\"period[A-DEC]\"),\n+            pd.Series([pd.Interval(0, 1), pd.Interval(1, 2)], dtype=\"interval\"),\n+            pd.Series([1, np.nan], dtype=\"Int64\"),\n+        ],\n+    )\n+    def test_cast_category_to_extension_dtype(self, expected):\n+        # GH 28668\n+        result = expected.astype(\"category\").astype(expected.dtype)\n+\n+        tm.assert_series_equal(result, expected)\n+\n \n class TestArithmeticOps(base.BaseArithmeticOpsTests):\n     def test_arith_series_with_scalar(self, data, all_arithmetic_operators):\ndiff --git a/pandas/tests/reshape/merge/test_merge.py b/pandas/tests/reshape/merge/test_merge.py\nindex 63de977775..4de8bba169 100644\n--- a/pandas/tests/reshape/merge/test_merge.py\n+++ b/pandas/tests/reshape/merge/test_merge.py\n@@ -2096,6 +2096,20 @@ def test_merge_equal_cat_dtypes2():\n     tm.assert_frame_equal(result, expected, check_categorical=False)\n \n \n+def test_merge_on_cat_and_ext_array():\n+    # GH 28668\n+    right = DataFrame(\n+        {\"a\": Series([pd.Interval(0, 1), pd.Interval(1, 2)], dtype=\"interval\")}\n+    )\n+    left = right.copy()\n+    left[\"a\"] = left[\"a\"].astype(\"category\")\n+\n+    result = pd.merge(left, right, how=\"inner\", on=\"a\")\n+    expected = right.copy()\n+\n+    assert_frame_equal(result, expected)\n+\n+\n def test_merge_multiindex_columns():\n     # Issue #28518\n     # Verify that merging two dataframes give the expected labels\n"
+  },
+  "timestamp": "2026-06-27 18:31:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_137",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_137/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Allow cast from cat to extension dtype (#28762)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 60,
+        "end_line": 60,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/test_categorical.py::TestCasting::test_cast_category_to_extension_dtype",
+      "pytest pandas/tests/reshape/merge/test_merge.py::test_merge_on_cat_and_ext_array"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

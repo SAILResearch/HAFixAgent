@@ -1,0 +1,101 @@
+{
+  "project_name": "Lang",
+  "bug_id": "62",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:42:21",
+      "end_time": "2026-06-20 01:44:31",
+      "duration_seconds": 130,
+      "duration_human": "2m 10s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 362387,
+      "output_tokens": 3082,
+      "total_tokens": 365469,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 362387
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex fb5112c6f..990fa9ca6 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -62,7 +62,7 @@\n \t\t</copy>\n \t</target>\n \t<target name=\"compile\" depends=\"static\" description=\"Compile shareable components\">\n-\t\t<javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n+\t\t<javac encoding=\"UTF-8\" srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n \t\t\t<classpath refid=\"compile.classpath\"/>\n \t\t</javac>\n \t\t<copy todir=\"${build.home}/classes\" filtering=\"on\">\n"
+  },
+  "timestamp": "2026-06-20 01:44:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_62",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_62",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "unescapeXml(\"&12345678;\") should be \"&12345678;\"\nFollowing test (in EntitiesTest.java) fails:\n\n    public void testNumberOverflow() throws Exception {\n        doTestUnescapeEntity(\"&#12345678;\", \"&#12345678;\");\n        doTestUnescapeEntity(\"x&#12345678;y\", \"x&#12345678;y\");\n        doTestUnescapeEntity(\"&#x12345678;\", \"&#x12345678;\");\n        doTestUnescapeEntity(\"x&#x12345678;y\", \"x&#x12345678;y\");\n    }\n\nMaximim value for char is 0xFFFF, so &#12345678; is invalid entity reference, and so should be left as is.",
+    "commit_message": "Applying unit test and fix for #LANG-292. Also fixes a couple of problems with the unescape(Writer..) overload that came up",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 849,
+        "end_line": 849,
+        "line_numbers": [
+          849
+        ],
+        "function_name": "unescape",
+        "class_name": "BinaryEntityMap",
+        "filename": "Entities.java",
+        "code_snippet": "    public String unescape(String str) {\n        int firstAmp = str.indexOf('&');\n        if (firstAmp < 0) {\n            return str;\n        }\n\n        StringBuffer buf = new StringBuffer(str.length());\n        buf.append(str.substring(0, firstAmp));\n        for (int i = firstAmp; i < str.length(); ++i) {\n            char ch = str.charAt(i);\n            if (ch == '&') {\n                int semi = str.indexOf(';', i + 1);\n                if (semi == -1) {\n                    buf.append(ch);\n                    continue;\n                }\n                int amph = str.indexOf('&', i + 1);\n                if( amph != -1 && amph < semi ) {\n                    // Then the text looks like &...&...;\n                    buf.append(ch);\n                    continue;\n                }\n                String entityName = str.substring(i + 1, semi);\n                int entityValue;\n                if (entityName.length() == 0) {\n                    entityValue = -1;\n                } else if (entityName.charAt(0) == '#') {\n                    if (entityName.length() == 1) {\n                        entityValue = -1;\n                    } else {\n                        char charAt1 = entityName.charAt(1);\n                        try {\n                            if (charAt1 == 'x' || charAt1=='X') {\n                                entityValue = Integer.valueOf(entityName.substring(2), 16).intValue();\n                            } else {\n                                entityValue = Integer.parseInt(entityName.substring(1));\n                            }\n                        } catch (NumberFormatException ex) {\n                            entityValue = -1;\n                        }\n                    }\n                } else {\n                    entityValue = this.entityValue(entityName);\n                }\n                if (entityValue == -1) {\n                    buf.append('&');\n                    buf.append(entityName);\n                    buf.append(';');\n                } else {\n                    buf.append((char) (entityValue));\n                }\n                i = semi;\n            } else {\n                buf.append(ch);\n            }\n        }\n        return buf.toString();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 922,
+        "end_line": 922,
+        "line_numbers": [
+          922
+        ],
+        "function_name": "unescape",
+        "class_name": "BinaryEntityMap",
+        "filename": "Entities.java",
+        "code_snippet": "    public void unescape(Writer writer, String string) throws IOException {\n        int firstAmp = string.indexOf('&');\n        if (firstAmp < 0) {\n            writer.write(string);\n            return;\n        }\n\n        writer.write(string, 0, firstAmp);\n        int len = string.length();\n        for (int i = firstAmp; i < len; i++) {\n            char c = string.charAt(i);\n            if (c == '&') {\n                int nextIdx = i+1;\n                int semiColonIdx = string.indexOf(';', nextIdx);\n                if (semiColonIdx == -1) {\n                    writer.write(c);\n                    continue;\n                }\n                int amphersandIdx = string.indexOf('&', i + 1);\n                if( amphersandIdx != -1 && amphersandIdx < semiColonIdx ) {\n                    // Then the text looks like &...&...;\n                    writer.write(c);\n                    continue;\n                }\n                String entityContent = string.substring(nextIdx, semiColonIdx);\n                int entityValue = -1;\n                int entityContentLen = entityContent.length();\n                if (entityContentLen > 0) {\n                    if (entityContent.charAt(0) == '#') { //escaped value content is an integer (decimal or hexidecimal)\n                        if (entityContentLen > 1) {  \n                            char isHexChar = entityContent.charAt(1);\n                            try {\n                                switch (isHexChar) {\n                                    case 'X' :\n                                    case 'x' : {\n                                        entityValue = Integer.parseInt(entityContent.substring(2), 16);\n                                    }\n                                    default : {\n                                        entityValue = Integer.parseInt(entityContent.substring(1), 10);\n                                    }\n                                }\n                            } catch (NumberFormatException e) {\n                            }\n                        }\n                    } else { //escaped value content is an entity name\n                        entityValue = this.entityValue(entityContent);\n                    }\n                }\n                \n                if (entityValue == -1) {\n                    writer.write('&');\n                    writer.write(entityContent);\n                    writer.write(';');\n                } else {\n                    writer.write(entityValue);\n                }\n                i = semiColonIdx; //move index up to the semi-colon                \n            } else {\n                writer.write(c);\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 928,
+        "end_line": 928,
+        "line_numbers": [
+          928
+        ],
+        "function_name": "unescape",
+        "class_name": "BinaryEntityMap",
+        "filename": "Entities.java",
+        "code_snippet": "    public void unescape(Writer writer, String string) throws IOException {\n        int firstAmp = string.indexOf('&');\n        if (firstAmp < 0) {\n            writer.write(string);\n            return;\n        }\n\n        writer.write(string, 0, firstAmp);\n        int len = string.length();\n        for (int i = firstAmp; i < len; i++) {\n            char c = string.charAt(i);\n            if (c == '&') {\n                int nextIdx = i+1;\n                int semiColonIdx = string.indexOf(';', nextIdx);\n                if (semiColonIdx == -1) {\n                    writer.write(c);\n                    continue;\n                }\n                int amphersandIdx = string.indexOf('&', i + 1);\n                if( amphersandIdx != -1 && amphersandIdx < semiColonIdx ) {\n                    // Then the text looks like &...&...;\n                    writer.write(c);\n                    continue;\n                }\n                String entityContent = string.substring(nextIdx, semiColonIdx);\n                int entityValue = -1;\n                int entityContentLen = entityContent.length();\n                if (entityContentLen > 0) {\n                    if (entityContent.charAt(0) == '#') { //escaped value content is an integer (decimal or hexidecimal)\n                        if (entityContentLen > 1) {  \n                            char isHexChar = entityContent.charAt(1);\n                            try {\n                                switch (isHexChar) {\n                                    case 'X' :\n                                    case 'x' : {\n                                        entityValue = Integer.parseInt(entityContent.substring(2), 16);\n                                    }\n                                    default : {\n                                        entityValue = Integer.parseInt(entityContent.substring(1), 10);\n                                    }\n                                }\n                            } catch (NumberFormatException e) {\n                            }\n                        }\n                    } else { //escaped value content is an entity name\n                        entityValue = this.entityValue(entityContent);\n                    }\n                }\n                \n                if (entityValue == -1) {\n                    writer.write('&');\n                    writer.write(entityContent);\n                    writer.write(';');\n                } else {\n                    writer.write(entityValue);\n                }\n                i = semiColonIdx; //move index up to the semi-colon                \n            } else {\n                writer.write(c);\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 932,
+        "end_line": 932,
+        "line_numbers": [
+          932
+        ],
+        "function_name": "unescape",
+        "class_name": "BinaryEntityMap",
+        "filename": "Entities.java",
+        "code_snippet": "    public void unescape(Writer writer, String string) throws IOException {\n        int firstAmp = string.indexOf('&');\n        if (firstAmp < 0) {\n            writer.write(string);\n            return;\n        }\n\n        writer.write(string, 0, firstAmp);\n        int len = string.length();\n        for (int i = firstAmp; i < len; i++) {\n            char c = string.charAt(i);\n            if (c == '&') {\n                int nextIdx = i+1;\n                int semiColonIdx = string.indexOf(';', nextIdx);\n                if (semiColonIdx == -1) {\n                    writer.write(c);\n                    continue;\n                }\n                int amphersandIdx = string.indexOf('&', i + 1);\n                if( amphersandIdx != -1 && amphersandIdx < semiColonIdx ) {\n                    // Then the text looks like &...&...;\n                    writer.write(c);\n                    continue;\n                }\n                String entityContent = string.substring(nextIdx, semiColonIdx);\n                int entityValue = -1;\n                int entityContentLen = entityContent.length();\n                if (entityContentLen > 0) {\n                    if (entityContent.charAt(0) == '#') { //escaped value content is an integer (decimal or hexidecimal)\n                        if (entityContentLen > 1) {  \n                            char isHexChar = entityContent.charAt(1);\n                            try {\n                                switch (isHexChar) {\n                                    case 'X' :\n                                    case 'x' : {\n                                        entityValue = Integer.parseInt(entityContent.substring(2), 16);\n                                    }\n                                    default : {\n                                        entityValue = Integer.parseInt(entityContent.substring(1), 10);\n                                    }\n                                }\n                            } catch (NumberFormatException e) {\n                            }\n                        }\n                    } else { //escaped value content is an entity name\n                        entityValue = this.entityValue(entityContent);\n                    }\n                }\n                \n                if (entityValue == -1) {\n                    writer.write('&');\n                    writer.write(entityContent);\n                    writer.write(';');\n                } else {\n                    writer.write(entityValue);\n                }\n                i = semiColonIdx; //move index up to the semi-colon                \n            } else {\n                writer.write(c);\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang.EntitiesTest::testNumberOverflow"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/lang/Entities.java b/src/java/org/apache/commons/lang/Entities.java\nindex a45e004..9570068 100644\n--- a/src/java/org/apache/commons/lang/Entities.java\n+++ b/src/java/org/apache/commons/lang/Entities.java\n@@ -847,9 +847,6 @@ class Entities {\n                             } else {\n                                 entityValue = Integer.parseInt(entityName.substring(1));\n                             }\n+                            if (entityValue > 0xFFFF) {\n+                                entityValue = -1;\n+                            }\n                         } catch (NumberFormatException ex) {\n                             entityValue = -1;\n                         }\n@@ -920,17 +917,12 @@ class Entities {\n                                     case 'X' :\n                                     case 'x' : {\n                                         entityValue = Integer.parseInt(entityContent.substring(2), 16);\n+                                        break;\n                                     }\n                                     default : {\n                                         entityValue = Integer.parseInt(entityContent.substring(1), 10);\n                                     }\n                                 }\n+                                if (entityValue > 0xFFFF) {\n+                                    entityValue = -1;\n+                                }\n                             } catch (NumberFormatException e) {\n+                                entityValue = -1;\n                             }\n                         }\n                     } else { //escaped value content is an entity name",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

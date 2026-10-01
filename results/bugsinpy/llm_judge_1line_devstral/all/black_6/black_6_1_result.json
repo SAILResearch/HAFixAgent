@@ -1,0 +1,124 @@
+{
+  "project_name": "black",
+  "bug_id": "black_6",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 17:03:23",
+      "end_time": "2026-06-27 17:04:12",
+      "duration_seconds": 49,
+      "duration_human": "49.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 490118,
+      "output_tokens": 2224,
+      "total_tokens": 492342,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 490118
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex c96d205..58c44d9 100644\n--- a/black.py\n+++ b/black.py\n@@ -100,10 +100,11 @@ class WriteBack(Enum):\n     CHECK = 3\n \n     @classmethod\n-    def from_configuration(cls, *, check: bool, diff: bool) -> \"WriteBack\":\n+    @classmethod\n+    def from_configuration(cls, check, diff):\n         if check and not diff:\n             return cls.CHECK\n-\n+        return cls.DIFF if diff else cls.YES\n         return cls.DIFF if diff else cls.YES\n \n \n@@ -122,8 +123,7 @@ class TargetVersion(Enum):\n     PY37 = 7\n     PY38 = 8\n \n-    def is_python2(self) -> bool:\n-        return self is TargetVersion.PY27\n+    def is_python2(self): return self in (TargetVersion.PY26, TargetVersion.PY27)\n \n \n PY36_VERSIONS = {TargetVersion.PY36, TargetVersion.PY37, TargetVersion.PY38}\n@@ -138,40 +138,11 @@ class Feature(Enum):\n     TRAILING_COMMA_IN_DEF = 5\n \n \n-VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {\n-    TargetVersion.PY27: set(),\n-    TargetVersion.PY33: {Feature.UNICODE_LITERALS},\n-    TargetVersion.PY34: {Feature.UNICODE_LITERALS},\n-    TargetVersion.PY35: {Feature.UNICODE_LITERALS, Feature.TRAILING_COMMA_IN_CALL},\n-    TargetVersion.PY36: {\n-        Feature.UNICODE_LITERALS,\n-        Feature.F_STRINGS,\n-        Feature.NUMERIC_UNDERSCORES,\n-        Feature.TRAILING_COMMA_IN_CALL,\n-        Feature.TRAILING_COMMA_IN_DEF,\n-    },\n-    TargetVersion.PY37: {\n-        Feature.UNICODE_LITERALS,\n-        Feature.F_STRINGS,\n-        Feature.NUMERIC_UNDERSCORES,\n-        Feature.TRAILING_COMMA_IN_CALL,\n-        Feature.TRAILING_COMMA_IN_DEF,\n-    },\n-    TargetVersion.PY38: {\n-        Feature.UNICODE_LITERALS,\n-        Feature.F_STRINGS,\n-        Feature.NUMERIC_UNDERSCORES,\n-        Feature.TRAILING_COMMA_IN_CALL,\n-        Feature.TRAILING_COMMA_IN_DEF,\n-    },\n-}\n-\n-\n @dataclass\n class FileMode:\n-    target_versions: Set[TargetVersion] = Factory(set)\n+    target_versions = set()\n     line_length: int = DEFAULT_LINE_LENGTH\n-    string_normalization: bool = True\n+    line_length = DEFAULT_LINE_LENGTH\n     is_pyi: bool = False\n \n     def get_cache_key(self) -> str:\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 59343ef..f79d18f 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -43,14 +43,15 @@ fs = partial(black.format_str, mode=black.FileMode())\n THIS_FILE = Path(__file__)\n THIS_DIR = THIS_FILE.parent\n EMPTY_LINE = \"# EMPTY LINE WITH WHITESPACE\" + \" (this comment will be removed)\"\n-PY36_ARGS = [\n-    f\"--target-version={version.name.lower()}\" for version in black.PY36_VERSIONS\n-]\n T = TypeVar(\"T\")\n+PY36_ARGS = [\"--target-version=py36\"]\n R = TypeVar(\"R\")\n \n \n-def dump_to_stderr(*output: str) -> str:\n+def dump_to_stderr(*output): return \"\n+\" + \"\n+\".join(output) + \"\n+\"\n     return \"\\n\" + \"\\n\".join(output) + \"\\n\"\n \n \n@@ -502,8 +503,24 @@ class BlackTestCase(unittest.TestCase):\n         self.assertFormatEqual(expected, actual)\n         black.assert_stable(source, actual, mode)\n \n+    @patch(\"black.dump_to_file\", dump_to_stderr)\n+    def test_async_as_identifier(self) -> None:\n+        source_path = (THIS_DIR / \"data\" / \"async_as_identifier.py\").resolve()\n+        source, expected = read_data(\"async_as_identifier\")\n+        actual = fs(source)\n+        self.assertFormatEqual(expected, actual)\n+        major, minor = sys.version_info[:2]\n+        if major < 3 or (major <= 3 and minor < 7):\n+            black.assert_equivalent(source, actual)\n+        black.assert_stable(source, actual, black.FileMode())\n+        # ensure black can parse this when the target is 3.6\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py36\"])\n+        # but not on 3.7, because async/await is no longer an identifier\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py37\"], exit_code=123)\n+\n     @patch(\"black.dump_to_file\", dump_to_stderr)\n     def test_python37(self) -> None:\n+        source_path = (THIS_DIR / \"data\" / \"python37.py\").resolve()\n         source, expected = read_data(\"python37\")\n         actual = fs(source)\n         self.assertFormatEqual(expected, actual)\n@@ -511,6 +528,10 @@ class BlackTestCase(unittest.TestCase):\n         if major > 3 or (major == 3 and minor >= 7):\n             black.assert_equivalent(source, actual)\n         black.assert_stable(source, actual, black.FileMode())\n+        # ensure black can parse this when the target is 3.7\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py37\"])\n+        # but not on 3.6, because we use async as a reserved keyword\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py36\"], exit_code=123)\n \n     @patch(\"black.dump_to_file\", dump_to_stderr)\n     def test_fmtonoff(self) -> None:\n"
+  },
+  "timestamp": "2026-06-27 17:04:12 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_6/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Add support for always tokenizing async/await as keywords",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 142,
+        "end_line": 145,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 751,
+        "end_line": 751,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 755,
+        "end_line": 757,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 761,
+        "end_line": 761,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 764,
+        "end_line": 764,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 772,
+        "end_line": 773,
+        "function_name": "lib2to3_parse",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 32,
+        "end_line": 32,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 100,
+        "end_line": 100,
+        "function_name": "parse_stream_raw",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 114,
+        "end_line": 114,
+        "function_name": "parse_string",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/tokenize.py",
+        "start_line": 337,
+        "end_line": 337,
+        "function_name": "generate_tokens",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/tokenize.py",
+        "start_line": 509,
+        "end_line": 509,
+        "function_name": "generate_tokens",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_async_as_identifier",
+      "python -m unittest -q tests.test_black.BlackTestCase.test_python37"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

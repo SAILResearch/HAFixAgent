@@ -1,0 +1,152 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "55",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 11:03:10",
+      "end_time": "2026-06-20 11:05:27",
+      "duration_seconds": 137,
+      "duration_human": "2m 17s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 988001,
+      "output_tokens": 3894,
+      "total_tokens": 991895,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 988001
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 11:05:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_55",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_55",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "EnumMap keys not using enum's `@JsonProperty` values unlike Enum values\nBased on these issues:\nhttps://github.com/FasterXML/jackson-databind/issues/677\nhttps://github.com/FasterXML/jackson-databind/issues/1148\nhttps://github.com/FasterXML/jackson-annotations/issues/96\n\nI implemented @JsonProperty for my enum constants and they show up nicely when they are property values. But I also have an EnumMap which uses the enum, and it's generated JSON uses the original enum names for the keys and not the JsonProperty values.\n\nUsing 2.8.1 (in spring boot 4.3.2)\n\nThanks!\n\n",
+    "commit_message": "Fix #1322",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java",
+        "start_line": 82,
+        "end_line": 82,
+        "line_numbers": [
+          82
+        ],
+        "function_name": "getFallbackKeySerializer",
+        "class_name": "StdKeySerializers",
+        "filename": "StdKeySerializers.java",
+        "code_snippet": "    public static JsonSerializer<Object> getFallbackKeySerializer(SerializationConfig config,\n            Class<?> rawKeyType)\n    {\n        if (rawKeyType != null) {\n            // 29-Sep-2015, tatu: Odd case here, of `Enum`, which we may get for `EnumMap`; not sure\n            //   if that is a bug or feature. Regardless, it seems to require dynamic handling\n            //   (compared to getting actual fully typed Enum).\n            //  Note that this might even work from the earlier point, but let's play it safe for now\n            // 11-Aug-2016, tatu: Turns out we get this if `EnumMap` is the root value because\n            //    then there is no static type\n            if (rawKeyType == Enum.class) {\n                return new Dynamic();\n            }\n            if (rawKeyType.isEnum()) {\n                return new Default(Default.TYPE_ENUM, rawKeyType);\n            }\n        }\n        return DEFAULT_KEY_SERIALIZER;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.TestEnumSerialization::testEnumsWithJsonPropertyAsKey"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\nindex 7afcc55f6..7f55a3f29 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n@@ -7,7 +7,6 @@ import java.util.Date;\n import com.fasterxml.jackson.core.*;\n import com.fasterxml.jackson.databind.*;\n import com.fasterxml.jackson.databind.ser.impl.PropertySerializerMap;\n+import com.fasterxml.jackson.databind.util.EnumValues;\n \n @SuppressWarnings(\"serial\")\n public class StdKeySerializers\n@@ -80,8 +79,7 @@ public class StdKeySerializers\n                 return new Dynamic();\n             }\n             if (rawKeyType.isEnum()) {\n+                return EnumKeySerializer.construct(rawKeyType,\n+                        EnumValues.constructFromName(config, (Class<Enum<?>>) rawKeyType));\n-                return new Default(Default.TYPE_ENUM, rawKeyType);\n             }\n         }\n         return DEFAULT_KEY_SERIALIZER;\n@@ -214,31 +212,7 @@ public class StdKeySerializers\n      *\n      * @since 2.8\n      */\n+    public static class EnumKeySerializer extends StdSerializer<Object>\n+    {\n+        protected final EnumValues _values;\n \n+        protected EnumKeySerializer(Class<?> enumType, EnumValues values) {\n+            super(enumType, false);\n+            _values = values;\n+        }\n \n+        public static EnumKeySerializer construct(Class<?> enumType,\n+                EnumValues enumValues)\n+        {\n+            return new EnumKeySerializer(enumType, enumValues);\n+        }\n         \n+        @Override\n+        public void serialize(Object value, JsonGenerator g, SerializerProvider serializers)\n+                throws IOException\n+        {\n+            if (serializers.isEnabled(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)) {\n+                g.writeFieldName(value.toString());\n+                return;\n+            }\n+            Enum<?> en = (Enum<?>) value;\n+            g.writeFieldName(_values.serializedValueFor(en));\n+        }\n+    }\n }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Cowtowncoder",
+        "commit_date": "2015-09-25 00:55:24",
+        "commit_message": "Incremental improvements to Enum serialization; fixing incorrect unit tests",
+        "commit_hash": "279e3860bef52725e2b55a8d871b707602636e9d"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "getFallbackKeySerializer",
+          "serialize"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "getFallbackKeySerializer",
+          "serialize"
+        ],
+        "functions_name_modified_file": [
+          "StringKeySerializer",
+          "StdKeySerializers",
+          "getStdKeySerializer",
+          "Default",
+          "getFallbackKeySerializer",
+          "serialize",
+          "CalendarKeySerializer",
+          "DateKeySerializer",
+          "getDefault"
+        ],
+        "functions_name_all_files": [
+          "buildCollectionSerializer",
+          "findSerializerByAddonType",
+          "_verifyAsClass",
+          "getFallbackKeySerializer",
+          "createTypeSerializer",
+          "customSerializers",
+          "usesStaticTyping",
+          "StdKeySerializer",
+          "DateKeySerializer",
+          "CalendarKeySerializer",
+          "getDefault",
+          "StdKeySerializers",
+          "buildMapSerializer",
+          "Default",
+          "findSerializerFromAnnotation",
+          "findSerializerByAnnotations",
+          "buildIteratorSerializer",
+          "withAdditionalSerializers",
+          "findSuppressableContentValue",
+          "acceptJsonFormatVisitor",
+          "BasicSerializerFactory",
+          "getSchema",
+          "buildContainerSerializer",
+          "findOptionalStdSerializer",
+          "buildEnumSetSerializer",
+          "withConfig",
+          "buildIndexedListSerializer",
+          "findConverter",
+          "buildIterableSerializer",
+          "createSerializer",
+          "serialize",
+          "_findKeySerializer",
+          "buildMapEntrySerializer",
+          "findSerializerByLookup",
+          "createKeySerializer",
+          "buildArraySerializer",
+          "buildEnumSerializer",
+          "StringKeySerializer",
+          "getStdKeySerializer",
+          "withSerializerModifier",
+          "findConvertingSerializer",
+          "isIndexedList",
+          "findSerializerByPrimaryType",
+          "findFilterId",
+          "_findContentSerializer",
+          "getFactoryConfig",
+          "withAdditionalKeySerializers"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    /**\n     * Method called if no specified key serializer was located; will return a\n     * \"default\" key serializer.\n     *\n     * @since 2.7\n     */\n    public static JsonSerializer<Object> getFallbackKeySerializer(SerializationConfig config,\n            Class<?> rawKeyType) {\n        if (rawKeyType != null) {\n            if (rawKeyType.isEnum()) {\n                return new Default(Default.TYPE_ENUM, rawKeyType);\n            }\n        }\n        return DEFAULT_KEY_SERIALIZER;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/ser/BasicSerializerFactory.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\nindex 652a89eca..82067abe0 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n@@ -26,6 +26,10 @@ public class StdKeySerializers\n     public static JsonSerializer<Object> getStdKeySerializer(SerializationConfig config,\n             Class<?> rawKeyType, boolean useDefault)\n     {\n+        // 24-Sep-2015, tatu: Important -- should ONLY consider types for which `@JsonValue`\n+        //    can not be used, since caller has not yet checked for that annotation\n+        //    This is why Enum types are not handled here quite yet\n+\n         if (rawKeyType != null) {\n             if (rawKeyType == String.class) {\n                 return DEFAULT_STRING_SERIALIZER;\n@@ -43,14 +47,31 @@ public class StdKeySerializers\n             if (Calendar.class.isAssignableFrom(rawKeyType)) {\n                 return new Default(Default.TYPE_CALENDAR, rawKeyType);\n             }\n-            // other types we know convert properly with 'toString()'?\n+            // other JDK types we know convert properly with 'toString()'?\n             if (rawKeyType == java.util.UUID.class) {\n                 return new Default(Default.TYPE_TO_STRING, rawKeyType);\n             }\n+\n         }\n         return useDefault ? DEFAULT_KEY_SERIALIZER : null;\n     }\n \n+    /**\n+     * Method called if no specified key serializer was located; will return a\n+     * \"default\" key serializer.\n+     *\n+     * @since 2.7\n+     */\n+    public static JsonSerializer<Object> getFallbackKeySerializer(SerializationConfig config,\n+            Class<?> rawKeyType) {\n+        if (rawKeyType != null) {\n+            if (rawKeyType.isEnum()) {\n+                return new Default(Default.TYPE_ENUM, rawKeyType);\n+            }\n+        }\n+        return DEFAULT_KEY_SERIALIZER;\n+    }\n+    \n     /**\n      * @deprecated Since 2.5\n      */\n@@ -59,10 +80,13 @@ public class StdKeySerializers\n         return getStdKeySerializer(null, keyType.getRawClass(), true);\n     }\n \n+    /**\n+     * @deprecated since 2.7\n+     */\n     public static JsonSerializer<Object> getDefault() {\n         return DEFAULT_KEY_SERIALIZER;\n     }\n-    \n+\n     /*\n     /**********************************************************\n     /* Standard implementations used\n@@ -73,7 +97,8 @@ public class StdKeySerializers\n         final static int TYPE_DATE = 1;\n         final static int TYPE_CALENDAR = 2;\n         final static int TYPE_CLASS = 3;\n-        final static int TYPE_TO_STRING = 4;\n+        final static int TYPE_ENUM = 4;\n+        final static int TYPE_TO_STRING = 5;\n \n         protected final int _typeId;\n         \n@@ -83,20 +108,27 @@ public class StdKeySerializers\n         }\n \n         @Override\n-        public void serialize(Object value, JsonGenerator jgen, SerializerProvider provider) throws IOException, JsonGenerationException {\n+        public void serialize(Object value, JsonGenerator g, SerializerProvider provider) throws IOException {\n             switch (_typeId) {\n             case TYPE_DATE:\n-                provider.defaultSerializeDateKey((Date)value, jgen);\n+                provider.defaultSerializeDateKey((Date)value, g);\n                 break;\n             case TYPE_CALENDAR:\n-                provider.defaultSerializeDateKey(((Calendar) value).getTimeInMillis(), jgen);\n+                provider.defaultSerializeDateKey(((Calendar) value).getTimeInMillis(), g);\n                 break;\n             case TYPE_CLASS:\n-                jgen.writeFieldName(((Class<?>)value).getName());\n+                g.writeFieldName(((Class<?>)value).getName());\n+                break;\n+            case TYPE_ENUM:\n+                {\n+                    String str = provider.isEnabled(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)\n+                            ? value.toString() : ((Enum<?>) value).name();\n+                    g.writeFieldName(str);\n+                }\n                 break;\n             case TYPE_TO_STRING:\n             default:\n-                jgen.writeFieldName(value.toString());\n+                g.writeFieldName(value.toString());\n             }\n         }\n     }\n@@ -106,11 +138,11 @@ public class StdKeySerializers\n         public StringKeySerializer() { super(String.class, false); }\n \n         @Override\n-        public void serialize(Object value, JsonGenerator jgen, SerializerProvider provider) throws IOException, JsonGenerationException {\n-            jgen.writeFieldName((String) value);\n+        public void serialize(Object value, JsonGenerator g, SerializerProvider provider) throws IOException {\n+            g.writeFieldName((String) value);\n         }\n     }\n-    \n+\n     /*\n     /**********************************************************\n     /* Deprecated implementations: to be removed in future\n@@ -124,8 +156,8 @@ public class StdKeySerializers\n         public DateKeySerializer() { super(Date.class); }\n         \n         @Override\n-        public void serialize(Date value, JsonGenerator jgen, SerializerProvider provider) throws IOException, JsonGenerationException {\n-            provider.defaultSerializeDateKey(value, jgen);\n+        public void serialize(Date value, JsonGenerator g, SerializerProvider provider) throws IOException {\n+            provider.defaultSerializeDateKey(value, g);\n         }\n     }\n \n@@ -134,10 +166,10 @@ public class StdKeySerializers\n         protected final static JsonSerializer<?> instance = new CalendarKeySerializer();\n \n         public CalendarKeySerializer() { super(Calendar.class); }\n-        \n+\n         @Override\n-        public void serialize(Calendar value, JsonGenerator jgen, SerializerProvider provider) throws IOException, JsonGenerationException {\n-            provider.defaultSerializeDateKey(value.getTimeInMillis(), jgen);\n+        public void serialize(Calendar value, JsonGenerator g, SerializerProvider provider) throws IOException {\n+            provider.defaultSerializeDateKey(value.getTimeInMillis(), g);\n         }\n     }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

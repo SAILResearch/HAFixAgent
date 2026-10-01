@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_108",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 20:44:10",
+      "end_time": "2026-03-23 21:10:25",
+      "duration_seconds": 1575,
+      "duration_human": "26m 15s"
+    },
+    "model_cost": 0.0603,
+    "model_calls": 23,
+    "token_usage": {
+      "input_tokens": 271281,
+      "output_tokens": 74269,
+      "total_tokens": 345550,
+      "cached_input_tokens": 160896,
+      "uncached_input_tokens": 110385
+    },
+    "agent_steps": 23,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/dtypes/cast.py b/pandas/core/dtypes/cast.py\nindex b398a197a4..47a40f5b02 100644\n--- a/pandas/core/dtypes/cast.py\n+++ b/pandas/core/dtypes/cast.py\n@@ -3,6 +3,7 @@\n from datetime import datetime, timedelta\n \n import numpy as np\n+from pandas._libs.interval import Interval\n \n from pandas._libs import lib, tslib, tslibs\n from pandas._libs.tslibs import NaT, OutOfBoundsDatetime, Period, iNaT\n@@ -41,7 +42,7 @@ from .common import (\n     is_unsigned_integer_dtype,\n     pandas_dtype,\n )\n-from .dtypes import DatetimeTZDtype, ExtensionDtype, PeriodDtype\n+from .dtypes import DatetimeTZDtype, ExtensionDtype, IntervalDtype, PeriodDtype\n from .generic import (\n     ABCDataFrame,\n     ABCDatetimeArray,\n@@ -598,6 +599,13 @@ def infer_dtype_from_scalar(val, pandas_dtype: bool = False):\n         dtype = np.complex_\n \n     elif pandas_dtype:\n+        if isinstance(val, Interval):\n+            from pandas.core.dtypes.dtypes import IntervalDtype\n+            subtype_dtype, _ = infer_dtype_from_scalar(val.left, pandas_dtype=True)\n+            return IntervalDtype(subtype_dtype), val\n+        if lib.is_period(val):\n+            dtype = PeriodDtype(freq=val.freq)\n+            val = val.ordinal\n         if lib.is_period(val):\n             dtype = PeriodDtype(freq=val.freq)\n             val = val.ordinal\ndiff --git a/pandas/tests/dtypes/cast/test_infer_dtype.py b/pandas/tests/dtypes/cast/test_infer_dtype.py\nindex bf11b81af6..da2ef5260d 100644\n--- a/pandas/tests/dtypes/cast/test_infer_dtype.py\n+++ b/pandas/tests/dtypes/cast/test_infer_dtype.py\n@@ -10,7 +10,15 @@ from pandas.core.dtypes.cast import (\n )\n from pandas.core.dtypes.common import is_dtype_equal\n \n-from pandas import Categorical, Period, Series, Timedelta, Timestamp, date_range\n+from pandas import (\n+    Categorical,\n+    Interval,\n+    Period,\n+    Series,\n+    Timedelta,\n+    Timestamp,\n+    date_range,\n+)\n import pandas.util.testing as tm\n \n \n@@ -107,6 +115,25 @@ def test_infer_from_scalar_tz(tz, pandas_dtype):\n     assert val == exp_val\n \n \n+@pytest.mark.parametrize(\n+    \"left, right, subtype\",\n+    [\n+        (0, 1, \"int64\"),\n+        (0.0, 1.0, \"float64\"),\n+        (Timestamp(0), Timestamp(1), \"datetime64[ns]\"),\n+        (Timestamp(0, tz=\"UTC\"), Timestamp(1, tz=\"UTC\"), \"datetime64[ns, UTC]\"),\n+        (Timedelta(0), Timedelta(1), \"timedelta64[ns]\"),\n+    ],\n+)\n+def test_infer_from_interval(left, right, subtype, closed, pandas_dtype):\n+    # GH 30337\n+    interval = Interval(left, right, closed)\n+    result_dtype, result_value = infer_dtype_from_scalar(interval, pandas_dtype)\n+    expected_dtype = f\"interval[{subtype}]\" if pandas_dtype else np.object_\n+    assert result_dtype == expected_dtype\n+    assert result_value == interval\n+\n+\n def test_infer_dtype_from_scalar_errors():\n     msg = \"invalid ndarray passed to infer_dtype_from_scalar\"\n \n"
+  },
+  "timestamp": "2026-03-23 17:10:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_108",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_108/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix infer_dtype_from_scalar to infer IntervalDtype (#30339)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/cast.py",
+        "start_line": 44,
+        "end_line": 44,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/dtypes/cast/test_infer_dtype.py::test_infer_from_interval"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

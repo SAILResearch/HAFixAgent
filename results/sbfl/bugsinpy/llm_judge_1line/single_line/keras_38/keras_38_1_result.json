@@ -1,0 +1,191 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_38",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 15:04:19",
+      "end_time": "2026-06-17 15:25:36",
+      "duration_seconds": 1277,
+      "duration_human": "21m 17s"
+    },
+    "model_cost": 0.0633,
+    "model_calls": 12,
+    "token_usage": {
+      "input_tokens": 344104,
+      "output_tokens": 32385,
+      "total_tokens": 376489,
+      "cached_input_tokens": 158656,
+      "uncached_input_tokens": 185448
+    },
+    "agent_steps": 12,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/utils/generic_utils.py b/keras/utils/generic_utils.py\nindex c447c1ae3..947f5c64d 100644\n--- a/keras/utils/generic_utils.py\n+++ b/keras/utils/generic_utils.py\n@@ -13,6 +13,7 @@ import marshal\n import types as python_types\n import inspect\n import codecs\n+import collections\n \n _GLOBAL_CUSTOM_OBJECTS = {}\n \n@@ -138,9 +139,10 @@ def deserialize_keras_object(identifier, module_objects=None,\n         if hasattr(cls, 'from_config'):\n             custom_objects = custom_objects or {}\n             if has_arg(cls.from_config, 'custom_objects'):\n-                return cls.from_config(config['config'],\n-                                       custom_objects=dict(list(_GLOBAL_CUSTOM_OBJECTS.items()) +\n-                                                           list(custom_objects.items())))\n+                return cls.from_config(\n+                    config['config'],\n+                    custom_objects=dict(list(_GLOBAL_CUSTOM_OBJECTS.items()) +\n+                                        list(custom_objects.items())))\n             with CustomObjectScope(custom_objects):\n                 return cls.from_config(config['config'])\n         else:\n@@ -226,10 +228,11 @@ def func_load(code, defaults=None, closure=None, globs=None):\n         closure = tuple(ensure_value_to_cell(_) for _ in closure)\n     try:\n         raw_code = codecs.decode(code.encode('ascii'), 'base64')\n-    except (UnicodeEncodeError, binascii.Error):\n+        code = marshal.loads(raw_code)\n+    except (UnicodeEncodeError, binascii.Error, ValueError):\n         # backwards compatibility for models serialized prior to 2.1.2\n         raw_code = code.encode('raw_unicode_escape')\n-    code = marshal.loads(raw_code)\n+        code = marshal.loads(raw_code)\n     if globs is None:\n         globs = globals()\n     return python_types.FunctionType(code, globs,\n@@ -278,59 +281,75 @@ def has_arg(fn, name, accept_all=False):\n             return False\n         return (parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,\n                                    inspect.Parameter.KEYWORD_ONLY))\n-\n-\n class Progbar(object):\n     \"\"\"Displays a progress bar.\n \n     # Arguments\n         target: Total number of steps expected, None if unknown.\n+        width: Progress bar width on screen.\n+        verbose: Verbosity mode, 0 (silent), 1 (verbose), 2 (semi-verbose)\n+        stateful_metrics: Iterable of string names of metrics that\n+            should *not* be averaged over time. Metrics in this list\n+            will be displayed as-is. All others will be averaged\n+            by the progbar before display.\n         interval: Minimum visual progress update interval (in seconds).\n     \"\"\"\n \n-    def __init__(self, target, width=30, verbose=1, interval=0.05):\n-        self.width = width\n+    def __init__(self, target, width=30, verbose=1, interval=0.05,\n+                 stateful_metrics=None):\n         self.target = target\n-        self.sum_values = {}\n-        self.unique_values = []\n-        self.start = time.time()\n-        self.last_update = 0\n-        self.interval = interval\n-        self.total_width = 0\n-        self.seen_so_far = 0\n+        self.width = width\n         self.verbose = verbose\n+        self.interval = interval\n+        if stateful_metrics:\n+            self.stateful_metrics = set(stateful_metrics)\n+        else:\n+            self.stateful_metrics = set()\n+\n         self._dynamic_display = ((hasattr(sys.stdout, 'isatty') and\n                                   sys.stdout.isatty()) or\n                                  'ipykernel' in sys.modules)\n+        self._total_width = 0\n+        self._seen_so_far = 0\n+        self._values = collections.OrderedDict()\n+        self._start = time.time()\n+        self._last_update = 0\n \n-    def update(self, current, values=None, force=False):\n+    def update(self, current, values=None):\n         \"\"\"Updates the progress bar.\n \n         # Arguments\n             current: Index of current step.\n-            values: List of tuples (name, value_for_last_step).\n-                The progress bar will display averages for these values.\n-            force: Whether to force visual progress update.\n+            values: List of tuples:\n+                `(name, value_for_last_step)`.\n+                If `name` is in `stateful_metrics`,\n+                `value_for_last_step` will be displayed as-is.\n+                Else, an average of the metric over time will be displayed.\n         \"\"\"\n         values = values or []\n         for k, v in values:\n-            if k not in self.sum_values:\n-                self.sum_values[k] = [v * (current - self.seen_so_far),\n-                                      current - self.seen_so_far]\n-                self.unique_values.append(k)\n+            if k not in self.stateful_metrics:\n+                if k not in self._values:\n+                    self._values[k] = [v * (current - self._seen_so_far),\n+                                       current - self._seen_so_far]\n+                else:\n+                    self._values[k][0] += v * (current - self._seen_so_far)\n+                    self._values[k][1] += (current - self._seen_so_far)\n             else:\n-                self.sum_values[k][0] += v * (current - self.seen_so_far)\n-                self.sum_values[k][1] += (current - self.seen_so_far)\n-        self.seen_so_far = current\n+                # Stateful metrics output a numeric value.  This representation\n+                # means \"take an average from a single value\" but keeps the\n+                # numeric formatting.\n+                self._values[k] = [v, 1]\n+        self._seen_so_far = current\n \n         now = time.time()\n-        info = ' - %.0fs' % (now - self.start)\n+        info = ' - %.0fs' % (now - self._start)\n         if self.verbose == 1:\n-            if (not force and (now - self.last_update) < self.interval and\n+            if (now - self._last_update < self.interval and\n                     self.target is not None and current < self.target):\n                 return\n \n-            prev_total_width = self.total_width\n+            prev_total_width = self._total_width\n             if self._dynamic_display:\n                 sys.stdout.write('\\b' * prev_total_width)\n                 sys.stdout.write('\\r')\n@@ -354,17 +373,18 @@ class Progbar(object):\n             else:\n                 bar = '%7d/Unknown' % current\n \n-            self.total_width = len(bar)\n+            self._total_width = len(bar)\n             sys.stdout.write(bar)\n \n             if current:\n-                time_per_unit = (now - self.start) / current\n+                time_per_unit = (now - self._start) / current\n             else:\n                 time_per_unit = 0\n             if self.target is not None and current < self.target:\n                 eta = time_per_unit * (self.target - current)\n                 if eta > 3600:\n-                    eta_format = '%d:%02d:%02d' % (eta // 3600, (eta % 3600) // 60, eta % 60)\n+                    eta_format = ('%d:%02d:%02d' %\n+                                  (eta // 3600, (eta % 3600) // 60, eta % 60))\n                 elif eta > 60:\n                     eta_format = '%d:%02d' % (eta // 60, eta % 60)\n                 else:\n@@ -379,21 +399,21 @@ class Progbar(object):\n                 else:\n                     info += ' %.0fus/step' % (time_per_unit * 1e6)\n \n-            for k in self.unique_values:\n+            for k in self._values:\n                 info += ' - %s:' % k\n-                if isinstance(self.sum_values[k], list):\n+                if isinstance(self._values[k], list):\n                     avg = np.mean(\n-                        self.sum_values[k][0] / max(1, self.sum_values[k][1]))\n+                        self._values[k][0] / max(1, self._values[k][1]))\n                     if abs(avg) > 1e-3:\n                         info += ' %.4f' % avg\n                     else:\n                         info += ' %.4e' % avg\n                 else:\n-                    info += ' %s' % self.sum_values[k]\n+                    info += ' %s' % self._values[k]\n \n-            self.total_width += len(info)\n-            if prev_total_width > self.total_width:\n-                info += (' ' * (prev_total_width - self.total_width))\n+            self._total_width += len(info)\n+            if prev_total_width > self._total_width:\n+                info += (' ' * (prev_total_width - self._total_width))\n \n             if self.target is not None and current >= self.target:\n                 info += '\\n'\n@@ -403,10 +423,10 @@ class Progbar(object):\n \n         elif self.verbose == 2:\n             if self.target is None or current >= self.target:\n-                for k in self.unique_values:\n+                for k in self._values:\n                     info += ' - %s:' % k\n                     avg = np.mean(\n-                        self.sum_values[k][0] / max(1, self.sum_values[k][1]))\n+                        self._values[k][0] / max(1, self._values[k][1]))\n                     if avg > 1e-3:\n                         info += ' %.4f' % avg\n                     else:\n@@ -416,7 +436,149 @@ class Progbar(object):\n                 sys.stdout.write(info)\n                 sys.stdout.flush()\n \n-        self.last_update = now\n+        self._last_update = now\n \n     def add(self, n, values=None):\n-        self.update(self.seen_so_far + n, values)\n+        self.update(self._seen_so_far + n, values)\n+\n+\n+def to_list(x, allow_tuple=False):\n+    \"\"\"Normalizes a list/tensor into a list.\n+\n+    If a tensor is passed, we return\n+    a list of size 1 containing the tensor.\n+\n+    # Arguments\n+        x: target object to be normalized.\n+        allow_tuple: If False and x is a tuple,\n+            it will be converted into a list\n+            with a single element (the tuple).\n+            Else converts the tuple to a list.\n+\n+    # Returns\n+        A list.\n+    \"\"\"\n+    if isinstance(x, list):\n+        return x\n+    if allow_tuple and isinstance(x, tuple):\n+        return list(x)\n+    return [x]\n+\n+\n+def unpack_singleton(x):\n+    \"\"\"Gets the first element if the iterable has only one value.\n+\n+    Otherwise return the iterable.\n+\n+    # Argument:\n+        x: A list or tuple.\n+\n+    # Returns:\n+        The same iterable or the first element.\n+    \"\"\"\n+    if len(x) == 1:\n+        return x[0]\n+    return x\n+\n+\n+def object_list_uid(object_list):\n+    object_list = to_list(object_list)\n+    return ', '.join([str(abs(id(x))) for x in object_list])\n+\n+\n+def is_all_none(iterable_or_element):\n+    iterable = to_list(iterable_or_element, allow_tuple=True)\n+    for element in iterable:\n+        if element is not None:\n+            return False\n+    return True\n+\n+\n+def slice_arrays(arrays, start=None, stop=None):\n+    \"\"\"Slices an array or list of arrays.\n+\n+    This takes an array-like, or a list of\n+    array-likes, and outputs:\n+        - arrays[start:stop] if `arrays` is an array-like\n+        - [x[start:stop] for x in arrays] if `arrays` is a list\n+\n+    Can also work on list/array of indices: `_slice_arrays(x, indices)`\n+\n+    # Arguments\n+        arrays: Single array or list of arrays.\n+        start: can be an integer index (start index)\n+            or a list/array of indices\n+        stop: integer (stop index); should be None if\n+            `start` was a list.\n+\n+    # Returns\n+        A slice of the array(s).\n+    \"\"\"\n+    if arrays is None:\n+        return [None]\n+    elif isinstance(arrays, list):\n+        if hasattr(start, '__len__'):\n+            # hdf5 datasets only support list objects as indices\n+            if hasattr(start, 'shape'):\n+                start = start.tolist()\n+            return [None if x is None else x[start] for x in arrays]\n+        else:\n+            return [None if x is None else x[start:stop] for x in arrays]\n+    else:\n+        if hasattr(start, '__len__'):\n+            if hasattr(start, 'shape'):\n+                start = start.tolist()\n+            return arrays[start]\n+        elif hasattr(start, '__getitem__'):\n+            return arrays[start:stop]\n+        else:\n+            return [None]\n+\n+\n+def transpose_shape(shape, target_format, spatial_axes):\n+    \"\"\"Converts a tuple or a list to the correct `data_format`.\n+\n+    It does so by switching the positions of its elements.\n+\n+    # Arguments\n+        shape: Tuple or list, often representing shape,\n+            corresponding to `'channels_last'`.\n+        target_format: A string, either `'channels_first'` or `'channels_last'`.\n+        spatial_axes: A tuple of integers.\n+            Correspond to the indexes of the spatial axes.\n+            For example, if you pass a shape\n+            representing (batch_size, timesteps, rows, cols, channels),\n+            then `spatial_axes=(2, 3)`.\n+\n+    # Returns\n+        A tuple or list, with the elements permuted according\n+        to `target_format`.\n+\n+    # Example\n+    ```python\n+        >>> from keras.utils.generic_utils import transpose_shape\n+        >>> transpose_shape((16, 128, 128, 32),'channels_first', spatial_axes=(1, 2))\n+        (16, 32, 128, 128)\n+        >>> transpose_shape((16, 128, 128, 32), 'channels_last', spatial_axes=(1, 2))\n+        (16, 128, 128, 32)\n+        >>> transpose_shape((128, 128, 32), 'channels_first', spatial_axes=(0, 1))\n+        (32, 128, 128)\n+    ```\n+\n+    # Raises\n+        ValueError: if `value` or the global `data_format` invalid.\n+    \"\"\"\n+    if target_format == 'channels_first':\n+        new_values = shape[:spatial_axes[0]]\n+        new_values += (shape[-1],)\n+        new_values += tuple(shape[x] for x in spatial_axes)\n+\n+        if isinstance(shape, list):\n+            return list(new_values)\n+        return new_values\n+    elif target_format == 'channels_last':\n+        return shape\n+    else:\n+        raise ValueError('The `data_format` argument must be one of '\n+                         '\"channels_first\", \"channels_last\". Received: ' +\n+                         str(target_format))\ndiff --git a/tests/keras/layers/recurrent_test.py b/tests/keras/layers/recurrent_test.py\nindex 820935b7c..4fd407ff9 100644\n--- a/tests/keras/layers/recurrent_test.py\n+++ b/tests/keras/layers/recurrent_test.py\n@@ -517,6 +517,9 @@ def test_minimal_rnn_cell_layer():\n             super(MinimalRNNCell, self).__init__(**kwargs)\n \n         def build(self, input_shape):\n+            # no time axis in the input shape passed to RNN cells\n+            assert len(input_shape) == 2\n+\n             self.kernel = self.add_weight(shape=(input_shape[-1], self.units),\n                                           initializer='uniform',\n                                           name='kernel')\n"
+  },
+  "timestamp": "2026-06-17 15:25:36 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_38",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_38/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix StackedRNNCells step input shape (#9090)",
+    "fault_locations": [
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 131,
+        "end_line": 131,
+        "suspiciousness": 0.545836,
+        "rank": 1
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.47619,
+        "rank": 2
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 73,
+        "end_line": 73,
+        "suspiciousness": 0.47619,
+        "rank": 3
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 104,
+        "end_line": 104,
+        "suspiciousness": 0.392235,
+        "rank": 4
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 731,
+        "end_line": 731,
+        "suspiciousness": 0.392235,
+        "rank": 5
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 732,
+        "end_line": 732,
+        "suspiciousness": 0.392235,
+        "rank": 6
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 733,
+        "end_line": 733,
+        "suspiciousness": 0.392235,
+        "rank": 7
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 734,
+        "end_line": 734,
+        "suspiciousness": 0.392235,
+        "rank": 8
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 735,
+        "end_line": 735,
+        "suspiciousness": 0.392235,
+        "rank": 9
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 736,
+        "end_line": 736,
+        "suspiciousness": 0.392235,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/recurrent_test.py::test_minimal_rnn_cell_layer"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 131,
+      "end_line": 131,
+      "suspiciousness": 0.545836,
+      "rank": 1
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.47619,
+      "rank": 2
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 73,
+      "end_line": 73,
+      "suspiciousness": 0.47619,
+      "rank": 3
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 104,
+      "end_line": 104,
+      "suspiciousness": 0.392235,
+      "rank": 4
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 731,
+      "end_line": 731,
+      "suspiciousness": 0.392235,
+      "rank": 5
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 732,
+      "end_line": 732,
+      "suspiciousness": 0.392235,
+      "rank": 6
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 733,
+      "end_line": 733,
+      "suspiciousness": 0.392235,
+      "rank": 7
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 734,
+      "end_line": 734,
+      "suspiciousness": 0.392235,
+      "rank": 8
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 735,
+      "end_line": 735,
+      "suspiciousness": 0.392235,
+      "rank": 9
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 736,
+      "end_line": 736,
+      "suspiciousness": 0.392235,
+      "rank": 10
+    }
+  ]
+}

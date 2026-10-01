@@ -1,0 +1,193 @@
+{
+  "project_name": "Math",
+  "bug_id": "Math_55",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 01:20:22",
+      "end_time": "2026-06-30 01:22:42",
+      "duration_seconds": 141,
+      "duration_human": "2m 21s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 645223,
+      "output_tokens": 7158,
+      "total_tokens": 652381,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 645223
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/distribution/KolmogorovSmirnovDistributionImpl.java b/src/main/java/org/apache/commons/math/distribution/KolmogorovSmirnovDistributionImpl.java\nindex b82639e21..7fd59f932 100644\n--- a/src/main/java/org/apache/commons/math/distribution/KolmogorovSmirnovDistributionImpl.java\n+++ b/src/main/java/org/apache/commons/math/distribution/KolmogorovSmirnovDistributionImpl.java\n@@ -340,7 +340,7 @@ public class KolmogorovSmirnovDistributionImpl implements KolmogorovSmirnovDistr\n \n         /*\n          * Aside from the first column and last row, the (i, j)-th element is\n-         * 1/(i - j + 1)! if i \u2212 j + 1 >= 0, else 0. 1's and 0's are already\n+         * 1/(i - j + 1)! if i - j + 1 >= 0, else 0. 1's and 0's are already\n          * put, so only division with (i - j + 1)! is needed in the elements\n          * that have 1's. There is no need to calculate (i - j + 1)! and then\n          * divide - small steps avoid overflows.\ndiff --git a/src/main/java/org/apache/commons/math/genetics/RandomKey.java b/src/main/java/org/apache/commons/math/genetics/RandomKey.java\nindex 99621fa5a..a2a49083a 100644\n--- a/src/main/java/org/apache/commons/math/genetics/RandomKey.java\n+++ b/src/main/java/org/apache/commons/math/genetics/RandomKey.java\n@@ -49,7 +49,7 @@ import java.util.List;\n  * For details, see:\n  * <ul>\n  * <li>Bean, J.C.: Genetic algorithms and random keys for sequencing and\n- * optimization. ORSA Journal on Computing 6 (1994) 154\u2013160</li>\n+ * optimization. ORSA Journal on Computing 6 (1994) 154-160</li>\n  * <li>Rothlauf, F.: Representations for Genetic and Evolutionary Algorithms.\n  * Volume 104 of Studies in Fuzziness and Soft Computing. Physica-Verlag,\n  * Heidelberg (2002)</li>\ndiff --git a/src/main/java/org/apache/commons/math/geometry/Vector3D.java b/src/main/java/org/apache/commons/math/geometry/Vector3D.java\nindex 3c741e9e2..35479d405 100644\n--- a/src/main/java/org/apache/commons/math/geometry/Vector3D.java\n+++ b/src/main/java/org/apache/commons/math/geometry/Vector3D.java\n@@ -470,7 +470,7 @@ public class Vector3D implements Serializable {\n \n \n       // compute cross product from v3 and v2 instead of v1 and v2\n-      return new Vector3D(v1.y * v2.z - v1.z * v2.y, v1.z * v2.x - v1.x * v2.z, v1.x * v2.y - v1.y * v2.x);\n+\n \n   }\n \n@@ -543,3 +543,30 @@ public class Vector3D implements Serializable {\n   }\n \n }\n+\n+    // compute rho as an 8 bits approximation of v1.v2 / v2.v2\n+    final double v1v2 = dotProduct(v1, v2);\n+    final double v2v2 = dotProduct(v2, v2);\n+    final double rho = (v2v2 == 0.0) ? 0.0 : (v1v2 * 0x1p-8) / v2v2;\n+\n+    // compute v3 = v1 - rho * v2 (this makes v3 approximately orthogonal to v2)\n+    final Vector3D v3 = new Vector3D(\n+        v1.x - rho * v2.x,\n+        v1.y - rho * v2.y,\n+        v1.z - rho * v2.z\n+    );\n+\n+    // compute cross product using the identity: v1 x v2 = v3 x v2 + rho (v2 x v2)\n+    // but since v2 x v2 = 0, we have: v1 x v2 = v3 x v2\n+    // However, we need to compute this carefully to avoid cancellation\n+    final double x = v3.y * v2.z - v3.z * v2.y;\n+    final double y = v3.z * v2.x - v3.x * v2.z;\n+    final double z = v3.x * v2.y - v3.y * v2.x;\n+\n+    // For the z-component, use a more numerically stable approach\n+    // z = v1.x * v2.y - v1.y * v2.x\n+    // But compute it as: z = (v1.x * v2.y + v1.y * v2.x) - 2 * v1.y * v2.x\n+    // This is still not ideal, so let's use the original approach but with better scaling\n+    final double z_stable = (v1.x * v2.y - v1.y * v2.x);\n+\n+    return new Vector3D(x, y, z_stable);\ndiff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java\nindex eda2b8be0..e67958d4f 100644\n--- a/src/main/java/org/apache/commons/math/util/FastMath.java\n+++ b/src/main/java/org/apache/commons/math/util/FastMath.java\n@@ -980,7 +980,7 @@ public class FastMath {\n      *  For x between 0 and 1, returns exp(x), uses extended precision\n      *  @param x argument of exponential\n      *  @param result placeholder where to place exp(x) split in two terms\n-     *  for extra precision (i.e. exp(x) = result[0] \u00b0 result[1]\n+     *  for extra precision (i.e. exp(x) = result[0]   result[1]\n      *  @return exp(x)\n      */\n     private static double slowexp(final double x, final double result[]) {\n"
+  },
+  "timestamp": "2026-06-30 01:22:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_55",
+    "repo_path": "/defects4j/framework/bin/temp/Math_55",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "Vector3D.crossProduct is sensitive to numerical cancellation\nCross product implementation uses the naive formulas (y1 z2 - y2 z1, ...). These formulas fail when vectors are almost colinear, like in the following example:\n{code}\nVector3D v1 = new Vector3D(9070467121.0, 4535233560.0, 1);\nVector3D v2 = new Vector3D(9070467123.0, 4535233561.0, 1);\nSystem.out.println(Vector3D.crossProduct(v1, v2));\n{code}\n\nThe previous code displays { -1, 2, 0 } instead of the correct answer { -1, 2, 1 }",
+    "commit_message": "Reduced cancellation errors in Vector3D.crossProduct",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 473,
+        "end_line": 473,
+        "suspiciousness": 0.5,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 181,
+        "end_line": 181,
+        "suspiciousness": 0.15811388300841897,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 189,
+        "end_line": 189,
+        "suspiciousness": 0.15811388300841897,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 197,
+        "end_line": 197,
+        "suspiciousness": 0.15811388300841897,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 93,
+        "end_line": 93,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 94,
+        "end_line": 94,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 95,
+        "end_line": 95,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 96,
+        "end_line": 96,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 97,
+        "end_line": 97,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 35,
+        "end_line": 35,
+        "suspiciousness": 0.11180339887498948,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.geometry.Vector3DTest::testCrossProductCancellation"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 473,
+      "end_line": 473,
+      "suspiciousness": 0.5,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 181,
+      "end_line": 181,
+      "suspiciousness": 0.15811388300841897,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 189,
+      "end_line": 189,
+      "suspiciousness": 0.15811388300841897,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 197,
+      "end_line": 197,
+      "suspiciousness": 0.15811388300841897,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 93,
+      "end_line": 93,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 94,
+      "end_line": 94,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 95,
+      "end_line": 95,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 96,
+      "end_line": 96,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 97,
+      "end_line": 97,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+      "start_line": 35,
+      "end_line": 35,
+      "suspiciousness": 0.11180339887498948,
+      "rank": 10
+    }
+  ]
+}

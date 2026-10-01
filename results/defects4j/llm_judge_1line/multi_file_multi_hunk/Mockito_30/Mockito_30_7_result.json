@@ -1,0 +1,185 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "30",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 22:18:37",
+      "end_time": "2025-10-01 22:35:50",
+      "duration_seconds": 1034,
+      "duration_human": "17m 14s"
+    },
+    "model_cost": 0.0438,
+    "model_calls": 19,
+    "token_usage": {
+      "input_tokens": 413883,
+      "output_tokens": 22037,
+      "total_tokens": 435920,
+      "cached_input_tokens": 387392,
+      "uncached_input_tokens": 26491
+    },
+    "agent_steps": 20,
+    "checkout_success": true,
+    "patch": "diff --git a/src/org/mockito/exceptions/Reporter.java b/src/org/mockito/exceptions/Reporter.java\nindex 5e46a2bba..061f6be23 100644\n--- a/src/org/mockito/exceptions/Reporter.java\n+++ b/src/org/mockito/exceptions/Reporter.java\n@@ -435,16 +435,24 @@ public class Reporter {\n                 ));\n     }\n \n-    public void smartNullPointerException(Location location) {\n+    public void smartNullPointerException(Location location, Object[] args) {\n         throw new SmartNullPointerException(join(\n                 \"You have a NullPointerException here:\",\n-                new Location(),\n+                \"-> at \" + new Location(),\n+                \"\",\n                 \"Because this method was *not* stubbed correctly:\",\n-                location,\n+                \"-> at \" + location,\n+                args != null && args.length > 0 ? \"The arguments passed to this method were:\" : \"\",\n+                args != null && args.length > 0 ? formatArguments(args) : \"\",\n                 \"\"\n                 ));\n     }\n \n+    private String formatArguments(Object[] args) {\n+        String argsString = java.util.Arrays.toString(args);\n+        return argsString.substring(1, argsString.length() - 1);\n+    }\n+\n     public void noArgumentValueWasCaptured() {\n         throw new MockitoException(join(\n                 \"No argument value was captured!\",\ndiff --git a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\nindex 4942d7cc7..f0b875bf2 100644\n--- a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\n+++ b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\n@@ -1,79 +1,79 @@\n-/*\n- * Copyright (c) 2007 Mockito contributors\n- * This program is made available under the terms of the MIT License.\n- */\n-package org.mockito.internal.stubbing.defaultanswers;\n-\n-import java.io.Serializable;\n-import java.lang.reflect.Method;\n-import java.util.Arrays;\n-\n-import org.mockito.Mockito;\n-import org.mockito.cglib.proxy.MethodInterceptor;\n-import org.mockito.cglib.proxy.MethodProxy;\n-import org.mockito.exceptions.Reporter;\n-import org.mockito.internal.creation.jmock.ClassImposterizer;\n-import org.mockito.internal.debugging.Location;\n-import org.mockito.internal.util.ObjectMethodsGuru;\n-import org.mockito.invocation.InvocationOnMock;\n-import org.mockito.stubbing.Answer;\n-\n-/**\n- * Optional Answer that can be used with\n- * {@link Mockito#mock(Class, Answer)}\n- * <p>\n- * This implementation can be helpful when working with legacy code. Unstubbed\n- * methods often return null. If your code uses the object returned by an\n- * unstubbed call you get a NullPointerException. This implementation of\n- * Answer returns SmartNulls instead of nulls.\n- * SmartNull gives nicer exception message than NPE because it points out the\n- * line where unstubbed method was called. You just click on the stack trace.\n- * <p>\n- * ReturnsSmartNulls first tries to return ordinary return values (see\n- * {@link ReturnsMoreEmptyValues}) then it tries to return SmartNull. If the\n- * return type is not mockable (e.g. final) then ordinary null is returned.\n- * <p>\n- * ReturnsSmartNulls will be probably the default return values strategy in\n- * Mockito 2.0\n- */\n-public class ReturnsSmartNulls implements Answer<Object>, Serializable {\n-\n-    private static final long serialVersionUID = 7618312406617949441L;\n-\n-    private final class ThrowingInterceptor implements MethodInterceptor {\n-        private final InvocationOnMock invocation;\n-        private final Location location = new Location();\n-\n-        private ThrowingInterceptor(InvocationOnMock invocation) {\n-            this.invocation = invocation;\n-        }\n-\n-        public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {\n-            if (new ObjectMethodsGuru().isToString(method)) {\n-                return \"SmartNull returned by unstubbed \" + formatMethodCall()  + \" method on mock\";\n-            }\n-\n-            new Reporter().smartNullPointerException(location);\n-            return null;\n-        }\n-\n-\t\tprivate String formatMethodCall() {\n-\t\t\tString args = Arrays.toString(invocation.getArguments());\n-\t\t\treturn invocation.getMethod().getName() + \"(\" + args.substring(1, args.length() - 1) +\t\")\";\n-\t\t}\n-    }\n-\n-    private final Answer<Object> delegate = new ReturnsMoreEmptyValues();\n-\n-    public Object answer(final InvocationOnMock invocation) throws Throwable {\n-        Object defaultReturnValue = delegate.answer(invocation);\n-        if (defaultReturnValue != null) {\n-            return defaultReturnValue;\n-        }\n-        Class<?> type = invocation.getMethod().getReturnType();\n-        if (ClassImposterizer.INSTANCE.canImposterise(type)) {\n-            return ClassImposterizer.INSTANCE.imposterise(new ThrowingInterceptor(invocation), type);\n-        }\n-        return null;\n-    }\n-}\n+/*\n+ * Copyright (c) 2007 Mockito contributors\n+ * This program is made available under the terms of the MIT License.\n+ */\n+package org.mockito.internal.stubbing.defaultanswers;\n+\n+import java.io.Serializable;\n+import java.lang.reflect.Method;\n+import java.util.Arrays;\n+\n+import org.mockito.Mockito;\n+import org.mockito.cglib.proxy.MethodInterceptor;\n+import org.mockito.cglib.proxy.MethodProxy;\n+import org.mockito.exceptions.Reporter;\n+import org.mockito.internal.creation.jmock.ClassImposterizer;\n+import org.mockito.internal.debugging.Location;\n+import org.mockito.internal.util.ObjectMethodsGuru;\n+import org.mockito.invocation.InvocationOnMock;\n+import org.mockito.stubbing.Answer;\n+\n+/**\n+ * Optional Answer that can be used with\n+ * {@link Mockito#mock(Class, Answer)}\n+ * <p>\n+ * This implementation can be helpful when working with legacy code. Unstubbed\n+ * methods often return null. If your code uses the object returned by an\n+ * unstubbed call you get a NullPointerException. This implementation of\n+ * Answer returns SmartNulls instead of nulls.\n+ * SmartNull gives nicer exception message than NPE because it points out the\n+ * line where unstubbed method was called. You just click on the stack trace.\n+ * <p>\n+ * ReturnsSmartNulls first tries to return ordinary return values (see\n+ * {@link ReturnsMoreEmptyValues}) then it tries to return SmartNull. If the\n+ * return type is not mockable (e.g. final) then ordinary null is returned.\n+ * <p>\n+ * ReturnsSmartNulls will be probably the default return values strategy in\n+ * Mockito 2.0\n+ */\n+public class ReturnsSmartNulls implements Answer<Object>, Serializable {\n+\n+    private static final long serialVersionUID = 7618312406617949441L;\n+\n+    private final class ThrowingInterceptor implements MethodInterceptor {\n+        private final InvocationOnMock invocation;\n+        private final Location location = new Location();\n+\n+        private ThrowingInterceptor(InvocationOnMock invocation) {\n+            this.invocation = invocation;\n+        }\n+\n+        public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {\n+            if (new ObjectMethodsGuru().isToString(method)) {\n+                return \"SmartNull returned by unstubbed \" + formatMethodCall()  + \" method on mock\";\n+            }\n+\n+            new Reporter().smartNullPointerException(location, invocation.getArguments());\n+            return null;\n+        }\n+\n+\t\tprivate String formatMethodCall() {\n+\t\t\tString args = Arrays.toString(invocation.getArguments());\n+\t\t\treturn invocation.getMethod().getName() + \"(\" + args.substring(1, args.length() - 1) +\t\")\";\n+\t\t}\n+    }\n+\n+    private final Answer<Object> delegate = new ReturnsMoreEmptyValues();\n+\n+    public Object answer(final InvocationOnMock invocation) throws Throwable {\n+        Object defaultReturnValue = delegate.answer(invocation);\n+        if (defaultReturnValue != null) {\n+            return defaultReturnValue;\n+        }\n+        Class<?> type = invocation.getMethod().getReturnType();\n+        if (ClassImposterizer.INSTANCE.canImposterise(type)) {\n+            return ClassImposterizer.INSTANCE.imposterise(new ThrowingInterceptor(invocation), type);\n+        }\n+        return null;\n+    }\n+}\n"
+  },
+  "timestamp": "2025-10-01 18:35:50 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_30",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_30",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "SmartNulls should identify the arguments that the stubbed method was invoked with\nI've started mocking with RETURNS_SMART_NULLS. It is very useful and I like the fact that it can be configured with the @Mock annotation. I agree with the comment that it should be the default in Mockito 2.0. Returning null values from mocked methods encourages writing code that is designed to handle nulls, which IMO is a code smell.\r\n\r\nOne thing that would be really nice is if the arguments of the stubbed method were retained and then printed when the smart null is used. The reported message is typically correct: &quot;Because this method was *not* stubbed correctly:&quot;, but this is generally because I've made some mistake in matching the parameters of the stubbed method. If I could see the arguments that were used in the invocation it would mean that I wouldn't need to debug into the method to check them.",
+    "commit_message": "printing args on smart nulls NullPointerException message (Issue #225)",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/exceptions/Reporter.java",
+        "start_line": 438,
+        "end_line": 438,
+        "line_numbers": [
+          438
+        ],
+        "function_name": "smartNullPointerException",
+        "class_name": "Reporter",
+        "filename": "Reporter.java",
+        "code_snippet": "    public void smartNullPointerException(Location location) {\n        throw new SmartNullPointerException(join(\n                \"You have a NullPointerException here:\",\n                new Location(),\n                \"Because this method was *not* stubbed correctly:\",\n                location,\n                \"\"\n                ));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java",
+        "start_line": 56,
+        "end_line": 56,
+        "line_numbers": [
+          56
+        ],
+        "function_name": "intercept",
+        "class_name": "ThrowingInterceptor",
+        "filename": "ReturnsSmartNulls.java",
+        "code_snippet": "        public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {\n            if (new ObjectMethodsGuru().isToString(method)) {\n                return \"SmartNull returned by unstubbed \" + formatMethodCall()  + \" method on mock\";\n            }\n\n            new Reporter().smartNullPointerException(location);\n            return null;\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockito.internal.stubbing.defaultanswers.ReturnsSmartNullsTest::shouldPrintTheParametersOnSmartNullPointerExceptionMessage"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/exceptions/Reporter.java b/src/org/mockito/exceptions/Reporter.java\nindex 5900574..5e46a2b 100644\n--- a/src/org/mockito/exceptions/Reporter.java\n+++ b/src/org/mockito/exceptions/Reporter.java\n@@ -435,11 +435,10 @@ public class Reporter {\n                 ));\n     }\n \n+    public void smartNullPointerException(Object obj, Location location) {\n-    public void smartNullPointerException(Location location) {\n         throw new SmartNullPointerException(join(\n                 \"You have a NullPointerException here:\",\n                 new Location(),\n+                obj,\n                 \"Because this method was *not* stubbed correctly:\",\n                 location,\n                 \"\"\ndiff --git a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\nindex 928f314..4942d7c 100644\n--- a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\n+++ b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsSmartNulls.java\n@@ -53,7 +53,7 @@ public class ReturnsSmartNulls implements Answer<Object>, Serializable {\n                 return \"SmartNull returned by unstubbed \" + formatMethodCall()  + \" method on mock\";\n             }\n \n+            new Reporter().smartNullPointerException(obj, location);\n-            new Reporter().smartNullPointerException(location);\n             return null;\n         }",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Szczepan Faber",
+        "commit_date": "2009-04-03 10:51:29",
+        "commit_message": "Further refactoring of exception messages - following the new patterns of storing and presenting locations of errors / verification failures",
+        "commit_hash": "a71ecd65ffe6de5f1ac44de78c2b6c36f8a47d6f"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "smartNullPointerException"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "smartNullPointerException",
+          "SmartNullPointerException"
+        ],
+        "functions_name_modified_file": [
+          "inOrderRequiresFamiliarMock",
+          "smartNullPointerException",
+          "argumentsAreDifferent",
+          "nullPassedWhenCreatingInOrder",
+          "createTooManyInvocationsMessage",
+          "tooManyActualInvocationsInOrder",
+          "mocksHaveToBePassedWhenCreatingInOrder",
+          "checkedExceptionInvalid",
+          "cannotMockFinalClass",
+          "misplacedArgumentMatcher",
+          "noMoreInteractionsWanted",
+          "nullPassedToVerify",
+          "createTooLittleInvocationsMessage",
+          "wrongTypeOfReturnValue",
+          "unfinishedVerificationException",
+          "notAMockPassedToVerify",
+          "cannotStubVoidMethodWithAReturnValue",
+          "invalidUseOfMatchers",
+          "cannotStubWithNullThrowable",
+          "onlyVoidMethodsCanBeSetToDoNothing",
+          "mocksHaveToBePassedToVerifyNoMoreInteractions",
+          "notAMockPassedWhenCreatingInOrder",
+          "unfinishedStubbing",
+          "missingMethodInvocation",
+          "wantedButNotInvoked",
+          "neverWantedButInvoked",
+          "notAMockPassedToWhenMethod",
+          "Reporter",
+          "nullPassedToWhenMethod",
+          "tooLittleActualInvocationsInOrder",
+          "nullPassedToVerifyNoMoreInteractions",
+          "wantedButNotInvokedInOrder",
+          "wantedAtMostX",
+          "tooManyActualInvocations",
+          "tooLittleActualInvocations",
+          "notAMockPassedToVerifyNoMoreInteractions"
+        ],
+        "functions_name_all_files": [
+          "inOrderRequiresFamiliarMock",
+          "SmartNullPointerException",
+          "smartNullPointerException",
+          "argumentsAreDifferent",
+          "nullPassedWhenCreatingInOrder",
+          "createTooManyInvocationsMessage",
+          "tooManyActualInvocationsInOrder",
+          "mocksHaveToBePassedWhenCreatingInOrder",
+          "checkedExceptionInvalid",
+          "cannotMockFinalClass",
+          "misplacedArgumentMatcher",
+          "noMoreInteractionsWanted",
+          "nullPassedToVerify",
+          "createTooLittleInvocationsMessage",
+          "wrongTypeOfReturnValue",
+          "unfinishedVerificationException",
+          "notAMockPassedToVerify",
+          "cannotStubVoidMethodWithAReturnValue",
+          "invalidUseOfMatchers",
+          "ThrowingInterceptor",
+          "intercept",
+          "cannotStubWithNullThrowable",
+          "onlyVoidMethodsCanBeSetToDoNothing",
+          "mocksHaveToBePassedToVerifyNoMoreInteractions",
+          "notAMockPassedWhenCreatingInOrder",
+          "unfinishedStubbing",
+          "missingMethodInvocation",
+          "wantedButNotInvoked",
+          "neverWantedButInvoked",
+          "notAMockPassedToWhenMethod",
+          "SmartNullReturnValues",
+          "Reporter",
+          "nullPassedToWhenMethod",
+          "tooLittleActualInvocationsInOrder",
+          "nullPassedToVerifyNoMoreInteractions",
+          "wantedButNotInvokedInOrder",
+          "valueFor",
+          "wantedAtMostX",
+          "tooManyActualInvocations",
+          "tooLittleActualInvocations",
+          "notAMockPassedToVerifyNoMoreInteractions"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    public void smartNullPointerException(Location location) {\n        throw new SmartNullPointerException(join(\n                \"\\nYou have a NullPointerException here:\",\n                \"-> at \" + new Location(),\n                \"\\nBecause this method was *not* stubbed correctly:\",\n                \"-> at \" + location\n                ));\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/org/mockito/exceptions/Reporter.java",
+          "src/org/mockito/exceptions/verification/SmartNullPointerException.java",
+          "src/org/mockito/internal/returnvalues/SmartNullReturnValues.java"
+        ],
+        "file_patches": {
+          "src/org/mockito/exceptions/Reporter.java": "diff --git a/src/org/mockito/exceptions/Reporter.java b/src/org/mockito/exceptions/Reporter.java\nindex 09f3bfaae..6a0389da4 100644\n--- a/src/org/mockito/exceptions/Reporter.java\n+++ b/src/org/mockito/exceptions/Reporter.java\n@@ -20,6 +20,7 @@ import org.mockito.exceptions.misusing.WrongTypeOfReturnValue;\n import org.mockito.exceptions.verification.ArgumentsAreDifferent;\n import org.mockito.exceptions.verification.NeverWantedButInvoked;\n import org.mockito.exceptions.verification.NoInteractionsWanted;\n+import org.mockito.exceptions.verification.SmartNullPointerException;\n import org.mockito.exceptions.verification.TooLittleActualInvocations;\n import org.mockito.exceptions.verification.TooManyActualInvocations;\n import org.mockito.exceptions.verification.VerifcationInOrderFailure;\n@@ -375,4 +376,13 @@ public class Reporter {\n                 \"\"\n                 ));\n     }\n+\n+    public void smartNullPointerException(Location location) {\n+        throw new SmartNullPointerException(join(\n+                \"\\nYou have a NullPointerException here:\",\n+                \"-> at \" + new Location(),\n+                \"\\nBecause this method was *not* stubbed correctly:\",\n+                \"-> at \" + location\n+                ));\n+    }\n }\n\\ No newline at end of file"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

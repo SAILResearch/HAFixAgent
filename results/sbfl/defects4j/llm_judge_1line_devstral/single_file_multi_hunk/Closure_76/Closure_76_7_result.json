@@ -1,0 +1,196 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_76",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 04:24:50",
+      "end_time": "2026-06-30 04:26:51",
+      "duration_seconds": 121,
+      "duration_human": "2m 1s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1053758,
+      "output_tokens": 4985,
+      "total_tokens": 1058743,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1053758
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex b9955cdd7..3b212a34c 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -178,13 +178,13 @@\n \n   <target name=\"compile\" description=\"compile the source code\" depends=\"svnversion\">\n     <mkdir dir=\"${classes.dir}\" />\n-    <javac debug=\"true\" srcdir=\"${gen.dir}\"\n+    <javac debug=\"true\" srcdir=\"${gen.dir}\" encoding=\"UTF-8\" source=\"1.6\" target=\"1.6\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn\"\n            >\n       <classpath refid=\"srcclasspath.path\" />\n     </javac>\n-    <javac debug=\"true\" srcdir=\"${src.dir}\"\n+    <javac debug=\"true\" srcdir=\"${src.dir}\" encoding=\"UTF-8\" source=\"1.6\" target=\"1.6\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn,**/jsonml/**,**/testing/**\"\n            >\n@@ -248,7 +248,7 @@\n           depends=\"compile\"\n           description=\"compile the JUnit tests\">\n     <mkdir dir=\"${testClasses.dir}\" />\n-    <javac debug=\"true\" srcdir=\"${src.dir}\"\n+    <javac debug=\"true\" srcdir=\"${src.dir}\" encoding=\"UTF-8\" source=\"1.6\" target=\"1.6\"\n            destdir=\"${testClasses.dir}\"\n            excludes=\".svn\"\n            >\ndiff --git a/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java b/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\nindex 63a7f29fc..797330db4 100644\n--- a/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\n+++ b/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\n@@ -297,26 +297,40 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n           // If the currently node is the first child of\n           // AND/OR, be conservative only consider the READs\n           // of the second operand.\n+          if (n.getNext() != null) {\n+            state = isVariableReadBeforeKill(\n+                n.getNext(), variable);\n+            if (state == VariableLiveness.KILL) {\n+              state = VariableLiveness.MAYBE_LIVE;\n+            }\n+          }\n+          break;\n \n         case Token.HOOK:\n           // If current node is the condition, check each following\n           // branch, otherwise it is a conditional branch and the\n           // other branch can be ignored.\n+          if (n.getNext() != null && n.getNext().getNext() != null) {\n+            state = checkHookBranchReadBeforeKill(\n+                n.getNext(), n.getNext().getNext(), variable);\n+          }\n+          break;\n \n         default:\n           for(Node sibling = n.getNext(); sibling != null;\n               sibling = sibling.getNext()) {\n-            if (!ControlFlowGraph.isEnteringNewCfgNode(sibling)) {\n             state = isVariableReadBeforeKill(sibling, variable);\n+            if (state != VariableLiveness.MAYBE_LIVE) {\n+              break;\n+            }\n+          }\n+      }\n \n       // If we see a READ or KILL there is no need to continue.\n       if (state == VariableLiveness.READ) {\n         return true;\n       } else if (state == VariableLiveness.KILL) {\n         return false;\n-            }\n-          }\n-      }\n       }\n       n = n.getParent();\n     }\n@@ -330,6 +344,12 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n     KILL, // Known there is a write before any read.\n   }\n \n+  /**\n+   * Give an expression and a variable. It returns READ, if the first\n+   * reference of that variable is a read. It returns KILL, if the first\n+   * reference of that variable is an assignment. It returns MAY_LIVE otherwise.\n+   */\n+\n   /**\n    * Give an expression and a variable. It returns READ, if the first\n    * reference of that variable is a read. It returns KILL, if the first\n@@ -337,6 +357,9 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n    */\n   private VariableLiveness isVariableReadBeforeKill(\n       Node n, String variable) {\n+    if (ControlFlowGraph.isEnteringNewCfgNode(n)) { // Not a FUNCTION\n+      return VariableLiveness.MAYBE_LIVE;\n+    }\n \n     if (NodeUtil.isName(n) && variable.equals(n.getString())) {\n       if (NodeUtil.isLhs(n, n.getParent())) {\n@@ -359,9 +382,25 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n       // Conditionals\n       case Token.OR:\n       case Token.AND:\n+        VariableLiveness v1 = isVariableReadBeforeKill(\n+          n.getFirstChild(), variable);\n+        VariableLiveness v2 = isVariableReadBeforeKill(\n+          n.getLastChild(), variable);\n         // With a AND/OR the first branch always runs, but the second is\n         // may not.\n+        if (v1 != VariableLiveness.MAYBE_LIVE) {\n+          return v1;\n+        } else if (v2 == VariableLiveness.READ) {\n+          return VariableLiveness.READ;\n+        } else {\n+          return VariableLiveness.MAYBE_LIVE;\n+        }\n       case Token.HOOK:\n+        VariableLiveness first = isVariableReadBeforeKill(\n+            n.getFirstChild(), variable);\n+        if (first != VariableLiveness.MAYBE_LIVE) {\n+          return first;\n+        }\n         return checkHookBranchReadBeforeKill(\n             n.getFirstChild().getNext(), n.getLastChild(), variable);\n \n@@ -369,13 +408,11 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n         // Expressions are evaluated left-right, depth first.\n         for (Node child = n.getFirstChild();\n             child != null; child = child.getNext()) {\n-          if (!ControlFlowGraph.isEnteringNewCfgNode(child)) { // Not a FUNCTION\n           VariableLiveness state = isVariableReadBeforeKill(child, variable);\n           if (state != VariableLiveness.MAYBE_LIVE) {\n             return state;\n           }\n         }\n-      }\n     }\n \n     return VariableLiveness.MAYBE_LIVE;\n@@ -397,5 +434,21 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n     } else {\n       return VariableLiveness.MAYBE_LIVE;\n     }\n+  }\n+      Node trueCase, Node falseCase, String variable) {\n+    VariableLiveness v1 = isVariableReadBeforeKill(\n+      trueCase, variable);\n+    VariableLiveness v2 = isVariableReadBeforeKill(\n+      falseCase, variable);\n+    // With a hook it is unknown which branch will run, so\n+    // we must be conservative.  A read by either is a READ, and\n+    // a KILL is only considered if both KILL.\n+    if (v1 == VariableLiveness.READ || v2 == VariableLiveness.READ) {\n+      return VariableLiveness.READ;\n+    } else if (v1 == VariableLiveness.KILL && v2 == VariableLiveness.KILL) {\n+      return VariableLiveness.KILL;\n+    } else {\n+      return VariableLiveness.MAYBE_LIVE;\n+    }\n   }\n }\n"
+  },
+  "timestamp": "2026-06-30 04:26:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_76",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_76",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Assignments within conditions are sometimes incorrectly removed\n<b>What steps will reproduce the problem?</b>\n\r\n1. See attachment.\r\n2. Run original.\r\n3. Run compiled.\r\n\r\n\r\n<b>What is the expected output? What do you see instead?</b>\n\r\n* Both should return &quot;true&quot;\r\n* Original does return &quot;true&quot;\r\n* Compiled returns &quot;undefined&quot;\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n\r\nClosure Compiler (http://code.google.com/closure/compiler)\r\nVersion: 706\r\nBuilt on: 2011/01/19 19:53\r\n\r\nMac OS X 10.6\r\n\r\n<b>Please provide any additional information below.</b>\n\r\nIn the attached reduction if the &quot;echo&quot; functions aren't used then the entire body of the function is compiled away, they are there to demonstrate that the first assignment in the condition is removed.\r\n\r\n\r\nOriginal:\r\n\r\nfunction reduction()\r\n{\r\n    var a, b;\r\n    if (echo(b = true) || echo(b = false))\r\n        a = b;\r\n    else\r\n        a = null;\r\n    return a;\r\n}\r\n\r\n\r\nCompiled:\r\n\r\nfunction reduction() {\r\n    var a;\r\n    return echo(true) || echo(a = false) ? a: null\r\n}",
+    "commit_message": "Correct handling of conditional branches within expressions when doing dead assignment elminination. Fixes issue 384.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 175,
+        "end_line": 175,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 195,
+        "end_line": 195,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 217,
+        "end_line": 217,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 220,
+        "end_line": 220,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 843,
+        "end_line": 843,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 844,
+        "end_line": 844,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 845,
+        "end_line": 845,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 848,
+        "end_line": 848,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 849,
+        "end_line": 849,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 850,
+        "end_line": 850,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testInExpression2",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue384b",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue384c",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue384d"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 175,
+      "end_line": 175,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 195,
+      "end_line": 195,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 217,
+      "end_line": 217,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 220,
+      "end_line": 220,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 843,
+      "end_line": 843,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 844,
+      "end_line": 844,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 845,
+      "end_line": 845,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 848,
+      "end_line": 848,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 849,
+      "end_line": 849,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 850,
+      "end_line": 850,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

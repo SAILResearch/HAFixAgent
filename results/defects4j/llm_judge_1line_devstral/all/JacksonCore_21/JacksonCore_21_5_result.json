@@ -1,0 +1,170 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "21",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 04:46:55",
+      "end_time": "2026-06-27 04:48:55",
+      "duration_seconds": 119,
+      "duration_human": "1m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 707305,
+      "output_tokens": 6764,
+      "total_tokens": 714069,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 707305
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\nindex e6558fd0..380d48f3 100644\n--- a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n+++ b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n@@ -234,19 +234,15 @@ public class FilteringParserDelegate extends JsonParserDelegate\n         // check for no buffered context _exposedContext - null\n         // If all the conditions matches then check for scalar / non-scalar property\n         if (!_allowMultipleMatches && (_currToken != null) && (_exposedContext == null)) {\n-            //if not scalar and ended successfully, and !includePath, then return null\n-                if (_currToken.isStructEnd()) {\n-                    if (_headContext.isStartHandled()) {\n-                        return (_currToken = null);\n-                    }\n+                if (_currToken.isStructEnd() && _headContext._parent == null && _headContext.isStartHandled()) {\n+                    return (_currToken = null);\n                 } else if (_currToken.isScalarValue()) {\n                     //else if scalar, and scalar not present in obj/array and !includePath and INCLUDE_ALL matched once\n-                    // then return null \n-                    if (!_headContext.isStartHandled() && (_itemFilter == TokenFilter.INCLUDE_ALL)) {\n+                    // then return null  \n+            }\n                         return (_currToken = null);\n                     }\n             }\n-        }\n         // Anything buffered?\n         TokenFilterContext ctxt = _exposedContext;\n \n"
+  },
+  "timestamp": "2026-06-27 04:48:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_21",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_21",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "`FilteringParserDelegate` seems to miss last closing `END_OBJECT`\n(note: adding a failing test for this case)\r\n\r\nLooks like with settings like:\r\n\r\n```java\r\n        JsonParser p = new FilteringParserDelegate(p0,\r\n               new NameMatchFilter(\"value\"),\r\n                   true, // includePath\r\n                   false // multipleMatches\r\n                );\r\n```\r\n\r\nand input\r\n\r\n```json\r\n{\r\n  \"a\":123,\r\n  \"array\":[1,2],\r\n  \"ob\": {\r\n    \"value0\":2,\r\n    \"value\":3,\r\n    \"value2\":4\r\n  },\r\n  \"b\":true\r\n}\r\n```\r\n\r\noutput will be like:\r\n\r\n```json\r\n{\"ob\":{\"value\":3}\r\n```\r\n\r\n(note the missing trailing `}` for closing `END_OBJECT`)\r\n\r\n\n",
+    "commit_message": "Fix #330",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java",
+        "start_line": 237,
+        "end_line": 237,
+        "line_numbers": [
+          237
+        ],
+        "function_name": "nextToken",
+        "class_name": "FilteringParserDelegate",
+        "filename": "FilteringParserDelegate.java",
+        "code_snippet": "    public JsonToken nextToken() throws IOException\n    {\n        // 23-May-2017, tatu: To be honest, code here is rather hairy and I don't like all\n        //    conditionals; and it seems odd to return `null` but NOT considering input\n        //    as closed... would love a rewrite to simplify/clear up logic here.\n        \n        // Check for _allowMultipleMatches - false and at least there is one token - which is _currToken\n        // check for no buffered context _exposedContext - null\n        // If all the conditions matches then check for scalar / non-scalar property\n        if (!_allowMultipleMatches && (_currToken != null) && (_exposedContext == null)) {\n            //if not scalar and ended successfully, and !includePath, then return null\n                if (_currToken.isStructEnd()) {\n                    if (_headContext.isStartHandled()) {\n                        return (_currToken = null);\n                    }\n                } else if (_currToken.isScalarValue()) {\n                    //else if scalar, and scalar not present in obj/array and !includePath and INCLUDE_ALL matched once\n                    // then return null \n                    if (!_headContext.isStartHandled() && (_itemFilter == TokenFilter.INCLUDE_ALL)) {\n                        return (_currToken = null);\n                    }\n            }\n        }\n        // Anything buffered?\n        TokenFilterContext ctxt = _exposedContext;\n\n        if (ctxt != null) {\n            while (true) {\n                JsonToken t = ctxt.nextTokenToRead();\n                if (t != null) {\n                    _currToken = t;\n                    return t;\n                }\n                // all done with buffered stuff?\n                if (ctxt == _headContext) {\n                    _exposedContext = null;\n                    if (ctxt.inArray()) {\n                        t = delegate.getCurrentToken();\n// Is this guaranteed to work without further checks?\n//                        if (t != JsonToken.START_ARRAY) {\n                        _currToken = t;\n                        return t;\n                    }\n\n                    // Almost! Most likely still have the current token;\n                    // with the sole exception of \n                    /*\n                    t = delegate.getCurrentToken();\n                    if (t != JsonToken.FIELD_NAME) {\n                        _currToken = t;\n                        return t;",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java",
+        "start_line": 248,
+        "end_line": 248,
+        "line_numbers": [
+          248
+        ],
+        "function_name": "nextToken",
+        "class_name": "FilteringParserDelegate",
+        "filename": "FilteringParserDelegate.java",
+        "code_snippet": "    public JsonToken nextToken() throws IOException\n    {\n        // 23-May-2017, tatu: To be honest, code here is rather hairy and I don't like all\n        //    conditionals; and it seems odd to return `null` but NOT considering input\n        //    as closed... would love a rewrite to simplify/clear up logic here.\n        \n        // Check for _allowMultipleMatches - false and at least there is one token - which is _currToken\n        // check for no buffered context _exposedContext - null\n        // If all the conditions matches then check for scalar / non-scalar property\n        if (!_allowMultipleMatches && (_currToken != null) && (_exposedContext == null)) {\n            //if not scalar and ended successfully, and !includePath, then return null\n                if (_currToken.isStructEnd()) {\n                    if (_headContext.isStartHandled()) {\n                        return (_currToken = null);\n                    }\n                } else if (_currToken.isScalarValue()) {\n                    //else if scalar, and scalar not present in obj/array and !includePath and INCLUDE_ALL matched once\n                    // then return null \n                    if (!_headContext.isStartHandled() && (_itemFilter == TokenFilter.INCLUDE_ALL)) {\n                        return (_currToken = null);\n                    }\n            }\n        }\n        // Anything buffered?\n        TokenFilterContext ctxt = _exposedContext;\n\n        if (ctxt != null) {\n            while (true) {\n                JsonToken t = ctxt.nextTokenToRead();\n                if (t != null) {\n                    _currToken = t;\n                    return t;\n                }\n                // all done with buffered stuff?\n                if (ctxt == _headContext) {\n                    _exposedContext = null;\n                    if (ctxt.inArray()) {\n                        t = delegate.getCurrentToken();\n// Is this guaranteed to work without further checks?\n//                        if (t != JsonToken.START_ARRAY) {\n                        _currToken = t;\n                        return t;\n                    }\n\n                    // Almost! Most likely still have the current token;\n                    // with the sole exception of \n                    /*\n                    t = delegate.getCurrentToken();\n                    if (t != JsonToken.FIELD_NAME) {\n                        _currToken = t;\n                        return t;",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.filter.TokenVerifyingParserFiltering330Test::testTokensSingleMatchWithPath",
+      "com.fasterxml.jackson.core.filter.TokenVerifyingParserFiltering330Test::testBasicSingleMatchFilteringWithPath",
+      "com.fasterxml.jackson.core.filter.TokenVerifyingParserFiltering330Test::testSkippingForSingleWithPath"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\nindex 5274f33e..e6558fd0 100644\n--- a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n+++ b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n@@ -235,7 +235,6 @@ public class FilteringParserDelegate extends JsonParserDelegate\n         // If all the conditions matches then check for scalar / non-scalar property\n         if (!_allowMultipleMatches && (_currToken != null) && (_exposedContext == null)) {\n             //if not scalar and ended successfully, and !includePath, then return null\n+            if (!_includePath) {\n                 if (_currToken.isStructEnd()) {\n                     if (_headContext.isStartHandled()) {\n                         return (_currToken = null);\n@@ -246,7 +245,6 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     if (!_headContext.isStartHandled() && (_itemFilter == TokenFilter.INCLUDE_ALL)) {\n                         return (_currToken = null);\n                     }\n+                }\n             }\n         }\n         // Anything buffered?",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Cowtowncoder",
+        "commit_date": "2015-04-14 22:48:10",
+        "commit_message": "... more on filtering",
+        "commit_hash": "37d0d6e8356d8ad72f6ebe2e72219e697b190d55"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "includeValue"
+        ],
+        "functions_name_modified_file": [
+          "overrideCurrentName",
+          "getBooleanValue",
+          "getIntValue",
+          "getMatchCount",
+          "getFloatValue",
+          "getCurrentName",
+          "getByteValue",
+          "getLastClearedToken",
+          "getNumberValue",
+          "getLongValue",
+          "getParsingContext",
+          "getBigIntegerValue",
+          "clearCurrentToken",
+          "nextToken",
+          "_filterContext",
+          "getNumberType",
+          "getFilter",
+          "skipChildren",
+          "getDecimalValue",
+          "FilteringParserDelegate",
+          "getShortValue",
+          "getDoubleValue",
+          "nextValue"
+        ],
+        "functions_name_all_files": [
+          "overrideCurrentName",
+          "filterFinishArray",
+          "includeProperty",
+          "getBooleanValue",
+          "includeRawValue",
+          "getIntValue",
+          "includeValue",
+          "getMatchCount",
+          "toString",
+          "_includeScalar",
+          "filterStartObject",
+          "includeElement",
+          "getFloatValue",
+          "includeBinary",
+          "getCurrentName",
+          "TokenFilter",
+          "includeNull",
+          "filterFinishObject",
+          "includeBoolean",
+          "filterStartArray",
+          "getByteValue",
+          "includeString",
+          "getLastClearedToken",
+          "getNumberValue",
+          "getLongValue",
+          "includeEmbeddedValue",
+          "getParsingContext",
+          "getBigIntegerValue",
+          "clearCurrentToken",
+          "nextToken",
+          "includeNumber",
+          "_filterContext",
+          "getNumberType",
+          "getFilter",
+          "skipChildren",
+          "getDecimalValue",
+          "FilteringParserDelegate",
+          "includeRootValue",
+          "getShortValue",
+          "getDoubleValue",
+          "nextValue"
+        ],
+        "function_code_before": "    /**********************************************************\n     */\n\n    @Override\n    public JsonToken nextToken() throws IOException\n    {\n        // Anything buffered?\n        if (_exposedContext != null) {\n            \n        }\n        return delegate.nextToken();\n    }",
+        "function_code_after": "    /**********************************************************\n     */\n\n    @Override\n    public JsonToken nextToken() throws IOException\n    {\n        // Anything buffered?\n        TokenFilterContext ctxt = _exposedContext;\n        if (ctxt != null) {\n            while (true) {\n                JsonToken t = _exposedContext.nextTokenToRead(_currToken);\n                if (t != null) {\n                    _currToken = t;\n                    return t;\n                }\n                // all done with buffered stuff?\n                if (ctxt == _headContext) {\n                    _exposedContext = null;\n                    break;\n                }\n                // If not, traverse down the context chain\n                ctxt = _exposedContext.findChildOf(_exposedContext);\n                _exposedContext = ctxt;\n                if (ctxt == null) { // should never occur\n                    throw _constructError(\"Unexpected problem: chain of filtered context broken\");\n                }\n            }\n        }\n\n        // If not, need to \n        JsonToken t = delegate.nextToken();\n        if (t == null) {\n            \n        }\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java",
+          "src/main/java/com/fasterxml/jackson/core/filter/TokenFilter.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java": "diff --git a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\nindex b44db716..7c797833 100644\n--- a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n+++ b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n@@ -209,10 +209,33 @@ public class FilteringParserDelegate extends JsonParserDelegate\n     public JsonToken nextToken() throws IOException\n     {\n         // Anything buffered?\n-        if (_exposedContext != null) {\n+        TokenFilterContext ctxt = _exposedContext;\n+        if (ctxt != null) {\n+            while (true) {\n+                JsonToken t = _exposedContext.nextTokenToRead(_currToken);\n+                if (t != null) {\n+                    _currToken = t;\n+                    return t;\n+                }\n+                // all done with buffered stuff?\n+                if (ctxt == _headContext) {\n+                    _exposedContext = null;\n+                    break;\n+                }\n+                // If not, traverse down the context chain\n+                ctxt = _exposedContext.findChildOf(_exposedContext);\n+                _exposedContext = ctxt;\n+                if (ctxt == null) { // should never occur\n+                    throw _constructError(\"Unexpected problem: chain of filtered context broken\");\n+                }\n+            }\n+        }\n+\n+        // If not, need to \n+        JsonToken t = delegate.nextToken();\n+        if (t == null) {\n             \n         }\n-        return delegate.nextToken();\n     }\n \n     @Override"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

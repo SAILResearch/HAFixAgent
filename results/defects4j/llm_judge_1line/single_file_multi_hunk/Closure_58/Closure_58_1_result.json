@@ -1,0 +1,75 @@
+{
+  "project_name": "Closure",
+  "bug_id": "58",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 22:32:34",
+      "end_time": "2025-09-30 22:39:04",
+      "duration_seconds": 391,
+      "duration_human": "6m 31s"
+    },
+    "model_cost": 0.0221,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 262870,
+      "output_tokens": 4126,
+      "total_tokens": 266996,
+      "cached_input_tokens": 253440,
+      "uncached_input_tokens": 9430
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\nindex 7999db40e..2e81a2987 100644\n--- a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n+++ b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n@@ -203,8 +203,13 @@ class LiveVariablesAnalysis extends\n             // for(var x in y) {...}\n             lhs = lhs.getLastChild();\n           }\n+          if (NodeUtil.isName(lhs)) {\n             addToSetIfLocal(lhs, kill);\n             addToSetIfLocal(lhs, gen);\n+          } else {\n+            // For complex expressions like a[i++], analyze the expression\n+            computeGenKill(lhs, gen, kill, conditional);\n+          }\n           computeGenKill(rhs, gen, kill, conditional);\n         }\n         return;\n"
+  },
+  "timestamp": "2025-09-30 22:39:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_58",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_58",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Online CC bug: report java error.\n<b>What steps will reproduce the problem?</b>\n1. open http://closure-compiler.appspot.com/\r\n2. input js code:\r\n  function keys(obj) {\r\n    var a = [], i = 0;\r\n    for (a[i++] in obj)\r\n      ;\r\n    return a;\r\n  }\r\n3. press [compile] button.\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nExcept OK. See java error.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nOnline CC version.",
+    "commit_message": "Allow expressions on LHS of for-in loops. Fixes issue 528.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 205,
+        "end_line": 205,
+        "line_numbers": [
+          205
+        ],
+        "function_name": "computeGenKill",
+        "class_name": "LiveVariableLattice",
+        "filename": "LiveVariablesAnalysis.java",
+        "code_snippet": "  private void computeGenKill(Node n, BitSet gen, BitSet kill,\n      boolean conditional) {\n\n    switch (n.getType()) {\n      case Token.SCRIPT:\n      case Token.BLOCK:\n      case Token.FUNCTION:\n        return;\n\n      case Token.WHILE:\n      case Token.DO:\n      case Token.IF:\n        computeGenKill(NodeUtil.getConditionExpression(n), gen, kill,\n            conditional);\n        return;\n\n      case Token.FOR:\n        if (!NodeUtil.isForIn(n)) {\n          computeGenKill(NodeUtil.getConditionExpression(n), gen, kill,\n              conditional);\n        } else {\n          // for(x in y) {...}\n          Node lhs = n.getFirstChild();\n          Node rhs = lhs.getNext();\n          if (NodeUtil.isVar(lhs)) {\n            // for(var x in y) {...}\n            lhs = lhs.getLastChild();\n          }\n            addToSetIfLocal(lhs, kill);\n            addToSetIfLocal(lhs, gen);\n          computeGenKill(rhs, gen, kill, conditional);\n        }\n        return;\n\n      case Token.VAR:\n        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n          if (c.hasChildren()) {\n            computeGenKill(c.getFirstChild(), gen, kill, conditional);\n            if (!conditional) {\n              addToSetIfLocal(c, kill);\n            }\n          }\n        }\n        return;\n\n      case Token.AND:\n      case Token.OR:\n        computeGenKill(n.getFirstChild(), gen, kill, conditional);\n        // May short circuit.\n        computeGenKill(n.getLastChild(), gen, kill, true);\n        return;\n\n      case Token.HOOK:\n        computeGenKill(n.getFirstChild(), gen, kill, conditional);\n        // Assume both sides are conditional.\n        computeGenKill(n.getFirstChild().getNext(), gen, kill, true);\n        computeGenKill(n.getLastChild(), gen, kill, true);\n        return;\n\n      case Token.NAME:\n        if (isArgumentsName(n)) {\n          markAllParametersEscaped();\n        } else {\n          addToSetIfLocal(n, gen);\n        }\n        return;\n\n      default:\n        if (NodeUtil.isAssignmentOp(n) && NodeUtil.isName(n.getFirstChild())) {\n          Node lhs = n.getFirstChild();\n          if (!conditional) {\n            addToSetIfLocal(lhs, kill);\n          }\n          if (!NodeUtil.isAssign(n)) {\n            // assignments such as a += 1 reads a.\n            addToSetIfLocal(lhs, gen);\n          }\n          computeGenKill(lhs.getNext(), gen, kill, conditional);\n        } else {\n          for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n            computeGenKill(c, gen, kill, conditional);\n          }\n        }\n        return;\n    }\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 208,
+        "end_line": 208,
+        "line_numbers": [
+          208
+        ],
+        "function_name": "computeGenKill",
+        "class_name": "LiveVariableLattice",
+        "filename": "LiveVariablesAnalysis.java",
+        "code_snippet": "  private void computeGenKill(Node n, BitSet gen, BitSet kill,\n      boolean conditional) {\n\n    switch (n.getType()) {\n      case Token.SCRIPT:\n      case Token.BLOCK:\n      case Token.FUNCTION:\n        return;\n\n      case Token.WHILE:\n      case Token.DO:\n      case Token.IF:\n        computeGenKill(NodeUtil.getConditionExpression(n), gen, kill,\n            conditional);\n        return;\n\n      case Token.FOR:\n        if (!NodeUtil.isForIn(n)) {\n          computeGenKill(NodeUtil.getConditionExpression(n), gen, kill,\n              conditional);\n        } else {\n          // for(x in y) {...}\n          Node lhs = n.getFirstChild();\n          Node rhs = lhs.getNext();\n          if (NodeUtil.isVar(lhs)) {\n            // for(var x in y) {...}\n            lhs = lhs.getLastChild();\n          }\n            addToSetIfLocal(lhs, kill);\n            addToSetIfLocal(lhs, gen);\n          computeGenKill(rhs, gen, kill, conditional);\n        }\n        return;\n\n      case Token.VAR:\n        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n          if (c.hasChildren()) {\n            computeGenKill(c.getFirstChild(), gen, kill, conditional);\n            if (!conditional) {\n              addToSetIfLocal(c, kill);\n            }\n          }\n        }\n        return;\n\n      case Token.AND:\n      case Token.OR:\n        computeGenKill(n.getFirstChild(), gen, kill, conditional);\n        // May short circuit.\n        computeGenKill(n.getLastChild(), gen, kill, true);\n        return;\n\n      case Token.HOOK:\n        computeGenKill(n.getFirstChild(), gen, kill, conditional);\n        // Assume both sides are conditional.\n        computeGenKill(n.getFirstChild().getNext(), gen, kill, true);\n        computeGenKill(n.getLastChild(), gen, kill, true);\n        return;\n\n      case Token.NAME:\n        if (isArgumentsName(n)) {\n          markAllParametersEscaped();\n        } else {\n          addToSetIfLocal(n, gen);\n        }\n        return;\n\n      default:\n        if (NodeUtil.isAssignmentOp(n) && NodeUtil.isName(n.getFirstChild())) {\n          Node lhs = n.getFirstChild();\n          if (!conditional) {\n            addToSetIfLocal(lhs, kill);\n          }\n          if (!NodeUtil.isAssign(n)) {\n            // assignments such as a += 1 reads a.\n            addToSetIfLocal(lhs, gen);\n          }\n          computeGenKill(lhs.getNext(), gen, kill, conditional);\n        } else {\n          for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n            computeGenKill(c, gen, kill, conditional);\n          }\n        }\n        return;\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.LiveVariableAnalysisTest::testExpressionInForIn"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\nindex e107faa..7999db4 100644\n--- a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n+++ b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n@@ -203,12 +203,8 @@ class LiveVariablesAnalysis extends\n             // for(var x in y) {...}\n             lhs = lhs.getLastChild();\n           }\n+          if (NodeUtil.isName(lhs)) {\n             addToSetIfLocal(lhs, kill);\n             addToSetIfLocal(lhs, gen);\n+          } else {\n+            computeGenKill(lhs, gen, kill, conditional);\n+          }\n           computeGenKill(rhs, gen, kill, conditional);\n         }\n         return;",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

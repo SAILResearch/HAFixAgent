@@ -1,0 +1,193 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_43",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 04:59:44",
+      "end_time": "2026-06-30 05:02:03",
+      "duration_seconds": 139,
+      "duration_human": "2m 19s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 635193,
+      "output_tokens": 5098,
+      "total_tokens": 640291,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 635193
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\nindex df1f63ce..179b7729 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\n@@ -1031,7 +1031,7 @@ private void writeLocalFileHeader(final ZipArchiveEntry ze, final boolean phased\n \n         final long localHeaderStart = streamCompressor.getTotalBytesWritten();\n         final byte[] localHeader = createLocalFileHeader(ze, name, encodable, phased, localHeaderStart);\n-        metaData.put(ze, new EntryMetaData(localHeaderStart, usesDataDescriptor(ze.getMethod())));\n+        metaData.put(ze, new EntryMetaData(localHeaderStart, usesDataDescriptor(ze.getMethod(), phased)));\n         entry.localDataStart = localHeaderStart + LFH_CRC_OFFSET; // At crc offset\n         writeCounted(localHeader);\n         entry.dataStart = streamCompressor.getTotalBytesWritten();\n@@ -1072,7 +1072,7 @@ private void writeLocalFileHeader(final ZipArchiveEntry ze, final boolean phased\n \n         //store method in local variable to prevent multiple method calls\n         final int zipMethod = ze.getMethod();\n-        final boolean dataDescriptor = usesDataDescriptor(zipMethod);\n+        final boolean dataDescriptor = usesDataDescriptor(zipMethod, phased);\n \n         putShort(versionNeededToExtract(zipMethod, hasZip64Extra(ze), dataDescriptor), buf, LFH_VERSION_NEEDED_OFFSET);\n \n@@ -1489,8 +1489,8 @@ private int versionNeededToExtract(final int zipMethod, final boolean zip64, fin\n         return versionNeededToExtractMethod(zipMethod);\n     }\n \n-    private boolean usesDataDescriptor(final int zipMethod) {\n-        return zipMethod == DEFLATED && channel == null;\n+    private boolean usesDataDescriptor(final int zipMethod, final boolean phased) {\n+        return zipMethod == DEFLATED && channel == null && !phased;\n     }\n \n     private int versionNeededToExtractMethod(int zipMethod) {\n"
+  },
+  "timestamp": "2026-06-30 05:02:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_43",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_43",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "[Zip] Local `Version Needed To Extract` does not match Central Directory\nHi,\n\nThis is followup on an issue reported on Plexus Archiver - https://github.com/codehaus-plexus/plexus-archiver/issues/57\n\nPlexus Archiver uses {{ZipArchiveOutputStream}} to create zip archives. It constructs the {{ZipArchiveOutputStream}} using {{BufferedOutputStream}}. As a result the output do not provide random access and additional data descriptor records are added. Unfortunately this leads to different values being set for {{version needed to extract}} field in the local file header and in the central directory. It looks like that the root cause is the way the local header {{version needed to extract}} field value is calculated:\n{code:java}\n        if (phased &&  !isZip64Required(entry.entry, zip64Mode)){\n            putShort(INITIAL_VERSION, buf, LFH_VERSION_NEEDED_OFFSET);\n        } else {\n            putShort(versionNeededToExtract(zipMethod, hasZip64Extra(ze)), buf, LFH_VERSION_NEEDED_OFFSET);\n        }\n{code}\n\nAs you can see the need for data descriptors is not taken into account. On other hand when the central directory is created the following is used to determine the minimum required version\n\n{code:java}\n    private int versionNeededToExtract(final int zipMethod, final boolean zip64) {\n        if (zip64) {\n            return ZIP64_MIN_VERSION;\n        }\n        // requires version 2 as we are going to store length info\n        // in the data descriptor\n        return (isDeflatedToOutputStream(zipMethod)) ?\n                DATA_DESCRIPTOR_MIN_VERSION :\n                INITIAL_VERSION;\n    }\n{code}\n\nAs a side note: I'm not a zip expert by any means so I could be wrong, but my understanding is that if Deflate compression is used then the minimum required version should be 2.0 regardless if data descriptors are used or not.",
+    "commit_message": "COMPRESS-394/395 use same \"version needed to extract\" in LFH and CDH",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 435,
+        "end_line": 435,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 438,
+        "end_line": 438,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 439,
+        "end_line": 439,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1105,
+        "end_line": 1105,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1106,
+        "end_line": 1106,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 585,
+        "end_line": 585,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1089,
+        "end_line": 1089,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 530,
+        "end_line": 530,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 531,
+        "end_line": 531,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 532,
+        "end_line": 532,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.DataDescriptorTest::doesntWriteDataDescriptorWhenAddingRawEntries"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 435,
+      "end_line": 435,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 438,
+      "end_line": 438,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 439,
+      "end_line": 439,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 1105,
+      "end_line": 1105,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 1106,
+      "end_line": 1106,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 585,
+      "end_line": 585,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 1089,
+      "end_line": 1089,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 530,
+      "end_line": 530,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 531,
+      "end_line": 531,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+      "start_line": 532,
+      "end_line": 532,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

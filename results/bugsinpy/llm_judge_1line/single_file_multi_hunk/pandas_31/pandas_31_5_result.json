@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_31",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 19:41:59",
+      "end_time": "2026-03-23 19:50:41",
+      "duration_seconds": 521,
+      "duration_human": "8m 41s"
+    },
+    "model_cost": 0.026,
+    "model_calls": 20,
+    "token_usage": {
+      "input_tokens": 125340,
+      "output_tokens": 22626,
+      "total_tokens": 147966,
+      "cached_input_tokens": 63424,
+      "uncached_input_tokens": 61916
+    },
+    "agent_steps": 20,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 1474e173b4..69764d3722 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -1867,11 +1867,18 @@ class GroupBy(_GroupBy[FrameOrSeries]):\n                 )\n \n             inference = None\n-            if is_integer_dtype(vals):\n-                inference = np.int64\n-            elif is_datetime64_dtype(vals):\n+            if is_datetime64_dtype(vals):\n                 inference = \"datetime64[ns]\"\n                 vals = np.asarray(vals).astype(np.float)\n+            else:\n+                # For nullable arrays (Int64, boolean) and regular integer/boolean arrays,\n+                # convert to float64 for quantile calculation\n+                if hasattr(vals, 'to_numpy'):\n+                    # Handle pandas nullable arrays\n+                    vals = vals.to_numpy(dtype=np.float64, na_value=np.nan)\n+                elif vals.dtype.kind in ('i', 'u', 'b'):\n+                    # Regular integer, unsigned integer, or boolean arrays\n+                    vals = vals.astype(np.float64)\n \n             return vals, inference\n \ndiff --git a/pandas/tests/groupby/test_function.py b/pandas/tests/groupby/test_function.py\nindex 9c33843cdc..346de55f55 100644\n--- a/pandas/tests/groupby/test_function.py\n+++ b/pandas/tests/groupby/test_function.py\n@@ -1519,6 +1519,30 @@ def test_quantile_missing_group_values_correct_results():\n     tm.assert_frame_equal(result, expected)\n \n \n+@pytest.mark.parametrize(\n+    \"values\",\n+    [\n+        pd.array([1, 0, None] * 2, dtype=\"Int64\"),\n+        pd.array([True, False, None] * 2, dtype=\"boolean\"),\n+    ],\n+)\n+@pytest.mark.parametrize(\"q\", [0.5, [0.0, 0.5, 1.0]])\n+def test_groupby_quantile_nullable_array(values, q):\n+    # https://github.com/pandas-dev/pandas/issues/33136\n+    df = pd.DataFrame({\"a\": [\"x\"] * 3 + [\"y\"] * 3, \"b\": values})\n+    result = df.groupby(\"a\")[\"b\"].quantile(q)\n+\n+    if isinstance(q, list):\n+        idx = pd.MultiIndex.from_product(([\"x\", \"y\"], q), names=[\"a\", None])\n+        true_quantiles = [0.0, 0.5, 1.0]\n+    else:\n+        idx = pd.Index([\"x\", \"y\"], name=\"a\")\n+        true_quantiles = [0.5]\n+\n+    expected = pd.Series(true_quantiles * 2, index=idx, name=\"b\")\n+    tm.assert_series_equal(result, expected)\n+\n+\n # pipe\n # --------------------------------\n \n"
+  },
+  "timestamp": "2026-03-23 15:50:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_31",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_31/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix SeriesGroupBy.quantile for nullable integers (#33138)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1870,
+        "end_line": 1870,
+        "function_name": "pre_processor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1872,
+        "end_line": 1872,
+        "function_name": "pre_processor",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_function.py::test_groupby_quantile_nullable_array"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

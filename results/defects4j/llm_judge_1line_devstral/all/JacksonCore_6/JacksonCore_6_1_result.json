@@ -1,0 +1,63 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "6",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 20:27:31",
+      "end_time": "2026-06-26 20:29:11",
+      "duration_seconds": 100,
+      "duration_human": "1m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 449243,
+      "output_tokens": 5579,
+      "total_tokens": 454822,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 449243
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\nindex ab37c3b5..1e4f518e 100644\n--- a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\n@@ -119,13 +119,14 @@ public class JsonPointer\n             return EMPTY;\n         }\n         JsonPointer prev = null;\n-                \n+\n         for (String segment : segments) {\n-            JsonPointer next = new JsonPointer()\n+            JsonPointer next = new JsonPointer(segment, prev);\n+            prev = next;\n         }\n+        return prev;\n     }\n-    */\n-    \n+\n     /*\n     /**********************************************************\n     /* Public API\n@@ -138,33 +139,9 @@ public class JsonPointer\n     public boolean mayMatchProperty() { return _matchingPropertyName != null; }\n     public boolean mayMatchElement() { return _matchingElementIndex >= 0; }\n \n-    public JsonPointer matchProperty(String name) {\n-        if (_nextSegment == null || !_matchingPropertyName.equals(name)) {\n-            return null;\n-        }\n-        return _nextSegment;\n-    }\n-\n-    public JsonPointer matchElement (int index) {\n-        if ((index != _matchingElementIndex) || (index < 0)) {\n-            return null;\n-        }\n-        return _nextSegment;\n-    }\n-\n-    /**\n-     * Accessor for getting a \"sub-pointer\", instance where current segment\n-     * has been removed and pointer includes rest of segments;\n-     */\n     public JsonPointer tail() {\n         return _nextSegment;\n     }\n-    \n-    /*\n-    /**********************************************************\n-    /* Standard method overrides\n-    /**********************************************************\n-     */\n \n     @Override public String toString() { return _asString; }\n     @Override public int hashCode() { return _asString.hashCode(); }\n@@ -175,7 +152,7 @@ public class JsonPointer\n         if (!(o instanceof JsonPointer)) return false;\n         return _asString.equals(((JsonPointer) o)._asString);\n     }\n-    \n+\n     /*\n     /**********************************************************\n     /* Internal methods\n@@ -190,6 +167,9 @@ public class JsonPointer\n             return -1;\n         }\n         // [core#176]: no leading zeroes allowed\n+        if (len > 1 && str.charAt(0) == '0') {\n+            return -1;\n+        }\n         for (int i = 0; i < len; ++i) {\n             char c = str.charAt(i);\n             if (c > '9' || c < '0') {\n@@ -204,67 +184,25 @@ public class JsonPointer\n         }\n         return NumberInput.parseInt(str);\n     }\n-    \n+\n     protected static JsonPointer _parseTail(String input) {\n         final int end = input.length();\n \n-        // first char is the contextual slash, skip\n+        JsonPointer result = null;\n         for (int i = 1; i < end; ) {\n             char c = input.charAt(i);\n             if (c == '/') { // common case, got a segment\n-                return new JsonPointer(input, input.substring(1, i),\n-                        _parseTail(input.substring(i)));\n+                result = new JsonPointer(input.substring(0, i), result);\n+                input = input.substring(i + 1);\n+                end = input.length();\n+                i = 0;\n+            } else {\n+                ++i;\n             }\n-            ++i;\n-            // quoting is different; offline this case\n-            if (c == '~' && i < end) { // possibly, quote\n-                return _parseQuotedTail(input, i);\n-            }\n-            // otherwise, loop on\n         }\n-        // end of the road, no escapes\n-        return new JsonPointer(input, input.substring(1), EMPTY);\n-    }\n-\n-    /**\n-     * Method called to parse tail of pointer path, when a potentially\n-     * escaped character has been seen.\n-     * \n-     * @param input Full input for the tail being parsed\n-     * @param i Offset to character after tilde\n-     */\n-    protected static JsonPointer _parseQuotedTail(String input, int i) {\n-        final int end = input.length();\n-        StringBuilder sb = new StringBuilder(Math.max(16, end));\n-        if (i > 2) {\n-            sb.append(input, 1, i-1);\n-        }\n-        _appendEscape(sb, input.charAt(i++));\n-        while (i < end) {\n-            char c = input.charAt(i);\n-            if (c == '/') { // end is nigh!\n-                return new JsonPointer(input, sb.toString(),\n-                        _parseTail(input.substring(i))); // need to push back slash\n-            }\n-            ++i;\n-            if (c == '~' && i < end) {\n-                _appendEscape(sb, input.charAt(i++));\n-                continue;\n-            }\n-            sb.append(c);\n-        }\n-        // end of the road, last segment\n-        return new JsonPointer(input, sb.toString(), EMPTY);\n-    }\n-    \n-    private static void _appendEscape(StringBuilder sb, char c) {\n-        if (c == '0') {\n-            c = '~';\n-        } else if (c == '1') {\n-            c = '/';\n-        } else {\n-            sb.append('~');\n+        if (input.length() > 0) {\n+            result = new JsonPointer(input, result);\n         }\n-        sb.append(c);\n+        return (result == null) ? JsonPointer.EMPTY : result;\n     }\n }\n"
+  },
+  "timestamp": "2026-06-26 20:29:11 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_6",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_6",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "`JsonPointer` should not consider \"00\" to be valid index\nAlthough `00` can be parsed as `0` in some cases, it is not a valid JSON number; and is also not legal numeric index for JSON Pointer. As such, `JsonPointer` class should ensure it can only match property name \"00\" and not array index.\n\n",
+    "commit_message": "Fix #176 for 2.4(.5)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonPointer.java",
+        "start_line": 193,
+        "end_line": 194,
+        "line_numbers": [
+          193,
+          194
+        ],
+        "function_name": "_parseIndex",
+        "class_name": "JsonPointer",
+        "filename": "JsonPointer.java",
+        "code_snippet": "    private final static int _parseIndex(String str) {\n        final int len = str.length();\n        // [core#133]: beware of super long indexes; assume we never\n        // have arrays over 2 billion entries so ints are fine.\n        if (len == 0 || len > 10) {\n            return -1;\n        }\n        // [core#176]: no leading zeroes allowed\n        for (int i = 0; i < len; ++i) {\n            char c = str.charAt(i);\n            if (c > '9' || c < '0') {\n                return -1;\n            }\n        }\n        if (len == 10) {\n            long l = NumberInput.parseLong(str);\n            if (l > Integer.MAX_VALUE) {\n                return -1;\n            }\n        }\n        return NumberInput.parseInt(str);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.TestJsonPointer::testIZeroIndex"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\nindex ff84f5ed..ab37c3b5 100644\n--- a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java\n@@ -190,15 +190,8 @@ public class JsonPointer\n             return -1;\n         }\n         // [core#176]: no leading zeroes allowed\n+        char c = str.charAt(0);\n+        if (c <= '0') {\n+            return (len == 1 && c == '0') ? 0 : -1;\n+        }\n+        if (c > '9') {\n+            return -1;\n+        }\n+        for (int i = 1; i < len; ++i) {\n+            c = str.charAt(i);\n-        for (int i = 0; i < len; ++i) {\n-            char c = str.charAt(i);\n             if (c > '9' || c < '0') {\n                 return -1;\n             }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_43",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 11:02:22",
+      "end_time": "2026-06-17 11:37:18",
+      "duration_seconds": 2096,
+      "duration_human": "34m 56s"
+    },
+    "model_cost": 0.2138,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1288521,
+      "output_tokens": 45776,
+      "total_tokens": 1334297,
+      "cached_input_tokens": 566016,
+      "uncached_input_tokens": 722505
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/TypedScopeCreator.java b/src/com/google/javascript/jscomp/TypedScopeCreator.java\nindex 92d8715c0..4dd4a607e 100644\n--- a/src/com/google/javascript/jscomp/TypedScopeCreator.java\n+++ b/src/com/google/javascript/jscomp/TypedScopeCreator.java\n@@ -594,8 +594,23 @@ final class TypedScopeCreator implements ScopeCreator {\n         String lendsName = info.getLendsName();\n         Var lendsVar = scope.getVar(lendsName);\n         if (lendsVar == null) {\n-          compiler.report(\n-              JSError.make(sourceName, objectLit, UNKNOWN_LENDS, lendsName));\n+          // Try to handle Foo.prototype pattern for forward references\n+          if (lendsName.endsWith(\".prototype\")) {\n+            String constructorName = lendsName.substring(0, lendsName.length() - \".prototype\".length());\n+            Var constructorVar = scope.getVar(constructorName);\n+            if (constructorVar != null) {\n+              JSType constructorType = constructorVar.getType();\n+              if (constructorType != null && constructorType instanceof FunctionType) {\n+                FunctionType functionType = (FunctionType) constructorType;\n+                if (functionType.isConstructor() || functionType.isInterface()) {\n+                  type = functionType.getPrototype();\n+                }\n+              }\n+            }\n+          }\n+          // Don't report error for forward references\n+          // compiler.report(\n+          //     JSError.make(sourceName, objectLit, UNKNOWN_LENDS, lendsName));\n         } else {\n           type = lendsVar.getType();\n           if (type == null) {\n@@ -606,11 +621,16 @@ final class TypedScopeCreator implements ScopeCreator {\n                 JSError.make(sourceName, objectLit, LENDS_ON_NON_OBJECT,\n                     lendsName, type.toString()));\n             type = null;\n-          } else {\n-            objectLit.setJSType(type);\n           }\n         }\n-      }\n+        \n+        if (type != null) {\n+          objectLit.setJSType(type);\n+        }\n+        \n+        if (type != null) {\n+          objectLit.setJSType(type);\n+        }\n \n       info = NodeUtil.getBestJSDocInfo(objectLit);\n       Node lValue = NodeUtil.getBestLValue(objectLit);\ndiff --git a/src/com/google/javascript/rhino/JSDocInfoBuilder.java b/src/com/google/javascript/rhino/JSDocInfoBuilder.java\nindex 1d337b2ac..3285976d7 100644\n--- a/src/com/google/javascript/rhino/JSDocInfoBuilder.java\n+++ b/src/com/google/javascript/rhino/JSDocInfoBuilder.java\n@@ -932,15 +932,13 @@ final public class JSDocInfoBuilder {\n    * Records that we're lending to another name.\n    */\n   public boolean recordLends(String name) {\n-    if (!hasAnyTypeRelatedTags()) {\n-      currentInfo.setLendsName(name);\n-      populated = true;\n-      return true;\n-    } else {\n+    if (currentInfo.getLendsName() != null) {\n       return false;\n     }\n+    currentInfo.setLendsName(name);\n+    populated = true;\n+    return true;\n   }\n-\n   /**\n    * Whether the current doc info has other type tags, like\n    * {@code @param} or {@code @return} or {@code @type} or etc.\n"
+  },
+  "timestamp": "2026-06-17 11:37:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_43",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_43",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "@lends does not work unless class is defined beforehand\n<b>What steps will reproduce the problem?</b>\nWith advanced optimizations enabled as well as type checking (--jscomp_error=checkTypes), try to use @lends in the same way it's used on the jsdoc page at http://code.google.com/p/jsdoc-toolkit/wiki/TagLends - using either a utility method called &quot;makeClass&quot; or another method of class constructing such as John Resig's method at http://ejohn.org/blog/simple-javascript-inheritance/\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nExpected output is to have code compiled but instead I get a compile error such as:\r\n\r\nERROR - Variable Person.prototype not declared before @lends annotation.\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nLatest svn build, OS X.",
+    "commit_message": "defer evaluation of the @lends annotation fixes issue 314",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+        "start_line": 481,
+        "end_line": 481,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+        "start_line": 482,
+        "end_line": 482,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+        "start_line": 935,
+        "end_line": 935,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+        "start_line": 936,
+        "end_line": 936,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+        "start_line": 937,
+        "end_line": 937,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+        "start_line": 938,
+        "end_line": 938,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1175,
+        "end_line": 1175,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1176,
+        "end_line": 1176,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 1177,
+        "end_line": 1177,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+        "start_line": 476,
+        "end_line": 476,
+        "suspiciousness": 0.42640143271122083,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testLends10",
+      "com.google.javascript.jscomp.TypeCheckTest::testLends11"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+      "start_line": 481,
+      "end_line": 481,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+      "start_line": 482,
+      "end_line": 482,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+      "start_line": 935,
+      "end_line": 935,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+      "start_line": 936,
+      "end_line": 936,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+      "start_line": 937,
+      "end_line": 937,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfoBuilder.java",
+      "start_line": 938,
+      "end_line": 938,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1175,
+      "end_line": 1175,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1176,
+      "end_line": 1176,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 1177,
+      "end_line": 1177,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+      "start_line": 476,
+      "end_line": 476,
+      "suspiciousness": 0.42640143271122083,
+      "rank": 10
+    }
+  ]
+}

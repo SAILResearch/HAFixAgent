@@ -1,0 +1,89 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "4",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:24:27",
+      "end_time": "2026-06-26 19:25:58",
+      "duration_seconds": 91,
+      "duration_human": "1m 31s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 408489,
+      "output_tokens": 4074,
+      "total_tokens": 412563,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 408489
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex 4d016ffc..3928f60c 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -61,7 +61,12 @@ public class Entities {\n                 } catch (NumberFormatException e) {\n                 } // skip\n             } else {\n-                String name = m.group(1).toLowerCase();\n+                String name = m.group(1);\n+                if (!full.containsKey(name)) {\n+                    name = name.toLowerCase();\n+                }\n+                if (full.containsKey(name))\n+                    charval = full.get(name);\n                 if (full.containsKey(name))\n                     charval = full.get(name);\n             }\n"
+  },
+  "timestamp": "2026-06-26 19:25:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_4",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_4",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "uppercase umlauts get replaced by lowercase umlaut entities\nThe line\n\n```\nSystem.out.println(Jsoup.clean(\"<h1>\u00dcberschrift</h1>\", Whitelist.none()));\n```\n\nshould print\n\n```\n&Uuml;berschrift\n```\n\nbut prints\n\n```\n&uuml;berschrift\n```\n\nThis used to work correctly in v0.3.1, but fails in v1.2.3.\n\nWhile _baseArray_ in _Entities.java_ distinguishes between lowercase and uppercase umlauts, the above call yields the wrong result.\n\n",
+    "commit_message": "Fixed support for case-sensitive HTML escape entities.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 64,
+        "end_line": 64,
+        "line_numbers": [
+          64
+        ],
+        "function_name": "unescape",
+        "class_name": "Entities",
+        "filename": "Entities.java",
+        "code_snippet": "    static String unescape(String string) {\n        if (!string.contains(\"&\"))\n            return string;\n\n        Matcher m = unescapePattern.matcher(string); // &(#(x|X)?([0-9a-fA-F]+)|[a-zA-Z]+);?\n        StringBuffer accum = new StringBuffer(string.length()); // pity matcher can't use stringbuilder, avoid syncs\n\n        while (m.find()) {\n            int charval = -1;\n            String num = m.group(3);\n            if (num != null) {\n                try {\n                    int base = m.group(2) != null ? 16 : 10; // 2 is hex indicator\n                    charval = Integer.valueOf(num, base);\n                } catch (NumberFormatException e) {\n                } // skip\n            } else {\n                String name = m.group(1).toLowerCase();\n                if (full.containsKey(name))\n                    charval = full.get(name);\n            }\n\n            if (charval != -1 || charval > 0xFFFF) { // out of range\n                String c = Character.toString((char) charval);\n                m.appendReplacement(accum, c);\n            } else {\n                m.appendReplacement(accum, m.group(0)); // replace with original string\n            }\n        }\n        m.appendTail(accum);\n        return accum.toString();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 2235,
+        "end_line": 2235,
+        "line_numbers": [
+          2235
+        ],
+        "function_name": "",
+        "class_name": "Entities",
+        "filename": "Entities.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 2240,
+        "end_line": 2240,
+        "line_numbers": [
+          2240
+        ],
+        "function_name": "",
+        "class_name": "Entities",
+        "filename": "Entities.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.EntitiesTest::escape",
+      "org.jsoup.nodes.EntitiesTest::caseSensitive"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex ad825d3..4d016ff 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -61,7 +61,7 @@ public class Entities {\n                 } catch (NumberFormatException e) {\n                 } // skip\n             } else {\n+                String name = m.group(1);\n-                String name = m.group(1).toLowerCase();\n                 if (full.containsKey(name))\n                     charval = full.get(name);\n             }\n@@ -2232,12 +2232,12 @@ public class Entities {\n \n         for (Object[] entity : baseArray) {\n             Character c = Character.valueOf((char) ((Integer) entity[1]).intValue());\n+            baseByVal.put(c, ((String) entity[0]));\n-            baseByVal.put(c, ((String) entity[0]).toLowerCase());\n         }\n         for (Object[] entity : fullArray) {\n             Character c = Character.valueOf((char) ((Integer) entity[1]).intValue());\n             full.put((String) entity[0], c);\n+            fullByVal.put(c, ((String) entity[0]));\n-            fullByVal.put(c, ((String) entity[0]).toLowerCase());\n         }\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

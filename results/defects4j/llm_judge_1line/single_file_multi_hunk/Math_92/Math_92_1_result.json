@@ -1,0 +1,79 @@
+{
+  "project_name": "Math",
+  "bug_id": "92",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 13:23:03",
+      "end_time": "2025-09-30 13:25:05",
+      "duration_seconds": 122,
+      "duration_human": "2m 2s"
+    },
+    "model_cost": 0.0065,
+    "model_calls": 15,
+    "token_usage": {
+      "input_tokens": 66386,
+      "output_tokens": 1780,
+      "total_tokens": 68166,
+      "cached_input_tokens": 61312,
+      "uncached_input_tokens": 5074
+    },
+    "agent_steps": 16,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java\nindex 1ae554ced..5c45f7720 100644\n--- a/src/java/org/apache/commons/math/util/MathUtils.java\n+++ b/src/java/org/apache/commons/math/util/MathUtils.java\n@@ -181,55 +181,47 @@ public final class MathUtils {\n         if ((k == 1) || (k == n - 1)) {\n             return n;\n         }\n-        long result = Math.round(binomialCoefficientDouble(n, k));\n-        if (result == Long.MAX_VALUE) {\n-            throw new ArithmeticException(\n-                \"result too large to represent in a long integer\");\n-        }\n         // Use symmetry for large k\n+        if (k > n / 2) {\n+            return binomialCoefficient(n, n - k);\n+        }\n         \n         // We use the formula\n         // (n choose k) = n! / (n-k)! / k!\n-        // (n choose k) == ((n-k+1)*...*n) / (1*...*k)\n         // which could be written\n         // (n choose k) == (n-1 choose k-1) * n / k\n+        long result = 1;\n+        if (n <= 61) {\n             // For n <= 61, the naive implementation cannot overflow.\n+            int i = n - k + 1;\n+            for (int j = 1; j <= k; j++) {\n+                result = result * i / j;\n+                i++;\n+            }\n+        } else if (n <= 66) {\n             // For n > 61 but n <= 66, the result cannot overflow,\n             // but we must take care not to overflow intermediate values.\n-                // We know that (result * i) is divisible by j,\n-                // but (result * i) may overflow, so we split j:\n-                // Filter out the gcd, d, so j/d and i/d are integer.\n-                // result is divisible by (j/d) because (j/d)\n-                // is relative prime to (i/d) and is a divisor of\n-                // result * (i/d).\n+            long d;\n+            int i = n - k + 1;\n+            for (int j = 1; j <= k; j++) {\n+                d = gcd(i, j);\n+                result = (result / (j / d)) * (i / d);\n+                i++;\n+            }\n+        } else {\n             // For n > 66, a result overflow might occur, so we check\n             // the multiplication, taking care to not overflow\n             // unnecessary.\n+            long d;\n+            int i = n - k + 1;\n+            for (int j = 1; j <= k; j++) {\n+                d = gcd(i, j);\n+                result = mulAndCheck(result / (j / d), i / d);\n+                i++;\n+            }\n+        }\n         return result;\n     }\n-\n-    /**\n-     * Returns a <code>double</code> representation of the <a\n-     * href=\"http://mathworld.wolfram.com/BinomialCoefficient.html\"> Binomial\n-     * Coefficient</a>, \"<code>n choose k</code>\", the number of\n-     * <code>k</code>-element subsets that can be selected from an\n-     * <code>n</code>-element set.\n-     * <p>\n-     * <Strong>Preconditions</strong>:\n-     * <ul>\n-     * <li> <code>0 <= k <= n </code> (otherwise\n-     * <code>IllegalArgumentException</code> is thrown)</li>\n-     * <li> The result is small enough to fit into a <code>double</code>. The\n-     * largest value of <code>n</code> for which all coefficients are <\n-     * Double.MAX_VALUE is 1029. If the computed value exceeds Double.MAX_VALUE,\n-     * Double.POSITIVE_INFINITY is returned</li>\n-     * </ul></p>\n-     * \n-     * @param n the size of the set\n-     * @param k the size of the subsets to be counted\n-     * @return <code>n choose k</code>\n-     * @throws IllegalArgumentException if preconditions are not met.\n-     */\n     public static double binomialCoefficientDouble(final int n, final int k) {\n         \n   \n"
+  },
+  "timestamp": "2025-09-30 13:25:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_92",
+    "repo_path": "/defects4j/framework/bin/temp/Math_92",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "MathUtils.binomialCoefficient(n,k) fails for large results\nProbably due to rounding errors, MathUtils.binomialCoefficient(n,k) fails for results near Long.MAX_VALUE.\n\nThe existence of failures can be demonstrated by testing the recursive property:\n\n{noformat}\n         assertEquals(MathUtils.binomialCoefficient(65,32) + MathUtils.binomialCoefficient(65,33),\n                 MathUtils.binomialCoefficient(66,33));\n{noformat}\n\nOr by directly using the (externally calculated and hopefully correct) expected value:\n\n{noformat}\n         assertEquals(7219428434016265740L, MathUtils.binomialCoefficient(66,33));\n{noformat}\n\nI suggest a nonrecursive test implementation along the lines of\n\n{code:title=MathUtilsTest.java|borderStyle=solid}\n    /**\n     * Exact implementation using BigInteger and the explicit formula\n     * (n, k) == ((k-1)*...*n) / (1*...*(n-k))\n     */\n\tpublic static long binomialCoefficient(int n, int k) {\n\t\tif (k == 0 || k == n)\n\t\t\treturn 1;\n\t\tBigInteger result = BigInteger.ONE;\n\t\tfor (int i = k + 1; i <= n; i++) {\n\t\t\tresult = result.multiply(BigInteger.valueOf(i));\n\t\t}\n\t\tfor (int i = 1; i <= n - k; i++) {\n\t\t\tresult = result.divide(BigInteger.valueOf(i));\n\t\t}\n\t\tif (result.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0) {\n\t\t\tthrow new ArithmeticException(\n                                \"Binomial coefficient overflow: \" + n + \", \" + k);\n\t\t}\n\t\treturn result.longValue();\n\t}\n{code} \n\nWhich would allow you to test the expected values directly:\n\n{noformat}\n         assertEquals(binomialCoefficient(66,33), MathUtils.binomialCoefficient(66,33));\n{noformat}\n",
+    "commit_message": "Fixed error in binomial coefficient computation JIRA: MATH-241 Reported and patched by Christian Semrau",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+        "start_line": 184,
+        "end_line": 188,
+        "line_numbers": [
+          184,
+          185,
+          186,
+          187,
+          188
+        ],
+        "function_name": "binomialCoefficient",
+        "class_name": "MathUtils",
+        "filename": "MathUtils.java",
+        "code_snippet": "    public static long binomialCoefficient(final int n, final int k) {\n        if (n < k) {\n            throw new IllegalArgumentException(\n                \"must have n >= k for binomial coefficient (n,k)\");\n        }\n        if (n < 0) {\n            throw new IllegalArgumentException(\n                \"must have n >= 0 for binomial coefficient (n,k)\");\n        }\n        if ((n == k) || (k == 0)) {\n            return 1;\n        }\n        if ((k == 1) || (k == n - 1)) {\n            return n;\n        }\n        long result = Math.round(binomialCoefficientDouble(n, k));\n        if (result == Long.MAX_VALUE) {\n            throw new ArithmeticException(\n                \"result too large to represent in a long integer\");\n        }\n        // Use symmetry for large k\n        \n        // We use the formula\n        // (n choose k) = n! / (n-k)! / k!\n        // (n choose k) == ((n-k+1)*...*n) / (1*...*k)\n        // which could be written\n        // (n choose k) == (n-1 choose k-1) * n / k\n            // For n <= 61, the naive implementation cannot overflow.\n            // For n > 61 but n <= 66, the result cannot overflow,\n            // but we must take care not to overflow intermediate values.\n                // We know that (result * i) is divisible by j,\n                // but (result * i) may overflow, so we split j:\n                // Filter out the gcd, d, so j/d and i/d are integer.\n                // result is divisible by (j/d) because (j/d)\n                // is relative prime to (i/d) and is a divisor of\n                // result * (i/d).\n            // For n > 66, a result overflow might occur, so we check\n            // the multiplication, taking care to not overflow\n            // unnecessary.\n        return result;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+        "start_line": 236,
+        "end_line": 236,
+        "line_numbers": [
+          236
+        ],
+        "function_name": "binomialCoefficientDouble",
+        "class_name": "MathUtils",
+        "filename": "MathUtils.java",
+        "code_snippet": "    public static double binomialCoefficientDouble(final int n, final int k) {\n        \n  \n        return Math.floor(Math.exp(binomialCoefficientLog(n, k)) + 0.5);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.util.MathUtilsTest::testBinomialCoefficientLarge"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java\nindex 03c92eb..1ae554c 100644\n--- a/src/java/org/apache/commons/math/util/MathUtils.java\n+++ b/src/java/org/apache/commons/math/util/MathUtils.java\n@@ -181,43 +181,30 @@ public final class MathUtils {\n         if ((k == 1) || (k == n - 1)) {\n             return n;\n         }\n-        long result = Math.round(binomialCoefficientDouble(n, k));\n-        if (result == Long.MAX_VALUE) {\n-            throw new ArithmeticException(\n-                \"result too large to represent in a long integer\");\n-        }\n         // Use symmetry for large k\n+        if (k > n / 2)\n+            return binomialCoefficient(n, n - k);\n         \n         // We use the formula\n         // (n choose k) = n! / (n-k)! / k!\n         // (n choose k) == ((n-k+1)*...*n) / (1*...*k)\n         // which could be written\n         // (n choose k) == (n-1 choose k-1) * n / k\n+        long result = 1;\n+        if (n <= 61) {\n             // For n <= 61, the naive implementation cannot overflow.\n+            for (int j = 1, i = n - k + 1; j <= k; i++, j++) {\n+                result = result * i / j;\n+            }\n+        } else if (n <= 66) {\n             // For n > 61 but n <= 66, the result cannot overflow,\n             // but we must take care not to overflow intermediate values.\n+            for (int j = 1, i = n - k + 1; j <= k; i++, j++) {\n                 // We know that (result * i) is divisible by j,\n                 // but (result * i) may overflow, so we split j:\n                 // Filter out the gcd, d, so j/d and i/d are integer.\n                 // result is divisible by (j/d) because (j/d)\n                 // is relative prime to (i/d) and is a divisor of\n                 // result * (i/d).\n+                long d = gcd(i, j);\n+                result = (result / (j / d)) * (i / d);\n+            }\n+        } else {\n             // For n > 66, a result overflow might occur, so we check\n             // the multiplication, taking care to not overflow\n             // unnecessary.\n+            for (int j = 1, i = n - k + 1; j <= k; i++, j++) {\n+                long d = gcd(i, j);\n+                result = mulAndCheck((result / (j / d)), (i / d));\n+            }\n+        }\n         return result;\n     }\n \n@@ -244,33 +231,9 @@ public final class MathUtils {\n      * @throws IllegalArgumentException if preconditions are not met.\n      */\n     public static double binomialCoefficientDouble(final int n, final int k) {\n+        if (n < k) {\n+            throw new IllegalArgumentException(\n+                \"must have n >= k for binomial coefficient (n,k)\");\n+        }\n+        if (n < 0) {\n+            throw new IllegalArgumentException(\n+                \"must have n >= 0 for binomial coefficient (n,k)\");\n+        }\n+        if ((n == k) || (k == 0)) {\n+            return 1d;\n+        }\n+        if ((k == 1) || (k == n - 1)) {\n+            return n;\n+        }\n+        if (k > n/2) {\n+            return binomialCoefficientDouble(n, n - k);\n+        }\n+        if (n < 67) {\n+            return binomialCoefficient(n,k);\n+        }\n         \n+        double result = 1d;\n+        for (int i = 1; i <= k; i++) {\n+             result *= (double)(n - k + i) / (double)i;\n+        }\n   \n+        return Math.floor(result + 0.5);\n-        return Math.floor(Math.exp(binomialCoefficientLog(n, k)) + 0.5);\n     }\n     \n     /**\n@@ -311,17 +274,11 @@ public final class MathUtils {\n          * For values small enough to do exact integer computation,\n          * return the log of the exact value \n          */\n+        if (n < 67) {  \n+            return Math.log(binomialCoefficient(n,k));\n+        }\n         \n         /*\n          * Return the log of binomialCoefficientDouble for values that will not\n          * overflow binomialCoefficientDouble\n          */\n+        if (n < 1030) { \n+            return Math.log(binomialCoefficientDouble(n, k));\n+        } \n         \n         /*\n          * Sum logs for values that could overflow",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

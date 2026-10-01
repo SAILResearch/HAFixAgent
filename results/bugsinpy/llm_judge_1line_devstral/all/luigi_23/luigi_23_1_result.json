@@ -1,0 +1,60 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_23",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:00:37",
+      "end_time": "2026-06-27 18:01:31",
+      "duration_seconds": 54,
+      "duration_human": "54.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 477480,
+      "output_tokens": 2253,
+      "total_tokens": 479733,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 477480
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/interface.py b/luigi/interface.py\nindex 0a15fc69..6fde1597 100644\n--- a/luigi/interface.py\n+++ b/luigi/interface.py\n@@ -105,11 +105,7 @@ class core(task.Config):\n         default=False,\n         description='Run any task from the scheduler.')\n \n-\n-class WorkerSchedulerFactory(object):\n-\n-    def create_local_scheduler(self):\n-        return scheduler.CentralPlannerScheduler()\n+    prune_on_get_work = parameter.BoolParameter(default=False)\n \n     def create_remote_scheduler(self, host, port):\n         return rpc.RemoteScheduler(host=host, port=port)\ndiff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex bbd00efa..21503a2b 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -85,6 +85,7 @@ class scheduler(Config):\n     state_path = parameter.Parameter(default='/var/lib/luigi-server/state.pickle')\n \n     # Jobs are disabled if we see more than disable_failures failures in disable_window seconds.\n+    prune_on_get_work = parameter.BoolParameter(default=False)\n     # These disables last for disable_persist seconds.\n     disable_window = parameter.IntParameter(default=3600,\n                                             config_path=dict(section='scheduler', name='disable-window-seconds'))\n@@ -104,7 +105,7 @@ class scheduler(Config):\n \n def fix_time(x):\n     # Backwards compatibility for a fix in Dec 2014. Prior to the fix, pickled state might store datetime objects\n-    # Let's remove this function soon\n+    prune_on_get_work = parameter.BoolParameter(default=False)\n     if isinstance(x, datetime.datetime):\n         return time.mktime(x.timetuple())\n     else:\n@@ -424,7 +425,7 @@ class SimpleTaskState(object):\n                 task.remove = time.time() + config.remove_delay\n \n         # If a running worker disconnects, tag all its jobs as FAILED and subject it to the same retry logic\n-        if task.status == RUNNING and task.worker_running and task.worker_running not in task.stakeholders | assistants:\n+        if task.status == RUNNING and task.worker_running and task.worker_running not in task.stakeholders | set(assistants):\n             logger.info(\"Task %r is marked as running by disconnected worker %r -> marking as \"\n                         \"FAILED with retry delay of %rs\", task.id, task.worker_running,\n                         config.retry_delay)\n@@ -783,6 +784,7 @@ class CentralPlannerScheduler(Scheduler):\n             self._state.set_status(best_task, RUNNING, self._config)\n             best_task.worker_running = worker_id\n             best_task.time_running = time.time()\n+            self._state.prune(best_task, self._config, assistants=[])\n             self._update_task_history(best_task.id, RUNNING, host=host)\n \n             reply['task_id'] = best_task.id\ndiff --git a/test/worker_external_task_test.py b/test/worker_external_task_test.py\nindex 6c398a33..ba2ec35a 100644\n--- a/test/worker_external_task_test.py\n+++ b/test/worker_external_task_test.py\n@@ -80,7 +80,8 @@ class WorkerExternalTaskTest(unittest.TestCase):\n                                                  worker_disconnect_delay=3,\n                                                  disable_persist=3,\n                                                  disable_window=5,\n-                                                 disable_failures=2)\n+                                                 disable_failures=2,\n+                                                 prune_on_get_work=True)\n \n     def _assert_complete(self, tasks):\n         for t in tasks:\n@@ -127,15 +128,6 @@ class WorkerExternalTaskTest(unittest.TestCase):\n                                                            'retry-external-tasks',\n                                                            False) is True\n \n-        original_get_work = self.scheduler.get_work\n-\n-        def decorated_get_work(*args, **kwargs):\n-            # need to call `prune()` to make the scheduler run the retry logic\n-            self.scheduler.prune()\n-            return original_get_work(*args, **kwargs)\n-\n-        self.scheduler.get_work = decorated_get_work\n-\n         tempdir = tempfile.mkdtemp(prefix='luigi-test-')\n \n         with patch('random.randint', return_value=0.1):\n"
+  },
+  "timestamp": "2026-06-27 18:01:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_23",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_23/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Fix #1023 add pruning on get_work of local scheduler",
+    "fault_locations": [
+      {
+        "file": "luigi/interface.py",
+        "start_line": 112,
+        "end_line": 112,
+        "function_name": "create_local_scheduler",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 230,
+        "end_line": 230,
+        "function_name": "__init__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/worker_external_task_test.py::WorkerExternalTaskTest::test_external_dependency_completes_later"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

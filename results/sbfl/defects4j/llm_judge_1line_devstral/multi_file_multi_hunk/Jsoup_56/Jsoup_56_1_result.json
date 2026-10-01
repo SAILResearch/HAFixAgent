@@ -1,0 +1,191 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_56",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 15:35:41",
+      "end_time": "2026-06-29 15:38:27",
+      "duration_seconds": 166,
+      "duration_human": "2m 46s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 486833,
+      "output_tokens": 5738,
+      "total_tokens": 492571,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 486833
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/nodes/DocumentType.java b/src/main/java/org/jsoup/nodes/DocumentType.java\nindex cd0c8df4..265bb2a2 100644\n--- a/src/main/java/org/jsoup/nodes/DocumentType.java\n+++ b/src/main/java/org/jsoup/nodes/DocumentType.java\n@@ -14,6 +14,8 @@ public class DocumentType extends Node {\n     private static final String NAME = \"name\";\n     private static final String PUBLIC_ID = \"publicId\";\n     private static final String SYSTEM_ID = \"systemId\";\n+    private static final String HAS_PUBLIC_KEYWORD = \"hasPublicKeyword\";\n+    private static final String HAS_SYSTEM_KEYWORD = \"hasSystemKeyword\";\n     // todo: quirk mode from publicId and systemId\n \n     /**\n@@ -29,6 +31,9 @@ public class DocumentType extends Node {\n         attr(NAME, name);\n         attr(PUBLIC_ID, publicId);\n         attr(SYSTEM_ID, systemId);\n+        // When created via constructor, assume no keywords unless explicitly set\n+        attr(HAS_PUBLIC_KEYWORD, \"false\");\n+        attr(HAS_SYSTEM_KEYWORD, \"false\");\n     }\n \n     /**\n@@ -39,6 +44,24 @@ public class DocumentType extends Node {\n      * @param baseUri the doctype's base URI\n      */\n \n+    /**\n+     * Create a new doctype element with keyword information.\n+     * @param name the doctype's name\n+     * @param publicId the doctype's public ID\n+     * @param systemId the doctype's system ID\n+     * @param baseUri the doctype's base URI\n+     * @param hasPublicKeyword whether PUBLIC keyword was present\n+     * @param hasSystemKeyword whether SYSTEM keyword was present\n+     */\n+    public DocumentType(String name, String publicId, String systemId, String baseUri, boolean hasPublicKeyword, boolean hasSystemKeyword) {\n+        super(baseUri);\n+\n+        attr(NAME, name);\n+        attr(PUBLIC_ID, publicId);\n+        attr(SYSTEM_ID, systemId);\n+        attr(HAS_PUBLIC_KEYWORD, Boolean.toString(hasPublicKeyword));\n+        attr(HAS_SYSTEM_KEYWORD, Boolean.toString(hasSystemKeyword));\n+    }\n \n     @Override\n     public String nodeName() {\n@@ -55,10 +78,16 @@ public class DocumentType extends Node {\n         }\n         if (has(NAME))\n             accum.append(\" \").append(attr(NAME));\n-        if (has(PUBLIC_ID))\n+        if (hasPublicKeyword())\n             accum.append(\" PUBLIC \\\"\").append(attr(PUBLIC_ID)).append('\"');\n-        if (has(SYSTEM_ID))\n+        if (hasSystemKeyword()) {\n+            if (hasPublicKeyword())\n+                accum.append(\" \\\"\").append(attr(SYSTEM_ID)).append('\"');\n+            else\n+                accum.append(\" SYSTEM \\\"\").append(attr(SYSTEM_ID)).append('\"');\n+        } else if (has(SYSTEM_ID)) {\n             accum.append(\" \\\"\").append(attr(SYSTEM_ID)).append('\"');\n+        }\n         accum.append('>');\n     }\n \n@@ -69,4 +98,12 @@ public class DocumentType extends Node {\n     private boolean has(final String attribute) {\n         return !StringUtil.isBlank(attr(attribute));\n     }\n+\n+    private boolean hasPublicKeyword() {\n+        return Boolean.parseBoolean(attr(HAS_PUBLIC_KEYWORD));\n+    }\n+\n+    private boolean hasSystemKeyword() {\n+        return Boolean.parseBoolean(attr(HAS_SYSTEM_KEYWORD));\n+    }\n }\ndiff --git a/src/main/java/org/jsoup/parser/Token.java b/src/main/java/org/jsoup/parser/Token.java\nindex 0eccbbe4..d3ad7658 100644\n--- a/src/main/java/org/jsoup/parser/Token.java\n+++ b/src/main/java/org/jsoup/parser/Token.java\n@@ -34,6 +34,8 @@ abstract class Token {\n         final StringBuilder name = new StringBuilder();\n         final StringBuilder publicIdentifier = new StringBuilder();\n         final StringBuilder systemIdentifier = new StringBuilder();\n+        boolean hasPublicKeyword = false;\n+        boolean hasSystemKeyword = false;\n         boolean forceQuirks = false;\n \n         Doctype() {\n@@ -45,6 +47,8 @@ abstract class Token {\n             reset(name);\n             reset(publicIdentifier);\n             reset(systemIdentifier);\n+            hasPublicKeyword = false;\n+            hasSystemKeyword = false;\n             forceQuirks = false;\n             return this;\n         }\n@@ -62,6 +66,13 @@ abstract class Token {\n             return systemIdentifier.toString();\n         }\n \n+        public boolean hasPublicKeyword() {\n+            return hasPublicKeyword;\n+        }\n+\n+        public boolean hasSystemKeyword() {\n+            return hasSystemKeyword;\n+        }\n         public boolean isForceQuirks() {\n             return forceQuirks;\n         }\ndiff --git a/src/main/java/org/jsoup/parser/TokeniserState.java b/src/main/java/org/jsoup/parser/TokeniserState.java\nindex 24c2f890..3ee7a8af 100644\n--- a/src/main/java/org/jsoup/parser/TokeniserState.java\n+++ b/src/main/java/org/jsoup/parser/TokeniserState.java\n@@ -1192,9 +1192,11 @@ enum TokeniserState {\n                 t.emitDoctypePending();\n                 t.advanceTransition(Data);\n             } else if (r.matchConsumeIgnoreCase(DocumentType.PUBLIC_KEY)) {\n-                t.transition(AfterDoctypePublicKeyword);\n+                t.doctypePending.hasPublicKeyword = true;\n+            t.transition(AfterDoctypePublicKeyword);\n             } else if (r.matchConsumeIgnoreCase(DocumentType.SYSTEM_KEY)) {\n-                t.transition(AfterDoctypeSystemKeyword);\n+                t.doctypePending.hasSystemKeyword = true;\n+            t.transition(AfterDoctypeSystemKeyword);\n             } else {\n                 t.error(this);\n                 t.doctypePending.forceQuirks = true;\ndiff --git a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\nindex 2ac525fc..ca215d9f 100644\n--- a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n@@ -97,7 +97,7 @@ public class XmlTreeBuilder extends TreeBuilder {\n     }\n \n     void insert(Token.Doctype d) {\n-        DocumentType doctypeNode = new DocumentType(settings.normalizeTag(d.getName()), d.getPublicIdentifier(), d.getSystemIdentifier(), baseUri);\n+        DocumentType doctypeNode = new DocumentType(settings.normalizeTag(d.getName()), d.getPublicIdentifier(), d.getSystemIdentifier(), baseUri, d.hasPublicKeyword(), d.hasSystemKeyword());\n         insertNode(doctypeNode);\n     }\n \n"
+  },
+  "timestamp": "2026-06-29 15:38:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_56",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_56",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Jsoup.parse seems to remove system identifier in DOCTYPE\nSpecifically when I call:\r\n```\r\nDocument doc = Jsoup.parse(xhtml, \"\", Parser.xmlParser());\r\n```\r\non a xhtml document that has the following doctype:\r\n\r\n```\r\n<!DOCTYPE html SYSTEM \"exampledtdfile.dtd\">\r\n```\r\nI end up with the following result in the document (SYSTEM is now missing):\r\n\r\n```\r\n<!DOCTYPE html \"exampledtdfile.dtd\"> \r\n```\r\n\r\nBut this works fine on a document with:\r\n\r\n```\r\n <!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\"> \r\n```\r\n\r\nSince SYSTEM is a proper way of declaring a DTD, I believe this is an issue with Jsoup.\r\n\n",
+    "commit_message": "Fixed handling of public/system flag in doctypes",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 121,
+        "end_line": 121,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 124,
+        "end_line": 124,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 125,
+        "end_line": 125,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 126,
+        "end_line": 126,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 49,
+        "end_line": 49,
+        "suspiciousness": 0.5,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 50,
+        "end_line": 50,
+        "suspiciousness": 0.5,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 100,
+        "end_line": 100,
+        "suspiciousness": 0.5,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 101,
+        "end_line": 101,
+        "suspiciousness": 0.5,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 102,
+        "end_line": 102,
+        "suspiciousness": 0.5,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.DocumentTypeTest::testRoundTrip"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 121,
+      "end_line": 121,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 124,
+      "end_line": 124,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 125,
+      "end_line": 125,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 126,
+      "end_line": 126,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 49,
+      "end_line": 49,
+      "suspiciousness": 0.5,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 50,
+      "end_line": 50,
+      "suspiciousness": 0.5,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 100,
+      "end_line": 100,
+      "suspiciousness": 0.5,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 101,
+      "end_line": 101,
+      "suspiciousness": 0.5,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 102,
+      "end_line": 102,
+      "suspiciousness": 0.5,
+      "rank": 10
+    }
+  ]
+}

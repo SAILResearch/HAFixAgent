@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_46",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 00:03:46",
+      "end_time": "2026-03-24 00:23:03",
+      "duration_seconds": 1157,
+      "duration_human": "19m 17s"
+    },
+    "model_cost": 0.0544,
+    "model_calls": 42,
+    "token_usage": {
+      "input_tokens": 344820,
+      "output_tokens": 43934,
+      "total_tokens": 388754,
+      "cached_input_tokens": 209984,
+      "uncached_input_tokens": 134836
+    },
+    "agent_steps": 42,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/reshape/util.py b/pandas/core/reshape/util.py\nindex d8652c9b4f..ad41602a43 100644\n--- a/pandas/core/reshape/util.py\n+++ b/pandas/core/reshape/util.py\n@@ -51,9 +51,15 @@ def cartesian_product(X):\n         # if any factor is empty, the cartesian product is empty\n         b = np.zeros_like(cumprodX)\n \n-    return [\n-        np.tile(\n-            np.repeat(np.asarray(com.values_from_object(x)), b[i]), np.product(a[i])\n-        )\n-        for i, x in enumerate(X)\n-    ]\n+    result = []\n+    for i, x in enumerate(X):\n+        if hasattr(x, \"tz\") and x.tz is not None:\n+            # For timezone-aware DatetimeIndex, use take to preserve timezone\n+            indices = np.tile(np.repeat(np.arange(len(x)), b[i]), np.product(a[i]))\n+            result.append(x.take(indices))\n+        else:\n+            arr = np.asarray(com.values_from_object(x))\n+            repeated = np.repeat(arr, b[i])\n+            tiled = np.tile(repeated, np.product(a[i]))\n+            result.append(tiled)\n+    return result\ndiff --git a/pandas/tests/reshape/test_pivot.py b/pandas/tests/reshape/test_pivot.py\nindex 75c3c565e9..cdb1a73abc 100644\n--- a/pandas/tests/reshape/test_pivot.py\n+++ b/pandas/tests/reshape/test_pivot.py\n@@ -1026,6 +1026,14 @@ class TestPivotTable:\n \n         tm.assert_frame_equal(result, expected)\n \n+    def test_pivot_table_retains_tz(self):\n+        dti = date_range(\"2016-01-01\", periods=3, tz=\"Europe/Amsterdam\")\n+        df = DataFrame({\"A\": np.random.randn(3), \"B\": np.random.randn(3), \"C\": dti})\n+        result = df.pivot_table(index=[\"B\", \"C\"], dropna=False)\n+\n+        # check tz retention\n+        assert result.index.levels[1].equals(dti)\n+\n     def test_pivot_integer_columns(self):\n         # caused by upstream bug in unstack\n \n"
+  },
+  "timestamp": "2026-03-23 20:23:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_46",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_46/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: pivot_table losing tz (#32558)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/reshape/util.py",
+        "start_line": 5,
+        "end_line": 6,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/reshape/util.py",
+        "start_line": 54,
+        "end_line": 59,
+        "function_name": "cartesian_product",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/test_pivot.py::TestPivotTable::test_pivot_table_retains_tz"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

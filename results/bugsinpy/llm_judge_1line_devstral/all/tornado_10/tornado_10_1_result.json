@@ -1,0 +1,137 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_10",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:50:00",
+      "end_time": "2026-06-27 18:50:59",
+      "duration_seconds": 59,
+      "duration_human": "59.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 309828,
+      "output_tokens": 3082,
+      "total_tokens": 312910,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 309828
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/gen.py b/tornado/gen.py\nindex 99f91066..39faecbc 100644\n--- a/tornado/gen.py\n+++ b/tornado/gen.py\n@@ -73,64 +73,6 @@ See the `convert_yielded` function to extend this mechanism.\n    Support added for yielding ``asyncio`` Futures and Twisted Deferreds\n    via ``singledispatch``.\n \n-\"\"\"\n-from __future__ import absolute_import, division, print_function\n-\n-import collections\n-import functools\n-import itertools\n-import os\n-import sys\n-import textwrap\n-import types\n-import weakref\n-\n-from tornado.concurrent import Future, TracebackFuture, is_future, chain_future\n-from tornado.ioloop import IOLoop\n-from tornado.log import app_log\n-from tornado import stack_context\n-from tornado.util import PY3, raise_exc_info\n-\n-try:\n-    try:\n-        # py34+\n-        from functools import singledispatch  # type: ignore\n-    except ImportError:\n-        from singledispatch import singledispatch  # backport\n-except ImportError:\n-    # In most cases, singledispatch is required (to avoid\n-    # difficult-to-diagnose problems in which the functionality\n-    # available differs depending on which invisble packages are\n-    # installed). However, in Google App Engine third-party\n-    # dependencies are more trouble so we allow this module to be\n-    # imported without it.\n-    if 'APPENGINE_RUNTIME' not in os.environ:\n-        raise\n-    singledispatch = None\n-\n-try:\n-    try:\n-        # py35+\n-        from collections.abc import Generator as GeneratorType  # type: ignore\n-    except ImportError:\n-        from backports_abc import Generator as GeneratorType  # type: ignore\n-\n-    try:\n-        # py35+\n-        from inspect import isawaitable  # type: ignore\n-    except ImportError:\n-        from backports_abc import isawaitable\n-except ImportError:\n-    if 'APPENGINE_RUNTIME' not in os.environ:\n-        raise\n-    from types import GeneratorType\n-\n-    def isawaitable(x):  # type: ignore\n-        return False\n-\n-if PY3:\n-    import builtins\n-else:\n     import __builtin__ as builtins\n \n \n@@ -151,15 +93,6 @@ class BadYieldError(Exception):\n \n \n class ReturnValueIgnoredError(Exception):\n-    pass\n-\n-\n-class TimeoutError(Exception):\n-    \"\"\"Exception raised by ``with_timeout``.\"\"\"\n-\n-\n-def _value_from_stopiteration(e):\n-    try:\n         # StopIteration has a value attribute beginning in py33.\n         # So does our Return class.\n         return e.value\n@@ -170,53 +103,16 @@ def _value_from_stopiteration(e):\n         # e.args[0].\n         return e.args[0]\n     except (AttributeError, IndexError):\n-        return None\n-\n-\n-def engine(func):\n-    \"\"\"Callback-oriented decorator for asynchronous generators.\n-\n-    This is an older interface; for new code that does not need to be\n-    compatible with versions of Tornado older than 3.0 the\n-    `coroutine` decorator is recommended instead.\n \n     This decorator is similar to `coroutine`, except it does not\n     return a `.Future` and the ``callback`` argument is not treated\n     specially.\n \n-    In most cases, functions decorated with `engine` should take\n-    a ``callback`` argument and invoke it with their result when\n-    they are finished.  One notable exception is the\n-    `~tornado.web.RequestHandler` :ref:`HTTP verb methods <verbs>`,\n-    which use ``self.finish()`` in place of a callback argument.\n-    \"\"\"\n-    func = _make_coroutine_wrapper(func, replace_callback=False)\n-\n-    @functools.wraps(func)\n-    def wrapper(*args, **kwargs):\n-        future = func(*args, **kwargs)\n-\n-        def final_callback(future):\n-            if future.result() is not None:\n                 raise ReturnValueIgnoredError(\n                     \"@gen.engine functions cannot return values: %r\" %\n                     (future.result(),))\n         # The engine interface doesn't give us any way to return\n         # errors but to raise them into the stack context.\n-        # Save the stack context here to use when the Future has resolved.\n-        future.add_done_callback(stack_context.wrap(final_callback))\n-    return wrapper\n-\n-\n-def coroutine(func, replace_callback=True):\n-    \"\"\"Decorator for asynchronous generators.\n-\n-    Any generator that yields objects from this module must be wrapped\n-    in either this decorator or `engine`.\n-\n-    Coroutines may \"return\" by raising the special exception\n-    `Return(value) <Return>`.  In Python 3.3+, it is also possible for\n-    the function to simply use the ``return value`` statement (prior to\n     Python 3.3 generators were not allowed to also return values).\n     In all versions of Python a coroutine that simply wishes to exit\n     early may use the ``return`` statement without a value.\n@@ -237,20 +133,6 @@ def coroutine(func, replace_callback=True):\n        When exceptions occur inside a coroutine, the exception\n        information will be stored in the `.Future` object. You must\n        examine the result of the `.Future` object, or the exception\n-       may go unnoticed by your code. This means yielding the function\n-       if called from another coroutine, using something like\n-       `.IOLoop.run_sync` for top-level calls, or passing the `.Future`\n-       to `.IOLoop.add_future`.\n-\n-    \"\"\"\n-    return _make_coroutine_wrapper(func, replace_callback=True)\n-\n-\n-# Ties lifetime of runners to their result futures. Github Issue #1769\n-# Generators, like any object in Python, must be strong referenced\n-# in order to not be cleaned up by the garbage collector. When using\n-# coroutines, the Runner object is what strong-refs the inner\n-# generator. However, the only item that strong-reffed the Runner\n # was the last Future that the inner generator yielded (via the\n # Future's internal done_callback list). Usually this is enough, but\n # it is also possible for this Future to not have any strong references\ndiff --git a/tornado/test/websocket_test.py b/tornado/test/websocket_test.py\nindex 7bdca877..d47a74e6 100644\n--- a/tornado/test/websocket_test.py\n+++ b/tornado/test/websocket_test.py\n@@ -8,6 +8,7 @@ from tornado.concurrent import Future\n from tornado import gen\n from tornado.httpclient import HTTPError, HTTPRequest\n from tornado.log import gen_log, app_log\n+from tornado.template import DictLoader\n from tornado.testing import AsyncHTTPTestCase, gen_test, bind_unused_port, ExpectLog\n from tornado.test.util import unittest, skipBefore35, exec_test\n from tornado.web import Application, RequestHandler\n@@ -130,6 +131,11 @@ class CoroutineOnMessageHandler(TestWebSocketHandler):\n         self.write_message(message)\n \n \n+class RenderMessageHandler(TestWebSocketHandler):\n+    def on_message(self, message):\n+        self.write_message(self.render_string('message.html', message=message))\n+\n+\n class WebSocketBaseTestCase(AsyncHTTPTestCase):\n     @gen.coroutine\n     def ws_connect(self, path, **kwargs):\n@@ -168,7 +174,15 @@ class WebSocketTest(WebSocketBaseTestCase):\n              dict(close_future=self.close_future)),\n             ('/coroutine', CoroutineOnMessageHandler,\n              dict(close_future=self.close_future)),\n-        ])\n+            ('/render', RenderMessageHandler,\n+             dict(close_future=self.close_future)),\n+        ], template_loader=DictLoader({\n+            'message.html': '<b>{{ message }}</b>',\n+        }))\n+\n+    def tearDown(self):\n+        super(WebSocketTest, self).tearDown()\n+        RequestHandler._template_loaders.clear()\n \n     def test_http_request(self):\n         # WS server, HTTP client.\n@@ -219,6 +233,14 @@ class WebSocketTest(WebSocketBaseTestCase):\n         self.assertEqual(response, u'hello \\u00e9')\n         yield self.close(ws)\n \n+    @gen_test\n+    def test_render_message(self):\n+        ws = yield self.ws_connect('/render')\n+        ws.write_message('hello')\n+        response = yield ws.read_message()\n+        self.assertEqual(response, '<b>hello</b>')\n+        yield self.close(ws)\n+\n     @gen_test\n     def test_error_in_on_message(self):\n         ws = yield self.ws_connect('/error_in_on_message')\n"
+  },
+  "timestamp": "2026-06-27 18:50:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_10",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_10/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "websocket: Fix use of render_string in websocket handlers",
+    "fault_locations": [
+      {
+        "file": "tornado/web.py",
+        "start_line": 995,
+        "end_line": 996,
+        "function_name": "finish",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/web.py",
+        "start_line": 996,
+        "end_line": 997,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/web.py",
+        "start_line": 997,
+        "end_line": 998,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 436,
+        "end_line": 437,
+        "function_name": "on_connection_close",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 437,
+        "end_line": 438,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 438,
+        "end_line": 439,
+        "function_name": "send_error",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 439,
+        "end_line": 440,
+        "function_name": "send_error",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 440,
+        "end_line": 441,
+        "function_name": "send_error",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 441,
+        "end_line": 442,
+        "function_name": "send_error",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 442,
+        "end_line": 443,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 443,
+        "end_line": 444,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 444,
+        "end_line": 445,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/websocket.py",
+        "start_line": 445,
+        "end_line": 446,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.websocket_test.WebSocketTest.test_render_message"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "JxPath",
+  "bug_id": "JxPath_9",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 21:23:24",
+      "end_time": "2026-06-28 21:26:24",
+      "duration_seconds": 180,
+      "duration_human": "3m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 686348,
+      "output_tokens": 5875,
+      "total_tokens": 692223,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 686348
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\nindex 26875b8..b0a9dbc 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\n@@ -34,10 +34,19 @@ import org.apache.commons.jxpath.ri.axes.SelfContext;\n  * @version $Revision$ $Date$\n  */\n public abstract class CoreOperationCompare extends CoreOperation {\n+    private boolean invert;\n \n     public CoreOperationCompare(Expression arg1, Expression arg2) {\n+        this(arg1, arg2, false);\n+    }\n \n+    protected CoreOperationCompare(Expression arg1, Expression arg2, boolean invert) {\n         super(new Expression[] { arg1, arg2 });\n+        this.invert = invert;\n+    }\n+\n+    public Object computeValue(EvalContext context) {\n+        return equal(context, args[0], args[1]) ? Boolean.TRUE : Boolean.FALSE;\n     }\n \n \n@@ -120,11 +129,6 @@ public abstract class CoreOperationCompare extends CoreOperation {\n     }\n \n     protected boolean equal(Object l, Object r) {\n-        if (l instanceof Pointer && r instanceof Pointer) {\n-            if (l.equals(r)) {\n-                return true;\n-            }\n-        }\n         if (l instanceof Pointer) {\n             l = ((Pointer) l).getValue();\n         }\n@@ -133,21 +137,28 @@ public abstract class CoreOperationCompare extends CoreOperation {\n             r = ((Pointer) r).getValue();\n         }\n \n-        if (l == r) {\n-            return true;\n-        }\n+        boolean result;\n         if (l instanceof Boolean || r instanceof Boolean) {\n-            return (InfoSetUtil.booleanValue(l) == InfoSetUtil.booleanValue(r));\n-            }\n+            result = l == r || InfoSetUtil.booleanValue(l) == InfoSetUtil.booleanValue(r);\n+        } else if (l instanceof Number || r instanceof Number) {\n             //if either side is NaN, no comparison returns true:\n-        if (l instanceof Number || r instanceof Number) {\n-            return (InfoSetUtil.doubleValue(l) == InfoSetUtil.doubleValue(r));\n+            double ld = InfoSetUtil.doubleValue(l);\n+            if (Double.isNaN(ld)) {\n+                return false;\n             }\n+            double rd = InfoSetUtil.doubleValue(r);\n+            if (Double.isNaN(rd)) {\n+                return false;\n+            }\n+            result = ld == rd;\n+        } else {\n             if (l instanceof String || r instanceof String) {\n-            return (\n-                InfoSetUtil.stringValue(l).equals(InfoSetUtil.stringValue(r)));\n+                l = InfoSetUtil.stringValue(l);\n+                r = InfoSetUtil.stringValue(r);\n+            }\n+            result = l == r || l != null && l.equals(r);\n         }\n-        return l != null && l.equals(r);\n+        return result ^ invert;\n     }\n \n }\ndiff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationEqual.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationEqual.java\nindex baca531..801e7fb 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationEqual.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationEqual.java\n@@ -28,9 +28,6 @@ public class CoreOperationEqual extends CoreOperationCompare {\n         super(arg1, arg2);\n     }\n \n-    public Object computeValue(org.apache.commons.jxpath.ri.EvalContext context) {\n-        return equal(context, args[0], args[1]) ? Boolean.TRUE : Boolean.FALSE;\n-    }\n     public String getSymbol() {\n         return \"=\";\n     }\ndiff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationNotEqual.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationNotEqual.java\nindex 6754f46..aad3f5f 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationNotEqual.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationNotEqual.java\n@@ -25,12 +25,9 @@ package org.apache.commons.jxpath.ri.compiler;\n public class CoreOperationNotEqual extends CoreOperationCompare {\n \n     public CoreOperationNotEqual(Expression arg1, Expression arg2) {\n-        super(arg1, arg2);\n+        super(arg1, arg2, true);\n     }\n \n-    public Object computeValue(org.apache.commons.jxpath.ri.EvalContext context) {\n-        return equal(context, args[0], args[1]) ? Boolean.FALSE : Boolean.TRUE;\n-    }\n     public String getSymbol() {\n         return \"!=\";\n     }\n"
+  },
+  "timestamp": "2026-06-28 21:26:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JxPath",
+    "bug_id": "JxPath_9",
+    "repo_path": "/defects4j/framework/bin/temp/JxPath_9",
+    "github_url": "https://github.com/apache/commons-jxpath.git",
+    "description": "Comparing with NaN is incorrect\n'NaN' > 'NaN' is true, but should be FALSE",
+    "commit_message": "[JXPATH-95] part 2: fix NaN inequality comparisons",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/Parser.java",
+        "start_line": 34,
+        "end_line": 34,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 201,
+        "end_line": 201,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 2
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 211,
+        "end_line": 211,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 3
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 213,
+        "end_line": 213,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 4
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 214,
+        "end_line": 214,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 5
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 215,
+        "end_line": 215,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 6
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 222,
+        "end_line": 222,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 7
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 224,
+        "end_line": 224,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 8
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 228,
+        "end_line": 228,
+        "suspiciousness": 0.9984214670506179,
+        "rank": 9
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/compiler/TreeCompiler.java",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 0.9815935186553858,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.jxpath.ri.compiler.CoreOperationTest::testNan"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/Parser.java",
+      "start_line": 34,
+      "end_line": 34,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 201,
+      "end_line": 201,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 2
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 211,
+      "end_line": 211,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 3
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 213,
+      "end_line": 213,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 4
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 214,
+      "end_line": 214,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 5
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 215,
+      "end_line": 215,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 6
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 222,
+      "end_line": 222,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 7
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 224,
+      "end_line": 224,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 8
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 228,
+      "end_line": 228,
+      "suspiciousness": 0.9984214670506179,
+      "rank": 9
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/compiler/TreeCompiler.java",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 0.9815935186553858,
+      "rank": 10
+    }
+  ]
+}

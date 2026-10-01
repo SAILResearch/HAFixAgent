@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "112",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:31:25",
+      "end_time": "2026-06-20 00:33:54",
+      "duration_seconds": 149,
+      "duration_human": "2m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 996170,
+      "output_tokens": 3729,
+      "total_tokens": 999899,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 996170
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/maven-build.xml b/maven-build.xml\nindex 354f5c00a..ee1abd443 100644\n--- a/maven-build.xml\n+++ b/maven-build.xml\n@@ -107,7 +107,7 @@\n           description=\"Compile the test code\" \n           unless=\"maven.test.skip\">\n     <mkdir dir=\"${maven.build.testOutputDir}\"/>\n-    <javac destdir=\"${maven.build.testOutputDir}\" \n+    <javac encoding=\"UTF-8\" destdir=\"${maven.build.testOutputDir}\" \n            nowarn=\"true\" \n            debug=\"true\" \n            optimize=\"true\" \n"
+  },
+  "timestamp": "2026-06-20 00:33:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_112",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_112",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`StringCollectionDeserializer` fails with custom collection\nSeeing this with Jackson 2.9.8.\r\n\r\nWe have a custom collection implementation, which is wired to use its \"immutable\" version for deserialization. The rationale is that we don't want accidental modifications to the data structures that come from the wire, so they all are forced to be immutable.\r\n\r\nAfter upgrade from 2.6.3 to 2.9.8, the deserialization started breaking with the message:\r\n\r\n>Cannot construct instance of `XXX` (although at least one Creator exists): no default no-arguments constructor found\r\n\r\n\r\nThis happens ONLY when you deserialize a custom collection of strings as a property of the other object. Deserializing the custom collection of strings directly works fine, and so does the deserialization of custom collection of non-strings. I believe either the `StringCollectionDeserializer` should not be invoked for custom collections, or perhaps it does not handle the delegation as expected.\r\n\r\nPlease see comments for repro and workaround.\r\n\r\nThanks!\n",
+    "commit_message": "Fix #2324",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java",
+        "start_line": 107,
+        "end_line": 107,
+        "line_numbers": [
+          107
+        ],
+        "function_name": "createContextual",
+        "class_name": "StringCollectionDeserializer",
+        "filename": "StringCollectionDeserializer.java",
+        "code_snippet": "    public JsonDeserializer<?> createContextual(DeserializationContext ctxt,\n            BeanProperty property) throws JsonMappingException\n    {\n        // May need to resolve types for delegate-based creators:\n        JsonDeserializer<Object> delegate = null;\n        if (_valueInstantiator != null) {\n            // [databind#2324]: check both array-delegating and delegating\n            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n            if (delegateCreator != null) {\n                JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n                delegate = findDeserializer(ctxt, delegateType, property);\n            }\n        }\n        JsonDeserializer<?> valueDeser = _valueDeserializer;\n        final JavaType valueType = _containerType.getContentType();\n        if (valueDeser == null) {\n            // [databind#125]: May have a content converter\n            valueDeser = findConvertingContentDeserializer(ctxt, property, valueDeser);\n            if (valueDeser == null) {\n            // And we may also need to get deserializer for String\n                valueDeser = ctxt.findContextualValueDeserializer(valueType, property);\n            }\n        } else { // if directly assigned, probably not yet contextual, so:\n            valueDeser = ctxt.handleSecondaryContextualization(valueDeser, property, valueType);\n        }\n        // 11-Dec-2015, tatu: Should we pass basic `Collection.class`, or more refined? Mostly\n        //   comes down to \"List vs Collection\" I suppose... for now, pass Collection\n        Boolean unwrapSingle = findFormatFeature(ctxt, property, Collection.class,\n                JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY);\n        NullValueProvider nuller = findContentNullProvider(ctxt, property, valueDeser);\n        if (isDefaultDeserializer(valueDeser)) {\n            valueDeser = null;\n        }\n        return withResolved(delegate, valueDeser, nuller, unwrapSingle);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.creators.DelegatingArrayCreator2324Test::testDeserializeBagOfStrings"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\nindex 0bf2e12a1..f50ca3629 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n@@ -104,11 +104,8 @@ public final class StringCollectionDeserializer\n         JsonDeserializer<Object> delegate = null;\n         if (_valueInstantiator != null) {\n             // [databind#2324]: check both array-delegating and delegating\n+            AnnotatedWithParams delegateCreator = _valueInstantiator.getArrayDelegateCreator();\n-            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n             if (delegateCreator != null) {\n+                JavaType delegateType = _valueInstantiator.getArrayDelegateType(ctxt.getConfig());\n+                delegate = findDeserializer(ctxt, delegateType, property);\n+            } else if ((delegateCreator = _valueInstantiator.getDelegateCreator()) != null) {\n                 JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n                 delegate = findDeserializer(ctxt, delegateType, property);\n             }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

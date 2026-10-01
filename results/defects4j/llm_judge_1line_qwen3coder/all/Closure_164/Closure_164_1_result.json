@@ -1,0 +1,103 @@
+{
+  "project_name": "Closure",
+  "bug_id": "164",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:09:29",
+      "end_time": "2026-06-20 01:15:01",
+      "duration_seconds": 332,
+      "duration_human": "5m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 711451,
+      "output_tokens": 5088,
+      "total_tokens": 716539,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 711451
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/rhino/jstype/ArrowType.java b/src/com/google/javascript/rhino/jstype/ArrowType.java\nindex 1c900acd9..d09be9366 100644\n--- a/src/com/google/javascript/rhino/jstype/ArrowType.java\n+++ b/src/com/google/javascript/rhino/jstype/ArrowType.java\n@@ -125,13 +125,25 @@ final class ArrowType extends JSType {\n \n       boolean thisIsVarArgs = thisParam.isVarArgs();\n       boolean thatIsVarArgs = thatParam.isVarArgs();\n+      boolean thisIsOptional = thisIsVarArgs || thisParam.isOptionalArg();\n+      boolean thatIsOptional = thatIsVarArgs || thatParam.isOptionalArg();\n \n       // \"that\" can't be a supertype, because it's missing a required argument.\n+      if (!thisIsOptional && thatIsOptional) {\n         // NOTE(nicksantos): In our type system, we use {function(...?)} and\n         // {function(...NoType)} to to indicate that arity should not be\n         // checked. Strictly speaking, this is not a correct formulation,\n         // because now a sub-function can required arguments that are var_args\n         // in the super-function. So we special-case this.\n+        boolean isTopFunction =\n+            thatIsVarArgs &&\n+            (thatParamType == null ||\n+             thatParamType.isUnknownType() ||\n+             thatParamType.isNoType());\n+        if (!isTopFunction) {\n+          return false;\n+        }\n+      }\n \n       // don't advance if we have variable arguments\n       if (!thisIsVarArgs) {\n@@ -149,8 +161,14 @@ final class ArrowType extends JSType {\n     }\n \n     // \"that\" can't be a supertype, because it's missing a required arguement.\n+    if (thisParam != null\n+        && !thisParam.isOptionalArg() && !thisParam.isVarArgs()\n+        && thatParam == null) {\n+      return false;\n+    }\n \n     return true;\n+\n   }\n \n   /**\n"
+  },
+  "timestamp": "2026-06-20 01:15:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_164",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_164",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "{function(number, string)} should not be assignable to {function(number)}\nConsider the following snippet. I don't think the &quot;second call&quot; should compile. As a side note: it would be great if none of the compiled in some pseudo-strict compile mode.\r\n\r\n/** @param {function(string,number):boolean} param */\r\nfunction func(param) {}\r\n\r\n/** @type {function(string,number,boolean):boolean} */\r\nfunction paramFunc1() {}\r\n\r\n/** @type {function(string):boolean} */\r\nfunction paramFunc2() {}\r\n\r\n// first call\r\nfunc(paramFunc1);\r\n\r\n// second call\r\nfunc(paramFunc2);",
+    "commit_message": "It doesn't make sense for a subclass method to require arguments that aren't required by the superclass method.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ArrowType.java",
+        "start_line": 127,
+        "end_line": 127,
+        "line_numbers": [
+          127
+        ],
+        "function_name": "isSubtype",
+        "class_name": "ArrowType",
+        "filename": "ArrowType.java",
+        "code_snippet": "  public boolean isSubtype(JSType other) {\n    if (!(other instanceof ArrowType)) {\n      return false;\n    }\n\n    ArrowType that = (ArrowType) other;\n\n    // This is described in Draft 2 of the ES4 spec,\n    // Section 3.4.7: Subtyping Function Types.\n\n    // this.returnType <: that.returnType (covariant)\n    if (!this.returnType.isSubtype(that.returnType)) {\n      return false;\n    }\n\n    // that.paramType[i] <: this.paramType[i] (contravariant)\n    //\n    // If this.paramType[i] is required,\n    // then that.paramType[i] is required.\n    //\n    // In theory, the \"required-ness\" should work in the other direction as\n    // well. In other words, if we have\n    //\n    // function f(number, number) {}\n    // function g(number) {}\n    //\n    // Then f *should* not be a subtype of g, and g *should* not be\n    // a subtype of f. But in practice, we do not implement it this way.\n    // We want to support the use case where you can pass g where f is\n    // expected, and pretend that g ignores the second argument.\n    // That way, you can have a single \"no-op\" function, and you don't have\n    // to create a new no-op function for every possible type signature.\n    //\n    // So, in this case, g < f, but f !< g\n    Node thisParam = parameters.getFirstChild();\n    Node thatParam = that.parameters.getFirstChild();\n    while (thisParam != null && thatParam != null) {\n      JSType thisParamType = thisParam.getJSType();\n      JSType thatParamType = thatParam.getJSType();\n      if (thisParamType != null) {\n        if (thatParamType == null ||\n            !thatParamType.isSubtype(thisParamType)) {\n          return false;\n        }\n      }\n\n      boolean thisIsVarArgs = thisParam.isVarArgs();\n      boolean thatIsVarArgs = thatParam.isVarArgs();\n\n      // \"that\" can't be a supertype, because it's missing a required argument.\n        // NOTE(nicksantos): In our type system, we use {function(...?)} and\n        // {function(...NoType)} to to indicate that arity should not be\n        // checked. Strictly speaking, this is not a correct formulation,\n        // because now a sub-function can required arguments that are var_args\n        // in the super-function. So we special-case this.\n\n      // don't advance if we have variable arguments\n      if (!thisIsVarArgs) {\n        thisParam = thisParam.getNext();\n      }\n      if (!thatIsVarArgs) {\n        thatParam = thatParam.getNext();\n      }\n\n      // both var_args indicates the end\n      if (thisIsVarArgs && thatIsVarArgs) {\n        thisParam = null;\n        thatParam = null;\n      }\n    }\n\n    // \"that\" can't be a supertype, because it's missing a required arguement.\n\n    return true;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ArrowType.java",
+        "start_line": 131,
+        "end_line": 131,
+        "line_numbers": [
+          131
+        ],
+        "function_name": "isSubtype",
+        "class_name": "ArrowType",
+        "filename": "ArrowType.java",
+        "code_snippet": "  public boolean isSubtype(JSType other) {\n    if (!(other instanceof ArrowType)) {\n      return false;\n    }\n\n    ArrowType that = (ArrowType) other;\n\n    // This is described in Draft 2 of the ES4 spec,\n    // Section 3.4.7: Subtyping Function Types.\n\n    // this.returnType <: that.returnType (covariant)\n    if (!this.returnType.isSubtype(that.returnType)) {\n      return false;\n    }\n\n    // that.paramType[i] <: this.paramType[i] (contravariant)\n    //\n    // If this.paramType[i] is required,\n    // then that.paramType[i] is required.\n    //\n    // In theory, the \"required-ness\" should work in the other direction as\n    // well. In other words, if we have\n    //\n    // function f(number, number) {}\n    // function g(number) {}\n    //\n    // Then f *should* not be a subtype of g, and g *should* not be\n    // a subtype of f. But in practice, we do not implement it this way.\n    // We want to support the use case where you can pass g where f is\n    // expected, and pretend that g ignores the second argument.\n    // That way, you can have a single \"no-op\" function, and you don't have\n    // to create a new no-op function for every possible type signature.\n    //\n    // So, in this case, g < f, but f !< g\n    Node thisParam = parameters.getFirstChild();\n    Node thatParam = that.parameters.getFirstChild();\n    while (thisParam != null && thatParam != null) {\n      JSType thisParamType = thisParam.getJSType();\n      JSType thatParamType = thatParam.getJSType();\n      if (thisParamType != null) {\n        if (thatParamType == null ||\n            !thatParamType.isSubtype(thisParamType)) {\n          return false;\n        }\n      }\n\n      boolean thisIsVarArgs = thisParam.isVarArgs();\n      boolean thatIsVarArgs = thatParam.isVarArgs();\n\n      // \"that\" can't be a supertype, because it's missing a required argument.\n        // NOTE(nicksantos): In our type system, we use {function(...?)} and\n        // {function(...NoType)} to to indicate that arity should not be\n        // checked. Strictly speaking, this is not a correct formulation,\n        // because now a sub-function can required arguments that are var_args\n        // in the super-function. So we special-case this.\n\n      // don't advance if we have variable arguments\n      if (!thisIsVarArgs) {\n        thisParam = thisParam.getNext();\n      }\n      if (!thatIsVarArgs) {\n        thatParam = thatParam.getNext();\n      }\n\n      // both var_args indicates the end\n      if (thisIsVarArgs && thatIsVarArgs) {\n        thisParam = null;\n        thatParam = null;\n      }\n    }\n\n    // \"that\" can't be a supertype, because it's missing a required arguement.\n\n    return true;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ArrowType.java",
+        "start_line": 137,
+        "end_line": 137,
+        "line_numbers": [
+          137
+        ],
+        "function_name": "isSubtype",
+        "class_name": "ArrowType",
+        "filename": "ArrowType.java",
+        "code_snippet": "  public boolean isSubtype(JSType other) {\n    if (!(other instanceof ArrowType)) {\n      return false;\n    }\n\n    ArrowType that = (ArrowType) other;\n\n    // This is described in Draft 2 of the ES4 spec,\n    // Section 3.4.7: Subtyping Function Types.\n\n    // this.returnType <: that.returnType (covariant)\n    if (!this.returnType.isSubtype(that.returnType)) {\n      return false;\n    }\n\n    // that.paramType[i] <: this.paramType[i] (contravariant)\n    //\n    // If this.paramType[i] is required,\n    // then that.paramType[i] is required.\n    //\n    // In theory, the \"required-ness\" should work in the other direction as\n    // well. In other words, if we have\n    //\n    // function f(number, number) {}\n    // function g(number) {}\n    //\n    // Then f *should* not be a subtype of g, and g *should* not be\n    // a subtype of f. But in practice, we do not implement it this way.\n    // We want to support the use case where you can pass g where f is\n    // expected, and pretend that g ignores the second argument.\n    // That way, you can have a single \"no-op\" function, and you don't have\n    // to create a new no-op function for every possible type signature.\n    //\n    // So, in this case, g < f, but f !< g\n    Node thisParam = parameters.getFirstChild();\n    Node thatParam = that.parameters.getFirstChild();\n    while (thisParam != null && thatParam != null) {\n      JSType thisParamType = thisParam.getJSType();\n      JSType thatParamType = thatParam.getJSType();\n      if (thisParamType != null) {\n        if (thatParamType == null ||\n            !thatParamType.isSubtype(thisParamType)) {\n          return false;\n        }\n      }\n\n      boolean thisIsVarArgs = thisParam.isVarArgs();\n      boolean thatIsVarArgs = thatParam.isVarArgs();\n\n      // \"that\" can't be a supertype, because it's missing a required argument.\n        // NOTE(nicksantos): In our type system, we use {function(...?)} and\n        // {function(...NoType)} to to indicate that arity should not be\n        // checked. Strictly speaking, this is not a correct formulation,\n        // because now a sub-function can required arguments that are var_args\n        // in the super-function. So we special-case this.\n\n      // don't advance if we have variable arguments\n      if (!thisIsVarArgs) {\n        thisParam = thisParam.getNext();\n      }\n      if (!thatIsVarArgs) {\n        thatParam = thatParam.getNext();\n      }\n\n      // both var_args indicates the end\n      if (thisIsVarArgs && thatIsVarArgs) {\n        thisParam = null;\n        thatParam = null;\n      }\n    }\n\n    // \"that\" can't be a supertype, because it's missing a required arguement.\n\n    return true;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ArrowType.java",
+        "start_line": 163,
+        "end_line": 163,
+        "line_numbers": [
+          163
+        ],
+        "function_name": "hasEqualParameters",
+        "class_name": "ArrowType",
+        "filename": "ArrowType.java",
+        "code_snippet": "  boolean hasEqualParameters(ArrowType that) {\n    Node thisParam = parameters.getFirstChild();\n    Node otherParam = that.parameters.getFirstChild();\n    while (thisParam != null && otherParam != null) {\n      JSType thisParamType = thisParam.getJSType();\n      JSType otherParamType = otherParam.getJSType();\n      if (thisParamType != null) {\n        // Both parameter lists give a type for this param, it should be equal\n        if (otherParamType != null &&\n            !thisParamType.isEquivalentTo(otherParamType)) {\n          return false;\n        }\n      } else {\n        if (otherParamType != null) {\n          return false;\n        }\n      }\n      thisParam = thisParam.getNext();\n      otherParam = otherParam.getNext();\n    }\n    // One of the parameters is null, so the types are only equal if both\n    // parameter lists are null (they are equal).\n    return thisParam == otherParam;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.LooseTypeCheckTest::testMethodInference7",
+      "com.google.javascript.jscomp.TypeCheckTest::testMethodInference7",
+      "com.google.javascript.rhino.jstype.FunctionTypeTest::testSupAndInfOfReturnTypesWithNumOfParams"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/rhino/jstype/ArrowType.java b/src/com/google/javascript/rhino/jstype/ArrowType.java\nindex 4b9583778..1c900acd9 100644\n--- a/src/com/google/javascript/rhino/jstype/ArrowType.java\n+++ b/src/com/google/javascript/rhino/jstype/ArrowType.java\n@@ -125,25 +125,13 @@ final class ArrowType extends JSType {\n \n       boolean thisIsVarArgs = thisParam.isVarArgs();\n       boolean thatIsVarArgs = thatParam.isVarArgs();\n+      boolean thisIsOptional = thisIsVarArgs || thisParam.isOptionalArg();\n+      boolean thatIsOptional = thatIsVarArgs || thatParam.isOptionalArg();\n \n       // \"that\" can't be a supertype, because it's missing a required argument.\n+      if (!thisIsOptional && thatIsOptional) {\n         // NOTE(nicksantos): In our type system, we use {function(...?)} and\n         // {function(...NoType)} to to indicate that arity should not be\n         // checked. Strictly speaking, this is not a correct formulation,\n         // because now a sub-function can required arguments that are var_args\n         // in the super-function. So we special-case this.\n+        boolean isTopFunction =\n+            thatIsVarArgs &&\n+            (thatParamType == null ||\n+             thatParamType.isUnknownType() ||\n+             thatParamType.isNoType());\n+        if (!isTopFunction) {\n+          return false;\n+        }\n+      }\n \n       // don't advance if we have variable arguments\n       if (!thisIsVarArgs) {\n@@ -161,11 +149,6 @@ final class ArrowType extends JSType {\n     }\n \n     // \"that\" can't be a supertype, because it's missing a required arguement.\n+    if (thisParam != null\n+        && !thisParam.isOptionalArg() && !thisParam.isVarArgs()\n+        && thatParam == null) {\n+      return false;\n+    }\n \n     return true;\n   }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

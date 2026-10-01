@@ -1,0 +1,119 @@
+{
+  "project_name": "Compress",
+  "bug_id": "33",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 12:04:38",
+      "end_time": "2026-06-20 12:07:00",
+      "duration_seconds": 142,
+      "duration_human": "2m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 698878,
+      "output_tokens": 3308,
+      "total_tokens": 702186,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 698878
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\nindex 935283aa..2fd5f135 100644\n--- a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n@@ -236,6 +236,10 @@ public class CompressorStreamFactory {\n             if (ZCompressorInputStream.matches(signature, signatureLength)) {\n                 return new ZCompressorInputStream(in);\n             }\n+            if (DeflateCompressorInputStream.matches(signature, signatureLength)) {\n+                return new DeflateCompressorInputStream(in);\n+            }\n+\n \n \n             if (XZUtils.matches(signature, signatureLength) &&\ndiff --git a/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\nindex 98d8ec12..579ff25b 100644\n--- a/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\n@@ -31,6 +31,12 @@ import org.apache.commons.compress.compressors.CompressorInputStream;\n  */\n public class DeflateCompressorInputStream extends CompressorInputStream {\n     \n+    private static final int MAGIC_1 = 0x78;\n+    private static final int MAGIC_2a = 0x01;\n+    private static final int MAGIC_2b = 0x5e;\n+    private static final int MAGIC_2c = 0x9c;\n+    private static final int MAGIC_2d = 0xda;\n+    \n     private final InputStream in;\n \n     /**\n@@ -89,7 +95,6 @@ public class DeflateCompressorInputStream extends CompressorInputStream {\n     public void close() throws IOException {\n         in.close();\n     }\n-    \n     /**\n      * Checks if the signature matches what is expected for a zlib / deflated file\n      *  with the zlib header.\n@@ -103,4 +108,11 @@ public class DeflateCompressorInputStream extends CompressorInputStream {\n      * \n      * @since 1.9\n      */\n+    public static boolean matches(byte[] signature, int length) {\n+        return length > 3 && signature[0] == MAGIC_1 && (\n+                signature[1] == (byte) MAGIC_2a ||\n+                signature[1] == (byte) MAGIC_2b ||\n+                signature[1] == (byte) MAGIC_2c ||\n+                signature[1] == (byte) MAGIC_2d);\n+    }\n }\n"
+  },
+  "timestamp": "2026-06-20 12:07:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_33",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_33",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "CompressorStreamFactory doesn't handle deflate streams with a zlib header\nIf you take a zlib / deflate compressed file, with the zlib header (eg the test file bla.tar.deflatez) and pass it to CompressorStreamFactory.createCompressorInputStream, it won't be detected and you'll get a CompressorException(\"No Compressor found for the stream signature.\")\n\nWhile detecting header-less zlib files is probably too tricky to manage, those with the header ought to be possible to spot and handle",
+    "commit_message": "COMPRESS-316 detect DEFLATE streams with ZLIB header, submitted by Nick Burch",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java",
+        "start_line": 239,
+        "end_line": 239,
+        "line_numbers": [
+          239
+        ],
+        "function_name": "createCompressorInputStream",
+        "class_name": "CompressorStreamFactory",
+        "filename": "CompressorStreamFactory.java",
+        "code_snippet": "    public CompressorInputStream createCompressorInputStream(final InputStream in)\n            throws CompressorException {\n        if (in == null) {\n            throw new IllegalArgumentException(\"Stream must not be null.\");\n        }\n\n        if (!in.markSupported()) {\n            throw new IllegalArgumentException(\"Mark is not supported.\");\n        }\n\n        final byte[] signature = new byte[12];\n        in.mark(signature.length);\n        try {\n            int signatureLength = IOUtils.readFully(in, signature);\n            in.reset();\n\n            if (BZip2CompressorInputStream.matches(signature, signatureLength)) {\n                return new BZip2CompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (GzipCompressorInputStream.matches(signature, signatureLength)) {\n                return new GzipCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (Pack200CompressorInputStream.matches(signature, signatureLength)) {\n                return new Pack200CompressorInputStream(in);\n            }\n\n            if (FramedSnappyCompressorInputStream.matches(signature, signatureLength)) {\n                return new FramedSnappyCompressorInputStream(in);\n            }\n\n            if (ZCompressorInputStream.matches(signature, signatureLength)) {\n                return new ZCompressorInputStream(in);\n            }\n\n\n            if (XZUtils.matches(signature, signatureLength) &&\n                XZUtils.isXZCompressionAvailable()) {\n                return new XZCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (LZMAUtils.matches(signature, signatureLength) &&\n                LZMAUtils.isLZMACompressionAvailable()) {\n                return new LZMACompressorInputStream(in);\n            }\n\n        } catch (IOException e) {\n            throw new CompressorException(\"Failed to detect Compressor from InputStream.\", e);\n        }\n\n        throw new CompressorException(\"No Compressor found for the stream signature.\");\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java",
+        "start_line": 32,
+        "end_line": 32,
+        "line_numbers": [
+          32
+        ],
+        "function_name": "",
+        "class_name": "DeflateCompressorInputStream",
+        "filename": "DeflateCompressorInputStream.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.compressors.DetectCompressorTestCase::testDetection"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\nindex 8dc3c525..935283aa 100644\n--- a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n@@ -237,9 +237,6 @@ public class CompressorStreamFactory {\n                 return new ZCompressorInputStream(in);\n             }\n \n+            if (DeflateCompressorInputStream.matches(signature, signatureLength)) {\n+                return new DeflateCompressorInputStream(in);\n+            }\n \n             if (XZUtils.matches(signature, signatureLength) &&\n                 XZUtils.isXZCompressionAvailable()) {\ndiff --git a/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\nindex b8ed1981..98d8ec12 100644\n--- a/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/deflate/DeflateCompressorInputStream.java\n@@ -30,11 +30,6 @@ import org.apache.commons.compress.compressors.CompressorInputStream;\n  * @since 1.9\n  */\n public class DeflateCompressorInputStream extends CompressorInputStream {\n+    private static final int MAGIC_1 = 0x78;\n+    private static final int MAGIC_2a = 0x01;\n+    private static final int MAGIC_2b = 0x5e;\n+    private static final int MAGIC_2c = 0x9c;\n+    private static final int MAGIC_2d = 0xda;\n     \n     private final InputStream in;\n \n@@ -108,11 +103,4 @@ public class DeflateCompressorInputStream extends CompressorInputStream {\n      * \n      * @since 1.9\n      */\n+    public static boolean matches(byte[] signature, int length) {\n+        return length > 3 && signature[0] == MAGIC_1 && (\n+                signature[1] == (byte) MAGIC_2a ||\n+                signature[1] == (byte) MAGIC_2b ||\n+                signature[1] == (byte) MAGIC_2c ||\n+                signature[1] == (byte) MAGIC_2d);\n+    }\n }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Stefan Bodewig",
+        "commit_date": "2014-04-12 12:16:53",
+        "commit_message": "COMPRESS-272 add auto-detect for .Z",
+        "commit_hash": "c5f9ceb3cb7a5822012fe33ecfc2d561f63697f8"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "matches"
+        ],
+        "functions_name_modified_file": [
+          "createCompressorInputStream",
+          "setDecompressConcatenated",
+          "CompressorStreamFactory",
+          "createCompressorOutputStream"
+        ],
+        "functions_name_all_files": [
+          "createCompressorInputStream",
+          "ZCompressorInputStream",
+          "clearEntries",
+          "readNextCode",
+          "CompressorStreamFactory",
+          "decompressNextSymbol",
+          "setDecompressConcatenated",
+          "matches",
+          "addEntry",
+          "createCompressorOutputStream",
+          "reAlignReading"
+        ],
+        "function_code_before": "    /**\n     * Create an compressor input stream from an input stream, autodetecting\n     * the compressor type from the first few bytes of the stream. The InputStream\n     * must support marks, like BufferedInputStream.\n     * \n     * @param in the input stream\n     * @return the compressor input stream\n     * @throws CompressorException if the compressor name is not known\n     * @throws IllegalArgumentException if the stream is null or does not support mark\n     * @since 1.1\n     */\n    public CompressorInputStream createCompressorInputStream(final InputStream in)\n            throws CompressorException {\n        if (in == null) {\n            throw new IllegalArgumentException(\"Stream must not be null.\");\n        }\n\n        if (!in.markSupported()) {\n            throw new IllegalArgumentException(\"Mark is not supported.\");\n        }\n\n        final byte[] signature = new byte[12];\n        in.mark(signature.length);\n        try {\n            int signatureLength = IOUtils.readFully(in, signature);\n            in.reset();\n\n            if (BZip2CompressorInputStream.matches(signature, signatureLength)) {\n                return new BZip2CompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (GzipCompressorInputStream.matches(signature, signatureLength)) {\n                return new GzipCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (XZUtils.isXZCompressionAvailable() &&\n                XZCompressorInputStream.matches(signature, signatureLength)) {\n                return new XZCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (Pack200CompressorInputStream.matches(signature, signatureLength)) {\n                return new Pack200CompressorInputStream(in);\n            }\n\n            if (FramedSnappyCompressorInputStream.matches(signature, signatureLength)) {\n                return new FramedSnappyCompressorInputStream(in);\n            }\n\n        } catch (IOException e) {\n            throw new CompressorException(\"Failed to detect Compressor from InputStream.\", e);\n        }\n\n        throw new CompressorException(\"No Compressor found for the stream signature.\");\n    }",
+        "function_code_after": "    /**\n     * Create an compressor input stream from an input stream, autodetecting\n     * the compressor type from the first few bytes of the stream. The InputStream\n     * must support marks, like BufferedInputStream.\n     * \n     * @param in the input stream\n     * @return the compressor input stream\n     * @throws CompressorException if the compressor name is not known\n     * @throws IllegalArgumentException if the stream is null or does not support mark\n     * @since 1.1\n     */\n    public CompressorInputStream createCompressorInputStream(final InputStream in)\n            throws CompressorException {\n        if (in == null) {\n            throw new IllegalArgumentException(\"Stream must not be null.\");\n        }\n\n        if (!in.markSupported()) {\n            throw new IllegalArgumentException(\"Mark is not supported.\");\n        }\n\n        final byte[] signature = new byte[12];\n        in.mark(signature.length);\n        try {\n            int signatureLength = IOUtils.readFully(in, signature);\n            in.reset();\n\n            if (BZip2CompressorInputStream.matches(signature, signatureLength)) {\n                return new BZip2CompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (GzipCompressorInputStream.matches(signature, signatureLength)) {\n                return new GzipCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (XZUtils.isXZCompressionAvailable() &&\n                XZCompressorInputStream.matches(signature, signatureLength)) {\n                return new XZCompressorInputStream(in, decompressConcatenated);\n            }\n\n            if (Pack200CompressorInputStream.matches(signature, signatureLength)) {\n                return new Pack200CompressorInputStream(in);\n            }\n\n            if (FramedSnappyCompressorInputStream.matches(signature, signatureLength)) {\n                return new FramedSnappyCompressorInputStream(in);\n            }\n\n            if (ZCompressorInputStream.matches(signature, signatureLength)) {\n                return new ZCompressorInputStream(in);\n            }\n\n        } catch (IOException e) {\n            throw new CompressorException(\"Failed to detect Compressor from InputStream.\", e);\n        }\n\n        throw new CompressorException(\"No Compressor found for the stream signature.\");\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java",
+          "src/main/java/org/apache/commons/compress/compressors/z/ZCompressorInputStream.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java": "diff --git a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\nindex 482cbcd0..0d7cdaa7 100644\n--- a/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/compressors/CompressorStreamFactory.java\n@@ -179,6 +179,10 @@ public class CompressorStreamFactory {\n                 return new FramedSnappyCompressorInputStream(in);\n             }\n \n+            if (ZCompressorInputStream.matches(signature, signatureLength)) {\n+                return new ZCompressorInputStream(in);\n+            }\n+\n         } catch (IOException e) {\n             throw new CompressorException(\"Failed to detect Compressor from InputStream.\", e);\n         }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "project_name": "Closure",
+  "bug_id": "23",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 20:50:53",
+      "end_time": "2025-10-01 20:57:34",
+      "duration_seconds": 401,
+      "duration_human": "6m 41s"
+    },
+    "model_cost": 0.0315,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 383503,
+      "output_tokens": 5577,
+      "total_tokens": 389080,
+      "cached_input_tokens": 372288,
+      "uncached_input_tokens": 11215
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex f777b1c20..49136e944 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1459,6 +1459,14 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n       return n;\n     }\n \n+\n+    // Check if any array elements that are being discarded have side effects\n+    current = left.getFirstChild();\n+    for (int i = 0; current != null; i++, current = current.getNext()) {\n+      if (i != intIndex && NodeUtil.mayHaveSideEffects(current)) {\n+        return n;\n+      }\n+    }\n     if (elem.isEmpty()) {\n       elem = NodeUtil.newUndefinedNode(elem);\n     } else {\n"
+  },
+  "timestamp": "2025-10-01 16:57:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_23",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_23",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "tryFoldArrayAccess does not check for side effects\n<b>What steps will reproduce the problem?</b>\n1. Compile the following program with simple or advanced optimization:\r\nconsole.log([console.log('hello, '), 'world!'][1]);\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nThe expected output would preserve side effects. It would not transform the program at all or transform it into:\r\n\r\nconsole.log((console.log(&quot;hello&quot;), &quot;world!&quot;));\r\n\r\nInstead, the program is transformed into:\r\n\r\nconsole.log(&quot;world!&quot;);\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nRevision 2022. Ubuntu 12.04.\r\n\r\n<b>Please provide any additional information below.</b>\ntryFoldArrayAccess in com.google.javascript.jscomp.PeepholeFoldConstants should check whether   every array element that is not going to be preserved has no side effects.",
+    "commit_message": "Don't fold arrays if they have side effects. Contributed by Robert Gust-Bardon Fixes issue 747",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PeepholeFoldConstants.java",
+        "start_line": 1451,
+        "end_line": 1451,
+        "line_numbers": [
+          1451
+        ],
+        "function_name": "tryFoldArrayAccess",
+        "class_name": "PeepholeFoldConstants",
+        "filename": "PeepholeFoldConstants.java",
+        "code_snippet": "  private Node tryFoldArrayAccess(Node n, Node left, Node right) {\n    Node parent = n.getParent();\n    // If GETPROP/GETELEM is used as assignment target the array literal is\n    // acting as a temporary we can't fold it here:\n    //    \"[][0] += 1\"\n    if (isAssignmentTarget(n)) {\n      return n;\n    }\n\n    if (!right.isNumber()) {\n      // Sometimes people like to use complex expressions to index into\n      // arrays, or strings to index into array methods.\n      return n;\n    }\n\n    double index = right.getDouble();\n    int intIndex = (int) index;\n    if (intIndex != index) {\n      error(INVALID_GETELEM_INDEX_ERROR, right);\n      return n;\n    }\n\n    if (intIndex < 0) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    Node current = left.getFirstChild();\n    Node elem = null;\n    for (int i = 0; current != null && i < intIndex; i++) {\n        elem = current;\n\n      current = current.getNext();\n    }\n\n    if (elem == null) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    if (elem.isEmpty()) {\n      elem = NodeUtil.newUndefinedNode(elem);\n    } else {\n      left.removeChild(elem);\n    }\n\n    // Replace the entire GETELEM with the value\n    n.getParent().replaceChild(n, elem);\n    reportCodeChange();\n    return elem;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.PeepholeFoldConstantsTest::testFoldGetElem"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex 7a0313c..f777b1c 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1448,14 +1448,8 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n \n     Node current = left.getFirstChild();\n     Node elem = null;\n+    for (int i = 0; current != null; i++) {\n+      if (i != intIndex) {\n+        if (mayHaveSideEffects(current)) {\n+          return n;\n+        }\n+      } else {\n-    for (int i = 0; current != null && i < intIndex; i++) {\n         elem = current;\n+      }\n \n       current = current.getNext();\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "johnlenz@google.com",
+        "commit_date": "2011-08-02 15:34:59",
+        "commit_message": "Don't try to fold array literal accesses that are acting as a",
+        "commit_hash": "89441fcc27e2d7f36d7b2f3990bbc894235bb5b4"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "isAssignmentTarget",
+          "tryFoldArrayAccess"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "isAssignmentTarget",
+          "tryFoldArrayAccess"
+        ],
+        "functions_name_modified_file": [
+          "tryReduceOperandsForOp",
+          "tryFoldGetProp",
+          "tryFoldShift",
+          "tryFoldLeftChildOp",
+          "tryFoldAdd",
+          "tryFoldCtorCall",
+          "tryFoldChildAddString",
+          "performArithmeticOp",
+          "tryFoldArrayAccess",
+          "tryConvertToNumber",
+          "tryFoldObjectPropAccess",
+          "tryFoldComparison",
+          "tryReduceVoid",
+          "tryFoldInstanceof",
+          "optimizeSubtree",
+          "tryConvertOperandsToNumber",
+          "tryFoldInForcedStringContext",
+          "tryFoldArithmeticOp",
+          "tryFoldBinaryOperator",
+          "compareAsNumbers",
+          "tryFoldTypeof",
+          "compareToUndefined",
+          "inForcedStringContext",
+          "tryFoldAndOr",
+          "tryFoldUnaryOperator",
+          "PeepholeFoldConstants",
+          "tryFoldGetElem",
+          "isAssignmentTarget",
+          "tryFoldAddConstantString",
+          "tryFoldAssign",
+          "getNormalizedNodeType"
+        ],
+        "functions_name_all_files": [
+          "tryReduceOperandsForOp",
+          "tryFoldGetProp",
+          "tryFoldShift",
+          "tryFoldLeftChildOp",
+          "tryFoldAdd",
+          "tryFoldCtorCall",
+          "tryFoldChildAddString",
+          "performArithmeticOp",
+          "tryFoldArrayAccess",
+          "tryConvertToNumber",
+          "tryFoldObjectPropAccess",
+          "tryFoldComparison",
+          "tryReduceVoid",
+          "tryFoldInstanceof",
+          "optimizeSubtree",
+          "tryConvertOperandsToNumber",
+          "tryFoldInForcedStringContext",
+          "tryFoldArithmeticOp",
+          "tryFoldBinaryOperator",
+          "compareAsNumbers",
+          "tryFoldTypeof",
+          "compareToUndefined",
+          "inForcedStringContext",
+          "tryFoldAndOr",
+          "tryFoldUnaryOperator",
+          "PeepholeFoldConstants",
+          "tryFoldGetElem",
+          "isAssignmentTarget",
+          "tryFoldAddConstantString",
+          "tryFoldAssign",
+          "getNormalizedNodeType"
+        ],
+        "function_code_before": "",
+        "function_code_after": "      return tryFoldArrayAccess(n, left, right);\n    }\n    return n;\n  }\n\n  /**\n   * Try to fold array-length. e.g [1, 2, 3].length ==> 3, [x, y].length ==> 2\n   */\n  private Node tryFoldGetProp(Node n, Node left, Node right) {\n    Preconditions.checkArgument(n.getType() == Token.GETPROP);\n\n    if (left.getType() == Token.OBJECTLIT) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/com/google/javascript/jscomp/PeepholeFoldConstants.java"
+        ],
+        "file_patches": {
+          "src/com/google/javascript/jscomp/PeepholeFoldConstants.java": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex a7f4c8c47..c51297f57 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1206,8 +1206,6 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     return n;\n   }\n \n-\n-\n   /**\n    * Try to fold array-element. e.g [1, 2, 3][10];\n    */\n@@ -1219,44 +1217,7 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     }\n \n     if (left.getType() == Token.ARRAYLIT) {\n-      if (right.getType() != Token.NUMBER) {\n-        // Sometimes people like to use complex expressions to index into\n-        // arrays, or strings to index into array methods.\n-        return n;\n-      }\n-\n-      double index = right.getDouble();\n-      int intIndex = (int) index;\n-      if (intIndex != index) {\n-        error(INVALID_GETELEM_INDEX_ERROR, right);\n-        return n;\n-      }\n-\n-      if (intIndex < 0) {\n-        error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n-        return n;\n-      }\n-\n-      Node elem = left.getFirstChild();\n-      for (int i = 0; elem != null && i < intIndex; i++) {\n-        elem = elem.getNext();\n-      }\n-\n-      if (elem == null) {\n-        error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n-        return n;\n-      }\n-\n-      if (elem.getType() == Token.EMPTY) {\n-        elem = NodeUtil.newUndefinedNode(elem);\n-      } else {\n-        left.removeChild(elem);\n-      }\n-\n-      // Replace the entire GETELEM with the value\n-      n.getParent().replaceChild(n, elem);\n-      reportCodeChange();\n-      return elem;\n+      return tryFoldArrayAccess(n, left, right);\n     }\n     return n;\n   }\n@@ -1301,6 +1262,68 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     return n;\n   }\n \n+  private boolean isAssignmentTarget(Node n) {\n+    Node parent = n.getParent();\n+    if ((NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == n)\n+        || parent.getType() == Token.INC\n+        || parent.getType() == Token.DEC) {\n+      // If GETPROP/GETELEM is used as assignment target the object literal is\n+      // acting as a temporary we can't fold it here:\n+      //    \"{a:x}.a += 1\" is not \"x += 1\"\n+      return true;\n+    }\n+    return false;\n+  }\n+\n+  private Node tryFoldArrayAccess(Node n, Node left, Node right) {\n+    Node parent = n.getParent();\n+    // If GETPROP/GETELEM is used as assignment target the array literal is\n+    // acting as a temporary we can't fold it here:\n+    //    \"[][0] += 1\"\n+    if (isAssignmentTarget(n)) {\n+      return n;\n+    }\n+\n+    if (right.getType() != Token.NUMBER) {\n+      // Sometimes people like to use complex expressions to index into\n+      // arrays, or strings to index into array methods.\n+      return n;\n+    }\n+\n+    double index = right.getDouble();\n+    int intIndex = (int) index;\n+    if (intIndex != index) {\n+      error(INVALID_GETELEM_INDEX_ERROR, right);\n+      return n;\n+    }\n+\n+    if (intIndex < 0) {\n+      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n+      return n;\n+    }\n+\n+    Node elem = left.getFirstChild();\n+    for (int i = 0; elem != null && i < intIndex; i++) {\n+      elem = elem.getNext();\n+    }\n+\n+    if (elem == null) {\n+      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n+      return n;\n+    }\n+\n+    if (elem.getType() == Token.EMPTY) {\n+      elem = NodeUtil.newUndefinedNode(elem);\n+    } else {\n+      left.removeChild(elem);\n+    }\n+\n+    // Replace the entire GETELEM with the value\n+    n.getParent().replaceChild(n, elem);\n+    reportCodeChange();\n+    return elem;\n+  }\n+\n   private Node tryFoldObjectPropAccess(Node n, Node left, Node right) {\n     Preconditions.checkArgument(NodeUtil.isGet(n));\n \n@@ -1308,10 +1331,7 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n       return n;\n     }\n \n-    Node parent = n.getParent();\n-    if ((NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == n)\n-        || parent.getType() == Token.INC\n-        || parent.getType() == Token.DEC) {\n+    if (isAssignmentTarget(n)) {\n       // If GETPROP/GETELEM is used as assignment target the object literal is\n       // acting as a temporary we can't fold it here:\n       //    \"{a:x}.a += 1\" is not \"x += 1\""
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

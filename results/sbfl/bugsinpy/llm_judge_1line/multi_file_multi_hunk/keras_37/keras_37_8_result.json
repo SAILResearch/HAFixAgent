@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_37",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 03:14:00",
+      "end_time": "2026-06-18 03:44:00",
+      "duration_seconds": 1800,
+      "duration_human": "30m 0s"
+    },
+    "model_cost": 0.1021,
+    "model_calls": 34,
+    "token_usage": {
+      "input_tokens": 605051,
+      "output_tokens": 47834,
+      "total_tokens": 652885,
+      "cached_input_tokens": 299456,
+      "uncached_input_tokens": 305595
+    },
+    "agent_steps": 34,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/layers/wrappers.py b/keras/layers/wrappers.py\nindex 7febff35a..4bfafa636 100644\n--- a/keras/layers/wrappers.py\n+++ b/keras/layers/wrappers.py\n@@ -286,6 +286,71 @@ class Bidirectional(Wrapper):\n         self.forward_layer.trainable = value\n         self.backward_layer.trainable = value\n \n+    def __call__(self, inputs, initial_state=None, **kwargs):\n+        \"\"\"Bidirectional wrapper __call__ method.\n+        \n+        When `initial_state` is passed and contains Keras tensors,\n+        they are added to `inputs` so that Keras can track the dependency.\n+        \"\"\"\n+        if initial_state is None:\n+            return super(Bidirectional, self).__call__(inputs, **kwargs)\n+        \n+        # Standardize initial_state to list\n+        if not isinstance(initial_state, list):\n+            initial_state = [initial_state]\n+        \n+        if not initial_state:\n+            return super(Bidirectional, self).__call__(inputs, **kwargs)\n+        \n+        # Check if initial_state contains Keras tensors\n+        is_keras_tensor = hasattr(initial_state[0], '_keras_history')\n+        for tensor in initial_state:\n+            if hasattr(tensor, '_keras_history') != is_keras_tensor:\n+                raise ValueError('The initial state of a Bidirectional RNN cannot be'\n+                                 ' specified with a mix of Keras tensors and'\n+                                 ' non-Keras tensors')\n+        \n+        if not is_keras_tensor:\n+            # Initial state is not a Keras tensor\n+            kwargs['initial_state'] = initial_state\n+            return super(Bidirectional, self).__call__(inputs, **kwargs)\n+        \n+        # Initial state contains Keras tensors\n+        kwargs['initial_state'] = initial_state\n+        \n+        # Store original input_spec\n+        original_input_spec = self.input_spec\n+        \n+        # Create input spec for states\n+        from ..engine import InputSpec\n+        from .. import backend as K\n+        state_specs = [InputSpec(shape=K.int_shape(state))\n+                      for state in initial_state]\n+        \n+        # Create input spec for main input\n+        if not isinstance(inputs, list):\n+            main_input = inputs\n+            main_input_spec = InputSpec(shape=K.int_shape(main_input))\n+        else:\n+            main_input = inputs[0]\n+            main_input_spec = InputSpec(shape=K.int_shape(main_input))\n+        \n+        # Combine input specs: main input first, then states\n+        self.input_spec = [main_input_spec] + state_specs\n+        \n+        # Combine inputs\n+        if not isinstance(inputs, list):\n+            inputs = [inputs]\n+        inputs = inputs + initial_state\n+        \n+        # Perform the call\n+        output = super(Bidirectional, self).__call__(inputs, **kwargs)\n+        \n+        # Restore original input_spec\n+        self.input_spec = original_input_spec\n+        \n+        return output\n+\n     def get_weights(self):\n         return self.forward_layer.get_weights() + self.backward_layer.get_weights()\n \n@@ -314,6 +379,18 @@ class Bidirectional(Wrapper):\n         return output_shape\n \n     def call(self, inputs, training=None, mask=None, initial_state=None):\n+\n+        # Extract initial_state from inputs if it was passed that way\n+        # (when initial_state contains Keras tensors)\n+        if isinstance(inputs, list) and len(inputs) > 1:\n+            # The actual input is first, followed by initial_state\n+            actual_input = inputs[0]\n+            potential_initial_state = inputs[1:]\n+            # Check if the wrapped layer accepts initial_state\n+            if has_arg(self.layer.call, 'initial_state'):\n+                # Use the initial_state from inputs (overrides kwargs)\n+                initial_state = potential_initial_state\n+                inputs = actual_input\n         kwargs = {}\n         if has_arg(self.layer.call, 'training'):\n             kwargs['training'] = training\ndiff --git a/tests/keras/layers/wrappers_test.py b/tests/keras/layers/wrappers_test.py\nindex 65272d1af..c471a49ed 100644\n--- a/tests/keras/layers/wrappers_test.py\n+++ b/tests/keras/layers/wrappers_test.py\n@@ -325,19 +325,22 @@ def test_Bidirectional_state_reuse():\n     timesteps = 3\n     units = 3\n \n-    inputs = Input((timesteps, dim))\n+    input1 = Input((timesteps, dim))\n     layer = wrappers.Bidirectional(rnn(units, return_state=True, return_sequences=True))\n-    outputs = layer(inputs)\n-    output, state = outputs[0], outputs[1:]\n+    state = layer(input1)[1:]\n \n     # test passing invalid initial_state: passing a tensor\n+    input2 = Input((timesteps, dim))\n     with pytest.raises(ValueError):\n-        output = wrappers.Bidirectional(rnn(units))(output, initial_state=state[0])\n+        output = wrappers.Bidirectional(rnn(units))(input2, initial_state=state[0])\n \n     # test valid usage: passing a list\n-    output = wrappers.Bidirectional(rnn(units))(output, initial_state=state)\n-    model = Model(inputs, output)\n-    inputs = np.random.rand(samples, timesteps, dim)\n+    output = wrappers.Bidirectional(rnn(units))(input2, initial_state=state)\n+    model = Model([input1, input2], output)\n+    assert len(model.layers) == 4\n+    assert isinstance(model.layers[-1].input, list)\n+    inputs = [np.random.rand(samples, timesteps, dim),\n+              np.random.rand(samples, timesteps, dim)]\n     outputs = model.predict(inputs)\n \n \n"
+  },
+  "timestamp": "2026-06-18 03:44:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_37",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_37/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix __call__ for Bidirectional wrapper (#9248)",
+    "fault_locations": [
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 553,
+        "end_line": 553,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 324,
+        "end_line": 324,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 325,
+        "end_line": 325,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 326,
+        "end_line": 326,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 328,
+        "end_line": 328,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 329,
+        "end_line": 329,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 330,
+        "end_line": 330,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 331,
+        "end_line": 331,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "keras/layers/wrappers.py",
+        "start_line": 332,
+        "end_line": 332,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "keras/engine/topology.py",
+        "start_line": 1519,
+        "end_line": 1519,
+        "suspiciousness": 0.47619,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/wrappers_test.py::test_Bidirectional_state_reuse"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 553,
+      "end_line": 553,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 324,
+      "end_line": 324,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 325,
+      "end_line": 325,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 326,
+      "end_line": 326,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 328,
+      "end_line": 328,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 329,
+      "end_line": 329,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 330,
+      "end_line": 330,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 331,
+      "end_line": 331,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "keras/layers/wrappers.py",
+      "start_line": 332,
+      "end_line": 332,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "keras/engine/topology.py",
+      "start_line": 1519,
+      "end_line": 1519,
+      "suspiciousness": 0.47619,
+      "rank": 10
+    }
+  ]
+}

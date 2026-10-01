@@ -1,0 +1,63 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_29",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 19:42:06",
+      "end_time": "2026-03-23 19:44:27",
+      "duration_seconds": 141,
+      "duration_human": "2m 21s"
+    },
+    "model_cost": 0.0241,
+    "model_calls": 15,
+    "token_usage": {
+      "input_tokens": 157227,
+      "output_tokens": 3150,
+      "total_tokens": 160377,
+      "cached_input_tokens": 72640,
+      "uncached_input_tokens": 84587
+    },
+    "agent_steps": 15,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/interval.py b/pandas/core/arrays/interval.py\nindex 22ce5a6f87..798249a64c 100644\n--- a/pandas/core/arrays/interval.py\n+++ b/pandas/core/arrays/interval.py\n@@ -518,7 +518,8 @@ class IntervalArray(IntervalMixin, ExtensionArray):\n         if is_scalar(value) and isna(value):\n             if is_integer_dtype(self.dtype.subtype):\n                 # can't set NaN on a numpy integer array\n-                needs_float_conversion = True\n+                msg = \"Cannot set float NaN to integer-backed IntervalArray\"\n+                raise ValueError(msg)\n             elif is_datetime64_any_dtype(self.dtype.subtype):\n                 # need proper NaT to set directly on the numpy array\n                 value = np.datetime64(\"NaT\")\ndiff --git a/pandas/tests/arrays/interval/test_interval.py b/pandas/tests/arrays/interval/test_interval.py\nindex 7e7762d897..fef11f0ff3 100644\n--- a/pandas/tests/arrays/interval/test_interval.py\n+++ b/pandas/tests/arrays/interval/test_interval.py\n@@ -104,6 +104,13 @@ class TestSetitem:\n     def test_set_na(self, left_right_dtypes):\n         left, right = left_right_dtypes\n         result = IntervalArray.from_arrays(left, right)\n+\n+        if result.dtype.subtype.kind in [\"i\", \"u\"]:\n+            msg = \"Cannot set float NaN to integer-backed IntervalArray\"\n+            with pytest.raises(ValueError, match=msg):\n+                result[0] = np.NaN\n+            return\n+\n         result[0] = np.nan\n \n         expected_left = Index([left._na_value] + list(left[1:]))\n@@ -182,7 +189,7 @@ def test_arrow_array_missing():\n     import pyarrow as pa\n     from pandas.core.arrays._arrow_utils import ArrowIntervalType\n \n-    arr = IntervalArray.from_breaks([0, 1, 2, 3])\n+    arr = IntervalArray.from_breaks([0.0, 1.0, 2.0, 3.0])\n     arr[1] = None\n \n     result = pa.array(arr)\n@@ -209,8 +216,8 @@ def test_arrow_array_missing():\n @pyarrow_skip\n @pytest.mark.parametrize(\n     \"breaks\",\n-    [[0, 1, 2, 3], pd.date_range(\"2017\", periods=4, freq=\"D\")],\n-    ids=[\"int\", \"datetime64[ns]\"],\n+    [[0.0, 1.0, 2.0, 3.0], pd.date_range(\"2017\", periods=4, freq=\"D\")],\n+    ids=[\"float\", \"datetime64[ns]\"],\n )\n def test_arrow_table_roundtrip(breaks):\n     import pyarrow as pa\ndiff --git a/pandas/tests/series/methods/test_convert_dtypes.py b/pandas/tests/series/methods/test_convert_dtypes.py\nindex a41f893e37..dd4bf642e6 100644\n--- a/pandas/tests/series/methods/test_convert_dtypes.py\n+++ b/pandas/tests/series/methods/test_convert_dtypes.py\n@@ -3,6 +3,8 @@ from itertools import product\n import numpy as np\n import pytest\n \n+from pandas.core.dtypes.common import is_interval_dtype\n+\n import pandas as pd\n import pandas._testing as tm\n \n@@ -266,7 +268,12 @@ class TestSeriesConvertDtypes:\n \n         # Test that it is a copy\n         copy = series.copy(deep=True)\n-        ns[ns.notna()] = np.nan\n+        if is_interval_dtype(ns.dtype) and ns.dtype.subtype.kind in [\"i\", \"u\"]:\n+            msg = \"Cannot set float NaN to integer-backed IntervalArray\"\n+            with pytest.raises(ValueError, match=msg):\n+                ns[ns.notna()] = np.nan\n+        else:\n+            ns[ns.notna()] = np.nan\n \n         # Make sure original not changed\n         tm.assert_series_equal(series, copy)\n"
+  },
+  "timestamp": "2026-03-23 15:44:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_29",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_29/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG/API: prohibit dtype-changing IntervalArray.__setitem__ (#32782)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/interval.py",
+        "start_line": 549,
+        "end_line": 551,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/interval.py",
+        "start_line": 555,
+        "end_line": 557,
+        "function_name": "__setitem__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/interval/test_interval.py::TestSetitem::test_set_na",
+      "pytest pandas/tests/series/methods/test_convert_dtypes.py::TestSeriesConvertDtypes::test_convert_dtypes"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_53",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 02:10:05",
+      "end_time": "2026-06-29 02:11:38",
+      "duration_seconds": 92,
+      "duration_human": "1m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 617386,
+      "output_tokens": 3786,
+      "total_tokens": 621172,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 617386
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\nindex c3fc79ffe..be105b50e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n@@ -114,7 +114,7 @@ public final class TypeFactory\n      * actual generic types), we will use small cache to avoid repetitive\n      * resolution of core types\n      */\n-    protected final LRUMap<Class<?>, JavaType> _typeCache = new LRUMap<Class<?>, JavaType>(16, 100);\n+    protected final LRUMap<Object,JavaType> _typeCache = new LRUMap<Object,JavaType>(16, 100);\n \n     /*\n     /**********************************************************\n@@ -487,6 +487,29 @@ public final class TypeFactory\n                     superClass.getName(), baseType));\n         }\n         return superType;\n+\n+    private TypeBindings _bindingsForSubtype(JavaType baseType, int typeParamCount, Class<?> subclass)\n+    {\n+        // But otherwise gets bit tricky, as we need to partially resolve the type hierarchy\n+        // (hopefully passing null Class for root is ok)\n+        int baseCount = baseType.containedTypeCount();\n+        if (baseCount == typeParamCount) {\n+            if (typeParamCount == 1) {\n+                return TypeBindings.create(subclass, baseType.containedType(0));\n+            }\n+            if (typeParamCount == 2) {\n+                return TypeBindings.create(subclass, baseType.containedType(0),\n+                        baseType.containedType(1));\n+            }\n+            List<JavaType> types = new ArrayList<JavaType>(baseCount);\n+            for (int i = 0; i < baseCount; ++i) {\n+                types.add(baseType.containedType(i));\n+            }\n+            return TypeBindings.create(subclass, types);\n+        }\n+        // Otherwise, two choices: match N first, or empty. Do latter, for now\n+        return TypeBindings.emptyBindings();\n+    }\n     }\n \n     /**\n"
+  },
+  "timestamp": "2026-06-29 02:11:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_53",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_53",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Problem with type specialization for Maps with `@JsonDeserialize(as=subtype)`\nIf I have json that looks like\n\n```\n{\n  \"something\": [\n        {\n           \"id\": \"a uuid\",\n           \"property\": \"value\"\n         }\n  ]\n}\n```\n\nAnd I have a java pojo with an annotation like this:\n\n```\n    @JsonDeserialize(as = MyHashMap.class)\n    private void setSomething(Map<UUID, Foo> incomingValue) {\n```\n\nWhere MyHashMap.java has some custom logic using generics that allow us to map the array json above into a Map where \"id\" is the key and everything else serializes into the value.  We use generics on MyHashMap to enforce that every value implements a certain interface that respects the contract of returning an \"id\" property.  In this example Foo.java implements this interface MyCustomIdInterface.java.\n\nWhen using 2.6.6 this worked fine, but if I switch to 2.7.x then it breaks with the error:\n\n`Can not construct instance of MyCustomIdInterface, problem: abstract types either need to be mapped to concrete types, have custom deserializer, or be instantiated with additional type information`\n\nin 2.7.x, it looks like jackson resolves to using AbstractDeserializer based on MyCustomIdInterface but in 2.6.6 it resolves to using BeanDeserializer based on Foo.java.\n\nIs this a bug or is there some default/feature flag that changed here?\n\n",
+    "commit_message": "Fix #1215",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 266,
+        "end_line": 266,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 267,
+        "end_line": 267,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 271,
+        "end_line": 271,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TypeRefinementForMap1215Test::testMapRefinement"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 266,
+      "end_line": 266,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 267,
+      "end_line": 267,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 271,
+      "end_line": 271,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

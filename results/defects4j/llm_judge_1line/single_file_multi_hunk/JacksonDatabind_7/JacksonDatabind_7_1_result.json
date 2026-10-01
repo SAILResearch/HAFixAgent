@@ -1,0 +1,88 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "7",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 23:48:59",
+      "end_time": "2025-09-30 23:55:05",
+      "duration_seconds": 366,
+      "duration_human": "6m 6s"
+    },
+    "model_cost": 0.0409,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 505193,
+      "output_tokens": 4021,
+      "total_tokens": 509214,
+      "cached_input_tokens": 486720,
+      "uncached_input_tokens": 18473
+    },
+    "agent_steps": 37,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 21a6b287b..3c7faf90c 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -402,7 +402,24 @@ public class TokenBuffer\n      */\n     public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n     {\n+            JsonToken t = jp.getCurrentToken();\n+        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n+         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n+         *    to assume one did exist.\n+         */\n+        if (t == JsonToken.FIELD_NAME) {\n+            // When starting from FIELD_NAME, we need to write START_OBJECT first\n+            writeStartObject();\n+            // Then copy the current field and its value\n             copyCurrentStructure(jp);\n+            // And continue copying the rest of the object\n+            while (jp.nextToken() != JsonToken.END_OBJECT) {\n+                copyCurrentStructure(jp);\n+            }\n+            writeEndObject();\n+        } else {\n+            copyCurrentStructure(jp);\n+        }\n         /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n          *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n          *    to assume one did exist.\ndiff --git a/src/test/java/com/fasterxml/jackson/failing/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/failing/TestScalaLikeImplicitProperties.java\ndeleted file mode 100644\nindex cd3ea3726..000000000\n--- a/src/test/java/com/fasterxml/jackson/failing/TestScalaLikeImplicitProperties.java\n+++ /dev/null\n@@ -1,165 +0,0 @@\n-package com.fasterxml.jackson.failing;\n-\n-import com.fasterxml.jackson.databind.*;\n-import com.fasterxml.jackson.databind.introspect.*;\n-\n-/**\n- * Tests Scala-style JVM naming patterns for properties.\n- *\n- * Scala uses identifiers that are legal JVM names, but not legal Java names:\n- *\n- * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n- *     <li><code>prop</code> for getters</li>\n- *     <li><code>prop_=</code> for setters</li>\n- * </ul>\n- *\n- * Scala sources turn property accesses into method calls in most cases; the\n- * backing field and the particulars of the method names are implementation details.\n- *\n- * Since I can't reproduce them in Java, I've substituted legal but uncommonly\n- * used characters as placeholders.\n- */\n-public class TestScalaLikeImplicitProperties extends BaseMapTest\n-{\n-    static class NameMangler extends JacksonAnnotationIntrospector\n-    {\n-        private static final long serialVersionUID = 1L;\n-\n-        @Override\n-        public String findImplicitPropertyName(AnnotatedMember member) {\n-            String name = null;\n-            if (member instanceof AnnotatedField) {\n-                name = member.getName();\n-            }\n-            if (name != null) {\n-                if (name.endsWith(\"\u203f\")) {                    \n-                    return name.substring(0, name.length()-1);\n-                }\n-            }\n-            return null;\n-        }\n-    }\n-    \n-    static class ValProperty\n-    {\n-        public final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-\n-        public ValProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-\n-    static class ValWithBeanProperty\n-    {\n-        public final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n-\n-        public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-\n-    static class VarProperty\n-    {\n-        public String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-\n-        public VarProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-\n-    static class VarWithBeanProperty\n-    {\n-        public String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n-\n-        public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class GetterSetterProperty\n-    {\n-        // Different name to represent an arbitrary implementation, not necessarily local to this class.\n-        private String _prop_impl = \"get/set\";\n-        public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n-\n-        // Getter/Setters are typically not in the constructor because they are implemented\n-        // by the end user, not the compiler. They should be detected similar to 'bean-style'\n-        // getProp/setProp pairs.\n-    }\n-\n-    public void testValProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        // TODO: Activate whatever handler implements the property detection style\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValProperty(\"val\")));\n-    }\n-\n-\n-    public void testValWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        // TODO: Activate whatever handler implements the property detection style\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValWithBeanProperty(\"val\")));\n-    }\n-\n-\n-    public void testVarProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        // TODO: Activate whatever handler implements the property detection style\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarProperty(\"var\")));\n-        VarProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testVarWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        // TODO: Activate whatever handler implements the property detection style\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarWithBeanProperty(\"var\")));\n-        VarWithBeanProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarWithBeanProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testGetterSetterProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        // TODO: Activate whatever handler implements the property detection style\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"get/set\\\"}\", m.writeValueAsString(new GetterSetterProperty()));\n-        GetterSetterProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", GetterSetterProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-    private ObjectMapper manglingMapper()\n-    {\n-        ObjectMapper m = new ObjectMapper();\n-        m.setAnnotationIntrospector(new NameMangler());\n-        return m;\n-    }\n-}\n"
+  },
+  "timestamp": "2025-09-30 23:55:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_7",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_7",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Possibly wrong `TokenBuffer` delegate deserialization using `@JsonCreator`\n``` java\nclass Value {\n@JsonCreator\npublic static Value from(TokenBuffer buffer) {\n...\n}\n```\n\nGiven JSON string is  `{ \"a\":1, \"b\":null }`, it is expected that while deserializing using delegate buffer,\ncurrent token will be start object `{`, and rest of the tokens will be available in buffer:\n\n```\n[START_OBJECT, FIELD_NAME, VALUE_NUMBER_INT, FIELD_NAME, VALUE_NULL, END_OBJECT]\n```\n\nBut, buffers ends up being started with field name and then contains single attribute value\n\n```\n[FIELD_NAME, VALUE_NUMBER_INT]\n```\n\nIt's due to how `TokenBuffer#copyCurrentStructure` works when we have current token as a `FIELD_NAME`, rather than `START_OBJECT`, because it's forced to move to next token [BeanDeserializer.java:120](https://github.com/FasterXML/jackson-databind/blob/2.4/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java#L120)\n\nHope this helps to nail it down. Is it an intended behavior, or it's regression/bug? \n\n",
+    "commit_message": "Fix #592",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 404,
+        "end_line": 404,
+        "line_numbers": [
+          404
+        ],
+        "function_name": "deserialize",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n            copyCurrentStructure(jp);\n        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n         *    to assume one did exist.\n         */\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 406,
+        "end_line": 406,
+        "line_numbers": [
+          406
+        ],
+        "function_name": "deserialize",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n            copyCurrentStructure(jp);\n        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n         *    to assume one did exist.\n         */\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 412,
+        "end_line": 412,
+        "line_numbers": [
+          412
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.creators.TestCreatorsDelegating::testDelegateWithTokenBuffer"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 58d3e086f..21a6b287b 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -402,23 +402,11 @@ public class TokenBuffer\n      */\n     public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n     {\n+        if (jp.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {\n             copyCurrentStructure(jp);\n+            return this;\n+        }\n         /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n          *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n          *    to assume one did exist.\n          */\n+        JsonToken t;\n+        writeStartObject();\n+        do {\n+            copyCurrentStructure(jp);\n+        } while ((t = jp.nextToken()) == JsonToken.FIELD_NAME);\n+        if (t != JsonToken.END_OBJECT) {\n+            throw ctxt.mappingException(\"Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got \"+t);\n+        }\n+        writeEndObject();\n         return this;\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

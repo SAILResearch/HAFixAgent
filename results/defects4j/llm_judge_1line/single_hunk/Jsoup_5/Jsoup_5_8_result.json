@@ -1,0 +1,151 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "5",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:05:21",
+      "end_time": "2025-10-10 22:10:30",
+      "duration_seconds": 309,
+      "duration_human": "5m 9s"
+    },
+    "model_cost": 0.0353,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 438021,
+      "output_tokens": 4949,
+      "total_tokens": 442970,
+      "cached_input_tokens": 425664,
+      "uncached_input_tokens": 12357
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex e6ea8338..08930a72 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -203,7 +203,7 @@ public class Parser {\n         if (key.length() != 0)\n             return Attribute.createFromEncoded(key, value);\n         else {\n-            tq.consume();\n+            while (!tq.isEmpty() && !tq.matchesAny(\"<\", \"/>\", \">\") && !tq.matchesWhitespace()) tq.consume();\n                 \n             return null;\n         }\ndiff --git a/src/main/java/org/jsoup/parser/TokenQueue.java b/src/main/java/org/jsoup/parser/TokenQueue.java\nindex f7088616..bfb659da 100644\n--- a/src/main/java/org/jsoup/parser/TokenQueue.java\n+++ b/src/main/java/org/jsoup/parser/TokenQueue.java\n@@ -159,6 +159,7 @@ public class TokenQueue {\n      * @return first character on queue.\n      */\n     public Character consume() {\n+        if (isEmpty()) return null;\n         Character c = queue.charAt(pos);\n         pos++;\n         return c;\n"
+  },
+  "timestamp": "2025-10-10 18:10:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_5",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_5",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "StringIndexOutOfBoundsException when testing whether String content is valid HTML \nIf I try to parse a tag with an equals sign (an empty attribute) but without any single or double quotes around an attribute value, then I get a StringIndexOutOfBoundsException.  The stack trace is pasted below.\n\nAn example String would be \"<a =a\"\n\nThe following JUnit test case should not throw a StringIndexOutOfBoundsException:\n\nimport static org.junit.Assert.assertTrue;\nimport org.jsoup.Jsoup;\nimport org.jsoup.safety.Whitelist;\nimport org.junit.Test;\npublic class BadAttributeTest {\n    @Test\n    public void aTagWithABadAttributeIsValid() throws Exception {\n        assertTrue(Jsoup.isValid(\"<a =a\", Whitelist.relaxed()));\n    }\n}\n\njava.lang.StringIndexOutOfBoundsException: String index out of range: 13\n    at java.lang.String.charAt(String.java:686)\n    at org.jsoup.parser.TokenQueue.consume(TokenQueue.java:130)\n    at org.jsoup.parser.Parser.parseAttribute(Parser.java:207)\n    at org.jsoup.parser.Parser.parseStartTag(Parser.java:142)\n    at org.jsoup.parser.Parser.parse(Parser.java:91)\n    at org.jsoup.parser.Parser.parseBodyFragment(Parser.java:64)\n    at org.jsoup.Jsoup.parseBodyFragment(Jsoup.java:99)\n    at org.jsoup.Jsoup.isValid(Jsoup.java:155)\n\n",
+    "commit_message": "Fixed issue when parsing tags with keyless attributes.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 206,
+        "end_line": 206,
+        "line_numbers": [
+          206
+        ],
+        "function_name": "parseAttribute",
+        "class_name": "Parser",
+        "filename": "Parser.java",
+        "code_snippet": "    private Attribute parseAttribute() {\n        tq.consumeWhitespace();\n        String key = tq.consumeAttributeKey();\n        String value = \"\";\n        tq.consumeWhitespace();\n        if (tq.matchChomp(\"=\")) {\n            tq.consumeWhitespace();\n\n            if (tq.matchChomp(SQ)) {\n                value = tq.chompTo(SQ);\n            } else if (tq.matchChomp(DQ)) {\n                value = tq.chompTo(DQ);\n            } else {\n                StringBuilder valueAccum = new StringBuilder();\n                // no ' or \" to look for, so scan to end tag or space (or end of stream)\n                while (!tq.matchesAny(\"<\", \"/>\", \">\") && !tq.matchesWhitespace() && !tq.isEmpty()) {\n                    valueAccum.append(tq.consume());\n                }\n                value = valueAccum.toString();\n            }\n            tq.consumeWhitespace();\n        }\n        if (key.length() != 0)\n            return Attribute.createFromEncoded(key, value);\n        else {\n            tq.consume();\n                \n            return null;\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.ParserTest::parsesQuiteRoughAttributes"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex 38eb6f0..4af0a68 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -203,8 +203,7 @@ public class Parser {\n         if (key.length() != 0)\n             return Attribute.createFromEncoded(key, value);\n         else {\n+            if (value.length() == 0) // no key, no val; unknown char, keep popping so not get stuck\n+                tq.advance();\n-            tq.consume();\n                 \n             return null;\n         }",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2009-12-28 10:23:06",
+        "commit_message": "Pulled string matching stuff out of Parser ad into TokenQueue, for reuse in selector parser. Added som texts and corrected behaviour of parser.",
+        "commit_hash": "03336ea9dd5d2aef2e31fe5e6402a04242f4d9f8"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "parseText",
+          "consumeWord",
+          "matches",
+          "parseTextNode",
+          "consumeWhitespace",
+          "consumeTo",
+          "chompTo",
+          "consume"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "parseText",
+          "consumeWord",
+          "isEmpty",
+          "setTitle",
+          "matches",
+          "parseTextNode",
+          "consumeWhitespace",
+          "consumeTo",
+          "TokenQueue",
+          "peek",
+          "getTitle",
+          "matchChomp",
+          "chompTo",
+          "consume"
+        ],
+        "functions_name_modified_file": [
+          "parseXmlDecl",
+          "last",
+          "parseAttribute",
+          "parseTextNode",
+          "parseComment",
+          "popStackToClose",
+          "parseEndTag",
+          "popStackToSuitableContainer",
+          "parseStartTag",
+          "parse",
+          "Parser"
+        ],
+        "functions_name_all_files": [
+          "consumeWord",
+          "parseTextNode",
+          "consumeTo",
+          "parseEndTag",
+          "TokenQueue",
+          "chompTo",
+          "parseXmlDecl",
+          "Document",
+          "last",
+          "matches",
+          "getBody",
+          "parseComment",
+          "popStackToClose",
+          "popStackToSuitableContainer",
+          "getHead",
+          "matchChomp",
+          "Parser",
+          "consume",
+          "isEmpty",
+          "parseAttribute",
+          "peek",
+          "getTitle",
+          "parseStartTag",
+          "consumeWhitespace",
+          "setTitle",
+          "parse"
+        ],
+        "function_code_before": "            Attribute attribute = parseAttribute();\n            if (attribute != null)\n                attributes.put(attribute);\n        }\n\n        Tag tag = Tag.valueOf(tagName);\n        StartTag startTag = new StartTag(tag, attributes);\n        Element child = new Element(startTag);\n\n        boolean emptyTag;\n        if (matches(\"/>\")) { // empty tag, don't add to stack",
+        "function_code_after": "            Attribute attribute = parseAttribute();\n            if (attribute != null)\n                attributes.put(attribute);\n        }\n\n        Tag tag = Tag.valueOf(tagName);\n        StartTag startTag = new StartTag(tag, attributes);\n        Element child = new Element(startTag);\n\n        boolean emptyTag;\n        if (tq.matchChomp(\"/>\")) { // empty tag, don't add to stack"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/nodes/Document.java",
+          "src/main/java/org/jsoup/parser/Parser.java",
+          "src/main/java/org/jsoup/parser/TokenQueue.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/parser/Parser.java": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex 7b9db445..c9a393e8 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -14,23 +14,21 @@ import java.util.regex.Pattern;\n public class Parser {\n     private static String SQ = \"'\";\n     private static String DQ = \"\\\"\";\n+\n     private static Tag htmlTag = Tag.valueOf(\"html\");\n     private static Tag headTag = Tag.valueOf(\"head\");\n     private static Tag bodyTag = Tag.valueOf(\"body\");\n+    private static Tag titleTag = Tag.valueOf(\"title\");\n \n     private LinkedList<Element> stack;\n-    private LinkedList<Character> queue;\n+    private TokenQueue tq;\n     private Document doc;\n \n     public Parser(String html) {\n         Validate.notNull(html);\n \n-        this.stack = new LinkedList<Element>();\n-        this.queue = new LinkedList<Character>();\n-        char[] chars = html.toCharArray();\n-        for (char c : chars) {\n-            queue.add(c);\n-        }\n+        stack = new LinkedList<Element>();\n+        tq = new TokenQueue(html);\n \n         doc = new Document();\n         stack.add(doc);\n@@ -43,25 +41,25 @@ public class Parser {\n     }\n \n     public Document parse() {\n-        while (!queue.isEmpty()) {\n-            if (matches(\"<!--\")) {\n+        while (!tq.isEmpty()) {\n+            if (tq.matches(\"<!--\")) {\n                 parseComment();\n-            } else if (matches(\"<?\") || matches(\"<!\")) {\n+            } else if (tq.matches(\"<?\") || tq.matches(\"<!\")) {\n                 parseXmlDecl();\n-            } else if (matches(\"</\")) {\n+            } else if (tq.matches(\"</\")) {\n                 parseEndTag();\n-            } else if (matches(\"<\")) {\n+            } else if (tq.matches(\"<\")) {\n                 parseStartTag();\n             } else {\n-                parseText();\n+                parseTextNode();\n             }\n         }\n         return doc;\n     }\n \n     private void parseComment() {\n-        consume(\"<!--\");\n-        String data = chompTo(\"->\");\n+        tq.consume(\"<!--\");\n+        String data = tq.chompTo(\"->\");\n \n         if (data.endsWith(\"-\")) // i.e. was -->\n             data = data.substring(0, data.length()-1);\n@@ -70,30 +68,33 @@ public class Parser {\n     }\n \n     private void parseXmlDecl() {\n-        consume(\"<\"); consume(); // <? or <!, from initial match.\n-        String data = chompTo(\">\");\n+        tq.consume(\"<\"); tq.consume(); // <? or <!, from initial match.\n+        String data = tq.chompTo(\">\");\n \n         XmlDeclaration decl = new XmlDeclaration(data);\n         last().addChild(decl);\n     }\n \n     private void parseEndTag() {\n-        consume(\"</\");\n-        String tagName = consumeWord();\n-        chompTo(\">\");\n+        tq.consume(\"</\");\n+        String tagName = tq.consumeWord();\n+        tq.chompTo(\">\");\n \n         if (!tagName.isEmpty()) {\n             Tag tag = Tag.valueOf(tagName);\n-            popStackToClose(tag);\n+            Element closed = popStackToClose(tag);\n+\n+            if (closed != null && closed.getTag().equals(titleTag))\n+                doc.setTitle(closed.text());\n         }\n     }\n \n     private void parseStartTag() {\n-        consume(\"<\");\n+        tq.consume(\"<\");\n         Attributes attributes = new Attributes();\n \n-        String tagName = consumeWord();\n-        while (!matches(\"/>\") && !matches(\">\")) {\n+        String tagName = tq.consumeWord();\n+        while (!tq.matches(\"<\") && !tq.matches(\"/>\") && !tq.matches(\">\") && !tq.isEmpty()) {\n             Attribute attribute = parseAttribute();\n             if (attribute != null)\n                 attributes.put(attribute);\n@@ -104,11 +105,10 @@ public class Parser {\n         Element child = new Element(startTag);\n \n         boolean emptyTag;\n-        if (matches(\"/>\")) { // empty tag, don't add to stack\n-            consume(\"/>\");\n+        if (tq.matchChomp(\"/>\")) { // empty tag, don't add to stack\n             emptyTag = true;\n         } else {\n-            consume(\">\");\n+            tq.matchChomp(\">\"); // safe because checked above (or ran out of data)\n             emptyTag = false;\n         }\n \n@@ -138,118 +138,45 @@ public class Parser {\n     }\n \n     private Attribute parseAttribute() {\n-        consumeWhitespace();\n-        String key = consumeWord();\n+        tq.consumeWhitespace();\n+        String key = tq.consumeWord();\n         String value = \"\";\n-        consumeWhitespace();\n-        if (matches(\"=\")) {\n-            consume(\"=\");\n-            consumeWhitespace();\n-\n-            if (matches(SQ)) {\n-                consume(SQ);\n-                value = chompTo(SQ);\n-            } else if (matches(DQ)) {\n-                consume(DQ);\n-                value = chompTo(DQ);\n+        tq.consumeWhitespace();\n+        if (tq.matchChomp(\"=\")) {\n+            tq.consumeWhitespace();\n+\n+            if (tq.matchChomp(SQ)) {\n+                value = tq.chompTo(SQ);\n+            } else if (tq.matchChomp(DQ)) {\n+                value = tq.chompTo(DQ);\n             } else {\n                 StringBuilder valueAccum = new StringBuilder();\n-                while (!matches(\"/>\") && !matches(\">\") && !Character.isWhitespace(queue.peekFirst())) {\n-                    valueAccum.append(consume());\n+                // no ' or \" to look for, so scan to end tag or space (or end of stream)\n+                while (!tq.matches(\"<\") && !tq.matches(\"/>\") && !tq.matches(\">\") && !Character.isWhitespace(tq.peek()) && !tq.isEmpty()) {\n+                    valueAccum.append(tq.consume());\n                 }\n                 value = valueAccum.toString();\n             }\n-            consumeWhitespace();\n+            tq.consumeWhitespace();\n         }\n         if (!key.isEmpty())\n             return new Attribute(key, value);\n         else {\n-            consume(); // unknown char, keep popping so not get stuck\n+            tq.consume(); // unknown char, keep popping so not get stuck\n             return null;\n         }\n     }\n \n-    private void parseText() {\n+    private void parseTextNode() {\n         // TODO: work out whitespace requirements (between blocks, between inlines)\n         StringBuilder textAccum = new StringBuilder();\n-        while (!matches(\"<\")) {\n-            textAccum.append(consume());\n+        while (!tq.matches(\"<\") && !tq.isEmpty()) { // scan to next tag\n+            textAccum.append(tq.consume());\n         }\n         TextNode textNode = new TextNode(textAccum.toString());\n         last().addChild(textNode);\n     }\n \n-    /**\n-     * Pulls a string off the queue, up to but exclusive of the match sequence, or to the queue running out.\n-     * @param seq String to end on (and not include in return, but leave on queue)\n-     * @return The matched data consumed from queue.\n-     */\n-    private String consumeTo(String seq) {\n-        StringBuilder accum = new StringBuilder();\n-        while (!queue.isEmpty() && !matches(seq))\n-            accum.append(consume());\n-\n-        return accum.toString();\n-    }\n-\n-    /**\n-     * Pulls a string off the queue (like consumeTo), and then pulls off the matched string (but does not return it).\n-     * @param seq String to match up to, and not include in return, and to pull off queue\n-     * @return Data matched from queue.\n-     */\n-    private String chompTo(String seq) {\n-        String data = consumeTo(seq);\n-        consume(seq);\n-        return data;\n-    }\n-\n-    /**\n-     * Consume one character off queue.\n-     * @return first character on queue.\n-     */\n-    private Character consume() {\n-        return queue.removeFirst();\n-    }\n-\n-    private void consume(String seq) {\n-        int len = seq.length();\n-        if (len > queue.size())\n-            throw new IllegalStateException(\"Queue not long enough to consume sequence\");\n-        char[] seqChars = seq.toCharArray();\n-        for (int i = 0; i < len; i++) {\n-            Character qChar = consume();\n-            if (!qChar.equals(seqChars[i]))\n-                throw new IllegalStateException(\"Queue did not match expected sequence\");\n-        }\n-    }\n-\n-    private void consumeWhitespace() {\n-        while (Character.isWhitespace(queue.peekFirst())) {\n-            consume();\n-        }\n-    }\n-\n-    private String consumeWord() {\n-        StringBuilder wordAccum = new StringBuilder();\n-        while (Character.isLetterOrDigit(queue.peekFirst())) {\n-            wordAccum.append(queue.removeFirst());\n-        }\n-        return wordAccum.toString();\n-    }\n-\n-    private boolean matches(String seq) {\n-        int len = seq.length();\n-        if (len > queue.size())\n-            return false;\n-        List<Character> chars = queue.subList(0, len);\n-        char[] seqChars = seq.toCharArray();\n-        for (int i = 0; i < len; i++) {\n-            if (!chars.get(i).equals(seqChars[i]))\n-                return false;\n-        }\n-        return true;\n-    }\n-\n     private Element popStackToSuitableContainer(Tag tag) {\n         while (!stack.isEmpty()) {\n             if (last().getTag().canContain(tag))"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

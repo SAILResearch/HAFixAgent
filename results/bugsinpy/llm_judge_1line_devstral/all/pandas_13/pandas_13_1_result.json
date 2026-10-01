@@ -1,0 +1,117 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_13",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:08:08",
+      "end_time": "2026-06-27 18:10:13",
+      "duration_seconds": 125,
+      "duration_human": "2m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 37,
+    "token_usage": {
+      "input_tokens": 423222,
+      "output_tokens": 5991,
+      "total_tokens": 429213,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 423222
+    },
+    "agent_steps": 37,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/dtypes/missing.py b/pandas/core/dtypes/missing.py\nindex d329f4337d..38b3ae67bd 100644\n--- a/pandas/core/dtypes/missing.py\n+++ b/pandas/core/dtypes/missing.py\n@@ -233,7 +233,26 @@ def _isna_ndarraylike_old(obj):\n     values = getattr(obj, \"_values\", obj)\n     dtype = values.dtype\n \n-    if is_string_dtype(dtype):\n+    if is_extension_array_dtype(dtype):\n+        # For extension arrays like Categorical, we need to check\n+        # both the codes and the categories for inf values\n+        if hasattr(values, \"_codes\"):\n+            # This is a Categorical or similar array\n+            # Check if any category contains inf\n+            if hasattr(values, \"categories\"):\n+                cat_values = np.asarray(values.categories)\n+                if cat_values.dtype.kind in \"fc\":  # float or complex\n+                    # Check both codes (for NA) and categories (for inf)\n+                    result_codes = values.isna()\n+                    result_inf = ~np.isfinite(cat_values[values._codes])\n+                    result = result_codes | result_inf\n+                else:\n+                    result = values.isna()\n+            else:\n+                result = values.isna()\n+        else:\n+            result = values.isna()\n+    elif is_string_dtype(dtype):\n         result = _isna_string_dtype(values, dtype, old=True)\n \n     elif needs_i8_conversion(dtype):\n@@ -247,8 +266,6 @@ def _isna_ndarraylike_old(obj):\n         result = obj._constructor(result, index=obj.index, name=obj.name, copy=False)\n \n     return result\n-\n-\n def _isna_string_dtype(values: np.ndarray, dtype: np.dtype, old: bool) -> np.ndarray:\n     # Working around NumPy ticket 1542\n     shape = values.shape\ndiff --git a/pandas/tests/arrays/categorical/test_missing.py b/pandas/tests/arrays/categorical/test_missing.py\nindex 9eb3c8b3a8..5309b8827e 100644\n--- a/pandas/tests/arrays/categorical/test_missing.py\n+++ b/pandas/tests/arrays/categorical/test_missing.py\n@@ -5,7 +5,8 @@ import pytest\n \n from pandas.core.dtypes.dtypes import CategoricalDtype\n \n-from pandas import Categorical, Index, Series, isna\n+import pandas as pd\n+from pandas import Categorical, DataFrame, Index, Series, isna\n import pandas._testing as tm\n \n \n@@ -97,3 +98,53 @@ class TestCategoricalMissing:\n         expected = Categorical([\"A\", \"B\", \"C\", \"B\", \"A\"], dtype=cat.dtype)\n         tm.assert_categorical_equal(result, expected)\n         assert isna(cat[-1])  # didnt modify original inplace\n+\n+    @pytest.mark.parametrize(\n+        \"values, expected\",\n+        [\n+            ([1, 2, 3], np.array([False, False, False])),\n+            ([1, 2, np.nan], np.array([False, False, True])),\n+            ([1, 2, np.inf], np.array([False, False, True])),\n+            ([1, 2, pd.NA], np.array([False, False, True])),\n+        ],\n+    )\n+    def test_use_inf_as_na(self, values, expected):\n+        # https://github.com/pandas-dev/pandas/issues/33594\n+        with pd.option_context(\"mode.use_inf_as_na\", True):\n+            cat = Categorical(values)\n+            result = cat.isna()\n+            tm.assert_numpy_array_equal(result, expected)\n+\n+            result = Series(cat).isna()\n+            expected = Series(expected)\n+            tm.assert_series_equal(result, expected)\n+\n+            result = DataFrame(cat).isna()\n+            expected = DataFrame(expected)\n+            tm.assert_frame_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"values, expected\",\n+        [\n+            ([1, 2, 3], np.array([False, False, False])),\n+            ([1, 2, np.nan], np.array([False, False, True])),\n+            ([1, 2, np.inf], np.array([False, False, True])),\n+            ([1, 2, pd.NA], np.array([False, False, True])),\n+        ],\n+    )\n+    def test_use_inf_as_na_outside_context(self, values, expected):\n+        # https://github.com/pandas-dev/pandas/issues/33594\n+        # Using isna directly for Categorical will fail in general here\n+        cat = Categorical(values)\n+\n+        with pd.option_context(\"mode.use_inf_as_na\", True):\n+            result = pd.isna(cat)\n+            tm.assert_numpy_array_equal(result, expected)\n+\n+            result = pd.isna(Series(cat))\n+            expected = Series(expected)\n+            tm.assert_series_equal(result, expected)\n+\n+            result = pd.isna(DataFrame(cat))\n+            expected = DataFrame(expected)\n+            tm.assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-27 18:10:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_13",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_13/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix Categorical use_inf_as_na bug (#33629)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 137,
+        "end_line": 137,
+        "function_name": "_isna_new",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 141,
+        "end_line": 141,
+        "function_name": "_isna_new",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 143,
+        "end_line": 143,
+        "function_name": "_isna_new",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 168,
+        "end_line": 168,
+        "function_name": "_isna_old",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 172,
+        "end_line": 172,
+        "function_name": "_isna_old",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 174,
+        "end_line": 174,
+        "function_name": "_isna_old",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 210,
+        "end_line": 229,
+        "function_name": "_isna_ndarraylike",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 232,
+        "end_line": 232,
+        "function_name": "_isna_ndarraylike_old",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 236,
+        "end_line": 238,
+        "function_name": "_isna_ndarraylike_old",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 243,
+        "end_line": 243,
+        "function_name": "_isna_ndarraylike_old",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_missing.py::TestCategoricalMissing::test_use_inf_as_na",
+      "pytest pandas/tests/arrays/categorical/test_missing.py::TestCategoricalMissing::test_use_inf_as_na_outside_context"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

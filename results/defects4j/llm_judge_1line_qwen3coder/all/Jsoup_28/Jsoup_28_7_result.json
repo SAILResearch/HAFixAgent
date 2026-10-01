@@ -1,0 +1,174 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "28",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 06:49:00",
+      "end_time": "2026-06-20 06:54:59",
+      "duration_seconds": 359,
+      "duration_human": "5m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 756942,
+      "output_tokens": 11818,
+      "total_tokens": 768760,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 756942
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 06:54:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_28",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_28",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Jsoup.parse unescapes query params in plain text URL's\nI'm trying to clean the HTML snippet below, but unfortunately the URL parameter names have been mistaken for HTML entities and unescaped to HTML.\n\n``` html\n    <a href=\"http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\">\n        http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\n    </a>\n```\n\nCleaned HTML:    http://www.foo.com?a=1#_rooms=1\u03c7ldren=0\u222b=VA&amp;b=2\nExpected HTML: http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\n\nUnit tests...\n\n``` java\n    private static final String URL = \"http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\";\n\n    /**\n     * Passes\n     */\n    @Test\n    public void testStringEscapeUtilsUnescapeHtml() throws Exception {\n        // org.apache.commons.lang.StringEscapeUtils;\n        assertEquals(URL, StringEscapeUtils.unescapeHtml(URL));\n    }\n\n    /**\n     * Fails: unescapes &num, &chi, and &int to #, \u03c7, and \u222b respectively\n     * Expected :http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\n     * Actual   :http://www.foo.com?a=1#_rooms=1\u03c7ldren=0\u222b=VA&amp;b=2\n     */\n    @Test\n    public void testJsoupClean() throws Exception {\n        String html = \"<a href=\\\"\" + URL + \"\\\">\" + URL + \"</a>\";\n        assertEquals(URL, Jsoup.clean(html, Whitelist.none()));\n    }\n\n    /**\n     * Fails: unescapes &num, &chi, and &int to #, \u03c7, and \u222b respectively\n     * Expected :http://www.foo.com?a=1&num_rooms=1&children=0&int=VA&b=2\n     * Actual   :http://www.foo.com?a=1#_rooms=1&children=0\u222b=VA&b=2\n     */\n    @Test\n    public void testJsoupTextNodeCreateFromEncoded() throws Exception {\n        assertEquals(URL, TextNode.createFromEncoded(URL, null).text());\n    }\n```\n\n",
+    "commit_message": "Refactored entity decoding.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 103,
+        "end_line": 129,
+        "line_numbers": [
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129
+        ],
+        "function_name": "unescape",
+        "class_name": "Entities",
+        "filename": "Entities.java",
+        "code_snippet": "    static String unescape(String string, boolean strict) {\n        if (!string.contains(\"&\"))\n            return string;\n        Matcher m = strict? strictUnescapePattern.matcher(string) : unescapePattern.matcher(string);\n        StringBuffer accum = new StringBuffer(string.length());\n        while (m.find()) {\n            int charval = -1;\n            String num = m.group(3);\n            if (num != null) {\n                try {\n                    int base = m.group(2) != null ? 16 : 10;\n                    charval = Integer.valueOf(num, base);\n                } catch (NumberFormatException e) {\n                }\n            } else {\n                String name = m.group(1);\n                if (full.containsKey(name))\n                    charval = full.get(name);\n            }\n            if (charval != -1 || charval > 0xFFFF) {\n                String c = Character.toString((char) charval);\n                m.appendReplacement(accum, Matcher.quoteReplacement(c));\n            } else {\n                m.appendReplacement(accum, Matcher.quoteReplacement(m.group(0)));\n            }\n        }\n        m.appendTail(accum);\n        return accum.toString();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 136,
+        "end_line": 136,
+        "line_numbers": [
+          136
+        ],
+        "function_name": "consumeCharacterReference",
+        "class_name": "Tokeniser",
+        "filename": "Tokeniser.java",
+        "code_snippet": "    Character consumeCharacterReference(Character additionalAllowedCharacter, boolean inAttribute) {\n        if (reader.isEmpty())\n            return null;\n        if (additionalAllowedCharacter != null && additionalAllowedCharacter == reader.current())\n            return null;\n        if (reader.matchesAny('\\t', '\\n', '\\r', '\\f', ' ', '<', '&'))\n            return null;\n\n        reader.mark();\n        if (reader.matchConsume(\"#\")) { // numbered\n            boolean isHexMode = reader.matchConsumeIgnoreCase(\"X\");\n            String numRef = isHexMode ? reader.consumeHexSequence() : reader.consumeDigitSequence();\n            if (numRef.length() == 0) { // didn't match anything\n                characterReferenceError(\"numeric reference with no numerals\");\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            int charval = -1;\n            try {\n                int base = isHexMode ? 16 : 10;\n                charval = Integer.valueOf(numRef, base);\n            } catch (NumberFormatException e) {\n            } // skip\n            if (charval == -1 || (charval >= 0xD800 && charval <= 0xDFFF) || charval > 0x10FFFF) {\n                characterReferenceError(\"character outside of valid range\");\n                return replacementChar;\n            } else {\n                // todo: implement number replacement table\n                // todo: check for extra illegal unicode points as parse errors\n                return (char) charval;\n            }\n        } else { // named\n            // get as many letters as possible, and look for matching entities.\n            String nameRef = reader.consumeLetterThenDigitSequence();\n            String origNameRef = new String(nameRef);\n            boolean looksLegit = reader.matches(';');\n            // found if a base named entity without a ;, or an extended entity with the ;.\n            boolean found = false;\n            while (nameRef.length() > 0 && !found) {\n                if (Entities.isNamedEntity(nameRef))\n                    found = true;\n                else {\n                    nameRef = nameRef.substring(0, nameRef.length()-1);\n                    reader.unconsume();\n                }\n            }\n\n            if (!found) {\n                reader.rewindToMark();\n                if (looksLegit) // named with semicolon\n                    characterReferenceError(String.format(\"invalid named referenece '%s'\", origNameRef));\n                return null;\n            }\n            if (inAttribute && (reader.matchesLetter() || reader.matchesDigit() || reader.matchesAny('=', '-', '_'))) {\n                // don't want that to match\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            return Entities.getCharacterByName(nameRef);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 139,
+        "end_line": 147,
+        "line_numbers": [
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147
+        ],
+        "function_name": "consumeCharacterReference",
+        "class_name": "Tokeniser",
+        "filename": "Tokeniser.java",
+        "code_snippet": "    Character consumeCharacterReference(Character additionalAllowedCharacter, boolean inAttribute) {\n        if (reader.isEmpty())\n            return null;\n        if (additionalAllowedCharacter != null && additionalAllowedCharacter == reader.current())\n            return null;\n        if (reader.matchesAny('\\t', '\\n', '\\r', '\\f', ' ', '<', '&'))\n            return null;\n\n        reader.mark();\n        if (reader.matchConsume(\"#\")) { // numbered\n            boolean isHexMode = reader.matchConsumeIgnoreCase(\"X\");\n            String numRef = isHexMode ? reader.consumeHexSequence() : reader.consumeDigitSequence();\n            if (numRef.length() == 0) { // didn't match anything\n                characterReferenceError(\"numeric reference with no numerals\");\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            int charval = -1;\n            try {\n                int base = isHexMode ? 16 : 10;\n                charval = Integer.valueOf(numRef, base);\n            } catch (NumberFormatException e) {\n            } // skip\n            if (charval == -1 || (charval >= 0xD800 && charval <= 0xDFFF) || charval > 0x10FFFF) {\n                characterReferenceError(\"character outside of valid range\");\n                return replacementChar;\n            } else {\n                // todo: implement number replacement table\n                // todo: check for extra illegal unicode points as parse errors\n                return (char) charval;\n            }\n        } else { // named\n            // get as many letters as possible, and look for matching entities.\n            String nameRef = reader.consumeLetterThenDigitSequence();\n            String origNameRef = new String(nameRef);\n            boolean looksLegit = reader.matches(';');\n            // found if a base named entity without a ;, or an extended entity with the ;.\n            boolean found = false;\n            while (nameRef.length() > 0 && !found) {\n                if (Entities.isNamedEntity(nameRef))\n                    found = true;\n                else {\n                    nameRef = nameRef.substring(0, nameRef.length()-1);\n                    reader.unconsume();\n                }\n            }\n\n            if (!found) {\n                reader.rewindToMark();\n                if (looksLegit) // named with semicolon\n                    characterReferenceError(String.format(\"invalid named referenece '%s'\", origNameRef));\n                return null;\n            }\n            if (inAttribute && (reader.matchesLetter() || reader.matchesDigit() || reader.matchesAny('=', '-', '_'))) {\n                // don't want that to match\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            return Entities.getCharacterByName(nameRef);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 152,
+        "end_line": 152,
+        "line_numbers": [
+          152
+        ],
+        "function_name": "consumeCharacterReference",
+        "class_name": "Tokeniser",
+        "filename": "Tokeniser.java",
+        "code_snippet": "    Character consumeCharacterReference(Character additionalAllowedCharacter, boolean inAttribute) {\n        if (reader.isEmpty())\n            return null;\n        if (additionalAllowedCharacter != null && additionalAllowedCharacter == reader.current())\n            return null;\n        if (reader.matchesAny('\\t', '\\n', '\\r', '\\f', ' ', '<', '&'))\n            return null;\n\n        reader.mark();\n        if (reader.matchConsume(\"#\")) { // numbered\n            boolean isHexMode = reader.matchConsumeIgnoreCase(\"X\");\n            String numRef = isHexMode ? reader.consumeHexSequence() : reader.consumeDigitSequence();\n            if (numRef.length() == 0) { // didn't match anything\n                characterReferenceError(\"numeric reference with no numerals\");\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            int charval = -1;\n            try {\n                int base = isHexMode ? 16 : 10;\n                charval = Integer.valueOf(numRef, base);\n            } catch (NumberFormatException e) {\n            } // skip\n            if (charval == -1 || (charval >= 0xD800 && charval <= 0xDFFF) || charval > 0x10FFFF) {\n                characterReferenceError(\"character outside of valid range\");\n                return replacementChar;\n            } else {\n                // todo: implement number replacement table\n                // todo: check for extra illegal unicode points as parse errors\n                return (char) charval;\n            }\n        } else { // named\n            // get as many letters as possible, and look for matching entities.\n            String nameRef = reader.consumeLetterThenDigitSequence();\n            String origNameRef = new String(nameRef);\n            boolean looksLegit = reader.matches(';');\n            // found if a base named entity without a ;, or an extended entity with the ;.\n            boolean found = false;\n            while (nameRef.length() > 0 && !found) {\n                if (Entities.isNamedEntity(nameRef))\n                    found = true;\n                else {\n                    nameRef = nameRef.substring(0, nameRef.length()-1);\n                    reader.unconsume();\n                }\n            }\n\n            if (!found) {\n                reader.rewindToMark();\n                if (looksLegit) // named with semicolon\n                    characterReferenceError(String.format(\"invalid named referenece '%s'\", origNameRef));\n                return null;\n            }\n            if (inAttribute && (reader.matchesLetter() || reader.matchesDigit() || reader.matchesAny('=', '-', '_'))) {\n                // don't want that to match\n                reader.rewindToMark();\n                return null;\n            }\n            if (!reader.matchConsume(\";\"))\n                characterReferenceError(\"missing semicolon\"); // missing semi\n            return Entities.getCharacterByName(nameRef);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.EntitiesTest::unescape",
+      "org.jsoup.nodes.EntitiesTest::noSpuriousDecodes",
+      "org.jsoup.parser.AttributeParseTest::moreAttributeUnescapes",
+      "org.jsoup.parser.AttributeParseTest::strictAttributeUnescapes",
+      "org.jsoup.parser.HtmlParserTest::doesNotFindShortestMatchingEntity",
+      "org.jsoup.parser.HtmlParserTest::relaxedBaseEntityMatchAndStrictExtendedMatch"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex a60fab8..cc72b7d 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -1,6 +1,5 @@\n package org.jsoup.nodes;\n \n+import org.jsoup.parser.Parser;\n \n import java.io.IOException;\n import java.io.InputStream;\n@@ -59,9 +58,6 @@ public class Entities {\n      * @return true if a known named entity in the base set\n      * @see #isNamedEntity(String)\n      */\n+    public static boolean isBaseNamedEntity(String name) {\n+        return base.containsKey(name);\n+    }\n \n     /**\n      * Get the Character value of the named entity\n@@ -104,7 +100,33 @@ public class Entities {\n      * @return\n      */\n     static String unescape(String string, boolean strict) {\n+        return Parser.unescapeEntities(string, strict);\n-        if (!string.contains(\"&\"))\n-            return string;\n-        Matcher m = strict? strictUnescapePattern.matcher(string) : unescapePattern.matcher(string);\n-        StringBuffer accum = new StringBuffer(string.length());\n-        while (m.find()) {\n-            int charval = -1;\n-            String num = m.group(3);\n-            if (num != null) {\n-                try {\n-                    int base = m.group(2) != null ? 16 : 10;\n-                    charval = Integer.valueOf(num, base);\n-                } catch (NumberFormatException e) {\n-                }\n-            } else {\n-                String name = m.group(1);\n-                if (full.containsKey(name))\n-                    charval = full.get(name);\n-            }\n-            if (charval != -1 || charval > 0xFFFF) {\n-                String c = Character.toString((char) charval);\n-                m.appendReplacement(accum, Matcher.quoteReplacement(c));\n-            } else {\n-                m.appendReplacement(accum, Matcher.quoteReplacement(m.group(0)));\n-            }\n-        }\n-        m.appendTail(accum);\n-        return accum.toString();\n     }\n \n     // xhtml has restricted entities\ndiff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex eebce38..ed700d9 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -130,10 +130,6 @@ public class Parser {\n      * @param inAttribute if the string is to be escaped in strict mode (as attributes are)\n      * @return an unescaped string\n      */\n+    public static String unescapeEntities(String string, boolean inAttribute) {\n+        Tokeniser tokeniser = new Tokeniser(new CharacterReader(string), ParseErrorList.noTracking());\n+        return tokeniser.unescapeEntities(inAttribute);\n+    }\n \n     /**\n      * @param bodyHtml HTML to parse\ndiff --git a/src/main/java/org/jsoup/parser/Tokeniser.java b/src/main/java/org/jsoup/parser/Tokeniser.java\nindex 3445855..cc9f470 100644\n--- a/src/main/java/org/jsoup/parser/Tokeniser.java\n+++ b/src/main/java/org/jsoup/parser/Tokeniser.java\n@@ -133,14 +133,23 @@ class Tokeniser {\n         } else { // named\n             // get as many letters as possible, and look for matching entities.\n             String nameRef = reader.consumeLetterThenDigitSequence();\n-            String origNameRef = new String(nameRef);\n             boolean looksLegit = reader.matches(';');\n             // found if a base named entity without a ;, or an extended entity with the ;.\n+            boolean found = (Entities.isBaseNamedEntity(nameRef) || (Entities.isNamedEntity(nameRef) && looksLegit));\n-            boolean found = false;\n-            while (nameRef.length() > 0 && !found) {\n-                if (Entities.isNamedEntity(nameRef))\n-                    found = true;\n-                else {\n-                    nameRef = nameRef.substring(0, nameRef.length()-1);\n-                    reader.unconsume();\n-                }\n-            }\n \n             if (!found) {\n                 reader.rewindToMark();\n                 if (looksLegit) // named with semicolon\n+                    characterReferenceError(String.format(\"invalid named referenece '%s'\", nameRef));\n-                    characterReferenceError(String.format(\"invalid named referenece '%s'\", origNameRef));\n                 return null;\n             }\n             if (inAttribute && (reader.matchesLetter() || reader.matchesDigit() || reader.matchesAny('=', '-', '_'))) {\n@@ -226,19 +235,4 @@ class Tokeniser {\n      * @param inAttribute\n      * @return unescaped string from reader\n      */\n+    String unescapeEntities(boolean inAttribute) {\n+        StringBuilder builder = new StringBuilder();\n+        while (!reader.isEmpty()) {\n+            builder.append(reader.consumeTo('&'));\n+            if (reader.matches('&')) {\n+                reader.consume();\n+                Character c = consumeCharacterReference(null, inAttribute);\n+                if (c == null)\n+                    builder.append('&');\n+                else\n+                    builder.append(c);\n+            }\n+        }\n+        return builder.toString();\n+    }\n }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2010-08-31 20:07:10",
+        "commit_message": "Fixed issue in Entities when unescaping &#36; (\"$\")",
+        "commit_hash": "20ed24cefb5df53c48021459af98bef83c55f241"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "unescape",
+          "EscapeMode",
+          "escape",
+          "Entities"
+        ],
+        "functions_name_all_files": [
+          "unescape",
+          "EscapeMode",
+          "escape",
+          "Entities"
+        ],
+        "function_code_before": "    private static final Pattern unescapePattern = Pattern.compile(\"&(#(x|X)?([0-9a-fA-F]+)|[a-zA-Z]+);?\");\n\n    static String escape(String string, Document.OutputSettings out) {\n        return escape(string, out.encoder(), out.escapeMode());\n    }",
+        "function_code_after": "    private static final Pattern unescapePattern = Pattern.compile(\"&(#(x|X)?([0-9a-fA-F]+)|[a-zA-Z]+);?\");\n\n    static String escape(String string, Document.OutputSettings out) {\n        return escape(string, out.encoder(), out.escapeMode());\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/nodes/Entities.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/nodes/Entities.java": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex 4105e90c..739897c0 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -48,6 +48,7 @@ public class Entities {\n \n         Matcher m = unescapePattern.matcher(string); // &(#(x|X)?([0-9a-fA-F]+)|[a-zA-Z]+);?\n         StringBuffer accum = new StringBuffer(string.length()); // pity matcher can't use stringbuilder, avoid syncs\n+        // todo: replace m.appendReplacement with own impl, so StringBuilder and quoteReplacement not required\n \n         while (m.find()) {\n             int charval = -1;\n@@ -66,9 +67,9 @@ public class Entities {\n \n             if (charval != -1 || charval > 0xFFFF) { // out of range\n                 String c = Character.toString((char) charval);\n-                m.appendReplacement(accum, c);\n+                m.appendReplacement(accum, Matcher.quoteReplacement(c));\n             } else {\n-                m.appendReplacement(accum, m.group(0)); // replace with original string\n+                m.appendReplacement(accum, Matcher.quoteReplacement(m.group(0))); // replace with original string\n             }\n         }\n         m.appendTail(accum);"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

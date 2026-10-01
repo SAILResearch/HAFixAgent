@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_55",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 14:51:44",
+      "end_time": "2026-06-28 14:53:30",
+      "duration_seconds": 106,
+      "duration_human": "1m 46s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 851147,
+      "output_tokens": 5478,
+      "total_tokens": 856625,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 851147
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\nindex 7f55a3f29..35ff12db5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdKeySerializers.java\n@@ -6,6 +6,8 @@ import java.util.Date;\n \n import com.fasterxml.jackson.core.*;\n import com.fasterxml.jackson.databind.*;\n+import com.fasterxml.jackson.databind.ser.ContextualSerializer;\n+import com.fasterxml.jackson.databind.util.EnumValues;\n import com.fasterxml.jackson.databind.ser.impl.PropertySerializerMap;\n \n @SuppressWarnings(\"serial\")\n@@ -107,7 +109,7 @@ public class StdKeySerializers\n      * {@link java.util.Date} and {@link java.util.Calendar} key serializers,\n      * as well as alternative configuration of Enum key serializers.\n      */\n-    public static class Default extends StdSerializer<Object> {\n+    public static class Default extends StdSerializer<Object> implements ContextualSerializer {\n         final static int TYPE_DATE = 1;\n         final static int TYPE_CALENDAR = 2;\n         final static int TYPE_CLASS = 3;\n@@ -115,12 +117,19 @@ public class StdKeySerializers\n         final static int TYPE_TO_STRING = 5;\n \n         protected final int _typeId;\n+        protected EnumValues _enumValues;\n         \n         public Default(int typeId, Class<?> type) {\n             super(type, false);\n             _typeId = typeId;\n         }\n \n+        public Default(int typeId, Class<?> type, EnumValues enumValues) {\n+            super(type, false);\n+            _typeId = typeId;\n+            _enumValues = enumValues;\n+        }\n+\n         @Override\n         public void serialize(Object value, JsonGenerator g, SerializerProvider provider) throws IOException {\n             switch (_typeId) {\n@@ -135,8 +144,13 @@ public class StdKeySerializers\n                 break;\n             case TYPE_ENUM:\n                 {\n-                    String str = provider.isEnabled(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)\n-                            ? value.toString() : ((Enum<?>) value).name();\n+                    String str;\n+                    if (_enumValues != null) {\n+                        str = _enumValues.serializedValueFor((Enum<?>) value).getValue();\n+                    } else {\n+                        str = provider.isEnabled(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)\n+                                ? value.toString() : ((Enum<?>) value).name();\n+                    }\n                     g.writeFieldName(str);\n                 }\n                 break;\n@@ -145,6 +159,21 @@ public class StdKeySerializers\n                 g.writeFieldName(value.toString());\n             }\n         }\n+\n+        @Override\n+        public JsonSerializer<?> createContextual(SerializerProvider prov, BeanProperty property)\n+            throws JsonMappingException\n+        {\n+            if (_typeId == TYPE_ENUM && _enumValues == null) {\n+                Class<?> enumClass = handledType();\n+                if (enumClass != null && enumClass.isEnum()) {\n+                    @SuppressWarnings(\"unchecked\")\n+                    EnumValues enumValues = EnumValues.constructFromName(prov.getConfig(), (Class<Enum<?>>) enumClass);\n+                    return new Default(_typeId, enumClass, enumValues);\n+                }\n+            }\n+            return this;\n+        }\n     }\n \n     /**\n"
+  },
+  "timestamp": "2026-06-28 14:53:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_55",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_55",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "EnumMap keys not using enum's `@JsonProperty` values unlike Enum values\nBased on these issues:\nhttps://github.com/FasterXML/jackson-databind/issues/677\nhttps://github.com/FasterXML/jackson-databind/issues/1148\nhttps://github.com/FasterXML/jackson-annotations/issues/96\n\nI implemented @JsonProperty for my enum constants and they show up nicely when they are property values. But I also have an EnumMap which uses the enum, and it's generated JSON uses the original enum names for the keys and not the JsonProperty values.\n\nUsing 2.8.1 (in spring boot 4.3.2)\n\nThanks!\n\n",
+    "commit_message": "Fix #1322",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 266,
+        "end_line": 266,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 267,
+        "end_line": 267,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 271,
+        "end_line": 271,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.TestEnumSerialization::testEnumsWithJsonPropertyAsKey"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 266,
+      "end_line": 266,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 267,
+      "end_line": 267,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 271,
+      "end_line": 271,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

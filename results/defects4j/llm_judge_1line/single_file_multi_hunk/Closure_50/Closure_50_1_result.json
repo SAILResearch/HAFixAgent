@@ -1,0 +1,63 @@
+{
+  "project_name": "Closure",
+  "bug_id": "50",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:52:42",
+      "end_time": "2025-09-30 14:58:47",
+      "duration_seconds": 365,
+      "duration_human": "6m 5s"
+    },
+    "model_cost": 0.0269,
+    "model_calls": 42,
+    "token_usage": {
+      "input_tokens": 324427,
+      "output_tokens": 4922,
+      "total_tokens": 329349,
+      "cached_input_tokens": 314176,
+      "uncached_input_tokens": 10251
+    },
+    "agent_steps": 43,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java b/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\nindex ffe47d3d9..f91505ddd 100644\n--- a/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\n+++ b/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\n@@ -388,6 +388,11 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{\n \n       // \",\" is the default, it doesn't need to be explicit\n \n+    // If the join string is the default comma, we can omit it\n+    if (right != null && \",\".equals(NodeUtil.getStringValue(right)) && right.getNext() == null) {\n+      n.removeChild(right);\n+      right = null;\n+    }\n     String joinString = (right == null) ? \",\" : NodeUtil.getStringValue(right);\n     List<Node> arrayFoldedChildren = Lists.newLinkedList();\n     StringBuilder sb = null;\n"
+  },
+  "timestamp": "2025-09-30 14:58:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_50",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_50",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Optimisation: convert array.join(\",\") to array.join()\n<b>What steps will reproduce the problem?</b>\n\r\nCompile this code:\r\n\r\nvar variable = confirm(&quot;value from user&quot;);\r\nvar array = [ &quot;constant&quot;, variable ];\r\nalert( array.join(&quot;,&quot;) );\r\n\r\n\r\n<b>What is the expected output? What do you see instead?</b>\n\r\n$ java -jar /usr/local/slando/lib/Google/compiler.jar --compilation_level ADVANCED_OPTIMIZATIONS --js foo.js\r\nvar a=[&quot;constant&quot;,confirm(&quot;value from user&quot;)];alert(a.join(&quot;,&quot;));\r\n\r\nWe could save three bytes here by producing:\r\n\r\nvar a=[&quot;constant&quot;,confirm(&quot;value from user&quot;)];alert(a.join());\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n\r\n$ java -jar /usr/local/slando/lib/Google/compiler.jar --version\r\nClosure Compiler (http://code.google.com/closure/compiler)\r\nVersion: 1180\r\nBuilt on: 2011/06/15 21:40\r\n\r\nRunning on Linux 2.6.18\r\n\r\n\r\n<b>Please provide any additional information below.</b>\n\r\nHere's a common pattern this would be useful in:\r\n\r\nvar my_jquery_selectors = [];\r\n// ... append to my_jquery_selectors from various parts of the codebase ...\r\n$(my_jquery_selectors.join(&quot;,&quot;)).html(&quot;the code is more readable with the comma left in place&quot;);",
+    "commit_message": "[].join(',') --> [].join() Fixes issue 558",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java",
+        "start_line": 376,
+        "end_line": 376,
+        "line_numbers": [
+          376
+        ],
+        "function_name": "tryFoldArrayJoin",
+        "class_name": "PeepholeReplaceKnownMethods",
+        "filename": "PeepholeReplaceKnownMethods.java",
+        "code_snippet": "  private Node tryFoldArrayJoin(Node n) {\n    Node callTarget = n.getFirstChild();\n\n    if (callTarget == null || !NodeUtil.isGetProp(callTarget)) {\n      return n;\n    }\n\n    Node right = callTarget.getNext();\n    if (right != null) {\n      if (!NodeUtil.isImmutableValue(right)) {\n        return n;\n      }\n    }\n\n    Node arrayNode = callTarget.getFirstChild();\n    Node functionName = arrayNode.getNext();\n\n    if ((arrayNode.getType() != Token.ARRAYLIT) ||\n        !functionName.getString().equals(\"join\")) {\n      return n;\n    }\n\n      // \",\" is the default, it doesn't need to be explicit\n\n    String joinString = (right == null) ? \",\" : NodeUtil.getStringValue(right);\n    List<Node> arrayFoldedChildren = Lists.newLinkedList();\n    StringBuilder sb = null;\n    int foldedSize = 0;\n    Node prev = null;\n    Node elem = arrayNode.getFirstChild();\n    // Merges adjacent String nodes.\n    while (elem != null) {\n      if (NodeUtil.isImmutableValue(elem) || elem.getType() == Token.EMPTY) {\n        if (sb == null) {\n          sb = new StringBuilder();\n        } else {\n          sb.append(joinString);\n        }\n        sb.append(NodeUtil.getArrayElementStringValue(elem));\n      } else {\n        if (sb != null) {\n          Preconditions.checkNotNull(prev);\n          // + 2 for the quotes.\n          foldedSize += sb.length() + 2;\n          arrayFoldedChildren.add(\n              Node.newString(sb.toString()).copyInformationFrom(prev));\n          sb = null;\n        }\n        foldedSize += InlineCostEstimator.getCost(elem);\n        arrayFoldedChildren.add(elem);\n      }\n      prev = elem;\n      elem = elem.getNext();\n    }\n\n    if (sb != null) {\n      Preconditions.checkNotNull(prev);\n      // + 2 for the quotes.\n      foldedSize += sb.length() + 2;\n      arrayFoldedChildren.add(\n          Node.newString(sb.toString()).copyInformationFrom(prev));\n    }\n    // one for each comma.\n    foldedSize += arrayFoldedChildren.size() - 1;\n\n    int originalSize = InlineCostEstimator.getCost(n);\n    switch (arrayFoldedChildren.size()) {\n      case 0:\n        Node emptyStringNode = Node.newString(\"\");\n        n.getParent().replaceChild(n, emptyStringNode);\n        reportCodeChange();\n        return emptyStringNode;\n      case 1:\n        Node foldedStringNode = arrayFoldedChildren.remove(0);\n        if (foldedSize > originalSize) {\n          return n;\n        }\n        arrayNode.detachChildren();\n        if (foldedStringNode.getType() != Token.STRING) {\n          // If the Node is not a string literal, ensure that\n          // it is coerced to a string.\n          Node replacement = new Node(Token.ADD,\n              Node.newString(\"\").copyInformationFrom(n),\n              foldedStringNode);\n          foldedStringNode = replacement;\n        }\n        n.getParent().replaceChild(n, foldedStringNode);\n        reportCodeChange();\n        return foldedStringNode;\n      default:\n        // No folding could actually be performed.\n        if (arrayFoldedChildren.size() == arrayNode.getChildCount()) {\n          return n;\n        }\n        int kJoinOverhead = \"[].join()\".length();\n        foldedSize += kJoinOverhead;\n        foldedSize += (right != null) ? InlineCostEstimator.getCost(right) : 0;\n        if (foldedSize > originalSize) {\n          return n;\n        }\n        arrayNode.detachChildren();\n        for (Node node : arrayFoldedChildren) {\n          arrayNode.addChildToBack(node);\n        }\n        reportCodeChange();\n        break;\n    }\n\n    return n;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.PeepholeReplaceKnownMethodsTest::testStringJoinAdd",
+      "com.google.javascript.jscomp.PeepholeReplaceKnownMethodsTest::testNoStringJoin"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java b/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\nindex afaf85a..ffe47d3 100644\n--- a/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\n+++ b/src/com/google/javascript/jscomp/PeepholeReplaceKnownMethods.java\n@@ -373,7 +373,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{\n \n     Node right = callTarget.getNext();\n     if (right != null) {\n+      if (right.getNext() != null || !NodeUtil.isImmutableValue(right)) {\n-      if (!NodeUtil.isImmutableValue(right)) {\n         return n;\n       }\n     }\n@@ -386,12 +386,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{\n       return n;\n     }\n \n+    if (right != null && right.getType() == Token.STRING\n+        && \",\".equals(right.getString())) {\n       // \",\" is the default, it doesn't need to be explicit\n+      n.removeChild(right);\n+      reportCodeChange();\n+    }\n \n     String joinString = (right == null) ? \",\" : NodeUtil.getStringValue(right);\n     List<Node> arrayFoldedChildren = Lists.newLinkedList();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

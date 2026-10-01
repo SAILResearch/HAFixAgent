@@ -1,0 +1,75 @@
+{
+  "project_name": "Closure",
+  "bug_id": "45",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:25:20",
+      "end_time": "2026-06-26 18:27:00",
+      "duration_seconds": 100,
+      "duration_human": "1m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 476625,
+      "output_tokens": 3867,
+      "total_tokens": 480492,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 476625
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/RemoveUnusedVars.java b/src/com/google/javascript/jscomp/RemoveUnusedVars.java\nindex be72a580e..cb1101ec2 100644\n--- a/src/com/google/javascript/jscomp/RemoveUnusedVars.java\n+++ b/src/com/google/javascript/jscomp/RemoveUnusedVars.java\n@@ -737,8 +737,7 @@ class RemoveUnusedVars\n               assignedToUnknownValue = true;\n             }\n           }\n-\n-          if (assignedToUnknownValue && hasPropertyAssign) {\n+            } else if (!NodeUtil.isLiteralValue(assign.assignNode.getLastChild(), true) && !assign.maybeAliased) {\n             changes = markReferencedVar(var) || changes;\n             maybeUnreferenced.remove(current);\n             current--;\n@@ -901,7 +900,7 @@ class RemoveUnusedVars\n       this.nameNode = nameNode;\n       this.isPropertyAssign = isPropertyAssign;\n \n-      this.maybeAliased = !assignNode.getParent().isExprResult();\n+      this.maybeAliased = !assignNode.getParent().isExprResult() && !NodeUtil.mayHaveSideEffects(assignNode.getLastChild());\n       this.mayHaveSecondarySideEffects =\n           maybeAliased ||\n           NodeUtil.mayHaveSideEffects(assignNode.getFirstChild()) ||\n"
+  },
+  "timestamp": "2026-06-26 18:27:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_45",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_45",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Assignment removed when used as an expression result to Array.push\n<b>What steps will reproduce the problem?</b>\n1. Open online closure-compiler\r\n2. Input code:\r\n  function f() {\r\n    var a = [], b;\r\n    a.push(b = []);\r\n    b[0] = 1;\r\n    return a;\r\n  }\r\n3. Press [Compile]\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nExcept OK.\r\nOutput: function f(){var a=[];a.push([]);return a}; //wrong\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nCurrent online version.",
+    "commit_message": "Don't remove assignments to variables whose values have escaped and are later modified. Fixes issue 618.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/RemoveUnusedVars.java",
+        "start_line": 741,
+        "end_line": 741,
+        "line_numbers": [
+          741
+        ],
+        "function_name": "interpretAssigns",
+        "class_name": "CallSiteOptimizer",
+        "filename": "RemoveUnusedVars.java",
+        "code_snippet": "  private void interpretAssigns() {\n    boolean changes = false;\n    do {\n      changes = false;\n\n      // We can't use traditional iterators and iterables for this list,\n      // because our lazily-evaluated continuations will modify it while\n      // we traverse it.\n      for (int current = 0; current < maybeUnreferenced.size(); current++) {\n        Var var = maybeUnreferenced.get(current);\n        if (referenced.contains(var)) {\n          maybeUnreferenced.remove(current);\n          current--;\n        } else {\n          boolean assignedToUnknownValue = false;\n          boolean hasPropertyAssign = false;\n\n          if (var.getParentNode().isVar() &&\n              !NodeUtil.isForIn(var.getParentNode().getParent())) {\n            Node value = var.getInitialValue();\n            assignedToUnknownValue = value != null &&\n                !NodeUtil.isLiteralValue(value, true);\n          } else {\n            // This was initialized to a function arg or a catch param\n            // or a for...in variable.\n            assignedToUnknownValue = true;\n          }\n\n          for (Assign assign : assignsByVar.get(var)) {\n            if (assign.isPropertyAssign) {\n              hasPropertyAssign = true;\n            } else if (!NodeUtil.isLiteralValue(\n                assign.assignNode.getLastChild(), true)) {\n              assignedToUnknownValue = true;\n            }\n          }\n\n          if (assignedToUnknownValue && hasPropertyAssign) {\n            changes = markReferencedVar(var) || changes;\n            maybeUnreferenced.remove(current);\n            current--;\n          }\n        }\n      }\n    } while (changes);\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/RemoveUnusedVars.java",
+        "start_line": 904,
+        "end_line": 904,
+        "line_numbers": [
+          904
+        ],
+        "function_name": "",
+        "class_name": "Assign",
+        "filename": "RemoveUnusedVars.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.RemoveUnusedVarsTest::testIssue618_1"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/RemoveUnusedVars.java b/src/com/google/javascript/jscomp/RemoveUnusedVars.java\nindex c93a073..be72a58 100644\n--- a/src/com/google/javascript/jscomp/RemoveUnusedVars.java\n+++ b/src/com/google/javascript/jscomp/RemoveUnusedVars.java\n@@ -729,7 +729,6 @@ class RemoveUnusedVars\n             assignedToUnknownValue = true;\n           }\n \n+          boolean maybeEscaped = false;\n           for (Assign assign : assignsByVar.get(var)) {\n             if (assign.isPropertyAssign) {\n               hasPropertyAssign = true;\n@@ -737,12 +736,9 @@ class RemoveUnusedVars\n                 assign.assignNode.getLastChild(), true)) {\n               assignedToUnknownValue = true;\n             }\n+            if (assign.maybeAliased) {\n+              maybeEscaped = true;\n+            }\n           }\n \n+          if ((assignedToUnknownValue || maybeEscaped) && hasPropertyAssign) {\n-          if (assignedToUnknownValue && hasPropertyAssign) {\n             changes = markReferencedVar(var) || changes;\n             maybeUnreferenced.remove(current);\n             current--;\n@@ -905,7 +901,7 @@ class RemoveUnusedVars\n       this.nameNode = nameNode;\n       this.isPropertyAssign = isPropertyAssign;\n \n+      this.maybeAliased = NodeUtil.isExpressionResultUsed(assignNode);\n-      this.maybeAliased = !assignNode.getParent().isExprResult();\n       this.mayHaveSecondarySideEffects =\n           maybeAliased ||\n           NodeUtil.mayHaveSideEffects(assignNode.getFirstChild()) ||",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

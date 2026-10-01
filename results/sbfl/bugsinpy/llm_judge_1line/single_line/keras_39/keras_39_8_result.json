@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_39",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 03:16:54",
+      "end_time": "2026-06-18 03:53:19",
+      "duration_seconds": 2185,
+      "duration_human": "36m 25s"
+    },
+    "model_cost": 0.1484,
+    "model_calls": 25,
+    "token_usage": {
+      "input_tokens": 1326998,
+      "output_tokens": 65609,
+      "total_tokens": 1392607,
+      "cached_input_tokens": 876928,
+      "uncached_input_tokens": 450070
+    },
+    "agent_steps": 25,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/utils/generic_utils.py b/keras/utils/generic_utils.py\nindex 667e93f93..75143b8aa 100644\n--- a/keras/utils/generic_utils.py\n+++ b/keras/utils/generic_utils.py\n@@ -3,291 +3,12 @@ from __future__ import absolute_import\n from __future__ import division\n from __future__ import print_function\n \n-import binascii\n import numpy as np\n-\n import time\n import sys\n-import six\n-import marshal\n-import types as python_types\n-import inspect\n-import codecs\n-\n-_GLOBAL_CUSTOM_OBJECTS = {}\n-\n-\n-class CustomObjectScope(object):\n-    \"\"\"Provides a scope that changes to `_GLOBAL_CUSTOM_OBJECTS` cannot escape.\n-\n-    Code within a `with` statement will be able to access custom objects\n-    by name. Changes to global custom objects persist\n-    within the enclosing `with` statement. At end of the `with` statement,\n-    global custom objects are reverted to state\n-    at beginning of the `with` statement.\n-\n-    # Example\n-\n-    Consider a custom object `MyObject` (e.g. a class):\n-\n-    ```python\n-        with CustomObjectScope({'MyObject':MyObject}):\n-            layer = Dense(..., kernel_regularizer='MyObject')\n-            # save, load, etc. will recognize custom object by name\n-    ```\n-    \"\"\"\n-\n-    def __init__(self, *args):\n-        self.custom_objects = args\n-        self.backup = None\n-\n-    def __enter__(self):\n-        self.backup = _GLOBAL_CUSTOM_OBJECTS.copy()\n-        for objects in self.custom_objects:\n-            _GLOBAL_CUSTOM_OBJECTS.update(objects)\n-        return self\n-\n-    def __exit__(self, *args, **kwargs):\n-        _GLOBAL_CUSTOM_OBJECTS.clear()\n-        _GLOBAL_CUSTOM_OBJECTS.update(self.backup)\n-\n-\n-def custom_object_scope(*args):\n-    \"\"\"Provides a scope that changes to `_GLOBAL_CUSTOM_OBJECTS` cannot escape.\n-\n-    Convenience wrapper for `CustomObjectScope`.\n-    Code within a `with` statement will be able to access custom objects\n-    by name. Changes to global custom objects persist\n-    within the enclosing `with` statement. At end of the `with` statement,\n-    global custom objects are reverted to state\n-    at beginning of the `with` statement.\n-\n-    # Example\n-\n-    Consider a custom object `MyObject`\n-\n-    ```python\n-        with custom_object_scope({'MyObject':MyObject}):\n-            layer = Dense(..., kernel_regularizer='MyObject')\n-            # save, load, etc. will recognize custom object by name\n-    ```\n-\n-    # Arguments\n-        *args: Variable length list of dictionaries of name,\n-            class pairs to add to custom objects.\n-\n-    # Returns\n-        Object of type `CustomObjectScope`.\n-    \"\"\"\n-    return CustomObjectScope(*args)\n-\n-\n-def get_custom_objects():\n-    \"\"\"Retrieves a live reference to the global dictionary of custom objects.\n-\n-    Updating and clearing custom objects using `custom_object_scope`\n-    is preferred, but `get_custom_objects` can\n-    be used to directly access `_GLOBAL_CUSTOM_OBJECTS`.\n-\n-    # Example\n-\n-    ```python\n-        get_custom_objects().clear()\n-        get_custom_objects()['MyObject'] = MyObject\n-    ```\n-\n-    # Returns\n-        Global dictionary of names to classes (`_GLOBAL_CUSTOM_OBJECTS`).\n-    \"\"\"\n-    return _GLOBAL_CUSTOM_OBJECTS\n-\n-\n-def serialize_keras_object(instance):\n-    if instance is None:\n-        return None\n-    if hasattr(instance, 'get_config'):\n-        return {\n-            'class_name': instance.__class__.__name__,\n-            'config': instance.get_config()\n-        }\n-    if hasattr(instance, '__name__'):\n-        return instance.__name__\n-    else:\n-        raise ValueError('Cannot serialize', instance)\n-\n-\n-def deserialize_keras_object(identifier, module_objects=None,\n-                             custom_objects=None,\n-                             printable_module_name='object'):\n-    if isinstance(identifier, dict):\n-        # In this case we are dealing with a Keras config dictionary.\n-        config = identifier\n-        if 'class_name' not in config or 'config' not in config:\n-            raise ValueError('Improper config format: ' + str(config))\n-        class_name = config['class_name']\n-        if custom_objects and class_name in custom_objects:\n-            cls = custom_objects[class_name]\n-        elif class_name in _GLOBAL_CUSTOM_OBJECTS:\n-            cls = _GLOBAL_CUSTOM_OBJECTS[class_name]\n-        else:\n-            module_objects = module_objects or {}\n-            cls = module_objects.get(class_name)\n-            if cls is None:\n-                raise ValueError('Unknown ' + printable_module_name +\n-                                 ': ' + class_name)\n-        if hasattr(cls, 'from_config'):\n-            custom_objects = custom_objects or {}\n-            if has_arg(cls.from_config, 'custom_objects'):\n-                return cls.from_config(config['config'],\n-                                       custom_objects=dict(list(_GLOBAL_CUSTOM_OBJECTS.items()) +\n-                                                           list(custom_objects.items())))\n-            with CustomObjectScope(custom_objects):\n-                return cls.from_config(config['config'])\n-        else:\n-            # Then `cls` may be a function returning a class.\n-            # in this case by convention `config` holds\n-            # the kwargs of the function.\n-            custom_objects = custom_objects or {}\n-            with CustomObjectScope(custom_objects):\n-                return cls(**config['config'])\n-    elif isinstance(identifier, six.string_types):\n-        function_name = identifier\n-        if custom_objects and function_name in custom_objects:\n-            fn = custom_objects.get(function_name)\n-        elif function_name in _GLOBAL_CUSTOM_OBJECTS:\n-            fn = _GLOBAL_CUSTOM_OBJECTS[function_name]\n-        else:\n-            fn = module_objects.get(function_name)\n-            if fn is None:\n-                raise ValueError('Unknown ' + printable_module_name +\n-                                 ':' + function_name)\n-        return fn\n-    else:\n-        raise ValueError('Could not interpret serialized ' +\n-                         printable_module_name + ': ' + identifier)\n-\n-\n-def func_dump(func):\n-    \"\"\"Serializes a user defined function.\n-\n-    # Arguments\n-        func: the function to serialize.\n-\n-    # Returns\n-        A tuple `(code, defaults, closure)`.\n-    \"\"\"\n-    raw_code = marshal.dumps(func.__code__)\n-    code = codecs.encode(raw_code, 'base64').decode('ascii')\n-    defaults = func.__defaults__\n-    if func.__closure__:\n-        closure = tuple(c.cell_contents for c in func.__closure__)\n-    else:\n-        closure = None\n-    return code, defaults, closure\n-\n-\n-def func_load(code, defaults=None, closure=None, globs=None):\n-    \"\"\"Deserializes a user defined function.\n-\n-    # Arguments\n-        code: bytecode of the function.\n-        defaults: defaults of the function.\n-        closure: closure of the function.\n-        globs: dictionary of global objects.\n-\n-    # Returns\n-        A function object.\n-    \"\"\"\n-    if isinstance(code, (tuple, list)):  # unpack previous dump\n-        code, defaults, closure = code\n-        if isinstance(defaults, list):\n-            defaults = tuple(defaults)\n-\n-    def ensure_value_to_cell(value):\n-        \"\"\"Ensures that a value is converted to a python cell object.\n-\n-        # Arguments\n-            value: Any value that needs to be casted to the cell type\n-\n-        # Returns\n-            A value wrapped as a cell object (see function \"func_load\")\n-\n-        \"\"\"\n-        def dummy_fn():\n-            value  # just access it so it gets captured in .__closure__\n-\n-        cell_value = dummy_fn.__closure__[0]\n-        if not isinstance(value, type(cell_value)):\n-            return cell_value\n-        else:\n-            return value\n-\n-    if closure is not None:\n-        closure = tuple(ensure_value_to_cell(_) for _ in closure)\n-    try:\n-        raw_code = codecs.decode(code.encode('ascii'), 'base64')\n-    except (UnicodeEncodeError, binascii.Error):\n-        # backwards compatibility for models serialized prior to 2.1.2\n-        raw_code = code.encode('raw_unicode_escape')\n-    code = marshal.loads(raw_code)\n-    if globs is None:\n-        globs = globals()\n-    return python_types.FunctionType(code, globs,\n-                                     name=code.co_name,\n-                                     argdefs=defaults,\n-                                     closure=closure)\n-\n-\n-def has_arg(fn, name, accept_all=False):\n-    \"\"\"Checks if a callable accepts a given keyword argument.\n-\n-    For Python 2, checks if there is an argument with the given name.\n-\n-    For Python 3, checks if there is an argument with the given name, and\n-    also whether this argument can be called with a keyword (i.e. if it is\n-    not a positional-only argument).\n-\n-    # Arguments\n-        fn: Callable to inspect.\n-        name: Check if `fn` can be called with `name` as a keyword argument.\n-        accept_all: What to return if there is no parameter called `name`\n-                    but the function accepts a `**kwargs` argument.\n-\n-    # Returns\n-        bool, whether `fn` accepts a `name` keyword argument.\n-    \"\"\"\n-    if sys.version_info < (3,):\n-        arg_spec = inspect.getargspec(fn)\n-        if accept_all and arg_spec.keywords is not None:\n-            return True\n-        return (name in arg_spec.args)\n-    elif sys.version_info < (3, 3):\n-        arg_spec = inspect.getfullargspec(fn)\n-        if accept_all and arg_spec.varkw is not None:\n-            return True\n-        return (name in arg_spec.args or\n-                name in arg_spec.kwonlyargs)\n-    else:\n-        signature = inspect.signature(fn)\n-        parameter = signature.parameters.get(name)\n-        if parameter is None:\n-            if accept_all:\n-                for param in signature.parameters.values():\n-                    if param.kind == inspect.Parameter.VAR_KEYWORD:\n-                        return True\n-            return False\n-        return (parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,\n-                                   inspect.Parameter.KEYWORD_ONLY))\n-\n \n class Progbar(object):\n-    \"\"\"Displays a progress bar.\n-\n-    # Arguments\n-        target: Total number of steps expected, None if unknown.\n-        interval: Minimum visual progress update interval (in seconds).\n-    \"\"\"\n-\n+    \"\"\"Displays a progress bar.\"\"\"\n     def __init__(self, target, width=30, verbose=1, interval=0.05):\n         self.width = width\n         self.target = target\n@@ -299,19 +20,12 @@ class Progbar(object):\n         self.total_width = 0\n         self.seen_so_far = 0\n         self.verbose = verbose\n-        self._dynamic_display = ((hasattr(sys.stdout, 'isatty') and\n+        self._dynamic_display = ((hasattr(sys.stdout, \"isatty\") and\n                                   sys.stdout.isatty()) or\n-                                 'ipykernel' in sys.modules)\n+                                 \"ipykernel\" in sys.modules)\n \n     def update(self, current, values=None, force=False):\n-        \"\"\"Updates the progress bar.\n-\n-        # Arguments\n-            current: Index of current step.\n-            values: List of tuples (name, value_for_last_step).\n-                The progress bar will display averages for these values.\n-            force: Whether to force visual progress update.\n-        \"\"\"\n+        \"\"\"Updates the progress bar.\"\"\"\n         values = values or []\n         for k, v in values:\n             if k not in self.sum_values:\n@@ -324,7 +38,7 @@ class Progbar(object):\n         self.seen_so_far = current\n \n         now = time.time()\n-        info = ' - %.0fs' % (now - self.start)\n+        info = \" - %.0fs\" % (now - self.start)\n         if self.verbose == 1:\n             if (not force and (now - self.last_update) < self.interval and\n                     current < self.target):\n@@ -332,27 +46,27 @@ class Progbar(object):\n \n             prev_total_width = self.total_width\n             if self._dynamic_display:\n-                sys.stdout.write('\\b' * prev_total_width)\n-                sys.stdout.write('\\r')\n+                sys.stdout.write(\"\\\\b\" * prev_total_width)\n+                sys.stdout.write(\"\\\\r\")\n             else:\n-                sys.stdout.write('\\n')\n+                sys.stdout.write(\"\\\\n\")\n \n             if self.target is not None:\n                 numdigits = int(np.floor(np.log10(self.target))) + 1\n-                barstr = '%%%dd/%d [' % (numdigits, self.target)\n+                barstr = \"%%%dd/%d [\" % (numdigits, self.target)\n                 bar = barstr % current\n                 prog = float(current) / self.target\n                 prog_width = int(self.width * prog)\n                 if prog_width > 0:\n-                    bar += ('=' * (prog_width - 1))\n+                    bar += (\"=\" * (prog_width - 1))\n                     if current < self.target:\n-                        bar += '>'\n+                        bar += \">\"\n                     else:\n-                        bar += '='\n-                bar += ('.' * (self.width - prog_width))\n-                bar += ']'\n+                        bar += \"=\"\n+                bar += (\".\" * (self.width - prog_width))\n+                bar += \"]\"\n             else:\n-                bar = '%7d/Unknown' % current\n+                bar = \"%7d/Unknown\" % current\n \n             self.total_width = len(bar)\n             sys.stdout.write(bar)\n@@ -364,59 +78,42 @@ class Progbar(object):\n             if self.target is not None and current < self.target:\n                 eta = time_per_unit * (self.target - current)\n                 if eta > 3600:\n-                    eta_format = '%d:%02d:%02d' % (eta // 3600, (eta % 3600) // 60, eta % 60)\n+                    eta_format = \"%d:%02d:%02d\" % (eta // 3600, (eta % 3600) // 60, eta % 60)\n                 elif eta > 60:\n-                    eta_format = '%d:%02d' % (eta // 60, eta % 60)\n+                    eta_format = \"%d:%02d\" % (eta // 60, eta % 60)\n                 else:\n-                    eta_format = '%ds' % eta\n-\n-                info = ' - ETA: %s' % eta_format\n+                    eta_format = \"%ds\" % eta\n+                info = \" - ETA: %s\" % eta_format\n             else:\n                 if time_per_unit >= 1:\n-                    info += ' %.0fs/step' % time_per_unit\n+                    info += \" %.0fs/step\" % time_per_unit\n                 elif time_per_unit >= 1e-3:\n-                    info += ' %.0fms/step' % (time_per_unit * 1e3)\n+                    info += \" %.0fms/step\" % (time_per_unit * 1e3)\n                 else:\n-                    info += ' %.0fus/step' % (time_per_unit * 1e6)\n+                    info += \" %.0fus/step\" % (time_per_unit * 1e6)\n \n             for k in self.unique_values:\n-                info += ' - %s:' % k\n+                info += \" - %s:\" % k\n                 if isinstance(self.sum_values[k], list):\n-                    avg = np.mean(\n-                        self.sum_values[k][0] / max(1, self.sum_values[k][1]))\n+                    avg = np.mean(self.sum_values[k][0] / max(1, self.sum_values[k][1]))\n                     if abs(avg) > 1e-3:\n-                        info += ' %.4f' % avg\n+                        info += \" %.4f\" % avg\n                     else:\n-                        info += ' %.4e' % avg\n+                        info += \" %.4e\" % avg\n                 else:\n-                    info += ' %s' % self.sum_values[k]\n+                    info += \" %s\" % self.sum_values[k]\n \n             self.total_width += len(info)\n             if prev_total_width > self.total_width:\n-                info += (' ' * (prev_total_width - self.total_width))\n+                info += (\" \" * (prev_total_width - self.total_width))\n \n             if self.target is not None and current >= self.target:\n-                info += '\\n'\n+                info += \"\\\\n\"\n \n             sys.stdout.write(info)\n             sys.stdout.flush()\n-\n-        elif self.verbose == 2:\n-            if self.target is None or current >= self.target:\n-                for k in self.unique_values:\n-                    info += ' - %s:' % k\n-                    avg = np.mean(\n-                        self.sum_values[k][0] / max(1, self.sum_values[k][1]))\n-                    if avg > 1e-3:\n-                        info += ' %.4f' % avg\n-                    else:\n-                        info += ' %.4e' % avg\n-                info += '\\n'\n-\n-                sys.stdout.write(info)\n-                sys.stdout.flush()\n-\n-        self.last_update = now\n+            self.last_update = now\n \n     def add(self, n, values=None):\n+        \"\"\"Adds to the current progress.\"\"\"\n         self.update(self.seen_so_far + n, values)\ndiff --git a/tests/keras/utils/generic_utils_test.py b/tests/keras/utils/generic_utils_test.py\nindex 9aa2a7cb9..408b9c30e 100644\n--- a/tests/keras/utils/generic_utils_test.py\n+++ b/tests/keras/utils/generic_utils_test.py\n@@ -16,8 +16,12 @@ from keras import regularizers\n def test_progbar():\n     n = 2\n     input_arr = np.random.random((n, n, n))\n+\n     bar = Progbar(n)\n+    for i, arr in enumerate(input_arr):\n+        bar.update(i, list(arr))\n \n+    bar = Progbar(None)\n     for i, arr in enumerate(input_arr):\n         bar.update(i, list(arr))\n \n"
+  },
+  "timestamp": "2026-06-18 03:53:19 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_39",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_39/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix progress bar when total number of steps is unknown (#9052)",
+    "fault_locations": [
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 292,
+        "end_line": 292,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 293,
+        "end_line": 293,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 294,
+        "end_line": 294,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 295,
+        "end_line": 295,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 296,
+        "end_line": 296,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 297,
+        "end_line": 297,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 298,
+        "end_line": 298,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 299,
+        "end_line": 299,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 300,
+        "end_line": 300,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "keras/utils/generic_utils.py",
+        "start_line": 301,
+        "end_line": 301,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/utils/generic_utils_test.py::test_progbar"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 292,
+      "end_line": 292,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 293,
+      "end_line": 293,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 294,
+      "end_line": 294,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 295,
+      "end_line": 295,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 296,
+      "end_line": 296,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 297,
+      "end_line": 297,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 298,
+      "end_line": 298,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 299,
+      "end_line": 299,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 300,
+      "end_line": 300,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "keras/utils/generic_utils.py",
+      "start_line": 301,
+      "end_line": 301,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_167",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 04:42:49",
+      "end_time": "2026-06-18 05:34:56",
+      "duration_seconds": 3127,
+      "duration_human": "52m 7s"
+    },
+    "model_cost": 0.1177,
+    "model_calls": 19,
+    "token_usage": {
+      "input_tokens": 973050,
+      "output_tokens": 60088,
+      "total_tokens": 1033138,
+      "cached_input_tokens": 628352,
+      "uncached_input_tokens": 344698
+    },
+    "agent_steps": 19,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/common.py b/pandas/core/common.py\nindex a507625ccf..c6e79f78dc 100644\n--- a/pandas/core/common.py\n+++ b/pandas/core/common.py\n@@ -1,489 +1,978 @@\n \"\"\"\n+\n Misc tools for implementing data structures\n \n+\n+\n Note: pandas.core.common is *not* part of the public API.\n+\n \"\"\"\n \n+\n+\n import collections\n+\n from collections import OrderedDict, abc\n+\n from datetime import datetime, timedelta\n+\n from functools import partial\n+\n import inspect\n+\n from typing import Any, Iterable, Union\n \n+\n+\n import numpy as np\n \n+\n+\n from pandas._libs import lib, tslibs\n+\n from pandas.compat import PY36\n \n+\n+\n from pandas.core.dtypes.cast import construct_1d_object_array_from_listlike\n+\n from pandas.core.dtypes.common import (\n+\n     is_array_like,\n+\n     is_bool_dtype,\n+\n     is_extension_array_dtype,\n+\n     is_integer,\n+\n )\n+\n from pandas.core.dtypes.generic import ABCIndex, ABCIndexClass, ABCSeries\n+\n from pandas.core.dtypes.inference import _iterable_not_string\n+\n from pandas.core.dtypes.missing import isna, isnull, notnull  # noqa\n \n \n+\n+\n+\n class SettingWithCopyError(ValueError):\n+\n     pass\n \n \n+\n+\n+\n class SettingWithCopyWarning(Warning):\n+\n     pass\n \n \n+\n+\n+\n def flatten(l):\n+\n     \"\"\"\n+\n     Flatten an arbitrarily nested sequence.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     l : sequence\n+\n         The non string sequence to flatten\n \n+\n+\n     Notes\n+\n     -----\n+\n     This doesn't consider strings sequences.\n \n+\n+\n     Returns\n+\n     -------\n+\n     flattened : generator\n+\n     \"\"\"\n+\n     for el in l:\n+\n         if _iterable_not_string(el):\n+\n             for s in flatten(el):\n+\n                 yield s\n+\n         else:\n+\n             yield el\n \n \n+\n+\n+\n def consensus_name_attr(objs):\n+\n     name = objs[0].name\n+\n     for obj in objs[1:]:\n+\n         try:\n+\n             if obj.name != name:\n+\n                 name = None\n+\n         except ValueError:\n+\n             name = None\n+\n     return name\n \n \n+\n+\n+\n def maybe_box(indexer, values, obj, key):\n \n+\n+\n     # if we have multiples coming back, box em\n+\n     if isinstance(values, np.ndarray):\n+\n         return obj[indexer.get_loc(key)]\n \n+\n+\n     # return the value\n+\n     return values\n \n \n+\n+\n+\n def maybe_box_datetimelike(value):\n     # turn a datetime like into a Timestamp/timedelta as needed\n+    from pandas.api.types import is_datetime64_dtype, is_timedelta64_dtype\n+    from pandas import NaT, Timestamp, Timedelta\n+    import pandas._libs.lib as lib\n+    import numpy as np\n+    \n+    if is_datetime64_dtype(value):\n+        # Extract scalar from 0-d array if needed\n+        value = lib.item_from_zerodim(value)\n+        # Check if we still have an array (means input was not 0-d)\n+        if isinstance(value, np.ndarray):\n+            return value\n+        if value is not NaT:\n+            return Timestamp(value)\n+    elif is_timedelta64_dtype(value):\n+        value = lib.item_from_zerodim(value)\n+        if isinstance(value, np.ndarray):\n+            return value\n+        if value is not NaT:\n+            return Timedelta(value)\n+    return value\n \n-    if isinstance(value, (np.datetime64, datetime)):\n-        value = tslibs.Timestamp(value)\n-    elif isinstance(value, (np.timedelta64, timedelta)):\n-        value = tslibs.Timedelta(value)\n+values_from_object = lib.values_from_object\n \n-    return value\n \n \n-values_from_object = lib.values_from_object\n \n \n def is_bool_indexer(key: Any) -> bool:\n+\n     \"\"\"\n+\n     Check whether `key` is a valid boolean indexer.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     key : Any\n+\n         Only list-likes may be considered boolean indexers.\n+\n         All other types are not considered a boolean indexer.\n+\n         For array-like input, boolean ndarrays or ExtensionArrays\n+\n         with ``_is_boolean`` set are considered boolean indexers.\n \n+\n+\n     Returns\n+\n     -------\n+\n     bool\n \n+\n+\n     Raises\n+\n     ------\n+\n     ValueError\n+\n         When the array is an object-dtype ndarray or ExtensionArray\n+\n         and contains missing values.\n+\n     \"\"\"\n+\n     na_msg = \"cannot index with vector containing NA / NaN values\"\n+\n     if isinstance(key, (ABCSeries, np.ndarray, ABCIndex)) or (\n+\n         is_array_like(key) and is_extension_array_dtype(key.dtype)\n+\n     ):\n+\n         if key.dtype == np.object_:\n+\n             key = np.asarray(values_from_object(key))\n \n+\n+\n             if not lib.is_bool_array(key):\n+\n                 if isna(key).any():\n+\n                     raise ValueError(na_msg)\n+\n                 return False\n+\n             return True\n+\n         elif is_bool_dtype(key.dtype):\n+\n             # an ndarray with bool-dtype by definition has no missing values.\n+\n             # So we only need to check for NAs in ExtensionArrays\n+\n             if is_extension_array_dtype(key.dtype):\n+\n                 if np.any(key.isna()):\n+\n                     raise ValueError(na_msg)\n+\n             return True\n+\n     elif isinstance(key, list):\n+\n         try:\n+\n             arr = np.asarray(key)\n+\n             return arr.dtype == np.bool_ and len(arr) == len(key)\n+\n         except TypeError:  # pragma: no cover\n+\n             return False\n \n+\n+\n     return False\n \n \n+\n+\n+\n def cast_scalar_indexer(val):\n+\n     \"\"\"\n+\n     To avoid numpy DeprecationWarnings, cast float to integer where valid.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     val : scalar\n \n+\n+\n     Returns\n+\n     -------\n+\n     outval : scalar\n+\n     \"\"\"\n+\n     # assumes lib.is_scalar(val)\n+\n     if lib.is_float(val) and val == int(val):\n+\n         return int(val)\n+\n     return val\n \n \n+\n+\n+\n def not_none(*args):\n+\n     \"\"\"\n+\n     Returns a generator consisting of the arguments that are not None.\n+\n     \"\"\"\n+\n     return (arg for arg in args if arg is not None)\n \n \n+\n+\n+\n def any_none(*args):\n+\n     \"\"\"\n+\n     Returns a boolean indicating if any argument is None.\n+\n     \"\"\"\n+\n     return any(arg is None for arg in args)\n \n \n+\n+\n+\n def all_none(*args):\n+\n     \"\"\"\n+\n     Returns a boolean indicating if all arguments are None.\n+\n     \"\"\"\n+\n     return all(arg is None for arg in args)\n \n \n+\n+\n+\n def any_not_none(*args):\n+\n     \"\"\"\n+\n     Returns a boolean indicating if any argument is not None.\n+\n     \"\"\"\n+\n     return any(arg is not None for arg in args)\n \n \n+\n+\n+\n def all_not_none(*args):\n+\n     \"\"\"\n+\n     Returns a boolean indicating if all arguments are not None.\n+\n     \"\"\"\n+\n     return all(arg is not None for arg in args)\n \n \n+\n+\n+\n def count_not_none(*args):\n+\n     \"\"\"\n+\n     Returns the count of arguments that are not None.\n+\n     \"\"\"\n+\n     return sum(x is not None for x in args)\n \n \n+\n+\n+\n def try_sort(iterable):\n+\n     listed = list(iterable)\n+\n     try:\n+\n         return sorted(listed)\n+\n     except Exception:\n+\n         return listed\n \n \n+\n+\n+\n def dict_keys_to_ordered_list(mapping):\n+\n     # when pandas drops support for Python < 3.6, this function\n+\n     # can be replaced by a simple list(mapping.keys())\n+\n     if PY36 or isinstance(mapping, OrderedDict):\n+\n         keys = list(mapping.keys())\n+\n     else:\n+\n         keys = try_sort(mapping)\n+\n     return keys\n \n \n+\n+\n+\n def asarray_tuplesafe(values, dtype=None):\n \n+\n+\n     if not (isinstance(values, (list, tuple)) or hasattr(values, \"__array__\")):\n+\n         values = list(values)\n+\n     elif isinstance(values, ABCIndexClass):\n+\n         return values.values\n \n+\n+\n     if isinstance(values, list) and dtype in [np.object_, object]:\n+\n         return construct_1d_object_array_from_listlike(values)\n \n+\n+\n     result = np.asarray(values, dtype=dtype)\n \n+\n+\n     if issubclass(result.dtype.type, str):\n+\n         result = np.asarray(values, dtype=object)\n \n+\n+\n     if result.ndim == 2:\n+\n         # Avoid building an array of arrays:\n+\n         values = [tuple(x) for x in values]\n+\n         result = construct_1d_object_array_from_listlike(values)\n \n+\n+\n     return result\n \n \n+\n+\n+\n def index_labels_to_array(labels, dtype=None):\n+\n     \"\"\"\n+\n     Transform label or iterable of labels to array, for use in Index.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     dtype : dtype\n+\n         If specified, use as dtype of the resulting array, otherwise infer.\n \n+\n+\n     Returns\n+\n     -------\n+\n     array\n+\n     \"\"\"\n+\n     if isinstance(labels, (str, tuple)):\n+\n         labels = [labels]\n \n+\n+\n     if not isinstance(labels, (list, np.ndarray)):\n+\n         try:\n+\n             labels = list(labels)\n+\n         except TypeError:  # non-iterable\n+\n             labels = [labels]\n \n+\n+\n     labels = asarray_tuplesafe(labels, dtype=dtype)\n \n+\n+\n     return labels\n \n \n+\n+\n+\n def maybe_make_list(obj):\n+\n     if obj is not None and not isinstance(obj, (tuple, list)):\n+\n         return [obj]\n+\n     return obj\n \n \n+\n+\n+\n def maybe_iterable_to_list(obj: Union[Iterable, Any]) -> Union[list, Any]:\n+\n     \"\"\"\n+\n     If obj is Iterable but not list-like, consume into list.\n+\n     \"\"\"\n+\n     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):\n+\n         return list(obj)\n+\n     return obj\n \n \n+\n+\n+\n def is_null_slice(obj):\n+\n     \"\"\"\n+\n     We have a null slice.\n+\n     \"\"\"\n+\n     return (\n+\n         isinstance(obj, slice)\n+\n         and obj.start is None\n+\n         and obj.stop is None\n+\n         and obj.step is None\n+\n     )\n \n \n+\n+\n+\n def is_true_slices(l):\n+\n     \"\"\"\n+\n     Find non-trivial slices in \"l\": return a list of booleans with same length.\n+\n     \"\"\"\n+\n     return [isinstance(k, slice) and not is_null_slice(k) for k in l]\n \n \n+\n+\n+\n # TODO: used only once in indexing; belongs elsewhere?\n+\n def is_full_slice(obj, l):\n+\n     \"\"\"\n+\n     We have a full length slice.\n+\n     \"\"\"\n+\n     return (\n+\n         isinstance(obj, slice) and obj.start == 0 and obj.stop == l and obj.step is None\n+\n     )\n \n \n+\n+\n+\n def get_callable_name(obj):\n+\n     # typical case has name\n+\n     if hasattr(obj, \"__name__\"):\n+\n         return getattr(obj, \"__name__\")\n+\n     # some objects don't; could recurse\n+\n     if isinstance(obj, partial):\n+\n         return get_callable_name(obj.func)\n+\n     # fall back to class name\n+\n     if hasattr(obj, \"__call__\"):\n+\n         return obj.__class__.__name__\n+\n     # everything failed (probably because the argument\n+\n     # wasn't actually callable); we return None\n+\n     # instead of the empty string in this case to allow\n+\n     # distinguishing between no name and a name of ''\n+\n     return None\n \n \n+\n+\n+\n def apply_if_callable(maybe_callable, obj, **kwargs):\n+\n     \"\"\"\n+\n     Evaluate possibly callable input using obj and kwargs if it is callable,\n+\n     otherwise return as it is.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     maybe_callable : possibly a callable\n+\n     obj : NDFrame\n+\n     **kwargs\n+\n     \"\"\"\n \n+\n+\n     if callable(maybe_callable):\n+\n         return maybe_callable(obj, **kwargs)\n \n+\n+\n     return maybe_callable\n \n \n+\n+\n+\n def dict_compat(d):\n+\n     \"\"\"\n+\n     Helper function to convert datetimelike-keyed dicts\n+\n     to Timestamp-keyed dict.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     d: dict like object\n \n+\n+\n     Returns\n+\n     -------\n+\n     dict\n \n+\n+\n     \"\"\"\n+\n     return {maybe_box_datetimelike(key): value for key, value in d.items()}\n \n \n+\n+\n+\n def standardize_mapping(into):\n+\n     \"\"\"\n+\n     Helper function to standardize a supplied mapping.\n \n+\n+\n     .. versionadded:: 0.21.0\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     into : instance or subclass of collections.abc.Mapping\n+\n         Must be a class, an initialized collections.defaultdict,\n+\n         or an instance of a collections.abc.Mapping subclass.\n \n+\n+\n     Returns\n+\n     -------\n+\n     mapping : a collections.abc.Mapping subclass or other constructor\n+\n         a callable object that can accept an iterator to create\n+\n         the desired Mapping.\n \n+\n+\n     See Also\n+\n     --------\n+\n     DataFrame.to_dict\n+\n     Series.to_dict\n+\n     \"\"\"\n+\n     if not inspect.isclass(into):\n+\n         if isinstance(into, collections.defaultdict):\n+\n             return partial(collections.defaultdict, into.default_factory)\n+\n         into = type(into)\n+\n     if not issubclass(into, abc.Mapping):\n+\n         raise TypeError(\"unsupported type: {into}\".format(into=into))\n+\n     elif into == collections.defaultdict:\n+\n         raise TypeError(\"to_dict() only accepts initialized defaultdicts\")\n+\n     return into\n \n \n+\n+\n+\n def random_state(state=None):\n+\n     \"\"\"\n+\n     Helper function for processing random_state arguments.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     state : int, np.random.RandomState, None.\n+\n         If receives an int, passes to np.random.RandomState() as seed.\n+\n         If receives an np.random.RandomState object, just returns object.\n+\n         If receives `None`, returns np.random.\n+\n         If receives anything else, raises an informative ValueError.\n+\n         Default None.\n \n+\n+\n     Returns\n+\n     -------\n+\n     np.random.RandomState\n+\n     \"\"\"\n \n+\n+\n     if is_integer(state):\n+\n         return np.random.RandomState(state)\n+\n     elif isinstance(state, np.random.RandomState):\n+\n         return state\n+\n     elif state is None:\n+\n         return np.random\n+\n     else:\n+\n         raise ValueError(\n+\n             \"random_state must be an integer, a numpy RandomState, or None\"\n+\n         )\n \n \n+\n+\n+\n def pipe(obj, func, *args, **kwargs):\n+\n     \"\"\"\n+\n     Apply a function ``func`` to object ``obj`` either by passing obj as the\n+\n     first argument to the function or, in the case that the func is a tuple,\n+\n     interpret the first element of the tuple as a function and pass the obj to\n+\n     that function as a keyword argument whose key is the value of the second\n+\n     element of the tuple.\n \n+\n+\n     Parameters\n+\n     ----------\n+\n     func : callable or tuple of (callable, string)\n+\n         Function to apply to this object or, alternatively, a\n+\n         ``(callable, data_keyword)`` tuple where ``data_keyword`` is a\n+\n         string indicating the keyword of `callable`` that expects the\n+\n         object.\n+\n     args : iterable, optional\n+\n         positional arguments passed into ``func``.\n+\n     kwargs : dict, optional\n+\n         a dictionary of keyword arguments passed into ``func``.\n \n+\n+\n     Returns\n+\n     -------\n+\n     object : the return type of ``func``.\n+\n     \"\"\"\n+\n     if isinstance(func, tuple):\n+\n         func, target = func\n+\n         if target in kwargs:\n+\n             msg = \"%s is both the pipe target and a keyword argument\" % target\n+\n             raise ValueError(msg)\n+\n         kwargs[target] = obj\n+\n         return func(*args, **kwargs)\n+\n     else:\n+\n         return func(obj, *args, **kwargs)\n \n \n+\n+\n+\n def get_rename_function(mapper):\n+\n     \"\"\"\n+\n     Returns a function that will map names/labels, dependent if mapper\n+\n     is a dict, Series or just a function.\n+\n     \"\"\"\n+\n     if isinstance(mapper, (abc.Mapping, ABCSeries)):\n \n+\n+\n         def f(x):\n+\n             if x in mapper:\n+\n                 return mapper[x]\n+\n             else:\n+\n                 return x\n \n+\n+\n     else:\n+\n         f = mapper\n \n+\n+\n     return f\n"
+  },
+  "timestamp": "2026-06-18 05:34:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_167",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_167/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: partial string indexing with scalar (#27712)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 88,
+        "end_line": 88,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 90,
+        "end_line": 90,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 93,
+        "end_line": 93,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/construction.py",
+        "start_line": 431,
+        "end_line": 431,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/construction.py",
+        "start_line": 432,
+        "end_line": 432,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2946,
+        "end_line": 2946,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2947,
+        "end_line": 2947,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2948,
+        "end_line": 2948,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2950,
+        "end_line": 2950,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2951,
+        "end_line": 2951,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_partial_slicing.py::TestSlicing::test_slice_reduce_to_series"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 88,
+      "end_line": 88,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 90,
+      "end_line": 90,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 93,
+      "end_line": 93,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/construction.py",
+      "start_line": 431,
+      "end_line": 431,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/construction.py",
+      "start_line": 432,
+      "end_line": 432,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 2946,
+      "end_line": 2946,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 2947,
+      "end_line": 2947,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 2948,
+      "end_line": 2948,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 2950,
+      "end_line": 2950,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 2951,
+      "end_line": 2951,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

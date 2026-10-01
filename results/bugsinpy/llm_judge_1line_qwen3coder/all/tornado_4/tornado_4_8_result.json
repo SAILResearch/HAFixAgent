@@ -1,0 +1,70 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_4",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 19:44:36",
+      "end_time": "2026-06-20 19:47:15",
+      "duration_seconds": 159,
+      "duration_human": "2m 39s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 45,
+    "token_usage": {
+      "input_tokens": 640527,
+      "output_tokens": 4460,
+      "total_tokens": 644987,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 640527
+    },
+    "agent_steps": 45,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/test/web_test.py b/tornado/test/web_test.py\nindex d65213ea..be38a998 100644\n--- a/tornado/test/web_test.py\n+++ b/tornado/test/web_test.py\n@@ -1280,6 +1280,17 @@ class StaticFileTest(WebTestCase):\n         self.assertEqual(response.headers.get(\"Content-Length\"), \"4\")\n         self.assertEqual(response.headers.get(\"Content-Range\"), \"bytes 22-25/26\")\n \n+    def test_static_with_range_neg_past_start(self):\n+        response = self.get_and_head(\n+            \"/static/robots.txt\", headers={\"Range\": \"bytes=-1000000\"}\n+        )\n+        self.assertEqual(response.code, 200)\n+        robots_file_path = os.path.join(self.static_dir, \"robots.txt\")\n+        with open(robots_file_path) as f:\n+            self.assertEqual(response.body, utf8(f.read()))\n+        self.assertEqual(response.headers.get(\"Content-Length\"), \"26\")\n+        self.assertEqual(response.headers.get(\"Content-Range\"), None)\n+\n     def test_static_invalid_range(self):\n         response = self.get_and_head(\"/static/robots.txt\", headers={\"Range\": \"asdf\"})\n         self.assertEqual(response.code, 200)\n@@ -1298,6 +1309,13 @@ class StaticFileTest(WebTestCase):\n         self.assertEqual(response.code, 416)\n         self.assertEqual(response.headers.get(\"Content-Range\"), \"bytes */26\")\n \n+    def test_static_unsatisfiable_range_end_less_than_start(self):\n+        response = self.get_and_head(\n+            \"/static/robots.txt\", headers={\"Range\": \"bytes=10-3\"}\n+        )\n+        self.assertEqual(response.code, 416)\n+        self.assertEqual(response.headers.get(\"Content-Range\"), \"bytes */26\")\n+\n     def test_static_head(self):\n         response = self.fetch(\"/static/robots.txt\", method=\"HEAD\")\n         self.assertEqual(response.code, 200)\ndiff --git a/tornado/web.py b/tornado/web.py\nindex 2affd8e3..263f429b 100644\n--- a/tornado/web.py\n+++ b/tornado/web.py\n@@ -2600,16 +2600,24 @@ class StaticFileHandler(RequestHandler):\n         size = self.get_content_size()\n         if request_range:\n             start, end = request_range\n-            if (start is not None and start >= size) or end == 0:\n+            if start is not None and start < 0:\n+                start += size\n+                if start < 0:\n+                    start = 0\n+            if (\n+                start is not None\n+                and (start >= size or (end is not None and start >= end))\n+            ) or end == 0:\n                 # As per RFC 2616 14.35.1, a range is not satisfiable only: if\n                 # the first requested byte is equal to or greater than the\n-                # content, or when a suffix with length 0 is specified\n+                # content, or when a suffix with length 0 is specified.\n+                # https://tools.ietf.org/html/rfc7233#section-2.1\n+                # A byte-range-spec is invalid if the last-byte-pos value is present\n+                # and less than the first-byte-pos.\n                 self.set_status(416)  # Range Not Satisfiable\n                 self.set_header(\"Content-Type\", \"text/plain\")\n                 self.set_header(\"Content-Range\", \"bytes */%s\" % (size,))\n                 return\n-            if start is not None and start < 0:\n-                start += size\n             if end is not None and end > size:\n                 # Clients sometimes blindly use a large range to limit their\n                 # download size; cap the endpoint at the actual file size.\n"
+  },
+  "timestamp": "2026-06-20 19:47:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_4",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_4/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "Fix #2521: Serve full file when range start is negative and exceeds the total length (#2522)",
+    "fault_locations": [
+      {
+        "file": "tornado/web.py",
+        "start_line": 2603,
+        "end_line": 2603,
+        "function_name": "get",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/web.py",
+        "start_line": 2606,
+        "end_line": 2606,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/web.py",
+        "start_line": 2611,
+        "end_line": 2612,
+        "function_name": "get",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.web_test.StaticFileTest.test_static_with_range_neg_past_start",
+      "python -m unittest -q tornado.test.web_test.StaticFileTest.test_static_unsatisfiable_range_end_less_than_start"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "80",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 23:03:59",
+      "end_time": "2026-06-26 23:06:17",
+      "duration_seconds": 138,
+      "duration_human": "2m 18s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 679561,
+      "output_tokens": 6988,
+      "total_tokens": 686549,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 679561
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\nindex a12a878f3..9f145bed3 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\n@@ -267,6 +267,20 @@ public class StdSubtypeResolver\n      * Helper method used for merging explicitly named types and handled classes\n      * without explicit names.\n      */\n+    /**\n+     * Helper method to check if a class has an explicit type name.\n+     */\n+    protected boolean _hasExplicitName(Class<?> cls, Class<?> rawBase, Map<String,NamedType> byName) {\n+        // Check if the class has an explicit name in the byName map\n+        for (Map.Entry<String,NamedType> entry : byName.entrySet()) {\n+            NamedType nt = entry.getValue();\n+            if (nt.getType() == cls && nt.hasName()) {\n+                return true;\n+            }\n+        }\n+        return false;\n+    }\n+\n     protected Collection<NamedType> _combineNamedAndUnnamed(Class<?> rawBase,\n             Set<Class<?>> typesHandled, Map<String,NamedType> byName)\n     {\n@@ -280,8 +294,8 @@ public class StdSubtypeResolver\n         }\n         for (Class<?> cls : typesHandled) {\n             // 27-Apr-2017, tatu: [databind#1616] Do not add base type itself unless\n-            //     it is concrete (or has explicit type name)\n-            if ((cls == rawBase) && Modifier.isAbstract(cls.getModifiers())) {\n+            //     it is concrete AND has explicit type name\n+            if ((cls == rawBase) && (Modifier.isAbstract(cls.getModifiers()) || !_hasExplicitName(cls, rawBase, byName))) {\n                 continue;\n             }\n             result.add(new NamedType(cls));\n"
+  },
+  "timestamp": "2026-06-26 23:06:17 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_80",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_80",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Extraneous type id mapping added for base type itself\nLooks like type id (name) matching base type is included in type resolution list, automatically. While this might be useful sometimes it seems quite odd, and probably should only be included if:\r\n\r\n1. Base type is concrete and\r\n2. Base type has explicit name (not add if default name used)\r\n\n",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java",
+        "start_line": 78,
+        "end_line": 78,
+        "line_numbers": [
+          78
+        ],
+        "function_name": "collectAndResolveSubtypesByClass",
+        "class_name": "StdSubtypeResolver",
+        "filename": "StdSubtypeResolver.java",
+        "code_snippet": "    public Collection<NamedType> collectAndResolveSubtypesByClass(MapperConfig<?> config, \n            AnnotatedMember property, JavaType baseType)\n    {\n        final AnnotationIntrospector ai = config.getAnnotationIntrospector();\n        // for backwards compatibility, must allow null here:\n        Class<?> rawBase = (baseType == null) ? property.getRawType() : baseType.getRawClass();\n        \n        HashMap<NamedType, NamedType> collected = new HashMap<NamedType, NamedType>();\n        // start with registered subtypes (which have precedence)\n        if (_registeredSubtypes != null) {\n            for (NamedType subtype : _registeredSubtypes) {\n                // is it a subtype of root type?\n                if (rawBase.isAssignableFrom(subtype.getType())) { // yes\n                    AnnotatedClass curr = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            subtype.getType());\n                    _collectAndResolve(curr, subtype, config, ai, collected);\n                }\n            }\n        }\n        \n        // then annotated types for property itself\n            Collection<NamedType> st = ai.findSubtypes(property);\n            if (st != null) {\n                for (NamedType nt : st) {\n                    AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            nt.getType());\n                    _collectAndResolve(ac, nt, config, ai, collected);\n                }            \n        }\n\n        NamedType rootType = new NamedType(rawBase, null);\n        AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config, rawBase);\n            \n        // and finally subtypes via annotations from base type (recursively)\n        _collectAndResolve(ac, rootType, config, ai, collected);\n\n        return new ArrayList<NamedType>(collected.values());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java",
+        "start_line": 86,
+        "end_line": 86,
+        "line_numbers": [
+          86
+        ],
+        "function_name": "collectAndResolveSubtypesByClass",
+        "class_name": "StdSubtypeResolver",
+        "filename": "StdSubtypeResolver.java",
+        "code_snippet": "    public Collection<NamedType> collectAndResolveSubtypesByClass(MapperConfig<?> config, \n            AnnotatedMember property, JavaType baseType)\n    {\n        final AnnotationIntrospector ai = config.getAnnotationIntrospector();\n        // for backwards compatibility, must allow null here:\n        Class<?> rawBase = (baseType == null) ? property.getRawType() : baseType.getRawClass();\n        \n        HashMap<NamedType, NamedType> collected = new HashMap<NamedType, NamedType>();\n        // start with registered subtypes (which have precedence)\n        if (_registeredSubtypes != null) {\n            for (NamedType subtype : _registeredSubtypes) {\n                // is it a subtype of root type?\n                if (rawBase.isAssignableFrom(subtype.getType())) { // yes\n                    AnnotatedClass curr = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            subtype.getType());\n                    _collectAndResolve(curr, subtype, config, ai, collected);\n                }\n            }\n        }\n        \n        // then annotated types for property itself\n            Collection<NamedType> st = ai.findSubtypes(property);\n            if (st != null) {\n                for (NamedType nt : st) {\n                    AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            nt.getType());\n                    _collectAndResolve(ac, nt, config, ai, collected);\n                }            \n        }\n\n        NamedType rootType = new NamedType(rawBase, null);\n        AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config, rawBase);\n            \n        // and finally subtypes via annotations from base type (recursively)\n        _collectAndResolve(ac, rootType, config, ai, collected);\n\n        return new ArrayList<NamedType>(collected.values());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java",
+        "start_line": 146,
+        "end_line": 146,
+        "line_numbers": [
+          146
+        ],
+        "function_name": "collectAndResolveSubtypesByTypeId",
+        "class_name": "StdSubtypeResolver",
+        "filename": "StdSubtypeResolver.java",
+        "code_snippet": "    public Collection<NamedType> collectAndResolveSubtypesByTypeId(MapperConfig<?> config, \n            AnnotatedMember property, JavaType baseType)\n    {\n        final AnnotationIntrospector ai = config.getAnnotationIntrospector();\n        Class<?> rawBase = baseType.getRawClass();\n\n        // Need to keep track of classes that have been handled already \n        Set<Class<?>> typesHandled = new HashSet<Class<?>>();\n        Map<String,NamedType> byName = new LinkedHashMap<String,NamedType>();\n\n        // start with lowest-precedence, which is from type hierarchy\n        NamedType rootType = new NamedType(rawBase, null);\n        AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                rawBase);\n        _collectAndResolveByTypeId(ac, rootType, config, typesHandled, byName);\n        \n        // then with definitions from property\n            Collection<NamedType> st = ai.findSubtypes(property);\n            if (st != null) {\n                for (NamedType nt : st) {\n                    ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config, nt.getType());\n                    _collectAndResolveByTypeId(ac, nt, config, typesHandled, byName);\n                }            \n        }\n        // and finally explicit type registrations (highest precedence)\n        if (_registeredSubtypes != null) {\n            for (NamedType subtype : _registeredSubtypes) {\n                // is it a subtype of root type?\n                if (rawBase.isAssignableFrom(subtype.getType())) { // yes\n                    AnnotatedClass curr = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            subtype.getType());\n                    _collectAndResolveByTypeId(curr, subtype, config, typesHandled, byName);\n                }\n            }\n        }\n        return _combineNamedAndUnnamed(rawBase, typesHandled, byName);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java",
+        "start_line": 153,
+        "end_line": 153,
+        "line_numbers": [
+          153
+        ],
+        "function_name": "collectAndResolveSubtypesByTypeId",
+        "class_name": "StdSubtypeResolver",
+        "filename": "StdSubtypeResolver.java",
+        "code_snippet": "    public Collection<NamedType> collectAndResolveSubtypesByTypeId(MapperConfig<?> config, \n            AnnotatedMember property, JavaType baseType)\n    {\n        final AnnotationIntrospector ai = config.getAnnotationIntrospector();\n        Class<?> rawBase = baseType.getRawClass();\n\n        // Need to keep track of classes that have been handled already \n        Set<Class<?>> typesHandled = new HashSet<Class<?>>();\n        Map<String,NamedType> byName = new LinkedHashMap<String,NamedType>();\n\n        // start with lowest-precedence, which is from type hierarchy\n        NamedType rootType = new NamedType(rawBase, null);\n        AnnotatedClass ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                rawBase);\n        _collectAndResolveByTypeId(ac, rootType, config, typesHandled, byName);\n        \n        // then with definitions from property\n            Collection<NamedType> st = ai.findSubtypes(property);\n            if (st != null) {\n                for (NamedType nt : st) {\n                    ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config, nt.getType());\n                    _collectAndResolveByTypeId(ac, nt, config, typesHandled, byName);\n                }            \n        }\n        // and finally explicit type registrations (highest precedence)\n        if (_registeredSubtypes != null) {\n            for (NamedType subtype : _registeredSubtypes) {\n                // is it a subtype of root type?\n                if (rawBase.isAssignableFrom(subtype.getType())) { // yes\n                    AnnotatedClass curr = AnnotatedClassResolver.resolveWithoutSuperTypes(config,\n                            subtype.getType());\n                    _collectAndResolveByTypeId(curr, subtype, config, typesHandled, byName);\n                }\n            }\n        }\n        return _combineNamedAndUnnamed(rawBase, typesHandled, byName);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TestTypeNames::testBaseTypeId1616"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\nindex 9cb8bec18..a12a878f3 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/jsontype/impl/StdSubtypeResolver.java\n@@ -76,7 +76,6 @@ public class StdSubtypeResolver\n         }\n         \n         // then annotated types for property itself\n+        if (property != null) {\n             Collection<NamedType> st = ai.findSubtypes(property);\n             if (st != null) {\n                 for (NamedType nt : st) {\n@@ -84,7 +83,6 @@ public class StdSubtypeResolver\n                             nt.getType());\n                     _collectAndResolve(ac, nt, config, ai, collected);\n                 }            \n+            }\n         }\n \n         NamedType rootType = new NamedType(rawBase, null);\n@@ -144,14 +142,12 @@ public class StdSubtypeResolver\n         _collectAndResolveByTypeId(ac, rootType, config, typesHandled, byName);\n         \n         // then with definitions from property\n+        if (property != null) {\n             Collection<NamedType> st = ai.findSubtypes(property);\n             if (st != null) {\n                 for (NamedType nt : st) {\n                     ac = AnnotatedClassResolver.resolveWithoutSuperTypes(config, nt.getType());\n                     _collectAndResolveByTypeId(ac, nt, config, typesHandled, byName);\n                 }            \n+            }\n         }\n         // and finally explicit type registrations (highest precedence)\n         if (_registeredSubtypes != null) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_2",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 09:42:43",
+      "end_time": "2026-03-24 10:02:24",
+      "duration_seconds": 1182,
+      "duration_human": "19m 42s"
+    },
+    "model_cost": 0.2128,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1096525,
+      "output_tokens": 34633,
+      "total_tokens": 1131158,
+      "cached_input_tokens": 360896,
+      "uncached_input_tokens": 735629
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexing.py b/pandas/core/indexing.py\nindex b857a59195..4cfa52baeb 100644\n--- a/pandas/core/indexing.py\n+++ b/pandas/core/indexing.py\n@@ -2015,8 +2015,14 @@ class _ScalarAccessIndexer(_NDFrameIndexerBase):\n             key = com.apply_if_callable(key, self.obj)\n \n         if not isinstance(key, tuple):\n-            key = _tuplify(self.ndim, key)\n-        if len(key) != self.ndim:\n+        if self.ndim == 1 and isinstance(key, tuple):\n+            # For Series, a tuple key is allowed (e.g., for tuple index or MultiIndex)\n+            pass\n+        if self.ndim == 1 and isinstance(key, tuple):\n+            # For Series, a tuple key is allowed (e.g., for tuple index or MultiIndex)\n+            pass\n+        elif len(key) != self.ndim:\n+            raise ValueError(\"Not enough indexers for scalar access (setting)!\")\n             raise ValueError(\"Not enough indexers for scalar access (setting)!\")\n \n         key = list(self._convert_key(key, is_setter=True))\n@@ -2024,18 +2030,17 @@ class _ScalarAccessIndexer(_NDFrameIndexerBase):\n \n \n @doc(IndexingMixin.at)\n-class _AtIndexer(_ScalarAccessIndexer):\n-    _takeable = False\n-\n     def _convert_key(self, key, is_setter: bool = False):\n         \"\"\"\n         Require they keys to be the same type as the index. (so we don't\n         fallback)\n         \"\"\"\n-        # allow arbitrary setting\n-        if is_setter:\n-            return list(key)\n-\n+        # For Series (1D), wrap the key in a list\n+        if self.ndim == 1:\n+            return [key]\n+        \n+        # For DataFrame (2D), return list(key)\n+        return list(key)\n         return key\n \n     @property\ndiff --git a/pandas/tests/indexing/test_scalar.py b/pandas/tests/indexing/test_scalar.py\nindex 216d554e22..4337f01ea3 100644\n--- a/pandas/tests/indexing/test_scalar.py\n+++ b/pandas/tests/indexing/test_scalar.py\n@@ -351,3 +351,65 @@ def test_iat_series_with_period_index():\n     expected = ser[index[0]]\n     result = ser.iat[0]\n     assert expected == result\n+\n+\n+def test_at_with_tuple_index_get():\n+    # GH 26989\n+    # DataFrame.at getter works with Index of tuples\n+    df = DataFrame({\"a\": [1, 2]}, index=[(1, 2), (3, 4)])\n+    assert df.index.nlevels == 1\n+    assert df.at[(1, 2), \"a\"] == 1\n+\n+    # Series.at getter works with Index of tuples\n+    series = df[\"a\"]\n+    assert series.index.nlevels == 1\n+    assert series.at[(1, 2)] == 1\n+\n+\n+def test_at_with_tuple_index_set():\n+    # GH 26989\n+    # DataFrame.at setter works with Index of tuples\n+    df = DataFrame({\"a\": [1, 2]}, index=[(1, 2), (3, 4)])\n+    assert df.index.nlevels == 1\n+    df.at[(1, 2), \"a\"] = 2\n+    assert df.at[(1, 2), \"a\"] == 2\n+\n+    # Series.at setter works with Index of tuples\n+    series = df[\"a\"]\n+    assert series.index.nlevels == 1\n+    series.at[1, 2] = 3\n+    assert series.at[1, 2] == 3\n+\n+\n+def test_multiindex_at_get():\n+    # GH 26989\n+    # DataFrame.at and DataFrame.loc getter works with MultiIndex\n+    df = DataFrame({\"a\": [1, 2]}, index=[[1, 2], [3, 4]])\n+    assert df.index.nlevels == 2\n+    assert df.at[(1, 3), \"a\"] == 1\n+    assert df.loc[(1, 3), \"a\"] == 1\n+\n+    # Series.at and Series.loc getter works with MultiIndex\n+    series = df[\"a\"]\n+    assert series.index.nlevels == 2\n+    assert series.at[1, 3] == 1\n+    assert series.loc[1, 3] == 1\n+\n+\n+def test_multiindex_at_set():\n+    # GH 26989\n+    # DataFrame.at and DataFrame.loc setter works with MultiIndex\n+    df = DataFrame({\"a\": [1, 2]}, index=[[1, 2], [3, 4]])\n+    assert df.index.nlevels == 2\n+    df.at[(1, 3), \"a\"] = 3\n+    assert df.at[(1, 3), \"a\"] == 3\n+    df.loc[(1, 3), \"a\"] = 4\n+    assert df.loc[(1, 3), \"a\"] == 4\n+\n+    # Series.at and Series.loc setter works with MultiIndex\n+    series = df[\"a\"]\n+    assert series.index.nlevels == 2\n+    series.at[1, 3] = 5\n+    assert series.at[1, 3] == 5\n+    series.loc[1, 3] = 6\n+    assert series.loc[1, 3] == 6\n"
+  },
+  "timestamp": "2026-03-24 06:02:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_2",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_2/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Multiindexed series .at fix (#32520)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2022,
+        "end_line": 2022,
+        "function_name": "__setitem__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_scalar.py::test_at_with_tuple_index_get",
+      "pytest pandas/tests/indexing/test_scalar.py::test_at_with_tuple_index_set",
+      "pytest pandas/tests/indexing/test_scalar.py::test_multiindex_at_get",
+      "pytest pandas/tests/indexing/test_scalar.py::test_multiindex_at_set"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

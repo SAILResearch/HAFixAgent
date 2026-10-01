@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_138",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 18:31:53",
+      "end_time": "2026-06-30 18:33:35",
+      "duration_seconds": 102,
+      "duration_human": "1m 42s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1013463,
+      "output_tokens": 4088,
+      "total_tokens": 1017551,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1013463
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/reshape/tile.py b/pandas/core/reshape/tile.py\nindex ab354a21a3..5ca9078c26 100644\n--- a/pandas/core/reshape/tile.py\n+++ b/pandas/core/reshape/tile.py\n@@ -12,6 +12,7 @@ from pandas.core.dtypes.common import (\n     _NS_DTYPE,\n     ensure_int64,\n     is_categorical_dtype,\n+is_bool_dtype,\n     is_datetime64_dtype,\n     is_datetime64tz_dtype,\n     is_datetime_or_timedelta_dtype,\n@@ -420,7 +421,6 @@ def _bins_to_cuts(\n \n     return result, bins\n \n-\n def _coerce_to_type(x):\n     \"\"\"\n     if the passed data is of datetime/timedelta type,\n@@ -428,6 +428,7 @@ def _coerce_to_type(x):\n     handle it\n     \"\"\"\n     dtype = None\n+    is_bool = is_bool_dtype(x)\n \n     if is_datetime64tz_dtype(x):\n         dtype = x.dtype\n@@ -437,41 +438,16 @@ def _coerce_to_type(x):\n     elif is_timedelta64_dtype(x):\n         x = to_timedelta(x)\n         dtype = np.dtype(\"timedelta64[ns]\")\n+    elif is_bool:\n+        x = x.astype(np.int64)\n+        dtype = np.dtype(\"int64\")\n \n-    if dtype is not None:\n+    if dtype is not None and not is_bool:\n         # GH 19768: force NaT to NaN during integer conversion\n         x = np.where(x.notna(), x.view(np.int64), np.nan)\n \n     return x, dtype\n-\n-\n-def _convert_bin_to_numeric_type(bins, dtype):\n-    \"\"\"\n-    if the passed bin is of datetime/timedelta type,\n-    this method converts it to integer\n-\n-    Parameters\n-    ----------\n-    bins : list-like of bins\n-    dtype : dtype of data\n-\n-    Raises\n-    ------\n-    ValueError if bins are not of a compat dtype to dtype\n-    \"\"\"\n-    bins_dtype = infer_dtype(bins, skipna=False)\n-    if is_timedelta64_dtype(dtype):\n-        if bins_dtype in [\"timedelta\", \"timedelta64\"]:\n-            bins = to_timedelta(bins).view(np.int64)\n-        else:\n-            raise ValueError(\"bins must be of timedelta64 dtype\")\n-    elif is_datetime64_dtype(dtype) or is_datetime64tz_dtype(dtype):\n-        if bins_dtype in [\"datetime\", \"datetime64\"]:\n-            bins = to_datetime(bins).view(np.int64)\n-        else:\n-            raise ValueError(\"bins must be of datetime64 dtype\")\n-\n-    return bins\n+    return x, dtype\n \n \n def _convert_bin_to_datelike_type(bins, dtype):\ndiff --git a/pandas/tests/reshape/test_qcut.py b/pandas/tests/reshape/test_qcut.py\nindex cb46918157..eca9b11bd4 100644\n--- a/pandas/tests/reshape/test_qcut.py\n+++ b/pandas/tests/reshape/test_qcut.py\n@@ -236,3 +236,21 @@ def test_date_like_qcut_bins(arg, expected_bins):\n     ser = Series(arg)\n     result, result_bins = qcut(ser, 2, retbins=True)\n     tm.assert_index_equal(result_bins, expected_bins)\n+\n+\n+@pytest.mark.parametrize(\"bins\", [6, 7])\n+@pytest.mark.parametrize(\n+    \"box, compare\",\n+    [\n+        (Series, tm.assert_series_equal),\n+        (np.array, tm.assert_categorical_equal),\n+        (list, tm.assert_equal),\n+    ],\n+)\n+def test_qcut_bool_coercion_to_int(bins, box, compare):\n+    # issue 20303\n+    data_expected = box([0, 1, 1, 0, 1] * 10)\n+    data_result = box([False, True, True, False, True] * 10)\n+    expected = qcut(data_expected, bins, duplicates=\"drop\")\n+    result = qcut(data_result, bins, duplicates=\"drop\")\n+    compare(result, expected)\n"
+  },
+  "timestamp": "2026-06-30 18:33:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_138",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_138/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Coercing bool types to int in qcut (#28802)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 388,
+        "end_line": 388,
+        "suspiciousness": 0.911751,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 381,
+        "end_line": 381,
+        "suspiciousness": 0.764724,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 569,
+        "end_line": 569,
+        "suspiciousness": 0.698871,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 579,
+        "end_line": 579,
+        "suspiciousness": 0.698871,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 595,
+        "end_line": 595,
+        "suspiciousness": 0.647588,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1068,
+        "end_line": 1068,
+        "suspiciousness": 0.571848,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1078,
+        "end_line": 1078,
+        "suspiciousness": 0.571848,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1079,
+        "end_line": 1079,
+        "suspiciousness": 0.571848,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 581,
+        "end_line": 581,
+        "suspiciousness": 0.571848,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/reshape/tile.py",
+        "start_line": 582,
+        "end_line": 582,
+        "suspiciousness": 0.571848,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/test_qcut.py::test_qcut_bool_coercion_to_int"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 388,
+      "end_line": 388,
+      "suspiciousness": 0.911751,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 381,
+      "end_line": 381,
+      "suspiciousness": 0.764724,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 569,
+      "end_line": 569,
+      "suspiciousness": 0.698871,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 579,
+      "end_line": 579,
+      "suspiciousness": 0.698871,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 595,
+      "end_line": 595,
+      "suspiciousness": 0.647588,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1068,
+      "end_line": 1068,
+      "suspiciousness": 0.571848,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1078,
+      "end_line": 1078,
+      "suspiciousness": 0.571848,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1079,
+      "end_line": 1079,
+      "suspiciousness": 0.571848,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 581,
+      "end_line": 581,
+      "suspiciousness": 0.571848,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/reshape/tile.py",
+      "start_line": 582,
+      "end_line": 582,
+      "suspiciousness": 0.571848,
+      "rank": 10
+    }
+  ]
+}

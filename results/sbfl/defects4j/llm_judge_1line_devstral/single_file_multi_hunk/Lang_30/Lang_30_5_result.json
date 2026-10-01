@@ -1,0 +1,202 @@
+{
+  "project_name": "Lang",
+  "bug_id": "Lang_30",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 00:40:54",
+      "end_time": "2026-06-30 00:44:37",
+      "duration_seconds": 222,
+      "duration_human": "3m 42s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 758296,
+      "output_tokens": 13022,
+      "total_tokens": 771318,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 758296
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java\nindex dd2f5cf10..2aa232abd 100644\n--- a/src/main/java/org/apache/commons/lang3/StringUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/StringUtils.java\n@@ -1446,23 +1446,33 @@ public class StringUtils {\n         }\n         int csLength = cs.length();\n         int searchLength = searchChars.length;\n-        int csLast = csLength - 1;\n-        int searchLast = searchLength - 1;\n-        for (int i = 0; i < csLength; i++) {\n+\n+        int i = 0;\n+        while (i < csLength) {\n             char ch = cs.charAt(i);\n+\n             for (int j = 0; j < searchLength; j++) {\n                 if (searchChars[j] == ch) {\n-                    if (i < csLast && j < searchLast && ch >= Character.MIN_HIGH_SURROGATE && ch <= Character.MAX_HIGH_SURROGATE) {\n-                            // missing low surrogate, fine, like String.indexOf(String)\n-                        if (searchChars[j + 1] == cs.charAt(i + 1)) {\n-                            return true;\n+                    // Check if this is part of a surrogate pair\n+                    if (Character.isHighSurrogate(ch) && i + 1 < csLength && j + 1 < searchLength) {\n+                        if (Character.isLowSurrogate(cs.charAt(i + 1)) && Character.isLowSurrogate(searchChars[j + 1])) {\n+                            if (cs.charAt(i + 1) == searchChars[j + 1]) {\n+                                return true;\n+                            }\n                         }\n                     } else {\n-                        // ch is in the Basic Multilingual Plane\n+                        // ch is in the Basic Multilingual Plane or a single surrogate\n                         return true;\n                     }\n                 }\n             }\n+\n+            // Skip low surrogates that follow high surrogates\n+            if (Character.isHighSurrogate(ch) && i + 1 < csLength && Character.isLowSurrogate(cs.charAt(i + 1))) {\n+                i += 2;\n+            } else {\n+                i++;\n+            }\n         }\n         return false;\n     }\n@@ -1676,15 +1686,27 @@ public class StringUtils {\n         }\n         int csLen = cs.length();\n         int searchLen = searchChars.length;\n-        for (int i = 0; i < csLen; i++) {\n+\n+        int i = 0;\n+        while (i < csLen) {\n             char ch = cs.charAt(i);\n             for (int j = 0; j < searchLen; j++) {\n                 if (searchChars[j] == ch) {\n-                            // missing low surrogate, fine, like String.indexOf(String)\n-                        // ch is in the Basic Multilingual Plane\n-                        return false;\n+                    // Check if this is part of a surrogate pair in searchChars\n+                    if (Character.isHighSurrogate(ch) && j + 1 < searchLen && Character.isLowSurrogate(searchChars[j + 1])) {\n+                        // Skip the surrogate pair in searchChars\n+                        j++;\n+                    }\n+                    // ch is in the Basic Multilingual Plane or a single surrogate\n+                    return false;\n                 }\n             }\n+            // Skip low surrogates that follow high surrogates\n+            if (Character.isHighSurrogate(ch) && i + 1 < csLen && Character.isLowSurrogate(cs.charAt(i + 1))) {\n+                i += 2;\n+            } else {\n+                i++;\n+            }\n         }\n         return true;\n     }\n"
+  },
+  "timestamp": "2026-06-30 00:44:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_30",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_30",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringUtils methods do not handle Unicode 2.0+ supplementary characters correctly.\nStringUtils.containsAny methods incorrectly matches Unicode 2.0+ supplementary characters.\n\nFor example, define a test fixture to be the Unicode character U+20000 where U+20000 is written in Java source as \"\\uD840\\uDC00\"\n\n\tprivate static final String CharU20000 = \"\\uD840\\uDC00\";\n\tprivate static final String CharU20001 = \"\\uD840\\uDC01\";\n\nYou can see Unicode supplementary characters correctly implemented in the JRE call:\n\n\tassertEquals(-1, CharU20000.indexOf(CharU20001));\n\nBut this is broken:\n\n\tassertEquals(false, StringUtils.containsAny(CharU20000, CharU20001));\n\tassertEquals(false, StringUtils.containsAny(CharU20001, CharU20000));\n\nThis is fine:\n\n\tassertEquals(true, StringUtils.contains(CharU20000 + CharU20001, CharU20000));\n\tassertEquals(true, StringUtils.contains(CharU20000 + CharU20001, CharU20001));\n\tassertEquals(true, StringUtils.contains(CharU20000, CharU20000));\n\tassertEquals(false, StringUtils.contains(CharU20000, CharU20001));\n\nbecause the method calls the JRE to perform the match.\n\nMore than you want to know:\n- http://java.sun.com/developer/technicalArticles/Intl/Supplementary/",
+    "commit_message": "https://issues.apache.org/jira/browse/LANG-607 StringUtils methods do not handle Unicode 2.0+ supplementary characters correctly.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1674,
+        "end_line": 1674,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1677,
+        "end_line": 1677,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1678,
+        "end_line": 1678,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1679,
+        "end_line": 1679,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1680,
+        "end_line": 1680,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1681,
+        "end_line": 1681,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1682,
+        "end_line": 1682,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1685,
+        "end_line": 1685,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1715,
+        "end_line": 1715,
+        "suspiciousness": 0.3651483716701107,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1718,
+        "end_line": 1718,
+        "suspiciousness": 0.3651483716701107,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsNone_CharArrayWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsNone_StringWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsAny_StringCharArrayWithBadSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAnyBut_StringStringWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsAny_StringWithBadSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAny_StringCharArrayWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAnyBut_StringCharArrayWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsNone_StringWithBadSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAny_StringStringWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsNone_CharArrayWithBadSupplementaryChars"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1674,
+      "end_line": 1674,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1677,
+      "end_line": 1677,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1678,
+      "end_line": 1678,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1679,
+      "end_line": 1679,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1680,
+      "end_line": 1680,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1681,
+      "end_line": 1681,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1682,
+      "end_line": 1682,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1685,
+      "end_line": 1685,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1715,
+      "end_line": 1715,
+      "suspiciousness": 0.3651483716701107,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "start_line": 1718,
+      "end_line": 1718,
+      "suspiciousness": 0.3651483716701107,
+      "rank": 10
+    }
+  ]
+}

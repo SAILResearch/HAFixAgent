@@ -1,0 +1,97 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_81",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 23:08:56",
+      "end_time": "2026-06-27 23:10:48",
+      "duration_seconds": 112,
+      "duration_human": "1m 52s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 609205,
+      "output_tokens": 5842,
+      "total_tokens": 615047,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 609205
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/__init__.py b/pandas/__init__.py\nindex d526531b15..62b175ee45 100644\n--- a/pandas/__init__.py\n+++ b/pandas/__init__.py\n@@ -10,7 +10,7 @@ for dependency in hard_dependencies:\n     try:\n         __import__(dependency)\n     except ImportError as e:\n-        missing_dependencies.append(f\"{dependency}: {e}\")\n+        missing_dependencies.append(\"{0}: {1}\".format(dependency, e))\n \n if missing_dependencies:\n     raise ImportError(\n@@ -33,7 +33,7 @@ except ImportError as e:  # pragma: no cover\n     # hack but overkill to use re\n     module = str(e).replace(\"cannot import name \", \"\")\n     raise ImportError(\n-        f\"C extension: {module} not built. If you want to import \"\n+        \"C extension: \" + module + \" not built. If you want to import \"\n         \"pandas from the source directory, you may need to run \"\n         \"'python setup.py build_ext --inplace --force' to build the C extensions first.\"\n     )\n@@ -50,30 +50,6 @@ from pandas._config import (\n # let init-time option registration happen\n import pandas.core.config_init\n \n-from pandas.core.api import (\n-    # dtype\n-    Int8Dtype,\n-    Int16Dtype,\n-    Int32Dtype,\n-    Int64Dtype,\n-    UInt8Dtype,\n-    UInt16Dtype,\n-    UInt32Dtype,\n-    UInt64Dtype,\n-    CategoricalDtype,\n-    PeriodDtype,\n-    IntervalDtype,\n-    DatetimeTZDtype,\n-    StringDtype,\n-    BooleanDtype,\n-    # missing\n-    NA,\n-    isna,\n-    isnull,\n-    notna,\n-    notnull,\n-    # indexes\n-    Index,\n     CategoricalIndex,\n     Int64Index,\n     UInt64Index,\ndiff --git a/pandas/core/arrays/integer.py b/pandas/core/arrays/integer.py\nindex 67036761bc..70f83a4586 100644\n--- a/pandas/core/arrays/integer.py\n+++ b/pandas/core/arrays/integer.py\n@@ -450,349 +450,11 @@ class IntegerArray(BaseMaskedArray):\n         if is_float_dtype(dtype):\n             # In astype, we consider dtype=float to also mean na_value=np.nan\n             kwargs = dict(na_value=np.nan)\n+        elif dtype == \"boolean\" or is_bool_dtype(dtype):\n+            # In astype, we consider dtype=bool to also mean na_value=False\n+            kwargs = dict(na_value=False)\n         else:\n             kwargs = {}\n \n         data = self.to_numpy(dtype=dtype, **kwargs)\n         return astype_nansafe(data, dtype, copy=False)\n-\n-    @property\n-    def _ndarray_values(self) -> np.ndarray:\n-        \"\"\"Internal pandas method for lossy conversion to a NumPy ndarray.\n-\n-        This method is not part of the pandas interface.\n-\n-        The expectation is that this is cheap to compute, and is primarily\n-        used for interacting with our indexers.\n-        \"\"\"\n-        return self._data\n-\n-    def _values_for_factorize(self) -> Tuple[np.ndarray, Any]:\n-        # TODO: https://github.com/pandas-dev/pandas/issues/30037\n-        # use masked algorithms, rather than object-dtype / np.nan.\n-        return self.to_numpy(na_value=np.nan), np.nan\n-\n-    def _values_for_argsort(self) -> np.ndarray:\n-        \"\"\"Return values for sorting.\n-\n-        Returns\n-        -------\n-        ndarray\n-            The transformed values should maintain the ordering between values\n-            within the array.\n-\n-        See Also\n-        --------\n-        ExtensionArray.argsort\n-        \"\"\"\n-        data = self._data.copy()\n-        data[self._mask] = data.min() - 1\n-        return data\n-\n-    @classmethod\n-    def _create_comparison_method(cls, op):\n-        op_name = op.__name__\n-\n-        @unpack_zerodim_and_defer(op.__name__)\n-        def cmp_method(self, other):\n-            from pandas.arrays import BooleanArray\n-\n-            mask = None\n-\n-            if isinstance(other, (BooleanArray, IntegerArray)):\n-                other, mask = other._data, other._mask\n-\n-            elif is_list_like(other):\n-                other = np.asarray(other)\n-                if other.ndim > 1:\n-                    raise NotImplementedError(\n-                        \"can only perform ops with 1-d structures\"\n-                    )\n-                if len(self) != len(other):\n-                    raise ValueError(\"Lengths must match to compare\")\n-\n-            if other is libmissing.NA:\n-                # numpy does not handle pd.NA well as \"other\" scalar (it returns\n-                # a scalar False instead of an array)\n-                # This may be fixed by NA.__array_ufunc__. Revisit this check\n-                # once that's implemented.\n-                result = np.zeros(self._data.shape, dtype=\"bool\")\n-                mask = np.ones(self._data.shape, dtype=\"bool\")\n-            else:\n-                with warnings.catch_warnings():\n-                    # numpy may show a FutureWarning:\n-                    #     elementwise comparison failed; returning scalar instead,\n-                    #     but in the future will perform elementwise comparison\n-                    # before returning NotImplemented. We fall back to the correct\n-                    # behavior today, so that should be fine to ignore.\n-                    warnings.filterwarnings(\"ignore\", \"elementwise\", FutureWarning)\n-                    with np.errstate(all=\"ignore\"):\n-                        method = getattr(self._data, f\"__{op_name}__\")\n-                        result = method(other)\n-\n-                    if result is NotImplemented:\n-                        result = invalid_comparison(self._data, other, op)\n-\n-            # nans propagate\n-            if mask is None:\n-                mask = self._mask.copy()\n-            else:\n-                mask = self._mask | mask\n-\n-            return BooleanArray(result, mask)\n-\n-        name = f\"__{op.__name__}__\"\n-        return set_function_name(cmp_method, name, cls)\n-\n-    def _reduce(self, name, skipna=True, **kwargs):\n-        data = self._data\n-        mask = self._mask\n-\n-        # coerce to a nan-aware float if needed\n-        # (we explicitly use NaN within reductions)\n-        if self._hasna:\n-            data = self.to_numpy(\"float64\", na_value=np.nan)\n-\n-        op = getattr(nanops, \"nan\" + name)\n-        result = op(data, axis=0, skipna=skipna, mask=mask, **kwargs)\n-\n-        if np.isnan(result):\n-            return libmissing.NA\n-\n-        # if we have a boolean op, don't coerce\n-        if name in [\"any\", \"all\"]:\n-            pass\n-\n-        # if we have a preservable numeric op,\n-        # provide coercion back to an integer type if possible\n-        elif name in [\"sum\", \"min\", \"max\", \"prod\"]:\n-            int_result = int(result)\n-            if int_result == result:\n-                result = int_result\n-\n-        return result\n-\n-    def _maybe_mask_result(self, result, mask, other, op_name):\n-        \"\"\"\n-        Parameters\n-        ----------\n-        result : array-like\n-        mask : array-like bool\n-        other : scalar or array-like\n-        op_name : str\n-        \"\"\"\n-\n-        # if we have a float operand we are by-definition\n-        # a float result\n-        # or our op is a divide\n-        if (is_float_dtype(other) or is_float(other)) or (\n-            op_name in [\"rtruediv\", \"truediv\"]\n-        ):\n-            result[mask] = np.nan\n-            return result\n-\n-        return type(self)(result, mask, copy=False)\n-\n-    @classmethod\n-    def _create_arithmetic_method(cls, op):\n-        op_name = op.__name__\n-\n-        @unpack_zerodim_and_defer(op.__name__)\n-        def integer_arithmetic_method(self, other):\n-\n-            omask = None\n-\n-            if getattr(other, \"ndim\", 0) > 1:\n-                raise NotImplementedError(\"can only perform ops with 1-d structures\")\n-\n-            if isinstance(other, IntegerArray):\n-                other, omask = other._data, other._mask\n-\n-            elif is_list_like(other):\n-                other = np.asarray(other)\n-                if other.ndim > 1:\n-                    raise NotImplementedError(\n-                        \"can only perform ops with 1-d structures\"\n-                    )\n-                if len(self) != len(other):\n-                    raise ValueError(\"Lengths must match\")\n-                if not (is_float_dtype(other) or is_integer_dtype(other)):\n-                    raise TypeError(\"can only perform ops with numeric values\")\n-\n-            else:\n-                if not (is_float(other) or is_integer(other) or other is libmissing.NA):\n-                    raise TypeError(\"can only perform ops with numeric values\")\n-\n-            if omask is None:\n-                mask = self._mask.copy()\n-                if other is libmissing.NA:\n-                    mask |= True\n-            else:\n-                mask = self._mask | omask\n-\n-            if op_name == \"pow\":\n-                # 1 ** x is 1.\n-                mask = np.where((self._data == 1) & ~self._mask, False, mask)\n-                # x ** 0 is 1.\n-                if omask is not None:\n-                    mask = np.where((other == 0) & ~omask, False, mask)\n-                elif other is not libmissing.NA:\n-                    mask = np.where(other == 0, False, mask)\n-\n-            elif op_name == \"rpow\":\n-                # 1 ** x is 1.\n-                if omask is not None:\n-                    mask = np.where((other == 1) & ~omask, False, mask)\n-                elif other is not libmissing.NA:\n-                    mask = np.where(other == 1, False, mask)\n-                # x ** 0 is 1.\n-                mask = np.where((self._data == 0) & ~self._mask, False, mask)\n-\n-            if other is libmissing.NA:\n-                result = np.ones_like(self._data)\n-            else:\n-                with np.errstate(all=\"ignore\"):\n-                    result = op(self._data, other)\n-\n-            # divmod returns a tuple\n-            if op_name == \"divmod\":\n-                div, mod = result\n-                return (\n-                    self._maybe_mask_result(div, mask, other, \"floordiv\"),\n-                    self._maybe_mask_result(mod, mask, other, \"mod\"),\n-                )\n-\n-            return self._maybe_mask_result(result, mask, other, op_name)\n-\n-        name = f\"__{op.__name__}__\"\n-        return set_function_name(integer_arithmetic_method, name, cls)\n-\n-\n-IntegerArray._add_arithmetic_ops()\n-IntegerArray._add_comparison_ops()\n-\n-\n-_dtype_docstring = \"\"\"\n-An ExtensionDtype for {dtype} integer data.\n-\n-.. versionchanged:: 1.0.0\n-\n-   Now uses :attr:`pandas.NA` as its missing value,\n-   rather than :attr:`numpy.nan`.\n-\n-Attributes\n-----------\n-None\n-\n-Methods\n--------\n-None\n-\"\"\"\n-\n-# create the Dtype\n-Int8Dtype = register_extension_dtype(\n-    type(\n-        \"Int8Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.int8,\n-            \"name\": \"Int8\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"int8\"),\n-        },\n-    )\n-)\n-\n-Int16Dtype = register_extension_dtype(\n-    type(\n-        \"Int16Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.int16,\n-            \"name\": \"Int16\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"int16\"),\n-        },\n-    )\n-)\n-\n-Int32Dtype = register_extension_dtype(\n-    type(\n-        \"Int32Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.int32,\n-            \"name\": \"Int32\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"int32\"),\n-        },\n-    )\n-)\n-\n-Int64Dtype = register_extension_dtype(\n-    type(\n-        \"Int64Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.int64,\n-            \"name\": \"Int64\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"int64\"),\n-        },\n-    )\n-)\n-\n-UInt8Dtype = register_extension_dtype(\n-    type(\n-        \"UInt8Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.uint8,\n-            \"name\": \"UInt8\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"uint8\"),\n-        },\n-    )\n-)\n-\n-UInt16Dtype = register_extension_dtype(\n-    type(\n-        \"UInt16Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.uint16,\n-            \"name\": \"UInt16\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"uint16\"),\n-        },\n-    )\n-)\n-\n-UInt32Dtype = register_extension_dtype(\n-    type(\n-        \"UInt32Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.uint32,\n-            \"name\": \"UInt32\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"uint32\"),\n-        },\n-    )\n-)\n-\n-UInt64Dtype = register_extension_dtype(\n-    type(\n-        \"UInt64Dtype\",\n-        (_IntegerDtype,),\n-        {\n-            \"type\": np.uint64,\n-            \"name\": \"UInt64\",\n-            \"__doc__\": _dtype_docstring.format(dtype=\"uint64\"),\n-        },\n-    )\n-)\n-\n-_dtypes = {\n-    \"int8\": Int8Dtype(),\n-    \"int16\": Int16Dtype(),\n-    \"int32\": Int32Dtype(),\n-    \"int64\": Int64Dtype(),\n-    \"uint8\": UInt8Dtype(),\n-    \"uint16\": UInt16Dtype(),\n-    \"uint32\": UInt32Dtype(),\n-    \"uint64\": UInt64Dtype(),\n-}\ndiff --git a/pandas/tests/arrays/test_integer.py b/pandas/tests/arrays/test_integer.py\nindex 9cb1e4176d..96e676018a 100644\n--- a/pandas/tests/arrays/test_integer.py\n+++ b/pandas/tests/arrays/test_integer.py\n@@ -680,6 +680,13 @@ class TestCasting:\n         tm.assert_numpy_array_equal(a.astype(str), expected)\n         tm.assert_numpy_array_equal(a.astype(\"str\"), expected)\n \n+    def test_astype_boolean(self):\n+        # https://github.com/pandas-dev/pandas/issues/31102\n+        a = pd.array([1, 0, -1, 2, None], dtype=\"Int64\")\n+        result = a.astype(\"boolean\")\n+        expected = pd.array([True, False, True, True, None], dtype=\"boolean\")\n+        tm.assert_extension_array_equal(result, expected)\n+\n \n def test_frame_repr(data_missing):\n \n"
+  },
+  "timestamp": "2026-06-27 23:10:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_81",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_81/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: IntegerArray.astype(boolean) (#31187)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 21,
+        "end_line": 22,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 443,
+        "end_line": 444,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 444,
+        "end_line": 445,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 445,
+        "end_line": 446,
+        "function_name": "astype",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 451,
+        "end_line": 452,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 452,
+        "end_line": 453,
+        "function_name": "astype",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 453,
+        "end_line": 454,
+        "function_name": "astype",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/test_integer.py::TestCasting::test_astype_boolean"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

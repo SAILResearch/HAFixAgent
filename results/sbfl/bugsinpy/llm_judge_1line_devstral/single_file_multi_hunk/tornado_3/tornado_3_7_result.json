@@ -1,0 +1,95 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_3",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 21:08:11",
+      "end_time": "2026-06-30 21:08:58",
+      "duration_seconds": 47,
+      "duration_human": "47.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 279571,
+      "output_tokens": 1983,
+      "total_tokens": 281554,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 279571
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/test/httpclient_test.py b/tornado/test/httpclient_test.py\nindex 0a732ddc..4677101c 100644\n--- a/tornado/test/httpclient_test.py\n+++ b/tornado/test/httpclient_test.py\n@@ -6,12 +6,14 @@ import copy\n import threading\n import datetime\n from io import BytesIO\n+import subprocess\n+import sys\n import time\n import typing  # noqa: F401\n import unicodedata\n import unittest\n \n-from tornado.escape import utf8, native_str\n+from tornado.escape import utf8, native_str, to_unicode\n from tornado import gen\n from tornado.httpclient import (\n     HTTPRequest,\n@@ -676,6 +678,35 @@ class SyncHTTPClientTest(unittest.TestCase):\n         self.assertEqual(assertion.exception.code, 404)\n \n \n+class SyncHTTPClientSubprocessTest(unittest.TestCase):\n+    def test_destructor_log(self):\n+        # Regression test for\n+        # https://github.com/tornadoweb/tornado/issues/2539\n+        #\n+        # In the past, the following program would log an\n+        # \"inconsistent AsyncHTTPClient cache\" error from a destructor\n+        # when the process is shutting down. The shutdown process is\n+        # subtle and I don't fully understand it; the failure does not\n+        # manifest if that lambda isn't there or is a simpler object\n+        # like an int (nor does it manifest in the tornado test suite\n+        # as a whole, which is why we use this subprocess).\n+        proc = subprocess.run(\n+            [\n+                sys.executable,\n+                \"-c\",\n+                \"from tornado.httpclient import HTTPClient; f = lambda: None; c = HTTPClient()\",\n+            ],\n+            stdout=subprocess.PIPE,\n+            stderr=subprocess.STDOUT,\n+            check=True,\n+        )\n+        if proc.stdout:\n+            print(\"STDOUT:\")\n+            print(to_unicode(proc.stdout))\n+        if proc.stdout:\n+            self.fail(\"subprocess produced unexpected output\")\n+\n+\n class HTTPRequestTestCase(unittest.TestCase):\n     def test_headers(self):\n         request = HTTPRequest(\"http://example.com\", headers={\"foo\": \"bar\"})\ndiff --git a/tornado/util.py b/tornado/util.py\nindex db0be6c8..ac2cf012 100644\n--- a/tornado/util.py\n+++ b/tornado/util.py\n@@ -46,47 +46,6 @@ bytes_type = bytes\n unicode_type = str\n basestring_type = str\n \n-try:\n-    from sys import is_finalizing\n-except ImportError:\n-    # Emulate it\n-    def _get_emulated_is_finalizing() -> Callable[[], bool]:\n-        L = []  # type: List[None]\n-        atexit.register(lambda: L.append(None))\n-\n-        def is_finalizing() -> bool:\n-            # Not referencing any globals here\n-            return L != []\n-\n-        return is_finalizing\n-\n-    is_finalizing = _get_emulated_is_finalizing()\n-\n-\n-class TimeoutError(Exception):\n-    \"\"\"Exception raised by `.with_timeout` and `.IOLoop.run_sync`.\n-\n-    .. versionchanged:: 5.0:\n-       Unified ``tornado.gen.TimeoutError`` and\n-       ``tornado.ioloop.TimeoutError`` as ``tornado.util.TimeoutError``.\n-       Both former names remain as aliases.\n-    \"\"\"\n-\n-\n-class ObjectDict(Dict[str, Any]):\n-    \"\"\"Makes a dictionary behave like an object, with attribute-style access.\n-    \"\"\"\n-\n-    def __getattr__(self, name: str) -> Any:\n-        try:\n-            return self[name]\n-        except KeyError:\n-            raise AttributeError(name)\n-\n-    def __setattr__(self, name: str, value: Any) -> None:\n-        self[name] = value\n-\n-\n class GzipDecompressor(object):\n     \"\"\"Streaming gzip decompressor.\n \n@@ -94,81 +53,6 @@ class GzipDecompressor(object):\n     optional arguments, but it understands gzip headers and checksums.\n     \"\"\"\n \n-    def __init__(self) -> None:\n-        # Magic parameter makes zlib module understand gzip header\n-        # http://stackoverflow.com/questions/1838699/how-can-i-decompress-a-gzip-stream-with-zlib\n-        # This works on cpython and pypy, but not jython.\n-        self.decompressobj = zlib.decompressobj(16 + zlib.MAX_WBITS)\n-\n-    def decompress(self, value: bytes, max_length: int = 0) -> bytes:\n-        \"\"\"Decompress a chunk, returning newly-available data.\n-\n-        Some data may be buffered for later processing; `flush` must\n-        be called when there is no more input data to ensure that\n-        all data was processed.\n-\n-        If ``max_length`` is given, some input data may be left over\n-        in ``unconsumed_tail``; you must retrieve this value and pass\n-        it back to a future call to `decompress` if it is not empty.\n-        \"\"\"\n-        return self.decompressobj.decompress(value, max_length)\n-\n-    @property\n-    def unconsumed_tail(self) -> bytes:\n-        \"\"\"Returns the unconsumed portion left over\n-        \"\"\"\n-        return self.decompressobj.unconsumed_tail\n-\n-    def flush(self) -> bytes:\n-        \"\"\"Return any remaining buffered data not yet returned by decompress.\n-\n-        Also checks for errors such as truncated input.\n-        No other methods may be called on this object after `flush`.\n-        \"\"\"\n-        return self.decompressobj.flush()\n-\n-\n-def import_object(name: str) -> Any:\n-    \"\"\"Imports an object by name.\n-\n-    import_object('x') is equivalent to 'import x'.\n-    import_object('x.y.z') is equivalent to 'from x.y import z'.\n-\n-    >>> import tornado.escape\n-    >>> import_object('tornado.escape') is tornado.escape\n-    True\n-    >>> import_object('tornado.escape.utf8') is tornado.escape.utf8\n-    True\n-    >>> import_object('tornado') is tornado\n-    True\n-    >>> import_object('tornado.missing_module')\n-    Traceback (most recent call last):\n-        ...\n-    ImportError: No module named missing_module\n-    \"\"\"\n-    if name.count(\".\") == 0:\n-        return __import__(name)\n-\n-    parts = name.split(\".\")\n-    obj = __import__(\".\".join(parts[:-1]), fromlist=[parts[-1]])\n-    try:\n-        return getattr(obj, parts[-1])\n-    except AttributeError:\n-        raise ImportError(\"No module named %s\" % parts[-1])\n-\n-\n-def exec_in(code: Any, glob: Dict[str, Any], loc: Mapping[str, Any] = None) -> None:\n-    if isinstance(code, str):\n-        # exec(string) inherits the caller's future imports; compile\n-        # the string first to prevent that.\n-        code = compile(code, \"<string>\", \"exec\", dont_inherit=True)\n-    exec(code, glob, loc)\n-\n-\n-def raise_exc_info(\n-    exc_info,  # type: Tuple[Optional[type], Optional[BaseException], Optional[TracebackType]]\n-):\n-    # type: (...) -> typing.NoReturn\n     #\n     # This function's type annotation must use comments instead of\n     # real annotations because typing.NoReturn does not exist in\n"
+  },
+  "timestamp": "2026-06-30 21:08:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_3",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_3/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "httpclient: Fix warning logged by sync HTTPClient destructor",
+    "fault_locations": [
+      {
+        "file": "tornado/escape.py",
+        "start_line": 222,
+        "end_line": 222,
+        "suspiciousness": 0.269865,
+        "rank": 1
+      },
+      {
+        "file": "tornado/escape.py",
+        "start_line": 224,
+        "end_line": 224,
+        "suspiciousness": 0.269865,
+        "rank": 2
+      },
+      {
+        "file": "tornado/escape.py",
+        "start_line": 220,
+        "end_line": 220,
+        "suspiciousness": 0.173706,
+        "rank": 3
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.httpclient_test.SyncHTTPClientSubprocessTest"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "tornado/escape.py",
+      "start_line": 222,
+      "end_line": 222,
+      "suspiciousness": 0.269865,
+      "rank": 1
+    },
+    {
+      "file": "tornado/escape.py",
+      "start_line": 224,
+      "end_line": 224,
+      "suspiciousness": 0.269865,
+      "rank": 2
+    },
+    {
+      "file": "tornado/escape.py",
+      "start_line": 220,
+      "end_line": 220,
+      "suspiciousness": 0.173706,
+      "rank": 3
+    }
+  ]
+}

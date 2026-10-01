@@ -1,0 +1,89 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "60",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:34:21",
+      "end_time": "2026-06-26 22:35:10",
+      "duration_seconds": 49,
+      "duration_human": "49.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 262249,
+      "output_tokens": 2303,
+      "total_tokens": 264552,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 262249
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 22:35:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_60",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_60",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "1.10.1 failed a test while 1.8.3 passed for a contains query\nToday I tried to upgrade jsoup from 1.8.3 to 1.10.1, however, one of my unit test failed like this:\r\n\r\n\"div.a-row.a-spacing-medium span.a-size-base:contains(I'll Ship & Pay)\"\r\n\"div.a-row.a-spacing-medium span.a-size-base:contains(I'll Send & Pay)\"\r\n\"div.a-row.a-spacing-medium span.a-color-price:contains(Varies)\"\r\n\r\nAbove are 3 css selectors and in a webpage that no such element exists, Jsoup selector find 9 elements, which broke my unit test. It seems like that the **contains** logic broke. I'm not sure whether **'** or **&** processing changed in newer version.\r\n\r\nCan you have a look at this? For your reference I've attached the html page as a zip file.\r\n\r\n[AmazonReturn.zip](https://github.com/jhy/jsoup/files/676839/AmazonReturn.zip)\r\n\n",
+    "commit_message": "Improved CSS query parse validation",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 288,
+        "end_line": 288,
+        "line_numbers": [
+          288
+        ],
+        "function_name": "chompBalanced",
+        "class_name": "TokenQueue",
+        "filename": "TokenQueue.java",
+        "code_snippet": "    public String chompBalanced(char open, char close) {\n        int start = -1;\n        int end = -1;\n        int depth = 0;\n        char last = 0;\n        boolean inQuote = false;\n\n        do {\n            if (isEmpty()) break;\n            Character c = consume();\n            if (last == 0 || last != ESC) {\n                if ((c.equals('\\'') || c.equals('\"')) && c != open)\n                    inQuote = !inQuote;\n                if (inQuote)\n                    continue;\n                if (c.equals(open)) {\n                    depth++;\n                    if (start == -1)\n                        start = pos;\n                }\n                else if (c.equals(close))\n                    depth--;\n            }\n\n            if (depth > 0 && last != 0)\n                end = pos; // don't include the outer match pair in the return\n            last = c;\n        } while (depth > 0);\n        final String out = (end >= 0) ? queue.substring(start, end) : \"\";\n        return out;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/select/QueryParser.java",
+        "start_line": 37,
+        "end_line": 37,
+        "line_numbers": [
+          37
+        ],
+        "function_name": "parse",
+        "class_name": "QueryParser",
+        "filename": "QueryParser.java",
+        "code_snippet": "    public static Evaluator parse(String query) {\n            QueryParser p = new QueryParser(query);\n            return p.parse();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/select/QueryParser.java",
+        "start_line": 40,
+        "end_line": 40,
+        "line_numbers": [
+          40
+        ],
+        "function_name": "parse",
+        "class_name": "QueryParser",
+        "filename": "QueryParser.java",
+        "code_snippet": "    public static Evaluator parse(String query) {\n            QueryParser p = new QueryParser(query);\n            return p.parse();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.select.QueryParserTest::testParsesSingleQuoteInContains",
+      "org.jsoup.select.QueryParserTest::exceptionOnUncloseAttribute"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/TokenQueue.java b/src/main/java/org/jsoup/parser/TokenQueue.java\nindex ffcb4a4..fc22b04 100644\n--- a/src/main/java/org/jsoup/parser/TokenQueue.java\n+++ b/src/main/java/org/jsoup/parser/TokenQueue.java\n@@ -286,9 +286,6 @@ public class TokenQueue {\n             last = c;\n         } while (depth > 0);\n         final String out = (end >= 0) ? queue.substring(start, end) : \"\";\n+        if (depth > 0) {// ran out of queue before seeing enough )\n+            Validate.fail(\"Did not find balanced maker at \" + out);\n+        }\n         return out;\n     }\n     \ndiff --git a/src/main/java/org/jsoup/select/QueryParser.java b/src/main/java/org/jsoup/select/QueryParser.java\nindex d3a2041..923cfe9 100644\n--- a/src/main/java/org/jsoup/select/QueryParser.java\n+++ b/src/main/java/org/jsoup/select/QueryParser.java\n@@ -35,12 +35,8 @@ public class QueryParser {\n      * @return Evaluator\n      */\n     public static Evaluator parse(String query) {\n+        try {\n             QueryParser p = new QueryParser(query);\n             return p.parse();\n+        } catch (IllegalArgumentException e) {\n+            throw new Selector.SelectorParseException(e.getMessage());\n+        }\n     }\n \n     /**",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

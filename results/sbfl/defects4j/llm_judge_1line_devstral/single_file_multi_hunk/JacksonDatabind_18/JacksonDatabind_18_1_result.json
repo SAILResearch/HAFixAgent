@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_18",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 14:20:19",
+      "end_time": "2026-06-29 14:22:49",
+      "duration_seconds": 150,
+      "duration_human": "2m 30s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 797698,
+      "output_tokens": 7223,
+      "total_tokens": 804921,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 797698
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/DeserializationFeature.java b/src/main/java/com/fasterxml/jackson/databind/DeserializationFeature.java\nindex c0f2602c3..5ef83ed84 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/DeserializationFeature.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/DeserializationFeature.java\n@@ -352,6 +352,25 @@ public enum DeserializationFeature implements ConfigFeature\n      * @since 2.0\n      */\n     READ_UNKNOWN_ENUM_VALUES_AS_NULL(false),\n+    /**\n+     * Feature that determines whether error recovery should be attempted\n+     * when deserialization fails in readValues(). If enabled, the parser will try to recover\n+     * by skipping to the next valid position (typically by finding closing\n+     * END_OBJECT tokens based on nesting level). If disabled, no recovery\n+     * is attempted and the parser remains at the error position.\n+     * <p>\n+     * Feature is enabled by default to provide better error handling.\n+     */\n+    FAIL_ON_READING_DUPLICATE_TREE(false),\n+    /**\n+     * Feature that determines whether error recovery should be attempted\n+     * when deserialization fails in readValues(). If enabled, the parser will try to recover\n+     * by skipping to the next valid position (typically by finding closing\n+     * END_OBJECT tokens based on nesting level). If disabled, no recovery\n+     * is attempted and the parser remains at the error position.\n+     * <p>\n+     * Feature is enabled by default to provide better error handling.\n+     */\n \n     /**\n      * Feature that controls whether numeric timestamp values are expected\n@@ -424,4 +443,24 @@ public enum DeserializationFeature implements ConfigFeature\n      * @since 2.5\n      */\n     public boolean enabledIn(int flags) { return (flags & _mask) != 0; }\n+    /**\n+     * Feature that determines whether error recovery should be attempted\n+     * when deserialization fails. If enabled, the parser will try to recover\n+     * by skipping to the next valid position (typically by finding closing\n+     * END_OBJECT tokens based on nesting level). If disabled, no recovery\n+     * is attempted and the parser remains at the error position.\n+     * <p>\n+     * Feature is enabled by default to provide better error handling.\n+     */\n+\n+    /**\n+     * Feature that determines whether error recovery should be attempted\n+     * when deserialization fails in readValues(). If enabled, the parser will try to recover\n+     * by skipping to the next valid position (typically by finding closing\n+     * END_OBJECT tokens based on nesting level). If disabled, no recovery\n+     * is attempted and the parser remains at the error position.\n+     * <p>\n+     * Feature is enabled by default to provide better error handling.\n+     */\n+\n }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\nindex b4ce3e956..b2310d098 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n@@ -198,6 +198,273 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n      */\n \n \n+    /*\n+     */\n+    \n+    /**\n+     * Equivalent of {@link #next} but one that may throw checked\n+     * exceptions from Jackson due to invalid input.\n+     */\n+    public boolean hasNextValue() throws IOException\n+    {\n+        if (_parser == null) {\n+            return false;\n+            // fall-through\n+        }\n+        if (!_hasNextChecked) {\n+            JsonToken t = _parser.getCurrentToken();\n+            _hasNextChecked = true;\n+            if (t == null) { // un-initialized or cleared; find next\n+                t = _parser.nextToken();\n+                // If EOF, no more, or if we hit END_ARRAY (although we don't clear the token).\n+                if (t == null || t == JsonToken.END_ARRAY) {\n+                    JsonParser jp = _parser;\n+                    _parser = null;\n+                    if (_closeParser) {\n+                        jp.close();\n+                    }\n+                    return false;\n+                }\n+            }\n+            // fall through\n+        }\n+        return true;\n+    }\n+\n+\n+    public T nextValue() throws IOException\n+    {\n+        if (!_hasNextChecked) {\n+            if (!hasNextValue()) {\n+                return _throwNoSuchElement();\n+            }\n+        }\n+        if (_parser == null) {\n+            return _throwNoSuchElement();\n+        }\n+        _hasNextChecked = false;\n+\n+        try {\n+            T value;\n+            if (_updatedValue == null) {\n+                value = _deserializer.deserialize(_parser, _context);\n+            } else{\n+                _deserializer.deserialize(_parser, _context, _updatedValue);\n+                value = _updatedValue;\n+            }\n+            return value;\n+        } catch (JsonProcessingException e) {\n+            /* Try to recover from the error by finding the closing END_OBJECT */\n+            _recoverFromSyntaxError(_parser, _context);\n+            throw e;\n+        } finally {\n+            /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n+             *   matter what, to avoid infinite loop for certain failure cases.\n+             *   For 2.6 need to improve further.\n+             */\n+            _parser.clearCurrentToken();\n+        }\n+    }\n+package com.fasterxml.jackson.databind;\n+\n+import java.io.Closeable;\n+import java.io.IOException;\n+import java.util.*;\n+\n+import com.fasterxml.jackson.core.*;\n+\n+/**\n+ * Iterator exposed by {@link ObjectMapper} when binding sequence of\n+ * objects. Extension is done to allow more convenient exposing of\n+ * {@link IOException} (which basic {@link Iterator} does not expose)\n+ */\n+public class MappingIterator<T> implements Iterator<T>, Closeable\n+{\n+    protected final static MappingIterator<?> EMPTY_ITERATOR =\n+        new MappingIterator<Object>(null, null, null, null, false, null);\n+\n+    /*\n+    /**********************************************************\n+    /* State constants\n+    /**********************************************************\n+     */\n+\n+    /**\n+     * State in which iterator is closed\n+     */\n+    \n+    /**\n+     * State in which value read failed\n+     */\n+    \n+    /**\n+     * State in which no recovery is needed, but \"hasNextValue()\" needs\n+     * to be called first\n+     */\n+\n+    /**\n+     * State in which \"hasNextValue()\" has been succesfully called\n+     * and deserializer can be called to fetch value\n+     */\n+\n+    /*\n+    /**********************************************************\n+    /* Configuration\n+    /**********************************************************\n+     */\n+\n+    /**\n+     * Type to bind individual elements to.\n+     */\n+    protected final JavaType _type;\n+\n+    /**\n+     * Context for deserialization, needed to pass through to deserializer\n+     */\n+    protected final DeserializationContext _context;\n+\n+    /**\n+     * Deserializer for individual element values.\n+     */\n+    protected final JsonDeserializer<T> _deserializer;\n+\n+    /**\n+     * Underlying parser used for reading content to bind. Initialized\n+     * as not <code>null</code> but set as <code>null</null> when\n+     * iterator is closed, to denote closing.\n+     */\n+    protected JsonParser _parser;\n+\n+    /**\n+     * Context to resynchronize to, in case an exception is encountered\n+     * but caller wants to try to read more elements.\n+     */\n+    \n+    /**\n+     * If not null, \"value to update\" instead of creating a new instance\n+     * for each call.\n+     */\n+    protected final T _updatedValue;\n+    \n+    /**\n+     * Flag that indicates whether input {@link JsonParser} should be closed\n+     * when we are done or not; generally only called when caller did not\n+     * pass JsonParser.\n+     */\n+    protected final boolean _closeParser;\n+\n+    /*\n+    /**********************************************************\n+    /* Parsing state\n+    /**********************************************************\n+     */\n+    \n+    /**\n+     * State of the iterator\n+     */\n+    protected boolean _hasNextChecked;\n+\n+    /*\n+    /**********************************************************\n+    /* Construction\n+    /**********************************************************\n+     */\n+    \n+    /**\n+     * @param managedParser Whether we \"own\" the {@link JsonParser} passed or not:\n+     *   if true, it was created by {@link ObjectReader} and code here needs to\n+     *   close it; if false, it was passed by calling code and should not be\n+     *   closed by iterator.\n+     */\n+    @SuppressWarnings(\"unchecked\")\n+    protected MappingIterator(JavaType type, JsonParser p, DeserializationContext ctxt,\n+            JsonDeserializer<?> deser,\n+            boolean managedParser, Object valueToUpdate)\n+    {\n+        _type = type;\n+        _parser = p;\n+        _context = ctxt;\n+        _deserializer = (JsonDeserializer<T>) deser;\n+        _closeParser = managedParser;\n+        if (valueToUpdate == null) {\n+            _updatedValue = null;\n+        } else {\n+            _updatedValue = (T) valueToUpdate;\n+        }\n+\n+        /* Ok: one more thing; we may have to skip START_ARRAY, assuming\n+         * \"wrapped\" sequence; but this is ONLY done for 'managed' parsers\n+         * and never if JsonParser was directly passed by caller (if it\n+         * was, caller must have either positioned it over first token of\n+         * the first element, or cleared the START_ARRAY token explicitly).\n+         * Note, however, that we do not try to guess whether this could be\n+         * an unwrapped sequence of arrays/Lists: we just assume it is wrapped;\n+         * and if not, caller needs to hand us JsonParser instead, pointing to\n+         * the first token of the first element.\n+         */\n+        if (managedParser && (p != null) && p.isExpectedStartArrayToken()) {\n+                // If pointing to START_ARRAY, context should be that ARRAY\n+                p.clearCurrentToken();\n+                // regardless, recovery context should be whatever context we have now,\n+                // with sole exception of pointing to a start marker, in which case it's\n+                // the parent\n+        }\n+    }\n+\n+    @SuppressWarnings(\"unchecked\")\n+    protected static <T> MappingIterator<T> emptyIterator() {\n+        return (MappingIterator<T>) EMPTY_ITERATOR;\n+    }\n+    \n+    /*\n+    /**********************************************************\n+    /* Basic iterator impl\n+    /**********************************************************\n+     */\n+\n+    @Override\n+    public boolean hasNext()\n+    {\n+        try {\n+            return hasNextValue();\n+        } catch (JsonMappingException e) {\n+            return (Boolean) _handleMappingException(e);\n+        } catch (IOException e) {\n+            return (Boolean) _handleIOException(e);\n+        }\n+    }\n+    \n+    @Override\n+    public T next()\n+    {\n+        try {\n+            return nextValue();\n+        } catch (JsonMappingException e) {\n+            throw new RuntimeJsonMappingException(e.getMessage(), e);\n+        } catch (IOException e) {\n+            throw new RuntimeException(e.getMessage(), e);\n+        }\n+    }\n+\n+    @Override\n+    public void remove() {\n+        throw new UnsupportedOperationException();\n+    }\n+    \n+    @Override\n+    public void close() throws IOException {\n+            if (_parser != null) {\n+                _parser.close();\n+            }\n+    }\n+\n+    /*\n+    /**********************************************************\n+    /* Extended API, iteration\n+    /**********************************************************\n+     */\n+\n+\n     /*\n      */\n     \n@@ -364,3 +631,91 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n         throw new RuntimeException(e.getMessage(), e);\n     }\n }\n+\n+    /**\n+     * Helper method to try to recover from syntax errors by finding\n+     * the closing END_OBJECT token based on nesting level.\n+     */\n+    protected void _recoverFromSyntaxError(JsonParser p, DeserializationContext ctxt)\n+        throws JsonProcessingException\n+    {\n+        // Try to recover by finding the closing END_OBJECT\n+        // based on the nesting level when this iterator was created\n+        int startNested = p.getCurrentToken() == JsonToken.START_OBJECT ? 1 : 0;\n+        int nested = startNested;\n+\n+        try {\n+            while (true) {\n+                JsonToken t = p.nextToken();\n+                if (t == null) {\n+                    // EOF reached, no recovery possible\n+                    break;\n+                }\n+                if (t == JsonToken.START_OBJECT) {\n+                    nested++;\n+                } else if (t == JsonToken.END_OBJECT) {\n+                    nested--;\n+                    if (nested == 0) {\n+                        // Found the closing END_OBJECT, we're good\n+                        break;\n+                    }\n+                } else if (t == JsonToken.START_ARRAY) {\n+                    nested++;\n+                } else if (t == JsonToken.END_ARRAY) {\n+                    nested--;\n+                }\n+                // If we've gone below 0, we've found a closing token\n+                // that doesn't match our opening, so stop\n+                if (nested < 0) {\n+                    break;\n+                }\n+            }\n+        } catch (IOException ioe) {\n+            // If we get an IO error during recovery, just ignore it\n+            // and let the original exception be thrown\n+        }\n+\n+    /**\n+     * Helper method to try to recover from syntax errors by finding\n+     * the closing END_OBJECT token based on nesting level.\n+     */\n+    protected void _recoverFromSyntaxError(JsonParser p, DeserializationContext ctxt)\n+        throws JsonProcessingException\n+    {\n+        // Try to recover by finding the closing END_OBJECT\n+        // based on the nesting level when this iterator was created\n+        int startNested = p.getCurrentToken() == JsonToken.START_OBJECT ? 1 : 0;\n+        int nested = startNested;\n+\n+        try {\n+            while (true) {\n+                JsonToken t = p.nextToken();\n+                if (t == null) {\n+                    // EOF reached, no recovery possible\n+                    break;\n+                }\n+                if (t == JsonToken.START_OBJECT) {\n+                    nested++;\n+                } else if (t == JsonToken.END_OBJECT) {\n+                    nested--;\n+                    if (nested == 0) {\n+                        // Found the closing END_OBJECT, we're good\n+                        break;\n+                    }\n+                } else if (t == JsonToken.START_ARRAY) {\n+                    nested++;\n+                } else if (t == JsonToken.END_ARRAY) {\n+                    nested--;\n+                }\n+                // If we've gone below 0, we've found a closing token\n+                // that doesn't match our opening, so stop\n+                if (nested < 0) {\n+                    break;\n+                }\n+            }\n+        } catch (IOException ioe) {\n+            // If we get an IO error during recovery, just ignore it\n+            // and let the original exception be thrown\n+        }\n+    }\n+}\n"
+  },
+  "timestamp": "2026-06-29 14:22:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_18",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_18",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Add basic error-recovery for `ObjectReader.readValues()`\n(follow up for #733)\n\nIn case of `JsonProcessingException`, `MappingIterator` will currently be left pointing right after whatever token was last tokenized (or character following tokenization error). While this is better than indeterminate state, ideally it should try to do some error recover. And although it may not be possible to recover successfully from all kinds of issues, it should be possible to do best effort given that iterator has some knowledge of state when it was opened; that is, it can try to heuristically match closing `END_OBJECT`, depending on nesting level it was created at.\n\nIn addition it may make sense to add a switch to prevent using of any automated heuristics, for those users who want full control over recovery.\n\n",
+    "commit_message": "Fix #734 (error recovery for `ObjectReader.readValues()`)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationConfig.java",
+        "start_line": 689,
+        "end_line": 689,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 290,
+        "end_line": 290,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 801,
+        "end_line": 801,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 802,
+        "end_line": 802,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 811,
+        "end_line": 811,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 827,
+        "end_line": 827,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 831,
+        "end_line": 831,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 832,
+        "end_line": 832,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+        "start_line": 1014,
+        "end_line": 1014,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+        "start_line": 1018,
+        "end_line": 1018,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleRootRecovery",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testRootBeans",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleArrayRecovery"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationConfig.java",
+      "start_line": 689,
+      "end_line": 689,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 290,
+      "end_line": 290,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 801,
+      "end_line": 801,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 802,
+      "end_line": 802,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 811,
+      "end_line": 811,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 827,
+      "end_line": 827,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 831,
+      "end_line": 831,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 832,
+      "end_line": 832,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+      "start_line": 1014,
+      "end_line": 1014,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+      "start_line": 1018,
+      "end_line": 1018,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

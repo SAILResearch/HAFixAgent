@@ -1,0 +1,142 @@
+{
+  "project_name": "Math",
+  "bug_id": "39",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:49:44",
+      "end_time": "2025-10-10 22:51:02",
+      "duration_seconds": 78,
+      "duration_human": "1m 18s"
+    },
+    "model_cost": 0.0055,
+    "model_calls": 12,
+    "token_usage": {
+      "input_tokens": 46675,
+      "output_tokens": 1043,
+      "total_tokens": 47718,
+      "cached_input_tokens": 38272,
+      "uncached_input_tokens": 8403
+    },
+    "agent_steps": 12,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\nindex 13ced27d7..1be86bde5 100644\n--- a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n+++ b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n@@ -247,6 +247,10 @@ public abstract class EmbeddedRungeKuttaIntegrator\n         }\n \n         stepSize = hNew;\n+        // step adjustment near bounds\n+        if ((forward && (stepStart + stepSize > t)) || ((! forward) && (stepStart + stepSize < t))) {\n+            stepSize = t - stepStart;\n+        }\n \n         // next stages\n         for (int k = 1; k < stages; ++k) {\n"
+  },
+  "timestamp": "2025-10-10 18:51:02 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_39",
+    "repo_path": "/defects4j/framework/bin/temp/Math_39",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "too large first step with embedded Runge-Kutta integrators (Dormand-Prince 8(5,3) ...)\nAdaptive step size integrators compute the first step size by themselves if it is not provided.\nFor embedded Runge-Kutta type, this step size is not checked against the integration range, so if the integration range is extremely short, this step size may evaluate the function out of the range (and in fact it tries afterward to go back, and fails to stop). Gragg-Bulirsch-Stoer integrators do not have this problem, the step size is checked and truncated if needed.",
+    "commit_message": "Check first step size in embedded Runge-Kutta integrators.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java",
+        "start_line": 249,
+        "end_line": 249,
+        "line_numbers": [
+          249
+        ],
+        "function_name": "integrate",
+        "class_name": "EmbeddedRungeKuttaIntegrator",
+        "filename": "EmbeddedRungeKuttaIntegrator.java",
+        "code_snippet": "  public void integrate(final ExpandableStatefulODE equations, final double t)\n      throws MathIllegalStateException, MathIllegalArgumentException {\n\n    sanityChecks(equations, t);\n    setEquations(equations);\n    final boolean forward = t > equations.getTime();\n\n    // create some internal working arrays\n    final double[] y0  = equations.getCompleteState();\n    final double[] y = y0.clone();\n    final int stages = c.length + 1;\n    final double[][] yDotK = new double[stages][y.length];\n    final double[] yTmp    = y0.clone();\n    final double[] yDotTmp = new double[y.length];\n\n    // set up an interpolator sharing the integrator arrays\n    final RungeKuttaStepInterpolator interpolator = (RungeKuttaStepInterpolator) prototype.copy();\n    interpolator.reinitialize(this, yTmp, yDotK, forward,\n                              equations.getPrimaryMapper(), equations.getSecondaryMappers());\n    interpolator.storeTime(equations.getTime());\n\n    // set up integration control objects\n    stepStart         = equations.getTime();\n    double  hNew      = 0;\n    boolean firstTime = true;\n    initIntegration(equations.getTime(), y0, t);\n\n    // main integration loop\n    isLastStep = false;\n    do {\n\n      interpolator.shift();\n\n      // iterate over step size, ensuring local normalized error is smaller than 1\n      double error = 10;\n      while (error >= 1.0) {\n\n        if (firstTime || !fsal) {\n          // first stage\n          computeDerivatives(stepStart, y, yDotK[0]);\n        }\n\n        if (firstTime) {\n          final double[] scale = new double[mainSetDimension];\n          if (vecAbsoluteTolerance == null) {\n              for (int i = 0; i < scale.length; ++i) {\n                scale[i] = scalAbsoluteTolerance + scalRelativeTolerance * FastMath.abs(y[i]);\n              }\n          } else {\n              for (int i = 0; i < scale.length; ++i) {\n                scale[i] = vecAbsoluteTolerance[i] + vecRelativeTolerance[i] * FastMath.abs(y[i]);\n              }\n          }\n          hNew = initializeStep(forward, getOrder(), scale,\n                                stepStart, y, yDotK[0], yTmp, yDotK[1]);\n          firstTime = false;\n        }\n\n        stepSize = hNew;\n\n        // next stages\n        for (int k = 1; k < stages; ++k) {\n\n          for (int j = 0; j < y0.length; ++j) {\n            double sum = a[k-1][0] * yDotK[0][j];\n            for (int l = 1; l < k; ++l) {\n              sum += a[k-1][l] * yDotK[l][j];\n            }\n            yTmp[j] = y[j] + stepSize * sum;\n          }\n\n          computeDerivatives(stepStart + c[k-1] * stepSize, yTmp, yDotK[k]);\n\n        }\n\n        // estimate the state at the end of the step\n        for (int j = 0; j < y0.length; ++j) {\n          double sum    = b[0] * yDotK[0][j];\n          for (int l = 1; l < stages; ++l) {\n            sum    += b[l] * yDotK[l][j];\n          }\n          yTmp[j] = y[j] + stepSize * sum;\n        }\n\n        // estimate the error at the end of the step\n        error = estimateError(yDotK, y, yTmp, stepSize);\n        if (error >= 1.0) {\n          // reject the step and attempt to reduce error by stepsize control\n          final double factor =\n              FastMath.min(maxGrowth,\n                           FastMath.max(minReduction, safety * FastMath.pow(error, exp)));\n          hNew = filterStep(stepSize * factor, forward, false);\n        }\n\n      }\n\n      // local error is small enough: accept the step, trigger events and step handlers\n      interpolator.storeTime(stepStart + stepSize);\n      System.arraycopy(yTmp, 0, y, 0, y0.length);\n      System.arraycopy(yDotK[stages - 1], 0, yDotTmp, 0, y0.length);\n      stepStart = acceptStep(interpolator, y, yDotTmp, t);\n      System.arraycopy(y, 0, yTmp, 0, y.length);\n\n      if (!isLastStep) {\n\n          // prepare next step\n          interpolator.storeTime(stepStart);\n\n          if (fsal) {\n              // save the last evaluation for the next step\n              System.arraycopy(yDotTmp, 0, yDotK[0], 0, y0.length);\n          }\n\n          // stepsize control for next step\n          final double factor =\n              FastMath.min(maxGrowth, FastMath.max(minReduction, safety * FastMath.pow(error, exp)));\n          final double  scaledH    = stepSize * factor;\n          final double  nextT      = stepStart + scaledH;\n          final boolean nextIsLast = forward ? (nextT >= t) : (nextT <= t);\n          hNew = filterStep(scaledH, forward, nextIsLast);\n\n          final double  filteredNextT      = stepStart + hNew;\n          final boolean filteredNextIsLast = forward ? (filteredNextT >= t) : (filteredNextT <= t);\n          if (filteredNextIsLast) {\n              hNew = t - stepStart;\n          }\n\n      }\n\n    } while (!isLastStep);\n\n    // dispatch results\n    equations.setTime(stepStart);\n    equations.setCompleteState(y);\n\n    resetInternalState();\n\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.ode.nonstiff.DormandPrince853IntegratorTest::testTooLargeFirstStep"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\nindex d2bbf67..13ced27 100644\n--- a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n+++ b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n@@ -247,15 +247,6 @@ public abstract class EmbeddedRungeKuttaIntegrator\n         }\n \n         stepSize = hNew;\n+        if (forward) {\n+            if (stepStart + stepSize >= t) {\n+                stepSize = t - stepStart;\n+            }\n+        } else {\n+            if (stepStart + stepSize <= t) {\n+                stepSize = t - stepStart;\n+            }\n+        }\n \n         // next stages\n         for (int k = 1; k < stages; ++k) {",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Luc Maisonobe",
+        "commit_date": "2007-09-30 16:58:50",
+        "commit_message": "added the two methods getCurrentStepStart and getCurrentStepsize to interface FirstOrderIntegrator allowing ODE problems to retrieve the current step start and size during integration for each step trial (i.e. even before the step is accepted)",
+        "commit_hash": "67b86d4ccf71bed11a401818b058dcd24d9635e8"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "resetInternalState",
+          "getCurrentStepStart",
+          "getCurrentStepsize"
+        ],
+        "functions_name_modified_file": [
+          "getOrder",
+          "integrate",
+          "setMinReduction",
+          "setSafety",
+          "getSafety",
+          "getMinReduction",
+          "setMaxGrowth",
+          "getName",
+          "RungeKuttaFehlbergIntegrator",
+          "estimateError",
+          "getMaxGrowth"
+        ],
+        "functions_name_all_files": [
+          "initializeArrays",
+          "setInitialStepSize",
+          "getStepHandler",
+          "setMinReduction",
+          "sanityChecks",
+          "setSafety",
+          "getSafety",
+          "setMaxGrowth",
+          "setStepHandler",
+          "initializeStep",
+          "getName",
+          "RungeKuttaFehlbergIntegrator",
+          "AdaptiveStepsizeIntegrator",
+          "setOrderControl",
+          "setInterpolationControl",
+          "GraggBulirschStoerIntegrator",
+          "resetInternalState",
+          "estimateError",
+          "FirstOrderIntegrator",
+          "tryStep",
+          "integrate",
+          "getCurrentStepStart",
+          "setStepsizeControl",
+          "setStabilityCheck",
+          "rescale",
+          "getCurrentStepsize",
+          "extrapolate",
+          "getMinReduction",
+          "getMaxGrowth",
+          "getOrder",
+          "filterStep",
+          "RungeKuttaIntegrator",
+          "getMaxStep",
+          "getMinStep",
+          "addSwitchingFunction"
+        ],
+        "function_code_before": "  public void integrate(FirstOrderDifferentialEquations equations,\n                        double t0, double[] y0,\n                        double t, double[] y)\n  throws DerivativeException, IntegratorException {\n\n    sanityChecks(equations, t0, y0, t, y);\n    boolean forward = (t > t0);\n\n    // create some internal working arrays\n    int stages = c.length + 1;\n    if (y != y0) {\n      System.arraycopy(y0, 0, y, 0, y0.length);\n    }\n    double[][] yDotK = new double[stages][];\n    for (int i = 0; i < stages; ++i) {\n      yDotK [i] = new double[y0.length];\n    }\n    double[] yTmp = new double[y0.length];\n\n    // set up an interpolator sharing the integrator arrays\n    AbstractStepInterpolator interpolator;\n    if (handler.requiresDenseOutput() || (! switchesHandler.isEmpty())) {\n      RungeKuttaStepInterpolator rki = (RungeKuttaStepInterpolator) prototype.clone();\n      rki.reinitialize(equations, yTmp, yDotK, forward);\n      interpolator = rki;\n    } else {\n      interpolator = new DummyStepInterpolator(yTmp, forward);\n    }\n    interpolator.storeTime(t0);\n\n    double  currentT  = t0;\n    double  hNew      = 0;\n    boolean firstTime = true;\n    boolean lastStep;\n    handler.reset();\n    do {\n\n      interpolator.shift();\n\n      double h     = 0;\n      double error = 0;\n      for (boolean loop = true; loop;) {\n\n        if (firstTime || !fsal) {\n          // first stage\n          equations.computeDerivatives(currentT, y, yDotK[0]);\n        }\n\n        if (firstTime) {\n          double[] scale;\n          if (vecAbsoluteTolerance != null) {\n            scale = vecAbsoluteTolerance;\n          } else {\n            scale = new double[y0.length];\n            for (int i = 0; i < scale.length; ++i) {\n              scale[i] = scalAbsoluteTolerance;\n            }\n          }\n          hNew = initializeStep(equations, forward, getOrder(), scale,\n                                currentT, y, yDotK[0], yTmp, yDotK[1]);\n          firstTime = false;\n        }\n\n        h = hNew;\n\n        // step adjustment near bounds\n        if ((forward && (currentT + h > t))\n            || ((! forward) && (currentT + h < t))) {\n          h = t - currentT;\n        }\n\n        // next stages\n        for (int k = 1; k < stages; ++k) {\n\n          for (int j = 0; j < y0.length; ++j) {\n            double sum = a[k-1][0] * yDotK[0][j];\n            for (int l = 1; l < k; ++l) {\n              sum += a[k-1][l] * yDotK[l][j];\n            }\n            yTmp[j] = y[j] + h * sum;\n          }\n\n          equations.computeDerivatives(currentT + c[k-1] * h, yTmp, yDotK[k]);\n\n        }\n\n        // estimate the state at the end of the step\n        for (int j = 0; j < y0.length; ++j) {\n          double sum    = b[0] * yDotK[0][j];\n          for (int l = 1; l < stages; ++l) {\n            sum    += b[l] * yDotK[l][j];\n          }\n          yTmp[j] = y[j] + h * sum;\n        }\n\n        // estimate the error at the end of the step\n        error = estimateError(yDotK, y, yTmp, h);\n        if (error <= 1.0) {\n\n          // Switching functions handling\n          interpolator.storeTime(currentT + h);\n          if (switchesHandler.evaluateStep(interpolator)) {\n            // reject the step to match exactly the next switch time\n            hNew = switchesHandler.getEventTime() - currentT;\n          } else {\n            // accept the step\n            loop = false;\n          }\n\n        } else {\n          // reject the step and attempt to reduce error by stepsize control\n          double factor = Math.min(maxGrowth,\n                                   Math.max(minReduction,\n                                            safety * Math.pow(error, exp)));\n          hNew = filterStep(h * factor, false);\n        }\n\n      }\n\n      // the step has been accepted\n      currentT += h;\n      System.arraycopy(yTmp, 0, y, 0, y0.length);\n      switchesHandler.stepAccepted(currentT, y);\n      if (switchesHandler.stop()) {\n        lastStep = true;\n      } else {\n        lastStep = forward ? (currentT >= t) : (currentT <= t);\n      }\n\n      // provide the step data to the step handler\n      interpolator.storeTime(currentT);\n      handler.handleStep(interpolator, lastStep);\n\n      if (fsal) {\n        // save the last evaluation for the next step\n        System.arraycopy(yDotK[stages - 1], 0, yDotK[0], 0, y0.length);\n      }\n\n      if (switchesHandler.reset(currentT, y) && ! lastStep) {\n        // some switching function has triggered changes that\n        // invalidate the derivatives, we need to recompute them\n        equations.computeDerivatives(currentT, y, yDotK[0]);\n      }\n\n      if (! lastStep) {\n        // stepsize control for next step\n        double  factor     = Math.min(maxGrowth,\n                                      Math.max(minReduction,\n                                               safety * Math.pow(error, exp)));\n        double  scaledH    = h * factor;\n        double  nextT      = currentT + scaledH;\n        boolean nextIsLast = forward ? (nextT >= t) : (nextT <= t);\n        hNew = filterStep(scaledH, nextIsLast);\n      }\n\n    } while (! lastStep);\n\n  }",
+        "function_code_after": "  public void integrate(FirstOrderDifferentialEquations equations,\n                        double t0, double[] y0,\n                        double t, double[] y)\n  throws DerivativeException, IntegratorException {\n\n    sanityChecks(equations, t0, y0, t, y);\n    boolean forward = (t > t0);\n\n    // create some internal working arrays\n    int stages = c.length + 1;\n    if (y != y0) {\n      System.arraycopy(y0, 0, y, 0, y0.length);\n    }\n    double[][] yDotK = new double[stages][];\n    for (int i = 0; i < stages; ++i) {\n      yDotK [i] = new double[y0.length];\n    }\n    double[] yTmp = new double[y0.length];\n\n    // set up an interpolator sharing the integrator arrays\n    AbstractStepInterpolator interpolator;\n    if (handler.requiresDenseOutput() || (! switchesHandler.isEmpty())) {\n      RungeKuttaStepInterpolator rki = (RungeKuttaStepInterpolator) prototype.clone();\n      rki.reinitialize(equations, yTmp, yDotK, forward);\n      interpolator = rki;\n    } else {\n      interpolator = new DummyStepInterpolator(yTmp, forward);\n    }\n    interpolator.storeTime(t0);\n\n    stepStart  = t0;\n    double  hNew      = 0;\n    boolean firstTime = true;\n    boolean lastStep;\n    handler.reset();\n    do {\n\n      interpolator.shift();\n\n      double error = 0;\n      for (boolean loop = true; loop;) {\n\n        if (firstTime || !fsal) {\n          // first stage\n          equations.computeDerivatives(stepStart, y, yDotK[0]);\n        }\n\n        if (firstTime) {\n          double[] scale;\n          if (vecAbsoluteTolerance != null) {\n            scale = vecAbsoluteTolerance;\n          } else {\n            scale = new double[y0.length];\n            for (int i = 0; i < scale.length; ++i) {\n              scale[i] = scalAbsoluteTolerance;\n            }\n          }\n          hNew = initializeStep(equations, forward, getOrder(), scale,\n                                stepStart, y, yDotK[0], yTmp, yDotK[1]);\n          firstTime = false;\n        }\n\n        stepSize = hNew;\n\n        // step adjustment near bounds\n        if ((forward && (stepStart + stepSize > t))\n            || ((! forward) && (stepStart + stepSize < t))) {\n          stepSize = t - stepStart;\n        }\n\n        // next stages\n        for (int k = 1; k < stages; ++k) {\n\n          for (int j = 0; j < y0.length; ++j) {\n            double sum = a[k-1][0] * yDotK[0][j];\n            for (int l = 1; l < k; ++l) {\n              sum += a[k-1][l] * yDotK[l][j];\n            }\n            yTmp[j] = y[j] + stepSize * sum;\n          }\n\n          equations.computeDerivatives(stepStart + c[k-1] * stepSize, yTmp, yDotK[k]);\n\n        }\n\n        // estimate the state at the end of the step\n        for (int j = 0; j < y0.length; ++j) {\n          double sum    = b[0] * yDotK[0][j];\n          for (int l = 1; l < stages; ++l) {\n            sum    += b[l] * yDotK[l][j];\n          }\n          yTmp[j] = y[j] + stepSize * sum;\n        }\n\n        // estimate the error at the end of the step\n        error = estimateError(yDotK, y, yTmp, stepSize);\n        if (error <= 1.0) {\n\n          // Switching functions handling\n          interpolator.storeTime(stepStart + stepSize);\n          if (switchesHandler.evaluateStep(interpolator)) {\n            // reject the step to match exactly the next switch time\n            hNew = switchesHandler.getEventTime() - stepStart;\n          } else {\n            // accept the step\n            loop = false;\n          }\n\n        } else {\n          // reject the step and attempt to reduce error by stepsize control\n          double factor = Math.min(maxGrowth,\n                                   Math.max(minReduction,\n                                            safety * Math.pow(error, exp)));\n          hNew = filterStep(stepSize * factor, false);\n        }\n\n      }\n\n      // the step has been accepted\n      stepStart += stepSize;\n      System.arraycopy(yTmp, 0, y, 0, y0.length);\n      switchesHandler.stepAccepted(stepStart, y);\n      if (switchesHandler.stop()) {\n        lastStep = true;\n      } else {\n        lastStep = forward ? (stepStart >= t) : (stepStart <= t);\n      }\n\n      // provide the step data to the step handler\n      interpolator.storeTime(stepStart);\n      handler.handleStep(interpolator, lastStep);\n\n      if (fsal) {\n        // save the last evaluation for the next step\n        System.arraycopy(yDotK[stages - 1], 0, yDotK[0], 0, y0.length);\n      }\n\n      if (switchesHandler.reset(stepStart, y) && ! lastStep) {\n        // some switching function has triggered changes that\n        // invalidate the derivatives, we need to recompute them\n        equations.computeDerivatives(stepStart, y, yDotK[0]);\n      }\n\n      if (! lastStep) {\n        // stepsize control for next step\n        double  factor     = Math.min(maxGrowth,\n                                      Math.max(minReduction,\n                                               safety * Math.pow(error, exp)));\n        double  scaledH    = stepSize * factor;\n        double  nextT      = stepStart + scaledH;\n        boolean nextIsLast = forward ? (nextT >= t) : (nextT <= t);\n        hNew = filterStep(scaledH, nextIsLast);\n      }\n\n    } while (! lastStep);\n\n    resetInternalState();\n\n  }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/java/org/apache/commons/math/ode/AdaptiveStepsizeIntegrator.java",
+          "src/java/org/apache/commons/math/ode/FirstOrderIntegrator.java",
+          "src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java",
+          "src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java",
+          "src/java/org/apache/commons/math/ode/RungeKuttaIntegrator.java"
+        ],
+        "file_patches": {
+          "src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java": "diff --git a/src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java b/src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java\nindex a6b867eb0..f8a6a2425 100644\n--- a/src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java\n+++ b/src/java/org/apache/commons/math/ode/RungeKuttaFehlbergIntegrator.java\n@@ -187,7 +187,7 @@ public abstract class RungeKuttaFehlbergIntegrator\n     }\n     interpolator.storeTime(t0);\n \n-    double  currentT  = t0;\n+    stepStart  = t0;\n     double  hNew      = 0;\n     boolean firstTime = true;\n     boolean lastStep;\n@@ -196,13 +196,12 @@ public abstract class RungeKuttaFehlbergIntegrator\n \n       interpolator.shift();\n \n-      double h     = 0;\n       double error = 0;\n       for (boolean loop = true; loop;) {\n \n         if (firstTime || !fsal) {\n           // first stage\n-          equations.computeDerivatives(currentT, y, yDotK[0]);\n+          equations.computeDerivatives(stepStart, y, yDotK[0]);\n         }\n \n         if (firstTime) {\n@@ -216,16 +215,16 @@ public abstract class RungeKuttaFehlbergIntegrator\n             }\n           }\n           hNew = initializeStep(equations, forward, getOrder(), scale,\n-                                currentT, y, yDotK[0], yTmp, yDotK[1]);\n+                                stepStart, y, yDotK[0], yTmp, yDotK[1]);\n           firstTime = false;\n         }\n \n-        h = hNew;\n+        stepSize = hNew;\n \n         // step adjustment near bounds\n-        if ((forward && (currentT + h > t))\n-            || ((! forward) && (currentT + h < t))) {\n-          h = t - currentT;\n+        if ((forward && (stepStart + stepSize > t))\n+            || ((! forward) && (stepStart + stepSize < t))) {\n+          stepSize = t - stepStart;\n         }\n \n         // next stages\n@@ -236,10 +235,10 @@ public abstract class RungeKuttaFehlbergIntegrator\n             for (int l = 1; l < k; ++l) {\n               sum += a[k-1][l] * yDotK[l][j];\n             }\n-            yTmp[j] = y[j] + h * sum;\n+            yTmp[j] = y[j] + stepSize * sum;\n           }\n \n-          equations.computeDerivatives(currentT + c[k-1] * h, yTmp, yDotK[k]);\n+          equations.computeDerivatives(stepStart + c[k-1] * stepSize, yTmp, yDotK[k]);\n \n         }\n \n@@ -249,18 +248,18 @@ public abstract class RungeKuttaFehlbergIntegrator\n           for (int l = 1; l < stages; ++l) {\n             sum    += b[l] * yDotK[l][j];\n           }\n-          yTmp[j] = y[j] + h * sum;\n+          yTmp[j] = y[j] + stepSize * sum;\n         }\n \n         // estimate the error at the end of the step\n-        error = estimateError(yDotK, y, yTmp, h);\n+        error = estimateError(yDotK, y, yTmp, stepSize);\n         if (error <= 1.0) {\n \n           // Switching functions handling\n-          interpolator.storeTime(currentT + h);\n+          interpolator.storeTime(stepStart + stepSize);\n           if (switchesHandler.evaluateStep(interpolator)) {\n             // reject the step to match exactly the next switch time\n-            hNew = switchesHandler.getEventTime() - currentT;\n+            hNew = switchesHandler.getEventTime() - stepStart;\n           } else {\n             // accept the step\n             loop = false;\n@@ -271,23 +270,23 @@ public abstract class RungeKuttaFehlbergIntegrator\n           double factor = Math.min(maxGrowth,\n                                    Math.max(minReduction,\n                                             safety * Math.pow(error, exp)));\n-          hNew = filterStep(h * factor, false);\n+          hNew = filterStep(stepSize * factor, false);\n         }\n \n       }\n \n       // the step has been accepted\n-      currentT += h;\n+      stepStart += stepSize;\n       System.arraycopy(yTmp, 0, y, 0, y0.length);\n-      switchesHandler.stepAccepted(currentT, y);\n+      switchesHandler.stepAccepted(stepStart, y);\n       if (switchesHandler.stop()) {\n         lastStep = true;\n       } else {\n-        lastStep = forward ? (currentT >= t) : (currentT <= t);\n+        lastStep = forward ? (stepStart >= t) : (stepStart <= t);\n       }\n \n       // provide the step data to the step handler\n-      interpolator.storeTime(currentT);\n+      interpolator.storeTime(stepStart);\n       handler.handleStep(interpolator, lastStep);\n \n       if (fsal) {\n@@ -295,10 +294,10 @@ public abstract class RungeKuttaFehlbergIntegrator\n         System.arraycopy(yDotK[stages - 1], 0, yDotK[0], 0, y0.length);\n       }\n \n-      if (switchesHandler.reset(currentT, y) && ! lastStep) {\n+      if (switchesHandler.reset(stepStart, y) && ! lastStep) {\n         // some switching function has triggered changes that\n         // invalidate the derivatives, we need to recompute them\n-        equations.computeDerivatives(currentT, y, yDotK[0]);\n+        equations.computeDerivatives(stepStart, y, yDotK[0]);\n       }\n \n       if (! lastStep) {\n@@ -306,14 +305,16 @@ public abstract class RungeKuttaFehlbergIntegrator\n         double  factor     = Math.min(maxGrowth,\n                                       Math.max(minReduction,\n                                                safety * Math.pow(error, exp)));\n-        double  scaledH    = h * factor;\n-        double  nextT      = currentT + scaledH;\n+        double  scaledH    = stepSize * factor;\n+        double  nextT      = stepStart + scaledH;\n         boolean nextIsLast = forward ? (nextT >= t) : (nextT <= t);\n         hNew = filterStep(scaledH, nextIsLast);\n       }\n \n     } while (! lastStep);\n \n+    resetInternalState();\n+\n   }\n \n   /** Get the minimal reduction factor for stepsize control."
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

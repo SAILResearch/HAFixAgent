@@ -1,0 +1,202 @@
+{
+  "project_name": "Codec",
+  "bug_id": "Codec_12",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 16:53:07",
+      "end_time": "2026-06-24 17:01:34",
+      "duration_seconds": 506,
+      "duration_human": "8m 26s"
+    },
+    "model_cost": 0.0661,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 636419,
+      "output_tokens": 12403,
+      "total_tokens": 648822,
+      "cached_input_tokens": 410560,
+      "uncached_input_tokens": 225859
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java b/src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java\nindex 02cb18a5..9947cf65 100644\n--- a/src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java\n+++ b/src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java\n@@ -36,6 +36,8 @@ public class BaseNCodecInputStream extends FilterInputStream {\n \n     private final byte[] singleByte = new byte[1];\n \n+    private boolean eof = false;\n+\n     protected BaseNCodecInputStream(InputStream in, BaseNCodec baseNCodec, boolean doEncode) {\n         super(in);\n         this.doEncode = doEncode;\n@@ -59,6 +61,7 @@ public class BaseNCodecInputStream extends FilterInputStream {\n             final byte b = singleByte[0];\n             return b < 0 ? 256 + b : b;\n         }\n+        eof = true;\n         return EOF;\n     }\n \n@@ -113,6 +116,9 @@ public class BaseNCodecInputStream extends FilterInputStream {\n                 if (!baseNCodec.hasData()) {\n                     byte[] buf = new byte[doEncode ? 4096 : 8192];\n                     int c = in.read(buf);\n+                    if (c == -1) {\n+                        eof = true;\n+                    }\n                     if (doEncode) {\n                         baseNCodec.encode(buf, 0, c);\n                     } else {\n@@ -120,6 +126,10 @@ public class BaseNCodecInputStream extends FilterInputStream {\n                     }\n                 }\n                 readLen = baseNCodec.readResults(b, offset, len);\n+                if (readLen == -1) {\n+                    eof = true;\n+                    return -1;\n+                }\n             }\n             return readLen;\n         }\n@@ -139,9 +149,19 @@ public class BaseNCodecInputStream extends FilterInputStream {\n      *\n      * @throws IllegalArgumentException if the provided skip length is negative\n      */\n-\n-        // skip in chunks of 512 bytes\n-\n+    @Override\n+    public long skip(long n) throws IOException {\n+        if (n < 0) {\n+            throw new IllegalArgumentException(\"Negative skip length: \" + n);\n+        }\n+        \n+        // delegate to read()\n+        long bytesRead = 0;\n+        while ((bytesRead < n) && (read() != -1)) {\n+            bytesRead++;\n+        }\n+        return bytesRead;\n+    }\n \n     /**\n      * {@inheritDoc}\n@@ -149,10 +169,14 @@ public class BaseNCodecInputStream extends FilterInputStream {\n      * @return <code>0</code> if the {@link InputStream} has reached <code>EOF</code>,\n      * <code>1</code> otherwise\n      */\n+    @Override\n+    public int available() throws IOException {\n         // Note: the logic is similar to the InflaterInputStream:\n         //       as long as we have not reached EOF, indicate that there is more\n         //       data available. As we do not know for sure how much data is left,\n         //       just return 1 as a safe guess.\n-\n-        // use the EOF flag of the underlying codec instance\n+        \n+        return eof ? 0 : 1;\n+    }\n }\n+EOF && cd /defects4j/framework/bin/temp/Codec_12 && defects4j compile && defects4j test -r 2>&1 | grep -A5 \"Failing tests\"\n"
+  },
+  "timestamp": "2026-06-24 17:01:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Codec",
+    "bug_id": "Codec_12",
+    "repo_path": "/defects4j/framework/bin/temp/Codec_12",
+    "github_url": "https://github.com/apache/commons-codec.git",
+    "description": "Base64InputStream.skip skips underlying stream, not output\nBase64InputStream.skip() skips within underlying stream, leading to unexpected behaviour.\n\nThe following code will reproduce the issue:\n\n@Test\npublic void testSkip() throws Throwable {\n    InputStream ins =\n            new ByteArrayInputStream(\"AAAA////\".getBytes(\"ISO-8859-1\"));//should decode to {0, 0, 0, 255, 255, 255}\n    Base64InputStream instance = new Base64InputStream(ins);\n    assertEquals(3L, instance.skip(3L)); //should skip 3 decoded characters, or 4 encoded characters\n    assertEquals(255, instance.read()); //Currently returns 3, as it is decoding \"A/\", not \"//\" \n}\n\nThe following code, if added to Base64InputStream, or (BaseNCodecInputStream in the dev build) would resolve the issue:\n\n@Override\npublic long skip(long n) throws IOException {\n    //delegate to read()\n    long bytesRead = 0;\n    while ((bytesRead < n) && (read() != -1)) {\n        bytesRead++;\n    }\n    return bytesRead;\n}\n\nMore efficient code may be possible.",
+    "commit_message": "[CODEC-130] Provided implementation of skip and available for BaseNCodecInputStream, added unit tests.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+        "start_line": 49,
+        "end_line": 49,
+        "suspiciousness": 0.8333333333333334,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+        "start_line": 152,
+        "end_line": 152,
+        "suspiciousness": 0.6432675209026768,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+        "start_line": 156,
+        "end_line": 156,
+        "suspiciousness": 0.6432675209026768,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+        "start_line": 40,
+        "end_line": 40,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+        "start_line": 37,
+        "end_line": 37,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+        "start_line": 41,
+        "end_line": 41,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+        "start_line": 42,
+        "end_line": 42,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodec.java",
+        "start_line": 143,
+        "end_line": 143,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodec.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.5855400437691199,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testSkipToEnd",
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testCodec130",
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testSkipWrongArgument",
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testAvailable",
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testSkipPastEnd",
+      "org.apache.commons.codec.binary.Base32InputStreamTest::testSkipBig",
+      "org.apache.commons.codec.binary.Base64InputStreamTest::testSkipToEnd",
+      "org.apache.commons.codec.binary.Base64InputStreamTest::testCodec130",
+      "org.apache.commons.codec.binary.Base64InputStreamTest::testSkipWrongArgument",
+      "org.apache.commons.codec.binary.Base64InputStreamTest::testAvailable"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+      "start_line": 49,
+      "end_line": 49,
+      "suspiciousness": 0.8333333333333334,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+      "start_line": 152,
+      "end_line": 152,
+      "suspiciousness": 0.6432675209026768,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+      "start_line": 156,
+      "end_line": 156,
+      "suspiciousness": 0.6432675209026768,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+      "start_line": 40,
+      "end_line": 40,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+      "start_line": 37,
+      "end_line": 37,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+      "start_line": 41,
+      "end_line": 41,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+      "start_line": 42,
+      "end_line": 42,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodecInputStream.java",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodec.java",
+      "start_line": 143,
+      "end_line": 143,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/codec/binary/BaseNCodec.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.5855400437691199,
+      "rank": 10
+    }
+  ]
+}

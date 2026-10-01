@@ -1,0 +1,193 @@
+{
+  "project_name": "Lang",
+  "bug_id": "Lang_42",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 13:15:46",
+      "end_time": "2026-06-30 13:18:35",
+      "duration_seconds": 169,
+      "duration_human": "2m 49s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 48,
+    "token_usage": {
+      "input_tokens": 560357,
+      "output_tokens": 4008,
+      "total_tokens": 564365,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 560357
+    },
+    "agent_steps": 48,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex 3b157e49a..8b2a4dd1b 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -62,15 +62,14 @@\n \t\t</copy>\n \t</target>\n \t<target name=\"compile\" depends=\"static\" description=\"Compile shareable components\">\n-\t\t<javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n-\t\t\t<classpath refid=\"compile.classpath\"/>\n+\t\t<javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\" encoding=\"UTF-8\">\n \t\t</javac>\n \t\t<copy todir=\"${build.home}/classes\" filtering=\"on\">\n \t\t\t<fileset dir=\"${source.home}\" excludes=\"**/*.java\"/>\n \t\t</copy>\n \t</target>\n \t<target name=\"compile.tests\" depends=\"compile\" description=\"Compile unit test cases\">\n-\t\t<javac srcdir=\"${test.home}\" destdir=\"${build.home}/tests\" debug=\"${compile.debug}\" deprecation=\"off\" target=\"${compile.target}\" source=\"${compile.source}\" optimize=\"${compile.optimize}\">\n+\t\t<javac srcdir=\"${test.home}\" destdir=\"${build.home}/tests\" debug=\"${compile.debug}\" deprecation=\"off\" target=\"${compile.target}\" source=\"${compile.source}\" optimize=\"${compile.optimize}\" encoding=\"UTF-8\">\n \t\t\t<classpath refid=\"test.classpath\"/>\n \t\t</javac>\n \t\t<copy todir=\"${build.home}/tests\" filtering=\"on\">\ndiff --git a/src/java/org/apache/commons/lang/Entities.java b/src/java/org/apache/commons/lang/Entities.java\nindex ef41e6a22..9803dd3e4 100644\n--- a/src/java/org/apache/commons/lang/Entities.java\n+++ b/src/java/org/apache/commons/lang/Entities.java\n@@ -819,6 +819,8 @@ class Entities {\n      *             when <code>Writer</code> passed throws the exception from calls to the {@link Writer#write(int)}\n      *             methods.\n      * \n+\n+    /**\n      * @see #escape(String)\n      * @see Writer\n      */\n@@ -829,6 +831,19 @@ class Entities {\n             String entityName = this.entityName(c);\n             if (entityName == null) {\n                 if (c > 0x7F) {\n+                    // Check if this is a high surrogate (part of a surrogate pair)\n+                    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < len) {\n+                        char next = str.charAt(i + 1);\n+                        if (next >= 0xDC00 && next <= 0xDFFF) {\n+                            // This is a surrogate pair, calculate the actual code point\n+                            int codePoint = ((c - 0xD800) << 10) + (next - 0xDC00) + 0x10000;\n+                            writer.write(\"&#\");\n+                            writer.write(Integer.toString(codePoint, 10));\n+                            writer.write(';');\n+                            i++; // Skip the next character as it's part of this pair\n+                            continue;\n+                        }\n+                    }\n                     writer.write(\"&#\");\n                     writer.write(Integer.toString(c, 10));\n                     writer.write(';');\n@@ -842,7 +857,6 @@ class Entities {\n             }\n         }\n     }\n-\n     /**\n      * <p>\n      * Unescapes the entities in a <code>String</code>.\n"
+  },
+  "timestamp": "2026-06-30 13:18:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_42",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_42",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringEscapeUtils.escapeHtml incorrectly converts unicode characters above U+00FFFF into 2 characters\nCharacters that are represented as a 2 characters internaly by java are incorrectly converted by the function. The following test displays the problem quite nicely:\n\nimport org.apache.commons.lang.*;\n\npublic class J2 {\n    public static void main(String[] args) throws Exception {\n        // this is the utf8 representation of the character:\n        // COUNTING ROD UNIT DIGIT THREE\n        // in unicode\n        // codepoint: U+1D362\n        byte[] data = new byte[] { (byte)0xF0, (byte)0x9D, (byte)0x8D, (byte)0xA2 };\n\n        //output is: &amp;#55348;&amp;#57186;\n        // should be: &amp;#119650;\n        System.out.println(\"'\" + StringEscapeUtils.escapeHtml(new String(data, \"UTF8\")) + \"'\");\n    }\n}\n\nShould be very quick to fix, feel free to drop me an email if you want a patch.",
+    "commit_message": "Applying Alexander Kjall's patch from LANG-480; along with a unit test made from his example. Fixes unicode conversion above U+00FFFF being done into 2 characters",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 863,
+        "end_line": 863,
+        "suspiciousness": 0.7706746355884524,
+        "rank": 1
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 861,
+        "end_line": 861,
+        "suspiciousness": 0.6831300510639733,
+        "rank": 2
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 862,
+        "end_line": 862,
+        "suspiciousness": 0.6831300510639733,
+        "rank": 3
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 4
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 726,
+        "end_line": 726,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 5
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 45,
+        "end_line": 45,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 6
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 51,
+        "end_line": 51,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 7
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 55,
+        "end_line": 55,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 8
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 155,
+        "end_line": 155,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 9
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/Entities.java",
+        "start_line": 374,
+        "end_line": 374,
+        "suspiciousness": 0.5838742081211422,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang.StringEscapeUtilsTest::testEscapeHtmlHighUnicode"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 863,
+      "end_line": 863,
+      "suspiciousness": 0.7706746355884524,
+      "rank": 1
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 861,
+      "end_line": 861,
+      "suspiciousness": 0.6831300510639733,
+      "rank": 2
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 862,
+      "end_line": 862,
+      "suspiciousness": 0.6831300510639733,
+      "rank": 3
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 4
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 726,
+      "end_line": 726,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 5
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 45,
+      "end_line": 45,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 6
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 51,
+      "end_line": 51,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 7
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 55,
+      "end_line": 55,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 8
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 155,
+      "end_line": 155,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 9
+    },
+    {
+      "file": "src/java/org/apache/commons/lang/Entities.java",
+      "start_line": 374,
+      "end_line": 374,
+      "suspiciousness": 0.5838742081211422,
+      "rank": 10
+    }
+  ]
+}

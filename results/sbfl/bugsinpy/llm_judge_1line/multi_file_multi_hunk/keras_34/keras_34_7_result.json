@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_34",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 22:56:36",
+      "end_time": "2026-06-17 23:16:41",
+      "duration_seconds": 1205,
+      "duration_human": "20m 5s"
+    },
+    "model_cost": 0.1731,
+    "model_calls": 34,
+    "token_usage": {
+      "input_tokens": 1731482,
+      "output_tokens": 38597,
+      "total_tokens": 1770079,
+      "cached_input_tokens": 1149056,
+      "uncached_input_tokens": 582426
+    },
+    "agent_steps": 34,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training.py b/keras/engine/training.py\nindex ea641c3a8..fbd0da105 100644\n--- a/keras/engine/training.py\n+++ b/keras/engine/training.py\n@@ -1605,11 +1605,6 @@ class Model(Container):\n \n         # Raises\n             RuntimeError: If the model was never compiled.\n-            ValueError: In case of mismatch between the provided input data\n-                and what the model expects.\n-        \"\"\"\n-        # Backwards compatibility\n-        if batch_size is None and steps_per_epoch is None:\n             batch_size = 32\n         # Legacy support\n         if 'nb_epoch' in kwargs:\n@@ -1666,156 +1661,6 @@ class Model(Container):\n                 _slice_arrays(sample_weights, split_at))\n             if self.uses_learning_phase and not isinstance(K.learning_phase(), int):\n                 val_ins = val_x + val_y + val_sample_weights + [0.]\n-            else:\n-                val_ins = val_x + val_y + val_sample_weights\n-\n-        elif validation_steps:\n-            do_validation = True\n-            if self.uses_learning_phase and not isinstance(K.learning_phase(), int):\n-                val_ins = [0.]\n-\n-        # Prepare input arrays and training function.\n-        if self.uses_learning_phase and not isinstance(K.learning_phase(), int):\n-            ins = x + y + sample_weights + [1.]\n-        else:\n-            ins = x + y + sample_weights\n-        self._make_train_function()\n-        f = self.train_function\n-\n-        # Prepare display labels.\n-        out_labels = self.metrics_names\n-\n-        if do_validation:\n-            self._make_test_function()\n-            val_f = self.test_function\n-            callback_metrics = copy.copy(out_labels) + ['val_' + n for n in out_labels]\n-        else:\n-            callback_metrics = copy.copy(out_labels)\n-            val_f = None\n-            val_ins = []\n-\n-        # Delegate logic to `_fit_loop`.\n-        return self._fit_loop(f, ins, out_labels=out_labels,\n-                              batch_size=batch_size, epochs=epochs,\n-                              verbose=verbose, callbacks=callbacks,\n-                              val_f=val_f, val_ins=val_ins, shuffle=shuffle,\n-                              callback_metrics=callback_metrics,\n-                              initial_epoch=initial_epoch,\n-                              steps_per_epoch=steps_per_epoch,\n-                              validation_steps=validation_steps)\n-\n-    def evaluate(self, x=None, y=None,\n-                 batch_size=None,\n-                 verbose=1,\n-                 sample_weight=None,\n-                 steps=None):\n-        \"\"\"Returns the loss value & metrics values for the model in test mode.\n-\n-        Computation is done in batches.\n-\n-        # Arguments\n-            x: Numpy array of test data (if the model has a single input),\n-                or list of Numpy arrays (if the model has multiple inputs).\n-                If input layers in the model are named, you can also pass a\n-                dictionary mapping input names to Numpy arrays.\n-                `x` can be `None` (default) if feeding from\n-                framework-native tensors (e.g. TensorFlow data tensors).\n-            y: Numpy array of target (label) data\n-                (if the model has a single output),\n-                or list of Numpy arrays (if the model has multiple outputs).\n-                If output layers in the model are named, you can also pass a\n-                dictionary mapping output names to Numpy arrays.\n-                `y` can be `None` (default) if feeding from\n-                framework-native tensors (e.g. TensorFlow data tensors).\n-            batch_size: Integer or `None`.\n-                Number of samples per evaluation step.\n-                If unspecified, `batch_size` will default to 32.\n-            verbose: 0 or 1. Verbosity mode.\n-                0 = silent, 1 = progress bar.\n-            sample_weight: Optional Numpy array of weights for\n-                the test samples, used for weighting the loss function.\n-                You can either pass a flat (1D)\n-                Numpy array with the same length as the input samples\n-                (1:1 mapping between weights and samples),\n-                or in the case of temporal data,\n-                you can pass a 2D array with shape\n-                `(samples, sequence_length)`,\n-                to apply a different weight to every timestep of every sample.\n-                In this case you should make sure to specify\n-                `sample_weight_mode=\"temporal\"` in `compile()`.\n-            steps: Integer or `None`.\n-                Total number of steps (batches of samples)\n-                before declaring the evaluation round finished.\n-                Ignored with the default value of `None`.\n-\n-        # Returns\n-            Scalar test loss (if the model has a single output and no metrics)\n-            or list of scalars (if the model has multiple outputs\n-            and/or metrics). The attribute `model.metrics_names` will give you\n-            the display labels for the scalar outputs.\n-        \"\"\"\n-        # Backwards compatibility.\n-        if batch_size is None and steps is None:\n-            batch_size = 32\n-        if x is None and y is None and steps is None:\n-            raise ValueError('If evaluating from data tensors, '\n-                             'you should specify the `steps` '\n-                             'argument.')\n-        # Validate user data.\n-        x, y, sample_weights = self._standardize_user_data(\n-            x, y,\n-            sample_weight=sample_weight,\n-            batch_size=batch_size)\n-        # Prepare inputs, delegate logic to `_test_loop`.\n-        if self.uses_learning_phase and not isinstance(K.learning_phase(), int):\n-            ins = x + y + sample_weights + [0.]\n-        else:\n-            ins = x + y + sample_weights\n-        self._make_test_function()\n-        f = self.test_function\n-        return self._test_loop(f, ins,\n-                               batch_size=batch_size,\n-                               verbose=verbose,\n-                               steps=steps)\n-\n-    def predict(self, x,\n-                batch_size=None,\n-                verbose=0,\n-                steps=None):\n-        \"\"\"Generates output predictions for the input samples.\n-\n-        Computation is done in batches.\n-\n-        # Arguments\n-            x: The input data, as a Numpy array\n-                (or list of Numpy arrays if the model has multiple outputs).\n-            batch_size: Integer. If unspecified, it will default to 32.\n-            verbose: Verbosity mode, 0 or 1.\n-            steps: Total number of steps (batches of samples)\n-                before declaring the prediction round finished.\n-                Ignored with the default value of `None`.\n-\n-        # Returns\n-            Numpy array(s) of predictions.\n-\n-        # Raises\n-            ValueError: In case of mismatch between the provided\n-                input data and the model's expectations,\n-                or in case a stateful model receives a number of samples\n-                that is not a multiple of the batch size.\n-        \"\"\"\n-        # Backwards compatibility.\n-        if batch_size is None and steps is None:\n-            batch_size = 32\n-        if x is None and steps is None:\n-            raise ValueError('If predicting from data tensors, '\n-                             'you should specify the `steps` '\n-                             'argument.')\n-        # Validate user data.\n-        x = _standardize_input_data(x, self._feed_input_names,\n-                                    self._feed_input_shapes,\n-                                    check_batch_axis=False)\n-        if self.stateful:\n             if x[0].shape[0] > batch_size and x[0].shape[0] % batch_size != 0:\n                 raise ValueError('In a stateful network, '\n                                  'you should only pass inputs with '\ndiff --git a/tests/test_multiprocessing.py b/tests/test_multiprocessing.py\nindex be7a59ac1..ab637e1c8 100644\n--- a/tests/test_multiprocessing.py\n+++ b/tests/test_multiprocessing.py\n@@ -6,12 +6,21 @@ import numpy as np\n from keras.models import Sequential\n from keras.layers.core import Dense\n from keras.utils.test_utils import keras_test\n+from keras.utils import Sequence\n \n STEPS_PER_EPOCH = 100\n STEPS = 100\n WORKERS = 4\n \n \n+class DummySequence(Sequence):\n+    def __getitem__(self, idx):\n+        return np.zeros([10, 2]), np.ones([10])\n+\n+    def __len__(self):\n+        return 10\n+\n+\n @pytest.fixture\n def in_tmpdir(tmpdir):\n     \"\"\"Runs a function in a temporary directory.\n@@ -175,6 +184,22 @@ def test_multiprocessing_training():\n                         workers=0,\n                         use_multiprocessing=False)\n \n+    # - For Sequence\n+    model.fit_generator(DummySequence(),\n+                        steps_per_epoch=STEPS_PER_EPOCH,\n+                        validation_data=custom_generator(True),\n+                        validation_steps=1,\n+                        max_queue_size=10,\n+                        workers=0,\n+                        use_multiprocessing=True)\n+    model.fit_generator(DummySequence(),\n+                        steps_per_epoch=STEPS_PER_EPOCH,\n+                        validation_data=custom_generator(True),\n+                        validation_steps=1,\n+                        max_queue_size=10,\n+                        workers=0,\n+                        use_multiprocessing=False)\n+\n     # Test invalid use cases\n     def invalid_generator():\n         while True:\n"
+  },
+  "timestamp": "2026-06-17 23:16:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_34",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_34/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix sequence bug (#9513)",
+    "fault_locations": [
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 143,
+        "end_line": 143,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1060,
+        "end_line": 1060,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1065,
+        "end_line": 1065,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1066,
+        "end_line": 1066,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1071,
+        "end_line": 1071,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1365,
+        "end_line": 1365,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1366,
+        "end_line": 1366,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1370,
+        "end_line": 1370,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1371,
+        "end_line": 1371,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1375,
+        "end_line": 1375,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_multiprocessing.py::test_multiprocessing_training"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/callbacks.py",
+      "start_line": 143,
+      "end_line": 143,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1060,
+      "end_line": 1060,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1065,
+      "end_line": 1065,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1066,
+      "end_line": 1066,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1071,
+      "end_line": 1071,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1365,
+      "end_line": 1365,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1366,
+      "end_line": 1366,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1370,
+      "end_line": 1370,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1371,
+      "end_line": 1371,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 1375,
+      "end_line": 1375,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

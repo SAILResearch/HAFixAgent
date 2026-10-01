@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_39",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 18:00:08",
+      "end_time": "2026-03-23 18:06:58",
+      "duration_seconds": 410,
+      "duration_human": "6m 50s"
+    },
+    "model_cost": 0.0142,
+    "model_calls": 19,
+    "token_usage": {
+      "input_tokens": 89219,
+      "output_tokens": 9225,
+      "total_tokens": 98444,
+      "cached_input_tokens": 50560,
+      "uncached_input_tokens": 38659
+    },
+    "agent_steps": 19,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/ops/methods.py b/pandas/core/ops/methods.py\nindex c04658565f..341c965c90 100644\n--- a/pandas/core/ops/methods.py\n+++ b/pandas/core/ops/methods.py\n@@ -94,6 +94,17 @@ def add_special_arithmetic_methods(cls):\n         def f(self, other):\n             result = method(self, other)\n \n+            # Check if self is a view of a DataFrame column that has been dropped\n+            cacher = getattr(self, \"_cacher\", None)\n+            if cacher is not None:\n+                parent_ref = cacher[1]\n+                parent = parent_ref()\n+                if parent is not None and hasattr(parent, \"columns\") and hasattr(self, \"name\"):\n+                    if self.name not in parent.columns:\n+                        # The parent DataFrame no longer has this column, so we should not update it.\n+                        # Clear the cacher to avoid updating the parent.\n+                        self._cacher = None\n+\n             # this makes sure that we are aligned like the input\n             # we are updating inplace so we want to ignore is_copy\n             self._update_inplace(\ndiff --git a/pandas/tests/frame/test_axis_select_reindex.py b/pandas/tests/frame/test_axis_select_reindex.py\nindex 958eb59358..d1d55d38f4 100644\n--- a/pandas/tests/frame/test_axis_select_reindex.py\n+++ b/pandas/tests/frame/test_axis_select_reindex.py\n@@ -716,3 +716,24 @@ class TestDataFrameSelectReindex:\n         result = df2.reindex(midx)\n         expected = pd.DataFrame({\"a\": [0, 1, 2, 3, 4, 5, 6, np.nan, 8]}, index=midx)\n         tm.assert_frame_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"operation\", [\"__iadd__\", \"__isub__\", \"__imul__\", \"__ipow__\"]\n+    )\n+    @pytest.mark.parametrize(\"inplace\", [False, True])\n+    def test_inplace_drop_and_operation(self, operation, inplace):\n+        # GH 30484\n+        df = pd.DataFrame({\"x\": range(5)})\n+        expected = df.copy()\n+        df[\"y\"] = range(5)\n+        y = df[\"y\"]\n+\n+        with tm.assert_produces_warning(None):\n+            if inplace:\n+                df.drop(\"y\", axis=1, inplace=inplace)\n+            else:\n+                df = df.drop(\"y\", axis=1, inplace=inplace)\n+\n+            # Perform operation and check result\n+            getattr(y, operation)(1)\n+            tm.assert_frame_equal(df, expected)\n"
+  },
+  "timestamp": "2026-03-23 14:06:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_39",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_39/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fixed strange behaviour of pd.DataFrame.drop() with inplace argu\u2026 (#30501)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/ops/methods.py",
+        "start_line": 96,
+        "end_line": 96,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame//test_axis_select_reindex.py::TestDataFrameSelectReindex::test_inplace_drop_and_operation"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

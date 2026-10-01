@@ -1,0 +1,194 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_10",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 19:44:34",
+      "end_time": "2026-06-30 19:46:40",
+      "duration_seconds": 126,
+      "duration_human": "2m 6s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 653542,
+      "output_tokens": 6184,
+      "total_tokens": 659726,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 653542
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/modules/system/pamd.py b/lib/ansible/modules/system/pamd.py\nindex 0d8e32b5ae..f4908f29f1 100644\n--- a/lib/ansible/modules/system/pamd.py\n+++ b/lib/ansible/modules/system/pamd.py\n@@ -475,27 +475,34 @@ class PamdService(object):\n         changed = 0\n \n         while current_line is not None:\n+            next_line = current_line.next  # Store next before we potentially remove current_line\n             if current_line.matches(rule_type, rule_control, rule_path):\n-                if current_line.prev is not None:\n+                # Handle removing first rule\n+                if current_line.prev is None:\n+                    self._head = current_line.next\n+                    if current_line.next is not None:\n+                        current_line.next.prev = None\n+                # Handle removing last rule\n+                elif current_line.next is None:\n+                    self._tail = current_line.prev\n+                    current_line.prev.next = None\n+                # Handle removing middle rule\n+                else:\n                     current_line.prev.next = current_line.next\n                     current_line.next.prev = current_line.prev\n-                else:\n-                    self._head = current_line.next\n-                    current_line.next.prev = None\n                 changed += 1\n \n-            current_line = current_line.next\n-        return changed\n-\n+            current_line = next_line\n     def get(self, rule_type, rule_control, rule_path):\n         lines = []\n         current_line = self._head\n         while current_line is not None:\n+            next_line = current_line.next  # Store next before we potentially remove current_line\n \n             if isinstance(current_line, PamdRule) and current_line.matches(rule_type, rule_control, rule_path):\n                 lines.append(current_line)\n \n-            current_line = current_line.next\n+            current_line = next_line\n \n         return lines\n \n@@ -726,9 +733,10 @@ class PamdService(object):\n         current_line = self._head\n \n         while current_line is not None:\n+            next_line = current_line.next  # Store next before we potentially remove current_line\n             if not current_line.validate()[0]:\n                 return current_line.validate()\n-            current_line = current_line.next\n+            current_line = next_line\n         return True, \"Module is valid\"\n \n     def __str__(self):\n@@ -736,8 +744,9 @@ class PamdService(object):\n         current_line = self._head\n \n         while current_line is not None:\n+            next_line = current_line.next  # Store next before we potentially remove current_line\n             lines.append(str(current_line))\n-            current_line = current_line.next\n+            current_line = next_line\n \n         if lines[1].startswith(\"# Updated by Ansible\"):\n             lines.pop(1)\ndiff --git a/test/units/modules/system/test_pamd.py b/test/units/modules/system/test_pamd.py\nindex 35d4cb1c3a..93c1d08ad4 100644\n--- a/test/units/modules/system/test_pamd.py\n+++ b/test/units/modules/system/test_pamd.py\n@@ -134,6 +134,12 @@ session    required pam_unix.so\"\"\"\n         auth       required pam_env.so\n \"\"\"\n \n+        self.no_header_system_auth_string = \"\"\"auth       required pam_env.so\n+auth       sufficient pam_unix.so nullok try_first_pass\n+auth       requisite pam_succeed_if.so uid\n+auth       required pam_deny.so\n+\"\"\"\n+\n         self.pamd = PamdService(self.system_auth_string)\n \n     def test_properly_parsed(self):\n@@ -353,3 +359,14 @@ session    required pam_unix.so\"\"\"\n         self.assertFalse(self.pamd.remove('account', 'required', 'pam_unix.so'))\n         test_rule = PamdRule('account', 'required', 'pam_unix.so')\n         self.assertNotIn(str(test_rule), str(self.pamd))\n+\n+    def test_remove_first_rule(self):\n+        no_header_service = PamdService(self.no_header_system_auth_string)\n+        self.assertTrue(no_header_service.remove('auth', 'required', 'pam_env.so'))\n+        test_rule = PamdRule('auth', 'required', 'pam_env.so')\n+        self.assertNotIn(str(test_rule), str(no_header_service))\n+\n+    def test_remove_last_rule(self):\n+        self.assertTrue(self.pamd.remove('session', 'required', 'pam_unix.so'))\n+        test_rule = PamdRule('session', 'required', 'pam_unix.so')\n+        self.assertNotIn(str(test_rule), str(self.pamd))\n"
+  },
+  "timestamp": "2026-06-30 19:46:42 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_10",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_10/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "pamd: Fix AttributeError when removing the first or last rule (#66398)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 474,
+        "end_line": 474,
+        "suspiciousness": 0.784471,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 475,
+        "end_line": 475,
+        "suspiciousness": 0.784471,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 477,
+        "end_line": 477,
+        "suspiciousness": 0.784471,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 478,
+        "end_line": 478,
+        "suspiciousness": 0.784471,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 479,
+        "end_line": 479,
+        "suspiciousness": 0.784471,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 480,
+        "end_line": 480,
+        "suspiciousness": 0.47619,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 481,
+        "end_line": 481,
+        "suspiciousness": 0.47619,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 487,
+        "end_line": 487,
+        "suspiciousness": 0.47619,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 312,
+        "end_line": 312,
+        "suspiciousness": 0.280576,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/modules/system/pamd.py",
+        "start_line": 367,
+        "end_line": 367,
+        "suspiciousness": 0.24319,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/modules/system/test_pamd.py::PamdServiceTestCase::test_remove_first_rule",
+      "pytest test/units/modules/system/test_pamd.py::PamdServiceTestCase::test_remove_last_rule"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 474,
+      "end_line": 474,
+      "suspiciousness": 0.784471,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 475,
+      "end_line": 475,
+      "suspiciousness": 0.784471,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 477,
+      "end_line": 477,
+      "suspiciousness": 0.784471,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 478,
+      "end_line": 478,
+      "suspiciousness": 0.784471,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 479,
+      "end_line": 479,
+      "suspiciousness": 0.784471,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 480,
+      "end_line": 480,
+      "suspiciousness": 0.47619,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 481,
+      "end_line": 481,
+      "suspiciousness": 0.47619,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 487,
+      "end_line": 487,
+      "suspiciousness": 0.47619,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 312,
+      "end_line": 312,
+      "suspiciousness": 0.280576,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/modules/system/pamd.py",
+      "start_line": 367,
+      "end_line": 367,
+      "suspiciousness": 0.24319,
+      "rank": 10
+    }
+  ]
+}

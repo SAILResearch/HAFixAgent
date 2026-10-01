@@ -1,0 +1,62 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_35",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 02:32:46",
+      "end_time": "2026-03-24 02:48:38",
+      "duration_seconds": 952,
+      "duration_human": "15m 52s"
+    },
+    "model_cost": 0.2207,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1171667,
+      "output_tokens": 21146,
+      "total_tokens": 1192813,
+      "cached_input_tokens": 386432,
+      "uncached_input_tokens": 785235
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/preprocessing/image.py b/keras/preprocessing/image.py\nindex 97d97792d..70aed6f34 100644\n--- a/keras/preprocessing/image.py\n+++ b/keras/preprocessing/image.py\n@@ -581,13 +581,60 @@ class ImageDataGenerator(object):\n             The inputs, normalized.\n         \"\"\"\n         if self.preprocessing_function:\n-            x = self.preprocessing_function(x)\n+\n+            # Try to call preprocessing function\n+\n+            try:\n+\n+                x = self.preprocessing_function(x)\n+\n+            except (AttributeError, ValueError):\n+\n+                # preprocessing_function might expect a PIL Image\n+\n+                # Convert numpy array to PIL Image\n+\n+                from PIL import Image\n+\n+                import numpy as np\n+\n+                if self.data_format == \"channels_first\":\n+\n+                    # channels_first: (channels, height, width) -> (height, width, channels)\n+\n+                    if x.shape[0] == 1:  # grayscale\n+\n+                        pil_img = Image.fromarray(x[0].astype(\"uint8\"), mode='L')\n+\n+                    else:\n+\n+                        pil_img = Image.fromarray(np.moveaxis(x, 0, -1).astype(\"uint8\"))\n+\n+                else:\n+\n+                    # channels_last: (height, width, channels)\n+\n+                    if x.shape[-1] == 1:  # grayscale\n+\n+                        pil_img = Image.fromarray(x[:,:,0].astype(\"uint8\"), mode='L')\n+\n+                    else:\n+\n+                        pil_img = Image.fromarray(x.astype(\"uint8\"))\n+\n+                pil_img = self.preprocessing_function(pil_img)\n+\n+                # Convert back to numpy array\n+\n+                from .image import img_to_array\n+\n+                x = img_to_array(pil_img, data_format=self.data_format)\n         if self.rescale:\n             x *= self.rescale\n         if self.samplewise_center:\n-            x -= np.mean(x, keepdims=True)\n+            x -= np.mean(x, axis=self.channel_axis-1, keepdims=True)\n         if self.samplewise_std_normalization:\n-            x /= (np.std(x, keepdims=True) + K.epsilon())\n+            x /= (np.std(x, axis=self.channel_axis-1, keepdims=True) + K.epsilon())\n \n         if self.featurewise_center:\n             if self.mean is not None:\ndiff --git a/tests/keras/preprocessing/image_test.py b/tests/keras/preprocessing/image_test.py\nindex 0c81cb582..bdc06ae1d 100644\n--- a/tests/keras/preprocessing/image_test.py\n+++ b/tests/keras/preprocessing/image_test.py\n@@ -235,6 +235,29 @@ class TestImage(object):\n         with pytest.raises(ValueError):\n             x1, y1 = dir_seq[9]\n \n+        # Test Preprocessing before resize\n+        def preprocess_test(img):\n+            return img.resize((1, 1))\n+\n+        generator = image.ImageDataGenerator(preprocessing_function=preprocess_test)\n+        dir_seq = generator.flow_from_directory(str(tmpdir),\n+                                                target_size=(26, 26),\n+                                                color_mode='rgb',\n+                                                batch_size=1,\n+                                                class_mode='categorical')\n+\n+        gen_x1, gen_y1 = dir_seq[1]\n+\n+        test_x1 = image.load_img(os.path.join(dir_seq.directory, dir_seq.filenames[1]),\n+                                 grayscale=False)\n+        test_x1 = preprocess_test(test_x1)\n+        test_x1 = test_x1.resize((26, 26))\n+        test_x1 = image.img_to_array(test_x1)\n+        test_x1 = dir_seq.image_data_generator.random_transform(test_x1)\n+        test_x1 = dir_seq.image_data_generator.standardize(test_x1)\n+\n+        assert gen_x1.shape[1:] == test_x1.shape\n+\n     def test_directory_iterator_class_mode_input(self, tmpdir):\n         tmpdir.join('class-1').mkdir()\n \nmesg: ttyname failed: Inappropriate ioctl for device\n"
+  },
+  "timestamp": "2026-03-23 22:48:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_35",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_35/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix ImageDataGenerator preprocessing_function (#9273)",
+    "fault_locations": [
+      {
+        "file": "keras/preprocessing/image.py",
+        "start_line": 583,
+        "end_line": 584,
+        "function_name": "standardize",
+        "class_name": ""
+      },
+      {
+        "file": "keras/preprocessing/image.py",
+        "start_line": 1230,
+        "end_line": 1230,
+        "function_name": "_get_batches_of_transformed_samples",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/preprocessing/image_test.py::TestImage::test_directory_iterator"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

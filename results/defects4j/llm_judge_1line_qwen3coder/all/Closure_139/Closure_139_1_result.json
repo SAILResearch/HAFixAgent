@@ -1,0 +1,64 @@
+{
+  "project_name": "Closure",
+  "bug_id": "139",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:23:06",
+      "end_time": "2026-06-19 23:24:57",
+      "duration_seconds": 111,
+      "duration_human": "1m 51s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 760912,
+      "output_tokens": 2302,
+      "total_tokens": 763214,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 760912
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:24:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_139",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_139",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Redefinition of a function in third party code can be miscompiled\n<b>What steps will reproduce the problem?</b>\n1. Run this code snippet and observe that it doesn't raise an error:\r\n\r\nfunction assert(b) {if (!b) throw &quot;error&quot;}\r\n\r\nassert(f() === 1)\r\nvar f = function() {return 2;}\r\nassert(f() === 2)\r\n\r\nfunction f() {return 1;}\r\n\r\n2. Compile it as third_party:\r\n3. Observe that the first definition of f has been changed from an assignment to a declaration, and that the code now raises an error.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nr8\r\n\r\n<b>Please provide any additional information below.</b>\n\r\nThis bug is originally from a blog comment[1], I don't know if it has hit anyone in the wild yet.\r\n\r\n1) http://webreflection.blogspot.com/2009/11/google-closure-im-not-impressed.html#1604178721861066706",
+    "commit_message": "Remove var declarations when name functions are in the same scope. Fixes Issue 33 (John) R=nick DELTA=206  (155 added, 16 deleted, 35 changed)",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/Normalize.java",
+        "start_line": 521,
+        "end_line": 521,
+        "line_numbers": [
+          521
+        ],
+        "function_name": "onRedeclaration",
+        "class_name": "DuplicateDeclarationHandler",
+        "filename": "Normalize.java",
+        "code_snippet": "    public void onRedeclaration(\n        Scope s, String name, Node n, Node parent, Node gramps,\n        Node nodeWithLineNumber) {\n      Preconditions.checkState(n.getType() == Token.NAME);\n      if (parent.getType() == Token.VAR) {\n      // If name is \"arguments\", Var maybe null.\n        Preconditions.checkState(parent.hasOneChild());\n\n        replaceVarWithAssignment(n, parent, gramps);\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.NormalizeTest::testNormalizeFunctionDeclarations",
+      "com.google.javascript.jscomp.NormalizeTest::testRemoveDuplicateVarDeclarations3",
+      "com.google.javascript.jscomp.NormalizeTest::testMoveFunctions2"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/Normalize.java b/src/com/google/javascript/jscomp/Normalize.java\nindex 22a51318..26655f17 100644\n--- a/src/com/google/javascript/jscomp/Normalize.java\n+++ b/src/com/google/javascript/jscomp/Normalize.java\n@@ -278,9 +278,6 @@ class Normalize implements CompilerPass {\n           }\n           break;\n \n+        case Token.FUNCTION:\n+          normalizeFunctionDeclaration(n);\n+          break;\n       }\n     }\n \n@@ -292,13 +289,6 @@ class Normalize implements CompilerPass {\n      * to:\n      *    var f = function () {};\n      */\n+    private void normalizeFunctionDeclaration(Node n) {\n+      Preconditions.checkState(n.getType() == Token.FUNCTION);\n+      if (!NodeUtil.isFunctionAnonymous(n)\n+          && !NodeUtil.isHoistedFunctionDeclaration(n)) {\n+        rewriteFunctionDeclaration(n);\n+      }\n+    }\n \n     /**\n      * Rewrite the function declaration from:\n@@ -316,23 +306,12 @@ class Normalize implements CompilerPass {\n      *         LP\n      *         BLOCK\n      */\n+    private void rewriteFunctionDeclaration(Node n) {\n       // Prepare a spot for the function.\n+      Node oldNameNode = n.getFirstChild();\n+      Node fnNameNode = oldNameNode.cloneNode();\n+      Node var = new Node(Token.VAR, fnNameNode, n.getLineno(), n.getCharno());\n+      var.copyInformationFrom(n);\n \n       // Prepare the function\n+      oldNameNode.setString(\"\");\n \n       // Move the function\n+      Node parent = n.getParent();\n+      parent.replaceChild(n, var);\n+      fnNameNode.addChildToFront(n);\n \n+      reportCodeChange(\"Function declaration\");\n+    }\n \n     /**\n      * Do normalizations that introduce new siblings or parents.\n@@ -539,18 +518,8 @@ class Normalize implements CompilerPass {\n         Scope s, String name, Node n, Node parent, Node gramps,\n         Node nodeWithLineNumber) {\n       Preconditions.checkState(n.getType() == Token.NAME);\n+      Var v = s.getVar(name);\n-      if (parent.getType() == Token.VAR) {\n       // If name is \"arguments\", Var maybe null.\n+      Preconditions.checkState(\n+          v == null || v.getParentNode().getType() != Token.CATCH);\n+      if (v != null && parent.getType() == Token.FUNCTION) {\n+        if (v.getParentNode().getType() == Token.VAR) {\n+          s.undeclare(v);\n+          s.declare(name, n, n.getJSType(), v.input);\n+          replaceVarWithAssignment(v.getNameNode(), v.getParentNode(),\n+              v.getParentNode().getParent());\n+        }\n+      } else if (parent.getType() == Token.VAR) {\n         Preconditions.checkState(parent.hasOneChild());\n \n         replaceVarWithAssignment(n, parent, gramps);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

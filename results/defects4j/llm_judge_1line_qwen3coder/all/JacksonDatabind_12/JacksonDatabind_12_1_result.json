@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "12",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:16:22",
+      "end_time": "2026-06-20 00:18:26",
+      "duration_seconds": 124,
+      "duration_human": "2m 4s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 577997,
+      "output_tokens": 3456,
+      "total_tokens": 581453,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 577997
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:18:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_12",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_12",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "@JsonDeserialize on Map with contentUsing custom deserializer overwrites default behavior\nI recently updated from version 2.3.3 to 2.5.1 and encountered a new issue with our custom deserializers. They either seemed to stop working or were active on the wrong fields.\nI could narrow it down to some change in version 2.4.4 (2.4.3 is still working for me)\n\nI wrote a test to show this behavior. It seems to appear when there a two maps with the same key and value types in a bean, and only one of them has a custom deserializer. The deserializer is then falsely used either for both or none of the maps.\n\nThis test works for me in version 2.4.3 and fails with higher versions.\n\n``` java\nimport static org.junit.Assert.assertEquals;\n\nimport java.io.IOException;\nimport java.util.Map;\n\nimport org.junit.Test;\n\nimport com.fasterxml.jackson.annotation.JsonProperty;\nimport com.fasterxml.jackson.core.JsonParser;\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.DeserializationContext;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport com.fasterxml.jackson.databind.annotation.JsonDeserialize;\nimport com.fasterxml.jackson.databind.deser.std.StdDeserializer;\n\npublic class DeserializeTest {\n\n    @Test\n    public void testIt() throws Exception {\n        ObjectMapper om = new ObjectMapper();\n        String json = \"{\\\"map1\\\":{\\\"a\\\":1},\\\"map2\\\":{\\\"a\\\":1}}\";\n        TestBean bean = om.readValue(json.getBytes(), TestBean.class);\n\n        assertEquals(100, bean.getMap1().get(\"a\").intValue());\n        assertEquals(1, bean.getMap2().get(\"a\").intValue());\n    }\n\n    public static class TestBean {\n\n        @JsonProperty(\"map1\")\n        @JsonDeserialize(contentUsing = CustomDeserializer.class)\n        Map<String, Integer> map1;\n\n        @JsonProperty(\"map2\")\n        Map<String, Integer> map2;\n\n        public Map<String, Integer> getMap1() {\n            return map1;\n        }\n\n        public void setMap1(Map<String, Integer> map1) {\n            this.map1 = map1;\n        }\n\n        public Map<String, Integer> getMap2() {\n            return map2;\n        }\n\n        public void setMap2(Map<String, Integer> map2) {\n            this.map2 = map2;\n        }\n    }\n\n    public static class CustomDeserializer extends StdDeserializer<Integer> {\n\n        public CustomDeserializer() {\n            super(Integer.class);\n        }\n\n        @Override\n        public Integer deserialize(JsonParser p, DeserializationContext ctxt) throws IOException, JsonProcessingException {\n            Integer value = p.readValueAs(Integer.class);\n            return value * 100;\n        }\n    }\n}\n```\n\n",
+    "commit_message": "Fix #735",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java",
+        "start_line": 303,
+        "end_line": 303,
+        "line_numbers": [
+          303
+        ],
+        "function_name": "isCachable",
+        "class_name": "MapDeserializer",
+        "filename": "MapDeserializer.java",
+        "code_snippet": "    public boolean isCachable() {\n        /* As per [databind#735], existence of value or key deserializer (only passed\n         * if annotated to use non-standard one) should also prevent caching.\n         */\n        return (_valueTypeDeserializer == null)\n                && (_ignorableProperties == null);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestCustomDeserializers::testCustomMapValueDeser735"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java\nindex a01167fe7..4785e3ff4 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/MapDeserializer.java\n@@ -300,9 +300,7 @@ public class MapDeserializer\n         /* As per [databind#735], existence of value or key deserializer (only passed\n          * if annotated to use non-standard one) should also prevent caching.\n          */\n+        return (_valueDeserializer == null)\n+                && (_keyDeserializer == null)\n+                && (_valueTypeDeserializer == null)\n-        return (_valueTypeDeserializer == null)\n                 && (_ignorableProperties == null);\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_135",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 15:44:49",
+      "end_time": "2026-06-20 15:46:47",
+      "duration_seconds": 118,
+      "duration_human": "1m 58s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 622723,
+      "output_tokens": 3349,
+      "total_tokens": 626072,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 622723
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/tests/extension/decimal/test_decimal.py b/pandas/tests/extension/decimal/test_decimal.py\nindex 3ac9d37ccf..86724d4d09 100644\n--- a/pandas/tests/extension/decimal/test_decimal.py\n+++ b/pandas/tests/extension/decimal/test_decimal.py\n@@ -426,3 +426,55 @@ def test_array_ufunc_series_defer():\n \n     tm.assert_series_equal(r1, expected)\n     tm.assert_series_equal(r2, expected)\n+\n+\n+def test_groupby_agg():\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame(\n+        {\"id1\": [0, 0, 0, 1, 1], \"id2\": [0, 1, 0, 1, 1], \"decimals\": DecimalArray(data)}\n+    )\n+\n+    # single key, selected column\n+    expected = pd.Series(to_decimal([data[0], data[3]]))\n+    result = df.groupby(\"id1\")[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby(df[\"id1\"]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple keys, selected column\n+    expected = pd.Series(\n+        to_decimal([data[0], data[1], data[3]]),\n+        index=pd.MultiIndex.from_tuples([(0, 0), (0, 1), (1, 1)]),\n+    )\n+    result = df.groupby([\"id1\", \"id2\"])[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby([df[\"id1\"], df[\"id2\"]]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple columns\n+    expected = pd.DataFrame({\"id2\": [0, 1], \"decimals\": to_decimal([data[0], data[3]])})\n+    result = df.groupby(\"id1\").agg(lambda x: x.iloc[0])\n+    tm.assert_frame_equal(result, expected, check_names=False)\n+\n+\n+def test_groupby_agg_ea_method(monkeypatch):\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    def DecimalArray__my_sum(self):\n+        return np.sum(np.array(self))\n+\n+    monkeypatch.setattr(DecimalArray, \"my_sum\", DecimalArray__my_sum, raising=False)\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame({\"id\": [0, 0, 0, 1, 1], \"decimals\": DecimalArray(data)})\n+    expected = pd.Series(to_decimal([data[0] + data[1] + data[2], data[3] + data[4]]))\n+\n+    result = df.groupby(\"id\")[\"decimals\"].agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    s = pd.Series(DecimalArray(data))\n+    result = s.groupby(np.array([0, 0, 0, 1, 1])).agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n"
+  },
+  "timestamp": "2026-06-20 15:46:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_135",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_135/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG/TST: ensure groupby.agg preserves extension dtype (#29144)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 675,
+        "end_line": 675,
+        "function_name": "agg_series",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg",
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg_ea_method"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_22",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:10:54",
+      "end_time": "2026-06-27 18:12:17",
+      "duration_seconds": 83,
+      "duration_human": "1m 23s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1017432,
+      "output_tokens": 2386,
+      "total_tokens": 1019818,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1017432
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/__init__.py b/pandas/__init__.py\nindex 2b9a461e0e..abef840c8d 100644\n--- a/pandas/__init__.py\n+++ b/pandas/__init__.py\n@@ -10,7 +10,7 @@ for dependency in hard_dependencies:\n     try:\n         __import__(dependency)\n     except ImportError as e:\n-        missing_dependencies.append(f\"{dependency}: {e}\")\n+        missing_dependencies.append(\"{}: {}\".format(dependency, e))\n \n if missing_dependencies:\n     raise ImportError(\n@@ -34,7 +34,7 @@ except ImportError as e:  # pragma: no cover\n     # hack but overkill to use re\n     module = str(e).replace(\"cannot import name \", \"\")\n     raise ImportError(\n-        f\"C extension: {module} not built. If you want to import \"\n+        \"C extension: {} not built. If you want to import \".format(module)\n         \"pandas from the source directory, you may need to run \"\n         \"'python setup.py build_ext --inplace --force' to build the C extensions first.\"\n     ) from e\ndiff --git a/pandas/core/window/common.py b/pandas/core/window/common.py\nindex 40f17126fa..681398fd0b 100644\n--- a/pandas/core/window/common.py\n+++ b/pandas/core/window/common.py\n@@ -328,6 +328,7 @@ def get_weighted_roll_func(cfunc: Callable) -> Callable:\n def validate_baseindexer_support(func_name: Optional[str]) -> None:\n     # GH 32865: These functions work correctly with a BaseIndexer subclass\n     BASEINDEXER_WHITELIST = {\n+            \"count\",\n         \"min\",\n         \"max\",\n         \"mean\",\ndiff --git a/pandas/core/window/rolling.py b/pandas/core/window/rolling.py\nindex 3fdf81c4bb..31f6981599 100644\n--- a/pandas/core/window/rolling.py\n+++ b/pandas/core/window/rolling.py\n@@ -1171,8 +1171,6 @@ class _Rolling_and_Expanding(_Rolling):\n     )\n \n     def count(self):\n-        if isinstance(self.window, BaseIndexer):\n-            validate_baseindexer_support(\"count\")\n \n         blocks, obj = self._create_blocks()\n         results = []\n@@ -1942,8 +1940,11 @@ class Rolling(_Rolling_and_Expanding):\n         if self.is_freq_type:\n             window_func = self._get_roll_func(\"roll_count\")\n             return self._apply(window_func, center=self.center, name=\"count\")\n+        if self.center:\n+            raise ValueError(\"Forward-looking windows can't have center=True\")\n+        if self.closed != \"left\":\n+            raise ValueError(\"Forward-looking windows don't support setting the closed argument\")\n \n-        return super().count()\n \n     @Substitution(name=\"rolling\")\n     @Appender(_shared_docs[\"apply\"])\ndiff --git a/pandas/tests/window/test_base_indexer.py b/pandas/tests/window/test_base_indexer.py\nindex 43489e310b..1a3fe865d2 100644\n--- a/pandas/tests/window/test_base_indexer.py\n+++ b/pandas/tests/window/test_base_indexer.py\n@@ -82,7 +82,7 @@ def test_win_type_not_implemented():\n         df.rolling(indexer, win_type=\"boxcar\")\n \n \n-@pytest.mark.parametrize(\"func\", [\"count\", \"skew\", \"cov\", \"corr\"])\n+@pytest.mark.parametrize(\"func\", [\"skew\", \"cov\", \"corr\"])\n def test_notimplemented_functions(func):\n     # GH 32865\n     class CustomIndexer(BaseIndexer):\n@@ -99,6 +99,7 @@ def test_notimplemented_functions(func):\n @pytest.mark.parametrize(\n     \"func,np_func,expected,np_kwargs\",\n     [\n+        (\"count\", len, [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, np.nan], {},),\n         (\"min\", np.min, [0.0, 1.0, 2.0, 3.0, 4.0, 6.0, 6.0, 7.0, 8.0, np.nan], {},),\n         (\n             \"max\",\n"
+  },
+  "timestamp": "2026-06-27 18:12:17 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_22",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_22/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: support count function for custom BaseIndexer rolling windows (#33605)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/window/rolling.py",
+        "start_line": 1174,
+        "end_line": 1175,
+        "function_name": "count",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/window/rolling.py",
+        "start_line": 1942,
+        "end_line": 1942,
+        "function_name": "count",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/window/test_base_indexer.py::test_rolling_forward_window"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

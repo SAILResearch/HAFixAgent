@@ -1,0 +1,88 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_65",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 13:21:00",
+      "end_time": "2026-06-20 13:23:15",
+      "duration_seconds": 135,
+      "duration_human": "2m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 789776,
+      "output_tokens": 3519,
+      "total_tokens": 793295,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 789776
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/_libs/parsers.pyx b/pandas/_libs/parsers.pyx\nindex 377d49f2bb..3077f73a8d 100644\n--- a/pandas/_libs/parsers.pyx\n+++ b/pandas/_libs/parsers.pyx\n@@ -638,7 +638,7 @@ cdef class TextReader:\n                 raise ValueError(f'Unrecognized compression type: '\n                                  f'{self.compression}')\n \n-            if self.encoding and isinstance(source, io.BufferedIOBase):\n+            if self.encoding and isinstance(source, (io.BufferedIOBase, io.RawIOBase)):\n                 source = io.TextIOWrapper(\n                     source, self.encoding.decode('utf-8'), newline='')\n \ndiff --git a/pandas/io/common.py b/pandas/io/common.py\nindex 00f2961e41..e506cc155d 100644\n--- a/pandas/io/common.py\n+++ b/pandas/io/common.py\n@@ -3,7 +3,7 @@\n import bz2\n from collections import abc\n import gzip\n-from io import BufferedIOBase, BytesIO\n+from io import BufferedIOBase, BytesIO, RawIOBase\n import mmap\n import os\n import pathlib\n@@ -359,9 +359,9 @@ def get_handle(\n     try:\n         from s3fs import S3File\n \n-        need_text_wrapping = (BufferedIOBase, S3File)\n+        need_text_wrapping = (BufferedIOBase, RawIOBase, S3File)\n     except ImportError:\n-        need_text_wrapping = BufferedIOBase  # type: ignore\n+        need_text_wrapping = (BufferedIOBase, RawIOBase)  # type: ignore\n \n     handles: List[IO] = list()\n     f = path_or_buf\n@@ -437,7 +437,7 @@ def get_handle(\n         from io import TextIOWrapper\n \n         g = TextIOWrapper(f, encoding=encoding, newline=\"\")\n-        if not isinstance(f, BufferedIOBase):\n+        if not isinstance(f, (BufferedIOBase, RawIOBase)):\n             handles.append(g)\n         f = g\n \ndiff --git a/pandas/io/parsers.py b/pandas/io/parsers.py\nindex b38aa9770a..8bc8470ae7 100755\n--- a/pandas/io/parsers.py\n+++ b/pandas/io/parsers.py\n@@ -5,7 +5,7 @@ Module contains tools for processing files into DataFrames or other objects\n from collections import abc, defaultdict\n import csv\n import datetime\n-from io import BufferedIOBase, StringIO, TextIOWrapper\n+from io import BufferedIOBase, RawIOBase, StringIO, TextIOWrapper\n import re\n import sys\n from textwrap import fill\n@@ -1872,7 +1872,7 @@ class CParserWrapper(ParserBase):\n \n             # Handle the file object with universal line mode enabled.\n             # We will handle the newline character ourselves later on.\n-            if isinstance(src, BufferedIOBase):\n+            if isinstance(src, (BufferedIOBase, RawIOBase)):\n                 src = TextIOWrapper(src, encoding=encoding, newline=\"\")\n \n             kwds[\"encoding\"] = \"utf-8\"\ndiff --git a/pandas/tests/io/parser/test_encoding.py b/pandas/tests/io/parser/test_encoding.py\nindex 406e7bedfd..13f72a0414 100644\n--- a/pandas/tests/io/parser/test_encoding.py\n+++ b/pandas/tests/io/parser/test_encoding.py\n@@ -141,6 +141,7 @@ def test_read_csv_utf_aliases(all_parsers, utf_value, encoding_fmt):\n )\n def test_binary_mode_file_buffers(all_parsers, csv_dir_path, fname, encoding):\n     # gh-23779: Python csv engine shouldn't error on files opened in binary.\n+    # gh-31575: Python csv engine shouldn't error on files opened in raw binary.\n     parser = all_parsers\n \n     fpath = os.path.join(csv_dir_path, fname)\n@@ -154,6 +155,10 @@ def test_binary_mode_file_buffers(all_parsers, csv_dir_path, fname, encoding):\n         result = parser.read_csv(fb, encoding=encoding)\n     tm.assert_frame_equal(expected, result)\n \n+    with open(fpath, mode=\"rb\", buffering=0) as fb:\n+        result = parser.read_csv(fb, encoding=encoding)\n+    tm.assert_frame_equal(expected, result)\n+\n \n @pytest.mark.parametrize(\"pass_encoding\", [True, False])\n def test_encoding_temp_file(all_parsers, utf_value, encoding_fmt, pass_encoding):\n"
+  },
+  "timestamp": "2026-06-20 13:23:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_65",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_65/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: read_csv used in file like object RawIOBase is not recognize encoding option (#31596)",
+    "fault_locations": [
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 6,
+        "end_line": 6,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 362,
+        "end_line": 362,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 364,
+        "end_line": 364,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 440,
+        "end_line": 440,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/parsers.py",
+        "start_line": 8,
+        "end_line": 8,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/parsers.py",
+        "start_line": 1875,
+        "end_line": 1875,
+        "function_name": "__init__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/parser/test_encoding.py::test_binary_mode_file_buffers"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_29",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 08:40:21",
+      "end_time": "2026-06-29 08:44:15",
+      "duration_seconds": 234,
+      "duration_human": "3m 54s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 603541,
+      "output_tokens": 12233,
+      "total_tokens": 615774,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 603541
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/nodes/Document.java b/src/main/java/org/jsoup/nodes/Document.java\nindex c5814afd..d2ad33ef 100644\n--- a/src/main/java/org/jsoup/nodes/Document.java\n+++ b/src/main/java/org/jsoup/nodes/Document.java\n@@ -1,362 +1 @@\n package org.jsoup.nodes;\n-\n-import org.jsoup.helper.Validate;\n-import org.jsoup.parser.Tag;\n-import org.jsoup.select.Elements;\n-\n-import java.nio.charset.Charset;\n-import java.nio.charset.CharsetEncoder;\n-import java.util.ArrayList;\n-import java.util.List;\n-\n-/**\n- A HTML Document.\n-\n- @author Jonathan Hedley, jonathan@hedley.net */\n-public class Document extends Element {\n-    private OutputSettings outputSettings = new OutputSettings();\n-    private QuirksMode quirksMode = QuirksMode.noQuirks;\n-\n-    /**\n-     Create a new, empty Document.\n-     @param baseUri base URI of document\n-     @see org.jsoup.Jsoup#parse\n-     @see #createShell\n-     */\n-    public Document(String baseUri) {\n-        super(Tag.valueOf(\"#root\"), baseUri);\n-    }\n-\n-    /**\n-     Create a valid, empty shell of a document, suitable for adding more elements to.\n-     @param baseUri baseUri of document\n-     @return document with html, head, and body elements.\n-     */\n-    static public Document createShell(String baseUri) {\n-        Validate.notNull(baseUri);\n-\n-        Document doc = new Document(baseUri);\n-        Element html = doc.appendElement(\"html\");\n-        html.appendElement(\"head\");\n-        html.appendElement(\"body\");\n-\n-        return doc;\n-    }\n-\n-    /**\n-     Accessor to the document's {@code head} element.\n-     @return {@code head}\n-     */\n-    public Element head() {\n-        return findFirstElementByTagName(\"head\", this);\n-    }\n-\n-    /**\n-     Accessor to the document's {@code body} element.\n-     @return {@code body}\n-     */\n-    public Element body() {\n-        return findFirstElementByTagName(\"body\", this);\n-    }\n-\n-    /**\n-     Get the string contents of the document's {@code title} element.\n-     @return Trimmed title, or empty string if none set.\n-     */\n-    public String title() {\n-        // title is a preserve whitespace tag (for document output), but normalised here\n-        Element titleEl = getElementsByTag(\"title\").first();\n-        return titleEl != null ? titleEl.text().trim() : \"\";\n-    }\n-\n-    /**\n-     Set the document's {@code title} element. Updates the existing element, or adds {@code title} to {@code head} if\n-     not present\n-     @param title string to set as title\n-     */\n-    public void title(String title) {\n-        Validate.notNull(title);\n-        Element titleEl = getElementsByTag(\"title\").first();\n-        if (titleEl == null) { // add to head\n-            head().appendElement(\"title\").text(title);\n-        } else {\n-            titleEl.text(title);\n-        }\n-    }\n-\n-    /**\n-     Create a new Element, with this document's base uri. Does not make the new element a child of this document.\n-     @param tagName element tag name (e.g. {@code a})\n-     @return new element\n-     */\n-    public Element createElement(String tagName) {\n-        return new Element(Tag.valueOf(tagName), this.baseUri());\n-    }\n-\n-    /**\n-     Normalise the document. This happens after the parse phase so generally does not need to be called.\n-     Moves any text content that is not in the body element into the body.\n-     @return this document after normalisation\n-     */\n-    public Document normalise() {\n-        Element htmlEl = findFirstElementByTagName(\"html\", this);\n-        if (htmlEl == null)\n-            htmlEl = appendElement(\"html\");\n-        if (head() == null)\n-            htmlEl.prependElement(\"head\");\n-        if (body() == null)\n-            htmlEl.appendElement(\"body\");\n-\n-        // pull text nodes out of root, html, and head els, and push into body. non-text nodes are already taken care\n-        // of. do in inverse order to maintain text order.\n-        normaliseTextNodes(head());\n-        normaliseTextNodes(htmlEl);\n-        normaliseTextNodes(this);\n-\n-        normaliseStructure(\"head\", htmlEl);\n-        normaliseStructure(\"body\", htmlEl);\n-        \n-        return this;\n-    }\n-\n-    // does not recurse.\n-    private void normaliseTextNodes(Element element) {\n-        List<Node> toMove = new ArrayList<Node>();\n-        for (Node node: element.childNodes) {\n-            if (node instanceof TextNode) {\n-                TextNode tn = (TextNode) node;\n-                if (!tn.isBlank())\n-                    toMove.add(tn);\n-            }\n-        }\n-\n-        for (int i = toMove.size()-1; i >= 0; i--) {\n-            Node node = toMove.get(i);\n-            element.removeChild(node);\n-            body().prependChild(new TextNode(\" \", \"\"));\n-            body().prependChild(node);\n-        }\n-    }\n-\n-    // merge multiple <head> or <body> contents into one, delete the remainder, and ensure they are owned by <html>\n-    private void normaliseStructure(String tag, Element htmlEl) {\n-        Elements elements = this.getElementsByTag(tag);\n-        Element master = elements.first(); // will always be available as created above if not existent\n-        if (elements.size() > 1) { // dupes, move contents to master\n-            List<Node> toMove = new ArrayList<Node>();\n-            for (int i = 1; i < elements.size(); i++) {\n-                Node dupe = elements.get(i);\n-                for (Node node : dupe.childNodes)\n-                    toMove.add(node);\n-                dupe.remove();\n-            }\n-\n-            for (Node dupe : toMove)\n-                master.appendChild(dupe);\n-        }\n-        // ensure parented by <html>\n-        if (!master.parent().equals(htmlEl)) {\n-            htmlEl.appendChild(master); // includes remove()            \n-        }\n-    }\n-\n-    // fast method to get first by tag name, used for html, head, body finders\n-    private Element findFirstElementByTagName(String tag, Node node) {\n-        if (node.nodeName().equals(tag))\n-            return (Element) node;\n-        else {\n-            for (Node child: node.childNodes) {\n-                Element found = findFirstElementByTagName(tag, child);\n-                if (found != null)\n-                    return found;\n-            }\n-        }\n-        return null;\n-    }\n-\n-    @Override\n-    public String outerHtml() {\n-        return super.html(); // no outer wrapper tag\n-    }\n-\n-    /**\n-     Set the text of the {@code body} of this document. Any existing nodes within the body will be cleared.\n-     @param text unencoded text\n-     @return this document\n-     */\n-    @Override\n-    public Element text(String text) {\n-        body().text(text); // overridden to not nuke doc structure\n-        return this;\n-    }\n-\n-    @Override\n-    public String nodeName() {\n-        return \"#document\";\n-    }\n-\n-    @Override\n-    public Document clone() {\n-        Document clone = (Document) super.clone();\n-        clone.outputSettings = this.outputSettings.clone();\n-        return clone;\n-    }\n-\n-    /**\n-     * A Document's output settings control the form of the text() and html() methods.\n-     */\n-    public static class OutputSettings implements Cloneable {\n-        private Entities.EscapeMode escapeMode = Entities.EscapeMode.base;\n-        private Charset charset = Charset.forName(\"UTF-8\");\n-        private CharsetEncoder charsetEncoder = charset.newEncoder();\n-        private boolean prettyPrint = true;\n-        private int indentAmount = 1;\n-\n-        public OutputSettings() {}\n-\n-        /**\n-         * Get the document's current HTML escape mode: <code>base</code>, which provides a limited set of named HTML\n-         * entities and escapes other characters as numbered entities for maximum compatibility; or <code>extended</code>,\n-         * which uses the complete set of HTML named entities.\n-         * <p>\n-         * The default escape mode is <code>base</code>.\n-         * @return the document's current escape mode\n-         */\n-        public Entities.EscapeMode escapeMode() {\n-            return escapeMode;\n-        }\n-\n-        /**\n-         * Set the document's escape mode\n-         * @param escapeMode the new escape mode to use\n-         * @return the document's output settings, for chaining\n-         */\n-        public OutputSettings escapeMode(Entities.EscapeMode escapeMode) {\n-            this.escapeMode = escapeMode;\n-            return this;\n-        }\n-\n-        /**\n-         * Get the document's current output charset, which is used to control which characters are escaped when\n-         * generating HTML (via the <code>html()</code> methods), and which are kept intact.\n-         * <p>\n-         * Where possible (when parsing from a URL or File), the document's output charset is automatically set to the\n-         * input charset. Otherwise, it defaults to UTF-8.\n-         * @return the document's current charset.\n-         */\n-        public Charset charset() {\n-            return charset;\n-        }\n-\n-        /**\n-         * Update the document's output charset.\n-         * @param charset the new charset to use.\n-         * @return the document's output settings, for chaining\n-         */\n-        public OutputSettings charset(Charset charset) {\n-            // todo: this should probably update the doc's meta charset\n-            this.charset = charset;\n-            charsetEncoder = charset.newEncoder();\n-            return this;\n-        }\n-\n-        /**\n-         * Update the document's output charset.\n-         * @param charset the new charset (by name) to use.\n-         * @return the document's output settings, for chaining\n-         */\n-        public OutputSettings charset(String charset) {\n-            charset(Charset.forName(charset));\n-            return this;\n-        }\n-\n-        CharsetEncoder encoder() {\n-            return charsetEncoder;\n-        }\n-\n-        /**\n-         * Get if pretty printing is enabled. Default is true. If disabled, the HTML output methods will not re-format\n-         * the output, and the output will generally look like the input.\n-         * @return if pretty printing is enabled.\n-         */\n-        public boolean prettyPrint() {\n-            return prettyPrint;\n-        }\n-\n-        /**\n-         * Enable or disable pretty printing.\n-         * @param pretty new pretty print setting\n-         * @return this, for chaining\n-         */\n-        public OutputSettings prettyPrint(boolean pretty) {\n-            prettyPrint = pretty;\n-            return this;\n-        }\n-\n-        /**\n-         * Get the current tag indent amount, used when pretty printing.\n-         * @return the current indent amount\n-         */\n-        public int indentAmount() {\n-            return indentAmount;\n-        }\n-\n-        /**\n-         * Set the indent amount for pretty printing\n-         * @param indentAmount number of spaces to use for indenting each level. Must be >= 0.\n-         * @return this, for chaining\n-         */\n-        public OutputSettings indentAmount(int indentAmount) {\n-            Validate.isTrue(indentAmount >= 0);\n-            this.indentAmount = indentAmount;\n-            return this;\n-        }\n-\n-        @Override\n-        public OutputSettings clone() {\n-            OutputSettings clone;\n-            try {\n-                clone = (OutputSettings) super.clone();\n-            } catch (CloneNotSupportedException e) {\n-                throw new RuntimeException(e);\n-            }\n-            clone.charset(charset.name()); // new charset and charset encoder\n-            clone.escapeMode = Entities.EscapeMode.valueOf(escapeMode.name());\n-            // indentAmount, prettyPrint are primitives so object.clone() will handle\n-            return clone;\n-        }\n-    }\n-\n-    /**\n-     * Get the document's current output settings.\n-     * @return the document's current output settings.\n-     */\n-    public OutputSettings outputSettings() {\n-        return outputSettings;\n-    }\n-\n-    /**\n-     * Set the document's output settings.\n-     * @param outputSettings new output settings.\n-     * @return this document, for chaining.\n-     */\n-    public Document outputSettings(OutputSettings outputSettings) {\n-        Validate.notNull(outputSettings);\n-        this.outputSettings = outputSettings;\n-        return this;\n-    }\n-\n-    public enum QuirksMode {\n-        noQuirks, quirks, limitedQuirks;\n-    }\n-\n-    public QuirksMode quirksMode() {\n-        return quirksMode;\n-    }\n-\n-    public Document quirksMode(QuirksMode quirksMode) {\n-        this.quirksMode = quirksMode;\n-        return this;\n-    }\n-}\n-\n"
+  },
+  "timestamp": "2026-06-29 08:44:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_29",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_29",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "'\\n' and redundant space char is not needed from title\nWe assume that we just need 1 line title string from below uri.\nhttp://docs.oracle.com/javase/tutorial/uiswing/lookandfeel/nimbus.html\n\nwe can see title like as below by viewing page source code in that page (of course, It is real situation.)\n\n<pre>\n<title>Nimbus Look and Feel (The Java&trade; Tutorials &gt;        \n            Creating a GUI With JFC/Swing &gt; Modifying the Look and Feel)\n</title>\n</pre>\n\n\nmaybe some another page has multiline title, but browser will shows ordinarily.\nin the other words, Browser shows one line title without CR/LF and redundant space character\nwhether string has newline character or many redundant space or tab, or not.\n\nBut,\nWhen we execute Jsoup.connect(uri).get().title(); after we assign \n\"http://docs.oracle.com/javase/tutorial/uiswing/lookandfeel/nimbus.html\" into uri variable as String,\nit gives two lines like below,\n\n\"Nimbus Look and Feel (The Java\u2122 Tutorials > &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"\n\"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Creating a GUI With JFC/Swing > Modifying the Look and Feel)\"\n\n\"Nimbus Look and Feel (The Java\u2122 Tutorials > Creating a GUI With JFC/Swing > Modifying the Look and Feel)\"\nis better, I think.\n\nHumm ... do you have another idea?\n\n",
+    "commit_message": "Whitespace normalise document.title() output.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 85,
+        "end_line": 85,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 51,
+        "end_line": 51,
+        "suspiciousness": 0.5,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 874,
+        "end_line": 874,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 876,
+        "end_line": 876,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 877,
+        "end_line": 877,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.DocumentTest::testTitles"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 85,
+      "end_line": 85,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 51,
+      "end_line": 51,
+      "suspiciousness": 0.5,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 874,
+      "end_line": 874,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 876,
+      "end_line": 876,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 877,
+      "end_line": 877,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

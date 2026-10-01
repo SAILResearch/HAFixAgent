@@ -1,0 +1,60 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_3",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "mesg: ttyname failed: Inappropriate ioctl for device\n",
+    "timing": {
+      "start_time": "2026-03-23 09:24:42",
+      "end_time": "2026-03-23 10:01:13",
+      "duration_seconds": 2192,
+      "duration_human": "36m 32s"
+    },
+    "model_cost": 0.202,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 912405,
+      "output_tokens": 51232,
+      "total_tokens": 963637,
+      "cached_input_tokens": 242112,
+      "uncached_input_tokens": 670293
+    },
+    "agent_steps": 39,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/models.py b/keras/models.py\nindex a03b09ab9..30c465703 100644\n--- a/keras/models.py\n+++ b/keras/models.py\n@@ -140,6 +140,8 @@ def _clone_functional_model(model, input_tensors=None):\n                     output_masks = to_list(\n                         layer.compute_mask(computed_tensor,\n                                            computed_mask))\n+                    if len(output_masks) != len(output_tensors):\n+                        output_masks = [None] * len(output_tensors)\n                     computed_tensors = [computed_tensor]\n                     computed_masks = [computed_mask]\n                 else:\n@@ -153,6 +155,8 @@ def _clone_functional_model(model, input_tensors=None):\n                     output_masks = to_list(\n                         layer.compute_mask(computed_tensors,\n                                            computed_masks))\n+                    if len(output_masks) != len(output_tensors):\n+                        output_masks = [None] * len(output_tensors)\n                 # Update tensor_map.\n                 for x, y, mask in zip(reference_output_tensors,\n                                       output_tensors,\ndiff --git a/tests/keras/test_sequential_model.py b/tests/keras/test_sequential_model.py\nindex d848734f6..13160734c 100644\n--- a/tests/keras/test_sequential_model.py\n+++ b/tests/keras/test_sequential_model.py\n@@ -339,6 +339,33 @@ def test_clone_functional_model():\n     new_model.train_on_batch(None, val_out)\n \n \n+def test_clone_functional_model_with_multi_outputs():\n+    input_layer = keras.Input(shape=(4,))\n+\n+    # Layer with single input and multiple outputs\n+    layer1 = keras.layers.Lambda(lambda x: [x + 1, x],\n+                                 lambda shapes: [shapes, shapes])\n+    x_a, x_b = layer1(input_layer)\n+\n+    class SwapLayer(keras.layers.Layer):\n+        def call(self, inputs, **kwargs):\n+            return [inputs[1], inputs[0]]\n+\n+        def compute_output_shape(self, input_shape):\n+            return [input_shape[1], input_shape[0]]\n+\n+    # Layer with multiple inputs and outputs\n+    x_a, x_b = SwapLayer()([x_a, x_b])\n+    model = keras.Model(inputs=[input_layer], outputs=[x_a, x_b])\n+    new_model = keras.models.clone_model(model)\n+\n+    x_test = np.random.random((10, 4))\n+    pred_a, pred_b = model.predict(x_test)\n+    pred_new_a, pred_new_b = new_model.predict(x_test)\n+    assert(pred_a.all() == pred_new_a.all())\n+    assert(pred_b.all() == pred_new_b.all())\n+\n+\n def test_clone_sequential_model():\n     val_a = np.random.random((10, 4))\n     val_out = np.random.random((10, 4))\n"
+  },
+  "timestamp": "2026-03-23 06:01:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_3",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_3/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "[P?] Fix clone_model (#12205)",
+    "fault_locations": [
+      {
+        "file": "keras/models.py",
+        "start_line": 140,
+        "end_line": 142,
+        "function_name": "_clone_functional_model",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 153,
+        "end_line": 155,
+        "function_name": "_clone_functional_model",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/test_sequential_model.py::test_clone_functional_model_with_multi_outputs"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

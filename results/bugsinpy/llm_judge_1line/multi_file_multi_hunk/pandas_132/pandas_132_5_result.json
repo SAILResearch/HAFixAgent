@@ -1,0 +1,63 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_132",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 19:25:20",
+      "end_time": "2026-03-23 19:45:01",
+      "duration_seconds": 1181,
+      "duration_human": "19m 41s"
+    },
+    "model_cost": 0.1226,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 763974,
+      "output_tokens": 39296,
+      "total_tokens": 803270,
+      "cached_input_tokens": 369408,
+      "uncached_input_tokens": 394566
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/nanops.py b/pandas/core/nanops.py\nindex b9267db76e..dde6faa856 100644\n--- a/pandas/core/nanops.py\n+++ b/pandas/core/nanops.py\n@@ -705,11 +705,31 @@ def nanstd(values, axis=None, skipna=True, ddof=1, mask=None):\n     >>> nanops.nanstd(s)\n     1.0\n     \"\"\"\n+    if is_timedelta64_dtype(values):\n+        # For timedelta64, compute std directly without calling nanvar\n+        # Convert to float64 seconds for computation to avoid overflow\n+        values_sec = values.astype(\"float64\") * 1e-9\n+        mask_td = mask\n+        if mask_td is not None:\n+            values_sec[mask_td] = np.nan\n+        count, d = _get_counts_nanvar(values_sec.shape, mask_td, axis, ddof, float)\n+        if skipna and mask_td is not None:\n+            values_sec = values_sec.copy()\n+            np.putmask(values_sec, mask_td, 0)\n+        avg = _ensure_numeric(values_sec.sum(axis=axis, dtype=np.float64)) / count\n+        if axis is not None:\n+            avg = np.expand_dims(avg, axis)\n+        sqr = _ensure_numeric((avg - values_sec) ** 2)\n+        if mask_td is not None:\n+            np.putmask(sqr, mask_td, 0)\n+        var_sec2 = sqr.sum(axis=axis, dtype=np.float64) / d\n+        result = np.sqrt(var_sec2) * 1e9  # Convert back to nanoseconds\n+        return _wrap_results(result, values.dtype)\n     result = np.sqrt(nanvar(values, axis=axis, skipna=skipna, ddof=ddof, mask=mask))\n     return _wrap_results(result, values.dtype)\n \n \n-@disallow(\"M8\")\n+@disallow(\"M8\", \"m8\")\n @bottleneck_switch(ddof=1)\n def nanvar(values, axis=None, skipna=True, ddof=1, mask=None):\n     \"\"\"\ndiff --git a/pandas/tests/reductions/test_reductions.py b/pandas/tests/reductions/test_reductions.py\nindex 05ebff4387..a04f8f0df1 100644\n--- a/pandas/tests/reductions/test_reductions.py\n+++ b/pandas/tests/reductions/test_reductions.py\n@@ -300,11 +300,14 @@ class TestIndexReductions:\n         assert result[0] == expected\n \n         # invalid ops\n-        for op in [\"skew\", \"kurt\", \"sem\", \"prod\"]:\n+        for op in [\"skew\", \"kurt\", \"sem\", \"prod\", \"var\"]:\n             msg = \"reduction operation '{}' not allowed for this dtype\"\n             with pytest.raises(TypeError, match=msg.format(op)):\n                 getattr(td, op)()\n \n+            with pytest.raises(TypeError, match=msg.format(op)):\n+                getattr(td.to_frame(), op)(numeric_only=False)\n+\n         # GH#10040\n         # make sure NaT is properly handled by median()\n         s = Series([Timestamp(\"2015-02-03\"), Timestamp(\"2015-02-07\")])\n@@ -636,8 +639,13 @@ class TestSeriesReductions:\n         assert pd.isna(result)\n \n         # timedelta64[ns]\n-        result = getattr(Series(dtype=\"m8[ns]\"), method)()\n-        assert result is pd.NaT\n+        tdser = Series([], dtype=\"m8[ns]\")\n+        if method == \"var\":\n+            with pytest.raises(TypeError, match=\"operation 'var' not allowed\"):\n+                getattr(tdser, method)()\n+        else:\n+            result = getattr(tdser, method)()\n+            assert result is pd.NaT\n \n     def test_nansum_buglet(self):\n         ser = Series([1.0, np.nan], index=[0, 1])\n"
+  },
+  "timestamp": "2026-03-23 15:45:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_132",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_132/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Series[timdelta64].var() should _not_ work (#28289)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/nanops.py",
+        "start_line": 709,
+        "end_line": 709,
+        "function_name": "nanstd",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/nanops.py",
+        "start_line": 712,
+        "end_line": 712,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reductions/test_reductions.py::TestIndexReductions::test_timedelta_ops",
+      "pytest pandas/tests/reductions/test_reductions.py::TestSeriesReductions::test_ops_consistency_on_empty"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

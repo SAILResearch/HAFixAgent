@@ -1,0 +1,137 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_42",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-23 10:40:02",
+      "end_time": "2026-06-23 10:50:39",
+      "duration_seconds": 637,
+      "duration_human": "10m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 808423,
+      "output_tokens": 4653,
+      "total_tokens": 813076,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 808423
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training.py b/keras/engine/training.py\nindex 6cd7d35fb..b4dfa28f3 100644\n--- a/keras/engine/training.py\n+++ b/keras/engine/training.py\n@@ -1900,7 +1900,7 @@ class Model(Container):\n     @interfaces.legacy_generator_methods_support\n     def fit_generator(self,\n                       generator,\n-                      steps_per_epoch,\n+                      steps_per_epoch=None,\n                       epochs=1,\n                       verbose=1,\n                       callbacks=None,\n@@ -1941,7 +1941,9 @@ class Model(Container):\n                 to yield from `generator` before declaring one epoch\n                 finished and starting the next epoch. It should typically\n                 be equal to the number of samples of your dataset\n-                divided by the batch size. Not used if using `Sequence`.\n+                divided by the batch size.\n+                Optional for `Sequence`: if unspecified, will use\n+                the `len(generator)` as a number of steps.\n             epochs: Integer, total number of iterations on the data.\n             verbose: Verbosity mode, 0, 1, or 2.\n             callbacks: List of callbacks to be called during training.\n@@ -1952,6 +1954,8 @@ class Model(Container):\n             validation_steps: Only relevant if `validation_data`\n                 is a generator. Total number of steps (batches of samples)\n                 to yield from `generator` before stopping.\n+                Optional for `Sequence`: if unspecified, will use\n+                the `len(validation_data)` as a number of steps.\n             class_weight: Dictionary mapping class indices to a weight\n                 for the class.\n             max_queue_size: Integer. Maximum size for the generator queue.\n@@ -2005,15 +2009,33 @@ class Model(Container):\n         if do_validation:\n             self._make_test_function()\n \n+        is_sequence = isinstance(generator, Sequence)\n+        if not is_sequence and use_multiprocessing and workers > 1:\n+            warnings.warn(\n+                UserWarning('Using a generator with `use_multiprocessing=True`'\n+                            ' and multiple workers may duplicate your data.'\n+                            ' Please consider using the`keras.utils.Sequence'\n+                            ' class.'))\n+        if steps_per_epoch is None:\n+            if is_sequence:\n+                steps_per_epoch = len(generator)\n+            else:\n+                raise ValueError('`steps_per_epoch=None` is only valid for a'\n+                                 ' generator based on the `keras.utils.Sequence`'\n+                                 ' class. Please specify `steps_per_epoch` or use'\n+                                 ' the `keras.utils.Sequence` class.')\n+\n         # python 2 has 'next', 3 has '__next__'\n         # avoid any explicit version checks\n         val_gen = (hasattr(validation_data, 'next') or\n                    hasattr(validation_data, '__next__') or\n                    isinstance(validation_data, Sequence))\n-        if val_gen and not validation_steps:\n-            raise ValueError('When using a generator for validation data, '\n-                             'you must specify a value for '\n-                             '`validation_steps`.')\n+        if (val_gen and not isinstance(validation_data, Sequence) and\n+                not validation_steps):\n+            raise ValueError('`validation_steps=None` is only valid for a'\n+                             ' generator based on the `keras.utils.Sequence`'\n+                             ' class. Please specify `validation_steps` or use'\n+                             ' the `keras.utils.Sequence` class.')\n \n         # Prepare display labels.\n         out_labels = self._get_deduped_metrics_names()\n@@ -2059,15 +2081,6 @@ class Model(Container):\n                 val_data += [0.]\n             for cbk in callbacks:\n                 cbk.validation_data = val_data\n-        is_sequence = isinstance(generator, Sequence)\n-        if not is_sequence and use_multiprocessing and workers > 1:\n-            warnings.warn(\n-                UserWarning('Using a generator with `use_multiprocessing=True`'\n-                            ' and multiple workers may duplicate your data.'\n-                            ' Please consider using the`keras.utils.Sequence'\n-                            ' class.'))\n-        if is_sequence:\n-            steps_per_epoch = len(generator)\n         enqueuer = None\n \n         try:\n@@ -2173,7 +2186,7 @@ class Model(Container):\n         return self.history\n \n     @interfaces.legacy_generator_methods_support\n-    def evaluate_generator(self, generator, steps,\n+    def evaluate_generator(self, generator, steps=None,\n                            max_queue_size=10,\n                            workers=1,\n                            use_multiprocessing=False):\n@@ -2190,7 +2203,8 @@ class Model(Container):\n                     when using multiprocessing.\n             steps: Total number of steps (batches of samples)\n                 to yield from `generator` before stopping.\n-                Not used if using Sequence.\n+                Optional for `Sequence`: if unspecified, will use\n+                the `len(generator)` as a number of steps.\n             max_queue_size: maximum size for the generator queue\n             workers: maximum number of processes to spin up\n                 when using process based threading\n@@ -2225,8 +2239,14 @@ class Model(Container):\n                             ' and multiple workers may duplicate your data.'\n                             ' Please consider using the`keras.utils.Sequence'\n                             ' class.'))\n-        if is_sequence:\n-            steps = len(generator)\n+        if steps is None:\n+            if is_sequence:\n+                steps = len(generator)\n+            else:\n+                raise ValueError('`steps=None` is only valid for a generator'\n+                                 ' based on the `keras.utils.Sequence` class.'\n+                                 ' Please specify `steps` or use the'\n+                                 ' `keras.utils.Sequence` class.')\n         enqueuer = None\n \n         try:\n@@ -2305,7 +2325,8 @@ class Model(Container):\n                     when using multiprocessing.\n             steps: Total number of steps (batches of samples)\n                 to yield from `generator` before stopping.\n-                Not used if using Sequence.\n+                Optional for `Sequence`: if unspecified, will use\n+                the `len(generator)` as a number of steps.\n             max_queue_size: Maximum size for the generator queue.\n             workers: Maximum number of processes to spin up\n                 when using process based threading\n@@ -2337,8 +2358,14 @@ class Model(Container):\n                             ' and multiple workers may duplicate your data.'\n                             ' Please consider using the`keras.utils.Sequence'\n                             ' class.'))\n-        if is_sequence:\n-            steps = len(generator)\n+        if steps is None:\n+            if is_sequence:\n+                steps = len(generator)\n+            else:\n+                raise ValueError('`steps=None` is only valid for a generator'\n+                                 ' based on the `keras.utils.Sequence` class.'\n+                                 ' Please specify `steps` or use the'\n+                                 ' `keras.utils.Sequence` class.')\n         enqueuer = None\n \n         try:\ndiff --git a/tests/keras/engine/test_training.py b/tests/keras/engine/test_training.py\nindex 45738ec71..6cda6c4c5 100644\n--- a/tests/keras/engine/test_training.py\n+++ b/tests/keras/engine/test_training.py\n@@ -233,12 +233,17 @@ def test_model_methods():\n \n     # test starting from non-zero initial epoch\n     trained_epochs = []\n+    trained_batches = []\n \n     # define tracer callback\n     def on_epoch_begin(epoch, logs):\n         trained_epochs.append(epoch)\n \n-    tracker_cb = LambdaCallback(on_epoch_begin=on_epoch_begin)\n+    def on_batch_begin(batch, logs):\n+        trained_batches.append(batch)\n+\n+    tracker_cb = LambdaCallback(on_epoch_begin=on_epoch_begin,\n+                                on_batch_begin=on_batch_begin)\n \n     out = model.fit([input_a_np, input_b_np],\n                     [output_a_np, output_b_np], epochs=5, batch_size=4,\n@@ -380,10 +385,30 @@ def test_model_methods():\n     model.compile(optimizer, loss, metrics=[], loss_weights=loss_weights,\n                   sample_weight_mode=None)\n     trained_epochs = []\n-    out = model.fit_generator(generator=RandomSequence(3), steps_per_epoch=12, epochs=5,\n+    trained_batches = []\n+    out = model.fit_generator(generator=RandomSequence(3), steps_per_epoch=3, epochs=5,\n+                              initial_epoch=0, validation_data=RandomSequence(4),\n+                              validation_steps=3, callbacks=[tracker_cb])\n+    assert trained_epochs == [0, 1, 2, 3, 4]\n+    assert trained_batches == list(range(3)) * 5\n+\n+    # steps_per_epoch will be equal to len of sequence if it's unspecified\n+    trained_epochs = []\n+    trained_batches = []\n+    out = model.fit_generator(generator=RandomSequence(3), epochs=5,\n                               initial_epoch=0, validation_data=RandomSequence(4),\n-                              validation_steps=12, callbacks=[tracker_cb])\n+                              callbacks=[tracker_cb])\n     assert trained_epochs == [0, 1, 2, 3, 4]\n+    assert trained_batches == list(range(12)) * 5\n+\n+    # fit_generator will throw an exception if steps is unspecified for regular generator\n+    with pytest.raises(ValueError):\n+        def gen_data():\n+            while True:\n+                yield (np.asarray([]), np.asarray([]))\n+        out = model.fit_generator(generator=gen_data(), epochs=5,\n+                                  initial_epoch=0, validation_data=gen_data(),\n+                                  callbacks=[tracker_cb])\n \n \n @pytest.mark.skipif(sys.version_info < (3,), reason='Cannot catch warnings in python 2')\n"
+  },
+  "timestamp": "2026-06-23 10:50:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_42",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_42/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Allow custom steps_per_epoch for sequences, default to len(generator) if unspecified (#8509)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1903,
+        "end_line": 1903,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1944,
+        "end_line": 1944,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2013,
+        "end_line": 2016,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2062,
+        "end_line": 2070,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2176,
+        "end_line": 2176,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2193,
+        "end_line": 2193,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2228,
+        "end_line": 2229,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2291,
+        "end_line": 2291,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2308,
+        "end_line": 2308,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2340,
+        "end_line": 2341,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1119,
+        "end_line": 1119,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1226,
+        "end_line": 1226,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1266,
+        "end_line": 1266,
+        "function_name": "predict_generator",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/engine/test_training.py::test_model_methods"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

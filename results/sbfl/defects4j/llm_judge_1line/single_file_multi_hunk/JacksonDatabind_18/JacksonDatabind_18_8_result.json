@@ -1,0 +1,195 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_18",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 05:32:44",
+      "end_time": "2026-06-25 05:37:54",
+      "duration_seconds": 310,
+      "duration_human": "5m 10s"
+    },
+    "model_cost": 0.1363,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 706576,
+      "output_tokens": 10419,
+      "total_tokens": 716995,
+      "cached_input_tokens": 217472,
+      "uncached_input_tokens": 489104
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\nindex b4ce3e956..b9d953e74 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/MappingIterator.java\n@@ -78,6 +78,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n      * for each call.\n      */\n     protected final T _updatedValue;\n+    protected final JsonStreamContext _recoveryContext;\n     \n     /**\n      * Flag that indicates whether input {@link JsonParser} should be closed\n@@ -123,6 +124,7 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n             _updatedValue = null;\n         } else {\n             _updatedValue = (T) valueToUpdate;\n+        _recoveryContext = (p == null) ? null : p.getParsingContext();\n         }\n \n         /* Ok: one more thing; we may have to skip START_ARRAY, assuming\n@@ -252,12 +254,44 @@ public class MappingIterator<T> implements Iterator<T>, Closeable\n                 value = _updatedValue;\n             }\n             return value;\n+        } catch (JsonProcessingException e) {\n+            // Try to recover by skipping to end of current structure\n+            _recoverFromError();\n+            throw e;\n         } finally {\n             /* 24-Mar-2015, tatu: As per [#733], need to mark token consumed no\n              *   matter what, to avoid infinite loop for certain failure cases.\n              *   For 2.6 need to improve further.\n              */\n-            _parser.clearCurrentToken();\n+            if (_parser != null && _parser.getCurrentToken() != null) {\n+                _parser.clearCurrentToken();\n+            }\n+        }\n+    }\n+\n+    private void _recoverFromError() throws IOException {\n+        if (_parser == null || _recoveryContext == null) {\n+            return;\n+        }\n+        JsonStreamContext current = _parser.getParsingContext();\n+        if (current == null) {\n+            return;\n+        }\n+        \n+        // Skip tokens until we're back to the recovery context depth\n+        int targetDepth = _recoveryContext.getCurrentDepth();\n+        while (true) {\n+            JsonToken t = _parser.nextToken();\n+            if (t == null) {\n+                break;\n+            }\n+            current = _parser.getParsingContext();\n+            if (current == null) {\n+                break;\n+            }\n+            if (current.getCurrentDepth() <= targetDepth) {\n+                break;\n+            }\n         }\n     }\n \n"
+  },
+  "timestamp": "2026-06-25 05:37:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_18",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_18",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Add basic error-recovery for `ObjectReader.readValues()`\n(follow up for #733)\n\nIn case of `JsonProcessingException`, `MappingIterator` will currently be left pointing right after whatever token was last tokenized (or character following tokenization error). While this is better than indeterminate state, ideally it should try to do some error recover. And although it may not be possible to recover successfully from all kinds of issues, it should be possible to do best effort given that iterator has some knowledge of state when it was opened; that is, it can try to heuristically match closing `END_OBJECT`, depending on nesting level it was created at.\n\nIn addition it may make sense to add a switch to prevent using of any automated heuristics, for those users who want full control over recovery.\n\n",
+    "commit_message": "Fix #734 (error recovery for `ObjectReader.readValues()`)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationConfig.java",
+        "start_line": 689,
+        "end_line": 689,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 290,
+        "end_line": 290,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 801,
+        "end_line": 801,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 802,
+        "end_line": 802,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 811,
+        "end_line": 811,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 827,
+        "end_line": 827,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 831,
+        "end_line": 831,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 832,
+        "end_line": 832,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+        "start_line": 1014,
+        "end_line": 1014,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+        "start_line": 1018,
+        "end_line": 1018,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleRootRecovery",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testRootBeans",
+      "com.fasterxml.jackson.databind.seq.ReadRecoveryTest::testSimpleArrayRecovery"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationConfig.java",
+      "start_line": 689,
+      "end_line": 689,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 290,
+      "end_line": 290,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 801,
+      "end_line": 801,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 802,
+      "end_line": 802,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 811,
+      "end_line": 811,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 827,
+      "end_line": 827,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 831,
+      "end_line": 831,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 832,
+      "end_line": 832,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+      "start_line": 1014,
+      "end_line": 1014,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdDeserializer.java",
+      "start_line": 1018,
+      "end_line": 1018,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

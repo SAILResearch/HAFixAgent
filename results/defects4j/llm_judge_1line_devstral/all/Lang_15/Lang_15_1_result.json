@@ -1,0 +1,78 @@
+{
+  "project_name": "Lang",
+  "bug_id": "15",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:25:31",
+      "end_time": "2026-06-26 21:28:46",
+      "duration_seconds": 195,
+      "duration_human": "3m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 488237,
+      "output_tokens": 5739,
+      "total_tokens": 493976,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 488237
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\nindex 415cefa31..7d8643fcb 100644\n--- a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\n@@ -672,7 +672,7 @@ public class TypeUtils {\n                 : new HashMap<TypeVariable<?>, Type>(subtypeVarAssigns);\n \n         // has target class been reached?\n-        if (cls.getTypeParameters().length > 0 || toClass.equals(cls)) {\n+        if (toClass.equals(cls)) {\n             return typeVarAssigns;\n         }\n \n"
+  },
+  "timestamp": "2026-06-26 21:28:46 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_15",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_15",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "TypeUtils.getTypeArguments() misses type arguments for partially-assigned classes\nfailing test code to add to TypeUtilsTest.testGetTypeArguments():\n{code}\ntypeVarAssigns = TypeUtils.getTypeArguments(Other.class, This.class);\nAssert.assertEquals(2, typeVarAssigns.size());\nAssert.assertEquals(String.class, typeVarAssigns.get(This.class.getTypeParameters()[0]));\nAssert.assertEquals(Other.class.getTypeParameters()[0], typeVarAssigns.get(This.class.getTypeParameters()[1]));\n{code}\n\nThese should pass based on:\n{code}\n\npublic interface This<K, V> {\n}\n\npublic class Other<T> implements This<String, T> {\n}\n{code}\n\nThis case fails because the current code ignores the Other class due to its specifying its own type variables, which is obviously incorrect.  This report is extrapolated from an offline report received by Hen.",
+    "commit_message": "[LANG-775] [LANG-776] fix related bugs dealing with type variable inheritance",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+        "start_line": 219,
+        "end_line": 221,
+        "line_numbers": [
+          219,
+          220,
+          221
+        ],
+        "function_name": "isAssignable",
+        "class_name": "TypeUtils",
+        "filename": "TypeUtils.java",
+        "code_snippet": "    private static boolean isAssignable(Type type, ParameterizedType toParameterizedType,\n            Map<TypeVariable<?>, Type> typeVarAssigns) {\n        if (type == null) {\n            return true;\n        }\n\n        // only a null type can be assigned to null type which\n        // would have cause the previous to return true\n        if (toParameterizedType == null) {\n            return false;\n        }\n\n        // all types are assignable to themselves\n        if (toParameterizedType.equals(type)) {\n            return true;\n        }\n\n        // get the target type's raw type\n        Class<?> toClass = getRawType(toParameterizedType);\n        // get the subject type's type arguments including owner type arguments\n        // and supertype arguments up to and including the target class.\n        Map<TypeVariable<?>, Type> fromTypeVarAssigns = getTypeArguments(type, toClass, null);\n\n        // null means the two types are not compatible\n        if (fromTypeVarAssigns == null) {\n            return false;\n        }\n\n        // compatible types, but there's no type arguments. this is equivalent\n        // to comparing Map< ?, ? > to Map, and raw types are always assignable\n        // to parameterized types.\n        if (fromTypeVarAssigns.isEmpty()) {\n            return true;\n        }\n\n        // get the target type's type arguments including owner type arguments\n        Map<TypeVariable<?>, Type> toTypeVarAssigns = getTypeArguments(toParameterizedType,\n                toClass, typeVarAssigns);\n\n        // now to check each type argument\n        for (Map.Entry<TypeVariable<?>, Type> entry : toTypeVarAssigns.entrySet()) {\n            Type toTypeArg = entry.getValue();\n            Type fromTypeArg = fromTypeVarAssigns.get(entry.getKey());\n\n            // parameters must either be absent from the subject type, within\n            // the bounds of the wildcard type, or be an exact match to the\n            // parameters of the target type.\n            if (fromTypeArg != null\n                    && !toTypeArg.equals(fromTypeArg)\n                    && !(toTypeArg instanceof WildcardType && isAssignable(fromTypeArg, toTypeArg,\n                            typeVarAssigns))) {\n                return false;\n            }\n        }\n\n        return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+        "start_line": 675,
+        "end_line": 675,
+        "line_numbers": [
+          675
+        ],
+        "function_name": "getTypeArguments",
+        "class_name": "TypeUtils",
+        "filename": "TypeUtils.java",
+        "code_snippet": "    private static Map<TypeVariable<?>, Type> getTypeArguments(Class<?> cls, Class<?> toClass,\n            Map<TypeVariable<?>, Type> subtypeVarAssigns) {\n        // make sure they're assignable\n        if (!isAssignable(cls, toClass)) {\n            return null;\n        }\n\n        // can't work with primitives\n        if (cls.isPrimitive()) {\n            // both classes are primitives?\n            if (toClass.isPrimitive()) {\n                // dealing with widening here. No type arguments to be\n                // harvested with these two types.\n                return new HashMap<TypeVariable<?>, Type>();\n            }\n\n            // work with wrapper the wrapper class instead of the primitive\n            cls = ClassUtils.primitiveToWrapper(cls);\n        }\n\n        // create a copy of the incoming map, or an empty one if it's null\n        HashMap<TypeVariable<?>, Type> typeVarAssigns = subtypeVarAssigns == null ? new HashMap<TypeVariable<?>, Type>()\n                : new HashMap<TypeVariable<?>, Type>(subtypeVarAssigns);\n\n        // has target class been reached?\n        if (cls.getTypeParameters().length > 0 || toClass.equals(cls)) {\n            return typeVarAssigns;\n        }\n\n        // walk the inheritance hierarchy until the target class is reached\n        return getTypeArguments(getClosestParentType(cls, toClass), toClass, typeVarAssigns);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.reflect.TypeUtilsTest::testGetTypeArguments",
+      "org.apache.commons.lang3.reflect.TypeUtilsTest::testIsAssignable"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\nindex 8db8abf..415cefa 100644\n--- a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java\n@@ -216,9 +216,9 @@ public class TypeUtils {\n                 toClass, typeVarAssigns);\n \n         // now to check each type argument\n+        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {\n+            Type toTypeArg = unrollVariableAssignments(var, toTypeVarAssigns);\n+            Type fromTypeArg = unrollVariableAssignments(var, fromTypeVarAssigns);\n-        for (Map.Entry<TypeVariable<?>, Type> entry : toTypeVarAssigns.entrySet()) {\n-            Type toTypeArg = entry.getValue();\n-            Type fromTypeArg = fromTypeVarAssigns.get(entry.getKey());\n \n             // parameters must either be absent from the subject type, within\n             // the bounds of the wildcard type, or be an exact match to the\n@@ -672,7 +672,7 @@ public class TypeUtils {\n                 : new HashMap<TypeVariable<?>, Type>(subtypeVarAssigns);\n \n         // has target class been reached?\n+        if (toClass.equals(cls)) {\n-        if (cls.getTypeParameters().length > 0 || toClass.equals(cls)) {\n             return typeVarAssigns;\n         }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

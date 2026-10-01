@@ -1,0 +1,54 @@
+{
+  "project_name": "Gson",
+  "bug_id": "14",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 04:19:40",
+      "end_time": "2026-06-20 04:23:20",
+      "duration_seconds": 221,
+      "duration_human": "3m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 845920,
+      "output_tokens": 7589,
+      "total_tokens": 853509,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 845920
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex c2372c79..e80aa3af 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -381,18 +381,46 @@ public final class $Gson$Types {\n         if (originalLowerBound.length == 1) {\n           Type lowerBound = resolve(context, contextRawType, originalLowerBound[0]);\n           if (lowerBound != originalLowerBound[0]) {\n+            // Collapse chains of supertype bounds\n+            if (lowerBound instanceof WildcardType) {\n+              WildcardType lowerWildcard = (WildcardType) lowerBound;\n+              Type[] lowerWildcardLowerBounds = lowerWildcard.getLowerBounds();\n+              Type[] lowerWildcardUpperBounds = lowerWildcard.getUpperBounds();\n+              \n+              if (lowerWildcardLowerBounds.length == 1) {\n+                // ? super X where X is ? super Y -> ? super Y\n+                return supertypeOf(lowerWildcardLowerBounds[0]);\n+              } else if (lowerWildcardUpperBounds.length == 1 \n+                  && lowerWildcardUpperBounds[0] != Object.class) {\n+                // ? super X where X is ? extends Y -> ? (which is ? extends Object)\n+                return subtypeOf(Object.class);\n+              }\n+            }\n             return supertypeOf(lowerBound);\n           }\n         } else if (originalUpperBound.length == 1) {\n           Type upperBound = resolve(context, contextRawType, originalUpperBound[0]);\n           if (upperBound != originalUpperBound[0]) {\n+            // Collapse chains of subtype bounds\n+            if (upperBound instanceof WildcardType) {\n+              WildcardType upperWildcard = (WildcardType) upperBound;\n+              Type[] upperWildcardLowerBounds = upperWildcard.getLowerBounds();\n+              Type[] upperWildcardUpperBounds = upperWildcard.getUpperBounds();\n+              \n+              if (upperWildcardUpperBounds.length == 1 \n+                  && upperWildcardUpperBounds[0] != Object.class) {\n+                // ? extends X where X is ? extends Y -> ? extends Y\n+                return subtypeOf(upperWildcardUpperBounds[0]);\n+              } else if (upperWildcardLowerBounds.length == 1) {\n+                // ? extends X where X is ? super Y -> ? (which is ? extends Object)\n+                return subtypeOf(Object.class);\n+              }\n+            }\n             return subtypeOf(upperBound);\n           }\n         }\n         return original;\n \n-      } else {\n-        return toResolve;\n       }\n     }\n   }\n"
+  },
+  "timestamp": "2026-06-20 04:23:21 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_14",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_14",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "$Gson$Types.resolve() shall collapse chains of super/extends type bounds to avoid StackOverflowError\nWhile resolving recursive generic types, $Gson$Types.resolve() sometimes starts to generate chains of type bounds like  \"super ? extends ? .... ? extends A\" , causing infinite recursion and thus StackOverflowError's like \r\n`java.lang.StackOverflowError\r\n\tat com.google.gson.internal.$Gson$Types.resolveTypeVariable($Gson$Types.java:407)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:330)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:379)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:379)\r\n\tat com.google.gson.internal.$Gson$Types.resolve($Gson$Types.java:384)\r\n...\r\n`\r\nThis can be reproduced on the following simple ccde:\r\n```java\r\n  private static class Foo1<A> {\r\n    Foo2<? extends A> foo2;\r\n  }\r\n  private static class Foo2<B> {\r\n    Foo1<? super B> foo1;\r\n  }\r\n  public void testRecursiveResolveSimple() {\r\n    new Gson().getAdapter(Foo1.class);\r\n  }\r\n```\r\n\r\nThis is the root cause of StackOverflowError's described in Issue #440 and Issue #603.\r\n\r\nIn order to fix them, such chains need to be collapsed using the following rules:\r\n- supertypeOf(supertypeOf(X)) == supertypeOf(X)\r\n- subtypeOf(subtypeOf(X)) == subtypeOf(X)\r\n- supertypeOf(subtypeOf(X)) == subtypeOf(Object.class)\r\n- subtypeOf(supertypeOf(X)) == subtypeOf(Object.class)\n",
+    "commit_message": "Fix StackOverflowError on resolving recursive types by collapsing chains of type bounds (#1075)",
+    "fault_locations": [],
+    "failing_tests": [
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testDoubleSupertype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testIssue440WeakReference",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSubSupertype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testDoubleSubtype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testIssue603PrintStream",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSuperSubtype",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testRecursiveResolveSimple"
+    ],
+    "golden_patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex 67394531..c2372c79 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -76,11 +76,7 @@ public final class $Gson$Types {\n    */\n   public static WildcardType subtypeOf(Type bound) {\n     Type[] upperBounds;\n+    if (bound instanceof WildcardType) {\n+      upperBounds = ((WildcardType) bound).getUpperBounds();\n+    } else {\n       upperBounds = new Type[] { bound };\n+    }\n     return new WildcardTypeImpl(upperBounds, EMPTY_TYPE_ARRAY);\n   }\n \n@@ -91,11 +87,7 @@ public final class $Gson$Types {\n    */\n   public static WildcardType supertypeOf(Type bound) {\n     Type[] lowerBounds;\n+    if (bound instanceof WildcardType) {\n+      lowerBounds = ((WildcardType) bound).getLowerBounds();\n+    } else {\n       lowerBounds = new Type[] { bound };\n+    }\n     return new WildcardTypeImpl(new Type[] { Object.class }, lowerBounds);\n   }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

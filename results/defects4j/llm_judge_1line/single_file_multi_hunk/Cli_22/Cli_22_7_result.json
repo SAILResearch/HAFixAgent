@@ -1,0 +1,242 @@
+{
+  "project_name": "Cli",
+  "bug_id": "22",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 20:42:20",
+      "end_time": "2025-10-01 20:48:47",
+      "duration_seconds": 388,
+      "duration_human": "6m 28s"
+    },
+    "model_cost": 0.0431,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 532650,
+      "output_tokens": 6016,
+      "total_tokens": 538666,
+      "cached_input_tokens": 517184,
+      "uncached_input_tokens": 15466
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/cli/PosixParser.java b/src/java/org/apache/commons/cli/PosixParser.java\nindex 47ad0f7..bcfd085 100644\n--- a/src/java/org/apache/commons/cli/PosixParser.java\n+++ b/src/java/org/apache/commons/cli/PosixParser.java\n@@ -133,7 +133,7 @@ public class PosixParser extends Parser\n             }\n             else if (token.startsWith(\"-\"))\n             {\n-                if (token.length() == 2 || options.hasOption(token))\n+                if (token.length() == 2 || options.hasOption(token) || (token.length() > 2 && options.hasOption(token.substring(1))))\n                 {\n                     processOptionToken(token, stopAtNonOption);\n                 }\n"
+  },
+  "timestamp": "2025-10-01 16:48:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Cli",
+    "bug_id": "Cli_22",
+    "repo_path": "/defects4j/framework/bin/temp/Cli_22",
+    "github_url": "https://github.com/apache/commons-cli.git",
+    "description": "PosixParser interupts \"-target opt\" as \"-t arget opt\"\nThis was posted on the Commons-Developer list and confirmed as a bug.\n\n> Is this a bug?  Or am I using this incorrectly?\n> I have an option with short and long values.  Given code that is \n> essentially what is below, with a PosixParser I see results as \n> follows:\n> \n> A command line with just \"-t\" prints out the results of the catch \n> block\n> (OK)\n> A command line with just \"-target\" prints out the results of the catch\n> block (OK)\n> A command line with just \"-t foobar.com\" prints out \"processing selected\n> target: foobar.com\" (OK)\n> A command line with just \"-target foobar.com\" prints out \"processing\n> selected target: arget\" (ERROR?)\n> \n> ======================================================================\n> ==\n> =======================\n>   private static final String OPTION_TARGET = \"t\";\n>   private static final String OPTION_TARGET_LONG = \"target\";\n>   // ...\n>   Option generateTarget = new Option(OPTION_TARGET, \n>                                      OPTION_TARGET_LONG, \n>                                      true, \n>                                      \"Generate files for the specified\n> target machine\");\n>   // ...\n>   try {\n>         parsedLine = parser.parse(cmdLineOpts, args);\n>       } catch (ParseException pe) {\n>         System.out.println(\"Invalid command: \" + pe.getMessage() +\n> \"\\n\");\n>         HelpFormatter hf = new HelpFormatter();\n>         hf.printHelp(USAGE, cmdLineOpts);\n>         System.exit(-1);\n>       }\n> \n>   if (parsedLine.hasOption(OPTION_TARGET)) {\n>     System.out.println(\"processing selected target: \" +\n> parsedLine.getOptionValue(OPTION_TARGET));        \n>   }\n\nIt is a bug but it is due to well defined behaviour (so that makes me feel a\nlittle better about myself ;).  To support *special* \n(well I call them special anyway) like -Dsystem.property=value we need to be\nable to examine the first character of an option.  If the first character is\nitself defined as an Option then the remainder of the token is used as the\nvalue, e.g. 'D' is the token, it is an option so 'system.property=value' is the\nargument value for that option.  This is the behaviour that we are seeing for\nyour example.  \n't' is the token, it is an options so 'arget' is the argument value.  \n\nI suppose a solution to this could be to have a way to specify properties for\nparsers.  In this case 'posix.special.option == true' for turning \non *special* options. I'll have a look into this and let you know.\n\nJust to keep track of this and to get you used to how we operate, can you log a\nbug in bugzilla for this.\n\nThanks,\n-John K",
+    "commit_message": "Fixed testStopAtExpectedArg for PosixParser",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 116,
+        "end_line": 116,
+        "line_numbers": [
+          116
+        ],
+        "function_name": "flatten",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    protected String[] flatten(Options options, String[] arguments, boolean stopAtNonOption)\n    {\n        init();\n        this.options = options;\n\n        // an iterator for the command line tokens\n        Iterator iter = Arrays.asList(arguments).iterator();\n\n        // process each command line token\n        while (iter.hasNext())\n        {\n            // get the next command line token\n            String token = (String) iter.next();\n\n            // handle long option --foo or --foo=bar\n            if (token.startsWith(\"--\"))\n            {\n                int pos = token.indexOf('=');\n                String opt = pos == -1 ? token : token.substring(0, pos); // --foo\n\n                if (!options.hasOption(opt))\n                {\n                    processNonOptionToken(token);\n                }\n                else\n                {\n                    \n                    tokens.add(opt);\n                    if (pos != -1)\n                    {\n                        tokens.add(token.substring(pos + 1));\n                    }\n                }\n            }\n\n            // single hyphen\n            else if (\"-\".equals(token))\n            {\n                tokens.add(token);\n            }\n            else if (token.startsWith(\"-\"))\n            {\n                if (token.length() == 2 || options.hasOption(token))\n                {\n                    processOptionToken(token, stopAtNonOption);\n                }\n                // requires bursting\n                else\n                {\n                    burstToken(token, stopAtNonOption);\n                }\n            }\n            else if (stopAtNonOption)\n            {\n                processNonOptionToken(token);\n            }\n            else\n            {\n                tokens.add(token);\n            }\n\n            gobble(iter);\n        }\n\n        return (String[]) tokens.toArray(new String[tokens.size()]);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 146,
+        "end_line": 149,
+        "line_numbers": [
+          146,
+          147,
+          148,
+          149
+        ],
+        "function_name": "flatten",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    protected String[] flatten(Options options, String[] arguments, boolean stopAtNonOption)\n    {\n        init();\n        this.options = options;\n\n        // an iterator for the command line tokens\n        Iterator iter = Arrays.asList(arguments).iterator();\n\n        // process each command line token\n        while (iter.hasNext())\n        {\n            // get the next command line token\n            String token = (String) iter.next();\n\n            // handle long option --foo or --foo=bar\n            if (token.startsWith(\"--\"))\n            {\n                int pos = token.indexOf('=');\n                String opt = pos == -1 ? token : token.substring(0, pos); // --foo\n\n                if (!options.hasOption(opt))\n                {\n                    processNonOptionToken(token);\n                }\n                else\n                {\n                    \n                    tokens.add(opt);\n                    if (pos != -1)\n                    {\n                        tokens.add(token.substring(pos + 1));\n                    }\n                }\n            }\n\n            // single hyphen\n            else if (\"-\".equals(token))\n            {\n                tokens.add(token);\n            }\n            else if (token.startsWith(\"-\"))\n            {\n                if (token.length() == 2 || options.hasOption(token))\n                {\n                    processOptionToken(token, stopAtNonOption);\n                }\n                // requires bursting\n                else\n                {\n                    burstToken(token, stopAtNonOption);\n                }\n            }\n            else if (stopAtNonOption)\n            {\n                processNonOptionToken(token);\n            }\n            else\n            {\n                tokens.add(token);\n            }\n\n            gobble(iter);\n        }\n\n        return (String[]) tokens.toArray(new String[tokens.size()]);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 152,
+        "end_line": 152,
+        "line_numbers": [
+          152
+        ],
+        "function_name": "flatten",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    protected String[] flatten(Options options, String[] arguments, boolean stopAtNonOption)\n    {\n        init();\n        this.options = options;\n\n        // an iterator for the command line tokens\n        Iterator iter = Arrays.asList(arguments).iterator();\n\n        // process each command line token\n        while (iter.hasNext())\n        {\n            // get the next command line token\n            String token = (String) iter.next();\n\n            // handle long option --foo or --foo=bar\n            if (token.startsWith(\"--\"))\n            {\n                int pos = token.indexOf('=');\n                String opt = pos == -1 ? token : token.substring(0, pos); // --foo\n\n                if (!options.hasOption(opt))\n                {\n                    processNonOptionToken(token);\n                }\n                else\n                {\n                    \n                    tokens.add(opt);\n                    if (pos != -1)\n                    {\n                        tokens.add(token.substring(pos + 1));\n                    }\n                }\n            }\n\n            // single hyphen\n            else if (\"-\".equals(token))\n            {\n                tokens.add(token);\n            }\n            else if (token.startsWith(\"-\"))\n            {\n                if (token.length() == 2 || options.hasOption(token))\n                {\n                    processOptionToken(token, stopAtNonOption);\n                }\n                // requires bursting\n                else\n                {\n                    burstToken(token, stopAtNonOption);\n                }\n            }\n            else if (stopAtNonOption)\n            {\n                processNonOptionToken(token);\n            }\n            else\n            {\n                tokens.add(token);\n            }\n\n            gobble(iter);\n        }\n\n        return (String[]) tokens.toArray(new String[tokens.size()]);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 184,
+        "end_line": 184,
+        "line_numbers": [
+          184
+        ],
+        "function_name": "processNonOptionToken",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    private void processNonOptionToken(String value)\n    {\n            eatTheRest = true;\n            tokens.add(\"--\");\n\n        tokens.add(value);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 243,
+        "end_line": 243,
+        "line_numbers": [
+          243
+        ],
+        "function_name": "burstToken",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    protected void burstToken(String token, boolean stopAtNonOption)\n    {\n        Option currentOption;\n        for (int i = 1; i < token.length(); i++)\n        {\n            String ch = String.valueOf(token.charAt(i));\n\n            if (options.hasOption(ch))\n            {\n                tokens.add(\"-\" + ch);\n                currentOption = options.getOption(ch);\n\n                if (currentOption.hasArg() && (token.length() != (i + 1)))\n                {\n                    tokens.add(token.substring(i + 1));\n\n                    break;\n                }\n            }\n            else if (stopAtNonOption)\n            {\n                processNonOptionToken(token.substring(i));\n                break;\n            }\n            else\n            {\n                tokens.add(token);\n                break;\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/cli/PosixParser.java",
+        "start_line": 262,
+        "end_line": 262,
+        "line_numbers": [
+          262
+        ],
+        "function_name": "burstToken",
+        "class_name": "PosixParser",
+        "filename": "PosixParser.java",
+        "code_snippet": "    protected void burstToken(String token, boolean stopAtNonOption)\n    {\n        Option currentOption;\n        for (int i = 1; i < token.length(); i++)\n        {\n            String ch = String.valueOf(token.charAt(i));\n\n            if (options.hasOption(ch))\n            {\n                tokens.add(\"-\" + ch);\n                currentOption = options.getOption(ch);\n\n                if (currentOption.hasArg() && (token.length() != (i + 1)))\n                {\n                    tokens.add(token.substring(i + 1));\n\n                    break;\n                }\n            }\n            else if (stopAtNonOption)\n            {\n                processNonOptionToken(token.substring(i));\n                break;\n            }\n            else\n            {\n                tokens.add(token);\n                break;\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.cli.ApplicationTest::testGroovy",
+      "org.apache.commons.cli.PosixParserTest::testStopAtExpectedArg"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/cli/PosixParser.java b/src/java/org/apache/commons/cli/PosixParser.java\nindex ca8b6c6..47ad0f7 100644\n--- a/src/java/org/apache/commons/cli/PosixParser.java\n+++ b/src/java/org/apache/commons/cli/PosixParser.java\n@@ -38,7 +38,6 @@ public class PosixParser extends Parser\n     private boolean eatTheRest;\n \n     /** holder for the current option */\n+    private Option currentOption;\n \n     /** the command line Options */\n     private Options options;\n@@ -114,11 +113,10 @@ public class PosixParser extends Parser\n \n                 if (!options.hasOption(opt))\n                 {\n+                    processNonOptionToken(token, stopAtNonOption);\n-                    processNonOptionToken(token);\n                 }\n                 else\n                 {\n+                    currentOption = options.getOption(opt);\n                     \n                     tokens.add(opt);\n                     if (pos != -1)\n@@ -145,9 +143,13 @@ public class PosixParser extends Parser\n                     burstToken(token, stopAtNonOption);\n                 }\n             }\n-            else if (stopAtNonOption)\n-            {\n-                processNonOptionToken(token);\n-            }\n             else\n             {\n+                processNonOptionToken(token, stopAtNonOption);\n-                tokens.add(token);\n             }\n \n             gobble(iter);\n@@ -179,13 +181,10 @@ public class PosixParser extends Parser\n      *\n      * @param value The current token\n      */\n+    private void processNonOptionToken(String value, boolean stopAtNonOption)\n-    private void processNonOptionToken(String value)\n     {\n+        if (stopAtNonOption && (currentOption == null || !currentOption.hasArg()))\n+        {\n             eatTheRest = true;\n             tokens.add(\"--\");\n+        }\n \n         tokens.add(value);\n     }\n@@ -209,10 +208,6 @@ public class PosixParser extends Parser\n             eatTheRest = true;\n         }\n \n+        if (options.hasOption(token))\n+        {\n+            currentOption = options.getOption(token);\n+        }\n \n         tokens.add(token);\n     }\n@@ -245,6 +240,7 @@ public class PosixParser extends Parser\n      */\n     protected void burstToken(String token, boolean stopAtNonOption)\n     {\n-        Option currentOption;\n         for (int i = 1; i < token.length(); i++)\n         {\n             String ch = String.valueOf(token.charAt(i));\n@@ -263,7 +259,7 @@ public class PosixParser extends Parser\n             }\n             else if (stopAtNonOption)\n             {\n+                processNonOptionToken(token.substring(i), true);\n-                processNonOptionToken(token.substring(i));\n                 break;\n             }\n             else",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "John Keyes",
+        "commit_date": "2002-08-26 16:15:02",
+        "commit_message": "javadoc updates",
+        "commit_hash": "745d1a535c9cf45d24455afc150b808981c8e0df"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "processOptionToken",
+          "burstToken"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "burstToken",
+          "MissingArgumentException",
+          "UnrecognizedOptionException",
+          "ParseException",
+          "processOptionToken",
+          "MissingOptionException",
+          "hasOption"
+        ],
+        "functions_name_modified_file": [
+          "processSingleHyphen",
+          "burstToken",
+          "PosixParser",
+          "init",
+          "gobble",
+          "processOptionToken",
+          "process"
+        ],
+        "functions_name_all_files": [
+          "iterator",
+          "processSingleHyphen",
+          "setOpt",
+          "getRequiredOptions",
+          "UnrecognizedOptionException",
+          "getOptionObject",
+          "hasArg",
+          "getNames",
+          "newParser",
+          "processArgs",
+          "MissingOptionException",
+          "addOptionGroup",
+          "hasOptionalArg",
+          "hasOption",
+          "Parser",
+          "processOption",
+          "toString",
+          "parse",
+          "withType",
+          "PosixParser",
+          "hasArgs",
+          "getOptionGroup",
+          "withValueSeparator",
+          "getOption",
+          "gobble",
+          "AlreadySelectedException",
+          "getOptionValue",
+          "withDescription",
+          "checkRequiredOptions",
+          "getOptions",
+          "Options",
+          "addArg",
+          "addOption",
+          "create",
+          "OptionBuilder",
+          "init",
+          "GnuParser",
+          "setSelected",
+          "reset",
+          "processOptionToken",
+          "OptionGroup",
+          "getSelected",
+          "CommandLineParser",
+          "withLongOpt",
+          "burstToken",
+          "MissingArgumentException",
+          "ParseException",
+          "process",
+          "isRequired",
+          "getArgList",
+          "CommandLine",
+          "BasicParser",
+          "CommandLineParserFactory"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/java/org/apache/commons/cli/AlreadySelectedException.java",
+          "src/java/org/apache/commons/cli/BasicParser.java",
+          "src/java/org/apache/commons/cli/CommandLine.java",
+          "src/java/org/apache/commons/cli/CommandLineParser.java",
+          "src/java/org/apache/commons/cli/CommandLineParserFactory.java",
+          "src/java/org/apache/commons/cli/GnuParser.java",
+          "src/java/org/apache/commons/cli/MissingArgumentException.java",
+          "src/java/org/apache/commons/cli/MissingOptionException.java",
+          "src/java/org/apache/commons/cli/OptionBuilder.java",
+          "src/java/org/apache/commons/cli/OptionGroup.java",
+          "src/java/org/apache/commons/cli/Options.java",
+          "src/java/org/apache/commons/cli/ParseException.java",
+          "src/java/org/apache/commons/cli/Parser.java",
+          "src/java/org/apache/commons/cli/PosixParser.java",
+          "src/java/org/apache/commons/cli/UnrecognizedOptionException.java"
+        ],
+        "file_patches": {
+          "src/java/org/apache/commons/cli/PosixParser.java": "diff --git a/src/java/org/apache/commons/cli/PosixParser.java b/src/java/org/apache/commons/cli/PosixParser.java\nindex 69b3826..e26689e 100644\n--- a/src/java/org/apache/commons/cli/PosixParser.java\n+++ b/src/java/org/apache/commons/cli/PosixParser.java\n@@ -1,3 +1,63 @@\n+/*\n+ * $Header: /home/jerenkrantz/tmp/commons/commons-convert/cvs/home/cvs/jakarta-commons//cli/src/java/org/apache/commons/cli/PosixParser.java,v 1.9 2002/08/26 20:15:02 jkeyes Exp $\n+ * $Revision: 1.9 $\n+ * $Date: 2002/08/26 20:15:02 $\n+ *\n+ * ====================================================================\n+ *\n+ * The Apache Software License, Version 1.1\n+ *\n+ * Copyright (c) 1999-2001 The Apache Software Foundation.  All rights\n+ * reserved.\n+ *\n+ * Redistribution and use in source and binary forms, with or without\n+ * modification, are permitted provided that the following conditions\n+ * are met:\n+ *\n+ * 1. Redistributions of source code must retain the above copyright\n+ *    notice, this list of conditions and the following disclaimer.\n+ *\n+ * 2. Redistributions in binary form must reproduce the above copyright\n+ *    notice, this list of conditions and the following disclaimer in\n+ *    the documentation and/or other materials provided with the\n+ *    distribution.\n+ *\n+ * 3. The end-user documentation included with the redistribution, if\n+ *    any, must include the following acknowlegement:\n+ *       \"This product includes software developed by the\n+ *        Apache Software Foundation (http://www.apache.org/).\"\n+ *    Alternately, this acknowlegement may appear in the software itself,\n+ *    if and wherever such third-party acknowlegements normally appear.\n+ *\n+ * 4. The names \"The Jakarta Project\", \"Commons\", and \"Apache Software\n+ *    Foundation\" must not be used to endorse or promote products derived\n+ *    from this software without prior written permission. For written\n+ *    permission, please contact apache@apache.org.\n+ *\n+ * 5. Products derived from this software may not be called \"Apache\"\n+ *    nor may \"Apache\" appear in their names without prior written\n+ *    permission of the Apache Group.\n+ *\n+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED\n+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES\n+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n+ * DISCLAIMED.  IN NO EVENT SHALL THE APACHE SOFTWARE FOUNDATION OR\n+ * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF\n+ * USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND\n+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT\n+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF\n+ * SUCH DAMAGE.\n+ * ====================================================================\n+ *\n+ * This software consists of voluntary contributions made by many\n+ * individuals on behalf of the Apache Software Foundation.  For more\n+ * information on the Apache Software Foundation, please see\n+ * <http://www.apache.org/>.\n+ *\n+ */\n package org.apache.commons.cli;\n \n import java.util.Arrays;\n@@ -7,21 +67,73 @@ import java.util.Iterator;\n import java.util.Map;\n \n /**\n+ * The class PosixParser provides an implementation of the \n+ * {@link Parser#flatten(Options,String[],boolean) flatten} method.\n+ *\n  * @author John Keyes (jbjk at mac.com)\n+ * @see Parser\n+ * @version $Revision: 1.9 $\n  */\n public class PosixParser extends Parser {\n \n+    /** holder for flattened tokens */\n     private ArrayList tokens = new ArrayList();\n+    /** specifies if bursting should continue */\n     private boolean eatTheRest;\n+    /** holder for the current option */\n     private Option currentOption;\n+    /** the command line Options */\n     private Options options;\n \n+    /**\n+     * <p>Resets the members to their original state i.e. remove\n+     * all of <code>tokens</code> entries, set <code>eatTheRest</code>\n+     * to false and set <code>currentOption</code> to null.</p>\n+     */\n     private void init() {\n         eatTheRest = false;\n         tokens.clear();\n         currentOption = null;\n     }\n \n+    /**\n+     * <p>An implementation of {@link Parser}'s abstract\n+     * {@link Parser#flatten(Options,String[],boolean) flatten} method.</p>\n+     *\n+     * <p>The following are the rules used by this flatten method.\n+     * <ol>\n+     *  <li>if <code>stopAtNonOption</code> is <b>true</b> then do not\n+     *  burst anymore of <code>arguments</code> entries, just add each\n+     *  successive entry without further processing.  Otherwise, ignore\n+     *  <code>stopAtNonOption</code>.</li>\n+     *  <li>if the current <code>arguments</code> entry is \"<b>--</b>\"\n+     *  just add the entry to the list of processed tokens</li>\n+     *  <li>if the current <code>arguments</code> entry is \"<b>-</b>\"\n+     *  just add the entry to the list of processed tokens</li>\n+     *  <li>if the current <code>arguments</code> entry is two characters\n+     *  in length and the first character is \"<b>-</b>\" then check if this\n+     *  is a valid {@link Option} id.  If it is a valid id, then add the\n+     *  entry to the list of processed tokens and set the current {@link Option}\n+     *  member.  If it is not a valid id and <code>stopAtNonOption</code>\n+     *  is true, then the remaining entries are copied to the list of \n+     *  processed tokens.  Otherwise, the current entry is ignored.</li>\n+     *  <li>if the current <code>arguments</code> entry is more than two\n+     *  characters in length and the first character is \"<b>-</b>\" then\n+     *  we need to burst the entry to determine its constituents.  For more\n+     *  information on the bursting algorithm see \n+     *  {@link PosixParser#burstToken( String, boolean) burstToken}.</li>\n+     *  <li>if the current <code>arguments</code> entry is not handled \n+     *  by any of the previous rules, then the entry is added to the list\n+     *  of processed tokens.</li>\n+     * </ol>\n+     * </p>\n+     *\n+     * @param options The command line {@link Options}\n+     * @param arguments The command line arguments to be parsed\n+     * @param stopAtNonOption Specifies whether to stop flattening\n+     * when an non option is found.\n+     * @return The flattened <code>arguments</code> String array.\n+     */\n     protected String[] flatten( Options options, \n                                 String[] arguments, \n                                 boolean stopAtNonOption )\n@@ -72,6 +184,11 @@ public class PosixParser extends Parser {\n         return (String[])tokens.toArray( new String[] {} );\n     }\n \n+    /**\n+     * <p>Adds the remaining tokens to the processed tokens list.</p>\n+     *\n+     * @param iter An iterator over the remaining tokens\n+     */\n     private void gobble( Iterator iter ) {\n         if( eatTheRest ) {\n             while( iter.hasNext() ) {\n@@ -80,6 +197,19 @@ public class PosixParser extends Parser {\n         }\n     }\n \n+    /**\n+     * <p>If there is a current option and it can have an argument\n+     * value then add the token to the processed tokens list and \n+     * set the current option to null.</p>\n+     * <p>If there is a current option and it can have argument\n+     * values then add the token to the processed tokens list.</p>\n+     * <p>If there is not a current option add the special token\n+     * \"<b>--</b>\" and the current <code>value</code> to the processed\n+     * tokens list.  The add all the remaining <code>argument</code>\n+     * values to the processed tokens list.</p>\n+     *\n+     * @param value The current token\n+     */\n     private void process( String value ) {\n         if( currentOption != null && currentOption.hasArg() ) {\n             if( currentOption.hasArg() ) {\n@@ -97,21 +227,61 @@ public class PosixParser extends Parser {\n         }\n     }\n \n+    /**\n+     * <p>If it is a hyphen then add the hyphen directly to\n+     * the processed tokens list.</p>\n+     *\n+     * @param hyphen The hyphen token\n+     */\n     private void processSingleHyphen( String hyphen ) {\n         tokens.add( hyphen );\n     }\n \n-    private void processOptionToken( String token, boolean stop ) {\n+    /**\n+     * <p>If an {@link Option} exists for <code>token</code> then\n+     * set the current option and add the token to the processed \n+     * list.</p>\n+     * <p>If an {@link Option} does not exist and <code>stopAtNonOption</code>\n+     * is set then ignore the current token and add the remaining tokens\n+     * to the processed tokens list directly.</p>\n+     *\n+     * @param token The current option token\n+     * @param stopAtNonOption Specifies whether flattening should halt\n+     * at the first non option.\n+     */\n+    private void processOptionToken( String token, boolean stopAtNonOption ) {\n         if( this.options.hasOption( token ) ) {\n             currentOption = this.options.getOption( token );\n             tokens.add( token );\n         }\n-        else if( stop ) {\n+        else if( stopAtNonOption ) {\n             eatTheRest = true;\n         }\n     }\n \n-    private void burstToken( String token, boolean stop ) {\n+    /**\n+     * <p>Breaks <code>token</code> into its constituent parts\n+     * using the following algorithm.\n+     * <ul>\n+     *  <li>ignore the first character (\"<b>-</b>\" )</li>\n+     *  <li>foreach remaining character check if an {@link Option}\n+     *  exists with that id.</li>\n+     *  <li>if an {@link Option} does exist then add that character\n+     *  prepended with \"<b>-</b>\" to the list of processed tokens.</li>\n+     *  <li>if the {@link Option} can have an argument value and there \n+     *  are remaining characters in the token then add the remaining \n+     *  characters as a token to the list of processed tokens.</li>\n+     *  <li>if an {@link Option} does <b>NOT</b> exist <b>AND</b> \n+     *  <code>stopAtNonOption</code> <b>IS</b> set then add the special token\n+     *  \"<b>--</b>\" followed by the remaining characters and also \n+     *  the remaining tokens directly to the processed tokens list.</li>\n+     *  <li>if an {@link Option} does <b>NOT</b> exist <b>AND</b>\n+     *  <code>stopAtNonOption</code> <b>IS NOT</b> set then add that\n+     *  character prepended with \"<b>-</b>\".</li>\n+     * </ul>\n+     * </p>\n+     */\n+    protected void burstToken( String token, boolean stopAtNonOption ) {\n         int tokenLength = token.length();\n \n         for( int i = 1; i < tokenLength; i++) {\n@@ -126,7 +296,7 @@ public class PosixParser extends Parser {\n                     break;\n                 }\n             }\n-            else if( stop ) {\n+            else if( stopAtNonOption ) {\n                 process( token.substring( i ) );\n             }\n             else {"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

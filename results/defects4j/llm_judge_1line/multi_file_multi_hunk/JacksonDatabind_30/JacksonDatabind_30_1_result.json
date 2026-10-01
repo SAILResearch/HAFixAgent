@@ -1,0 +1,153 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "30",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 19:15:53",
+      "end_time": "2025-09-30 19:20:57",
+      "duration_seconds": 304,
+      "duration_human": "5m 4s"
+    },
+    "model_cost": 0.0444,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 567043,
+      "output_tokens": 4952,
+      "total_tokens": 571995,
+      "cached_input_tokens": 554496,
+      "uncached_input_tokens": 12547
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 39d9e7186..da3355946 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -76,6 +76,7 @@ public class TokenBuffer\n      * on all floating-point values.\n      *\n      * @since 2.7\n+    protected boolean _forceBigDecimal;\n      */\n     \n     /*\n"
+  },
+  "timestamp": "2025-09-30 19:20:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_30",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_30",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "BigDecimal values via @JsonTypeInfo/@JsonSubTypes get rounded\nWhen using an `ObjectMapper` to serialize/deserialize a class with an `Object` field annotated with a `@JsonSubTypes.Type` that indicate `BigDecimal`, it looks like the value is getting rounded to a double.\n\nI tried configuring `DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS`, but that didn't seem to help.\n\nWhat I think is a valid repro is below, but let me know if I'm actually doing something wrong here.\n\nThanks!\n\n``` java\nimport org.junit.Test;\nimport org.junit.Assert;\n\nimport java.math.BigDecimal;\n\nimport com.fasterxml.jackson.annotation.*;\nimport com.fasterxml.jackson.databind.DeserializationFeature;\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\npublic class JacksonTest {\n\n    enum Type { BIG_DECIMAL }\n\n    static class Wrapper {\n\n        @JsonIgnore\n        Type typeEnum;\n\n        @JsonIgnore\n        Object value;\n\n        Wrapper() { }\n\n        @JsonGetter(value = \"type\")\n        String getTypeString() {\n            return typeEnum.name();\n        }\n\n        @JsonSetter(value = \"type\")\n        void setTypeString(String type) {\n            this.typeEnum = Type.valueOf(type);\n        }\n\n        @JsonGetter(value = \"objectValue\") \n        Object getValue() {\n            return value;\n        }\n\n        @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXTERNAL_PROPERTY, property = \"type\")\n        @JsonSubTypes({ @JsonSubTypes.Type(name = \"BIG_DECIMAL\", value = BigDecimal.class) })\n        @JsonSetter(value = \"objectValue\") \n        private void setValue(Object value) {\n            this.value = value;\n        }\n    }\n\n    @Test\n    public void test() throws Exception {\n\n        ObjectMapper m = new ObjectMapper();\n        m.configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true);\n\n        Wrapper w = new Wrapper();\n        w.typeEnum = Type.BIG_DECIMAL;\n        w.value = new BigDecimal(\"-10000000000.0000000001\");\n\n        String json = m.writeValueAsString(w);\n        Wrapper w2 = m.readValue(json, Wrapper.class);\n\n        Assert.assertEquals(w.typeEnum, w2.typeEnum);\n        Assert.assertTrue(String.format(\"Expected %s = %s; got back %s = %s\",\n            w.value.getClass().getSimpleName(), w.value.toString(), w2.value.getClass().getSimpleName(), w2.value.toString()),\n            w.value.equals(w2.value));\n    }\n}\n```\n\n",
+    "commit_message": "Fix #965",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 2509,
+        "end_line": 2509,
+        "line_numbers": [
+          2509
+        ],
+        "function_name": "valueToTree",
+        "class_name": "DefaultTypeResolverBuilder",
+        "filename": "ObjectMapper.java",
+        "code_snippet": "    public <T extends JsonNode> T valueToTree(Object fromValue)\n        throws IllegalArgumentException\n    {\n        if (fromValue == null) return null;\n        TokenBuffer buf = new TokenBuffer(this, false);\n        JsonNode result;\n        try {\n            writeValue(buf, fromValue);\n            JsonParser jp = buf.asParser();\n            result = readTree(jp);\n            jp.close();\n        } catch (IOException e) { // should not occur, no real i/o...\n            throw new IllegalArgumentException(e.getMessage(), e);\n        }\n        return (T) result;\n    } ",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 3428,
+        "end_line": 3428,
+        "line_numbers": [
+          3428
+        ],
+        "function_name": "_convert",
+        "class_name": "DefaultTypeResolverBuilder",
+        "filename": "ObjectMapper.java",
+        "code_snippet": "    protected Object _convert(Object fromValue, JavaType toValueType)\n        throws IllegalArgumentException\n    {        \n        // also, as per [Issue-11], consider case for simple cast\n        /* But with caveats: one is that while everything is Object.class, we don't\n         * want to \"optimize\" that out; and the other is that we also do not want\n         * to lose conversions of generic types.\n         */\n        Class<?> targetType = toValueType.getRawClass();\n        if (targetType != Object.class\n                && !toValueType.hasGenericTypes()\n                && targetType.isAssignableFrom(fromValue.getClass())) {\n            return fromValue;\n        }\n        \n        // Then use TokenBuffer, which is a JsonGenerator:\n        TokenBuffer buf = new TokenBuffer(this, false);\n        try {\n            // inlined 'writeValue' with minor changes:\n            // first: disable wrapping when writing\n            SerializationConfig config = getSerializationConfig().without(SerializationFeature.WRAP_ROOT_VALUE);\n            // no need to check for closing of TokenBuffer\n            _serializerProvider(config).serializeValue(buf, fromValue);\n\n            // then matching read, inlined 'readValue' with minor mods:\n            final JsonParser jp = buf.asParser();\n            Object result;\n            // ok to pass in existing feature flags; unwrapping handled by mapper\n            final DeserializationConfig deserConfig = getDeserializationConfig();\n            JsonToken t = _initForReading(jp);\n            if (t == JsonToken.VALUE_NULL) {\n                DeserializationContext ctxt = createDeserializationContext(jp, deserConfig);\n                result = _findRootDeserializer(ctxt, toValueType).getNullValue(ctxt);\n            } else if (t == JsonToken.END_ARRAY || t == JsonToken.END_OBJECT) {\n                result = null;\n            } else { // pointing to event other than null\n                DeserializationContext ctxt = createDeserializationContext(jp, deserConfig);\n                JsonDeserializer<Object> deser = _findRootDeserializer(ctxt, toValueType);\n                // note: no handling of unwarpping\n                result = deser.deserialize(jp, ctxt);\n            }\n            jp.close();\n            return result;\n        } catch (IOException e) { // should not occur, no real i/o...\n            throw new IllegalArgumentException(e.getMessage(), e);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 79,
+        "end_line": 79,
+        "line_numbers": [
+          79
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 188,
+        "end_line": 188,
+        "line_numbers": [
+          188
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 195,
+        "end_line": 195,
+        "line_numbers": [
+          195
+        ],
+        "function_name": "version",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public Version version() {\n        return com.fasterxml.jackson.databind.cfg.PackageVersion.VERSION;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 965,
+        "end_line": 965,
+        "line_numbers": [
+          965
+        ],
+        "function_name": "copyCurrentEvent",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void copyCurrentEvent(JsonParser p) throws IOException\n    {\n        if (_mayHaveNativeIds) {\n            _checkNativeIds(p);\n        }\n        switch (p.getCurrentToken()) {\n        case START_OBJECT:\n            writeStartObject();\n            break;\n        case END_OBJECT:\n            writeEndObject();\n            break;\n        case START_ARRAY:\n            writeStartArray();\n            break;\n        case END_ARRAY:\n            writeEndArray();\n            break;\n        case FIELD_NAME:\n            writeFieldName(p.getCurrentName());\n            break;\n        case VALUE_STRING:\n            if (p.hasTextCharacters()) {\n                writeString(p.getTextCharacters(), p.getTextOffset(), p.getTextLength());\n            } else {\n                writeString(p.getText());\n            }\n            break;\n        case VALUE_NUMBER_INT:\n            switch (p.getNumberType()) {\n            case INT:\n                writeNumber(p.getIntValue());\n                break;\n            case BIG_INTEGER:\n                writeNumber(p.getBigIntegerValue());\n                break;\n            default:\n                writeNumber(p.getLongValue());\n            }\n            break;\n        case VALUE_NUMBER_FLOAT:\n                /* 10-Oct-2015, tatu: Ideally we would first determine whether underlying\n                 *   number is already decoded into a number (in which case might as well\n                 *   access as number); or is still retained as text (in which case we\n                 *   should further defer decoding that may not need BigDecimal):\n                 */\n                switch (p.getNumberType()) {\n                case BIG_DECIMAL:\n                    writeNumber(p.getDecimalValue());\n                    break;\n                case FLOAT:\n                    writeNumber(p.getFloatValue());\n                    break;\n                default:\n                    writeNumber(p.getDoubleValue());\n            }\n            break;\n        case VALUE_TRUE:\n            writeBoolean(true);\n            break;\n        case VALUE_FALSE:\n            writeBoolean(false);\n            break;\n        case VALUE_NULL:\n            writeNull();\n            break;\n        case VALUE_EMBEDDED_OBJECT:\n            writeObject(p.getEmbeddedObject());\n            break;\n        default:\n            throw new RuntimeException(\"Internal error: should never end up through this code path\");\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 971,
+        "end_line": 971,
+        "line_numbers": [
+          971
+        ],
+        "function_name": "copyCurrentEvent",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void copyCurrentEvent(JsonParser p) throws IOException\n    {\n        if (_mayHaveNativeIds) {\n            _checkNativeIds(p);\n        }\n        switch (p.getCurrentToken()) {\n        case START_OBJECT:\n            writeStartObject();\n            break;\n        case END_OBJECT:\n            writeEndObject();\n            break;\n        case START_ARRAY:\n            writeStartArray();\n            break;\n        case END_ARRAY:\n            writeEndArray();\n            break;\n        case FIELD_NAME:\n            writeFieldName(p.getCurrentName());\n            break;\n        case VALUE_STRING:\n            if (p.hasTextCharacters()) {\n                writeString(p.getTextCharacters(), p.getTextOffset(), p.getTextLength());\n            } else {\n                writeString(p.getText());\n            }\n            break;\n        case VALUE_NUMBER_INT:\n            switch (p.getNumberType()) {\n            case INT:\n                writeNumber(p.getIntValue());\n                break;\n            case BIG_INTEGER:\n                writeNumber(p.getBigIntegerValue());\n                break;\n            default:\n                writeNumber(p.getLongValue());\n            }\n            break;\n        case VALUE_NUMBER_FLOAT:\n                /* 10-Oct-2015, tatu: Ideally we would first determine whether underlying\n                 *   number is already decoded into a number (in which case might as well\n                 *   access as number); or is still retained as text (in which case we\n                 *   should further defer decoding that may not need BigDecimal):\n                 */\n                switch (p.getNumberType()) {\n                case BIG_DECIMAL:\n                    writeNumber(p.getDecimalValue());\n                    break;\n                case FLOAT:\n                    writeNumber(p.getFloatValue());\n                    break;\n                default:\n                    writeNumber(p.getDoubleValue());\n            }\n            break;\n        case VALUE_TRUE:\n            writeBoolean(true);\n            break;\n        case VALUE_FALSE:\n            writeBoolean(false);\n            break;\n        case VALUE_NULL:\n            writeNull();\n            break;\n        case VALUE_EMBEDDED_OBJECT:\n            writeObject(p.getEmbeddedObject());\n            break;\n        default:\n            throw new RuntimeException(\"Internal error: should never end up through this code path\");\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 982,
+        "end_line": 982,
+        "line_numbers": [
+          982
+        ],
+        "function_name": "copyCurrentEvent",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void copyCurrentEvent(JsonParser p) throws IOException\n    {\n        if (_mayHaveNativeIds) {\n            _checkNativeIds(p);\n        }\n        switch (p.getCurrentToken()) {\n        case START_OBJECT:\n            writeStartObject();\n            break;\n        case END_OBJECT:\n            writeEndObject();\n            break;\n        case START_ARRAY:\n            writeStartArray();\n            break;\n        case END_ARRAY:\n            writeEndArray();\n            break;\n        case FIELD_NAME:\n            writeFieldName(p.getCurrentName());\n            break;\n        case VALUE_STRING:\n            if (p.hasTextCharacters()) {\n                writeString(p.getTextCharacters(), p.getTextOffset(), p.getTextLength());\n            } else {\n                writeString(p.getText());\n            }\n            break;\n        case VALUE_NUMBER_INT:\n            switch (p.getNumberType()) {\n            case INT:\n                writeNumber(p.getIntValue());\n                break;\n            case BIG_INTEGER:\n                writeNumber(p.getBigIntegerValue());\n                break;\n            default:\n                writeNumber(p.getLongValue());\n            }\n            break;\n        case VALUE_NUMBER_FLOAT:\n                /* 10-Oct-2015, tatu: Ideally we would first determine whether underlying\n                 *   number is already decoded into a number (in which case might as well\n                 *   access as number); or is still retained as text (in which case we\n                 *   should further defer decoding that may not need BigDecimal):\n                 */\n                switch (p.getNumberType()) {\n                case BIG_DECIMAL:\n                    writeNumber(p.getDecimalValue());\n                    break;\n                case FLOAT:\n                    writeNumber(p.getFloatValue());\n                    break;\n                default:\n                    writeNumber(p.getDoubleValue());\n            }\n            break;\n        case VALUE_TRUE:\n            writeBoolean(true);\n            break;\n        case VALUE_FALSE:\n            writeBoolean(false);\n            break;\n        case VALUE_NULL:\n            writeNull();\n            break;\n        case VALUE_EMBEDDED_OBJECT:\n            writeObject(p.getEmbeddedObject());\n            break;\n        default:\n            throw new RuntimeException(\"Internal error: should never end up through this code path\");\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TestExternalId::testBigDecimal965"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\nindex 2fd10fb56..caa09c304 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\n@@ -2507,9 +2507,6 @@ public class ObjectMapper\n     {\n         if (fromValue == null) return null;\n         TokenBuffer buf = new TokenBuffer(this, false);\n+        if (isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n+            buf = buf.forceUseOfBigDecimal(true);\n+        }\n         JsonNode result;\n         try {\n             writeValue(buf, fromValue);\n@@ -3426,9 +3423,6 @@ public class ObjectMapper\n         \n         // Then use TokenBuffer, which is a JsonGenerator:\n         TokenBuffer buf = new TokenBuffer(this, false);\n+        if (isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n+            buf = buf.forceUseOfBigDecimal(true);\n+        }\n         try {\n             // inlined 'writeValue' with minor changes:\n             // first: disable wrapping when writing\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex fc3600ad9..39d9e7186 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -77,7 +77,6 @@ public class TokenBuffer\n      *\n      * @since 2.7\n      */\n+    protected boolean _forceBigDecimal;\n     \n     /*\n     /**********************************************************\n@@ -186,17 +185,11 @@ public class TokenBuffer\n         _hasNativeTypeIds = p.canReadTypeId();\n         _hasNativeObjectIds = p.canReadObjectId();\n         _mayHaveNativeIds = _hasNativeTypeIds | _hasNativeObjectIds;\n+        _forceBigDecimal = (ctxt == null) ? false\n+                : ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);\n     }\n \n     /**\n      * @since 2.7\n      */\n+    public TokenBuffer forceUseOfBigDecimal(boolean b) {\n+        _forceBigDecimal = b;\n+        return this;\n+    }\n \n     @Override\n     public Version version() {\n@@ -963,14 +956,11 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n             }\n             break;\n         case VALUE_NUMBER_FLOAT:\n+            if (_forceBigDecimal) {\n                 /* 10-Oct-2015, tatu: Ideally we would first determine whether underlying\n                  *   number is already decoded into a number (in which case might as well\n                  *   access as number); or is still retained as text (in which case we\n                  *   should further defer decoding that may not need BigDecimal):\n                  */\n+                writeNumber(p.getDecimalValue());\n+            } else {\n                 switch (p.getNumberType()) {\n                 case BIG_DECIMAL:\n                     writeNumber(p.getDecimalValue());\n@@ -980,7 +970,6 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n                     break;\n                 default:\n                     writeNumber(p.getDoubleValue());\n+                }\n             }\n             break;\n         case VALUE_TRUE:",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

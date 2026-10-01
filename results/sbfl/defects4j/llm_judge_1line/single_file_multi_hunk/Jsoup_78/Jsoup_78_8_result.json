@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_78",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 07:05:28",
+      "end_time": "2026-06-25 07:36:16",
+      "duration_seconds": 1848,
+      "duration_human": "30m 48s"
+    },
+    "model_cost": 0.2632,
+    "model_calls": 33,
+    "token_usage": {
+      "input_tokens": 1515100,
+      "output_tokens": 60471,
+      "total_tokens": 1575571,
+      "cached_input_tokens": 632192,
+      "uncached_input_tokens": 882908
+    },
+    "agent_steps": 33,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/internal/ConstrainableInputStream.java b/src/main/java/org/jsoup/internal/ConstrainableInputStream.java\nindex c043b421..e1a6a157 100644\n--- a/src/main/java/org/jsoup/internal/ConstrainableInputStream.java\n+++ b/src/main/java/org/jsoup/internal/ConstrainableInputStream.java\n@@ -9,113 +9,92 @@ import java.io.InputStream;\n import java.net.SocketTimeoutException;\n import java.nio.ByteBuffer;\n \n-/**\n- * A jsoup internal class (so don't use it as there is no contract API) that enables constraints on an Input Stream,\n- * namely a maximum read size, and the ability to Thread.interrupt() the read.\n- */\n public final class ConstrainableInputStream extends BufferedInputStream {\n     private static final int DefaultSize = 1024 * 32;\n-\n     private final boolean capped;\n     private final int maxSize;\n     private long startTime;\n-    private long timeout = 0; // optional max time of request\n+    private long timeout = 0;\n     private int remaining;\n     private boolean interrupted;\n-\n-    private ConstrainableInputStream(InputStream in, int bufferSize, int maxSize) {\n+    \n+    public ConstrainableInputStream(InputStream in, int bufferSize, int maxSize) {\n         super(in, bufferSize);\n         Validate.isTrue(maxSize >= 0);\n         this.maxSize = maxSize;\n         remaining = maxSize;\n         capped = maxSize != 0;\n-        startTime = System.nanoTime();\n     }\n-\n-    /**\n-     * If this InputStream is not already a ConstrainableInputStream, let it be one.\n-     * @param in the input stream to (maybe) wrap\n-     * @param bufferSize the buffer size to use when reading\n-     * @param maxSize the maximum size to allow to be read. 0 == infinite.\n-     * @return a constrainable input stream\n-     */\n+    \n     public static ConstrainableInputStream wrap(InputStream in, int bufferSize, int maxSize) {\n-        return in instanceof ConstrainableInputStream\n-            ? (ConstrainableInputStream) in\n-            : new ConstrainableInputStream(in, bufferSize, maxSize);\n+        return in instanceof ConstrainableInputStream ? \n+            (ConstrainableInputStream) in : new ConstrainableInputStream(in, bufferSize, maxSize);\n     }\n-\n+    \n     @Override\n     public int read(byte[] b, int off, int len) throws IOException {\n         if (interrupted || capped && remaining <= 0)\n             return -1;\n         if (Thread.interrupted()) {\n-            // interrupted latches, because parse() may call twice (and we still want the thread interupt to clear)\n             interrupted = true;\n             return -1;\n         }\n         if (expired())\n             throw new SocketTimeoutException(\"Read timeout\");\n-\n+        \n         if (capped && len > remaining)\n-            len = remaining; // don't read more than desired, even if available\n-\n+            len = remaining;\n+        \n         try {\n-            final int read = super.read(b, off, len);\n-            remaining -= read;\n+            int read = super.read(b, off, len);\n+            if (capped)\n+                remaining -= read;\n             return read;\n         } catch (SocketTimeoutException e) {\n-            return 0;\n+            throw e;\n         }\n     }\n-\n-    /**\n-     * Reads this inputstream to a ByteBuffer. The supplied max may be less than the inputstream's max, to support\n-     * reading just the first bytes.\n-     */\n+    \n     public ByteBuffer readToByteBuffer(int max) throws IOException {\n         Validate.isTrue(max >= 0, \"maxSize must be 0 (unlimited) or larger\");\n-        final boolean localCapped = max > 0; // still possibly capped in total stream\n+        final boolean localCapped = max > 0;\n         final int bufferSize = localCapped && max < DefaultSize ? max : DefaultSize;\n-        final byte[] readBuffer = new byte[bufferSize];\n-        final ByteArrayOutputStream outStream = new ByteArrayOutputStream(bufferSize);\n-\n+        final byte[] buffer = new byte[bufferSize];\n+        final ByteArrayOutputStream out = new ByteArrayOutputStream(bufferSize);\n+        \n         int read;\n         int remaining = max;\n-\n+        \n         while (true) {\n-            read = read(readBuffer);\n+            read = read(buffer);\n             if (read == -1) break;\n-            if (localCapped) { // this local byteBuffer cap may be smaller than the overall maxSize (like when reading first bytes)\n+            if (localCapped) {\n                 if (read >= remaining) {\n-                    outStream.write(readBuffer, 0, remaining);\n+                    out.write(buffer, 0, remaining);\n                     break;\n                 }\n                 remaining -= read;\n             }\n-            outStream.write(readBuffer, 0, read);\n+            out.write(buffer, 0, read);\n         }\n-        return ByteBuffer.wrap(outStream.toByteArray());\n+        return ByteBuffer.wrap(out.toByteArray());\n     }\n-\n+    \n     @Override\n     public void reset() throws IOException {\n         super.reset();\n-        remaining = maxSize - markpos;\n+        if (capped)\n+            remaining = maxSize - markpos;\n     }\n-\n+    \n     public ConstrainableInputStream timeout(long startTimeNanos, long timeoutMillis) {\n         this.startTime = startTimeNanos;\n         this.timeout = timeoutMillis * 1000000;\n         return this;\n     }\n-\n+    \n     private boolean expired() {\n-        if (timeout == 0)\n-            return false;\n-\n-        final long now = System.nanoTime();\n-        final long dur = now - startTime;\n-        return (dur > timeout);\n+        if (timeout == 0) return false;\n+        return (System.nanoTime() - startTime) > timeout;\n     }\n-}\n+}\n\\ No newline at end of file\n"
+  },
+  "timestamp": "2026-06-25 07:36:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_78",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_78",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Underlying input stream returned zero bytes\n```\r\nCaused by org.jsoup.c: java.io.IOException: Underlying input stream returned zero bytes\r\n       at org.jsoup.parser.CharacterReader.bufferUp(CharacterReader.java:60)\r\n       at org.jsoup.parser.CharacterReader.(CharacterReader.java)\r\n       at org.jsoup.parser.CharacterReader.(CharacterReader.java)\r\n       at org.jsoup.parser.TreeBuilder.defaultSettings(TreeBuilder.java:35)\r\n       at org.jsoup.parser.HtmlTreeBuilder.initialiseParse(HtmlTreeBuilder.java:66)\r\n       at org.jsoup.parser.TreeBuilder.parse(TreeBuilder.java:44)\r\n       at org.jsoup.parser.Parser.parseInput(Parser.java:39)\r\n       at org.jsoup.helper.DataUtil.parseInputStream(DataUtil.java:151)\r\n       at org.jsoup.helper.HttpConnection$Response.parse(HttpConnection.java:832)\r\n       at org.jsoup.helper.HttpConnection.get(HttpConnection.java:289)\r\n```\r\n\r\nThere isn't much information I can offer here.\r\nThis is with JSoup 1.11.1, with an attempt of parsing for a user's name.\r\n\r\nMy assumption is that the call is executing the following:\r\n\r\n```kotlin\r\nvar result = \"\"\r\ntry {\r\n\tresult = frostJsoup(cookie, FbItem.PROFILE.url).title()\r\n\tL.d(\"Fetch username found\", result)\r\n} catch (e: Exception) {\r\n\tif (e !is UnknownHostException)\r\n\t\te.logFrostAnswers(\"Fetch username failed\")\r\n} finally {\r\n\tif (result.isBlank() && (name?.isNotBlank() == true)) {\r\n\t\tcallback(name!!)\r\n\t\treturn@subscribe\r\n\t}\r\n\tif (name != result) {\r\n\t\tname = result\r\n\t\tsaveFbCookie(this@fetchUsername)\r\n\t}\r\n\tcallback(result)\r\n}\r\n```\r\n\r\nwhere cookie is the user's cooke, and the url is touch.facebook.com/me\r\n\r\nI'm not sure why this is a seemlingly fatal error though.\r\n\r\nAs usual, the full log and thread info can be found [here](http://crashes.to/s/92e0e5d0b69)\n",
+    "commit_message": "DataUtil should throw IOException on failed reads during parse",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 159,
+        "end_line": 159,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 73,
+        "end_line": 73,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 75,
+        "end_line": 75,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 76,
+        "end_line": 76,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 77,
+        "end_line": 77,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 93,
+        "end_line": 93,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 94,
+        "end_line": 94,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 103,
+        "end_line": 103,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+        "start_line": 104,
+        "end_line": 104,
+        "suspiciousness": 0.23570226039551587,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.integration.ConnectTest::handlesEmptyStreamDuringParseRead"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 159,
+      "end_line": 159,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 73,
+      "end_line": 73,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 75,
+      "end_line": 75,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 76,
+      "end_line": 76,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 77,
+      "end_line": 77,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 93,
+      "end_line": 93,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 94,
+      "end_line": 94,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 103,
+      "end_line": 103,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+      "start_line": 104,
+      "end_line": 104,
+      "suspiciousness": 0.23570226039551587,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "project_name": "Time",
+  "bug_id": "22",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 08:16:45",
+      "end_time": "2026-06-27 08:18:58",
+      "duration_seconds": 133,
+      "duration_human": "2m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 363371,
+      "output_tokens": 4098,
+      "total_tokens": 367469,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 363371
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/joda/time/base/BasePeriod.java b/src/main/java/org/joda/time/base/BasePeriod.java\nindex 679b734a..40857d2f 100644\n--- a/src/main/java/org/joda/time/base/BasePeriod.java\n+++ b/src/main/java/org/joda/time/base/BasePeriod.java\n@@ -15,6 +15,7 @@\n  */\n package org.joda.time.base;\n \n+import org.joda.time.DateTimeZone;\n import java.io.Serializable;\n \n import org.joda.time.Chronology;\n@@ -219,7 +220,7 @@ public abstract class BasePeriod\n      * @param duration  the duration, in milliseconds\n      */\n     protected BasePeriod(long duration) {\n-        this(duration, null, null);\n+        this(duration, null, ISOChronology.getInstance(DateTimeZone.forOffsetHours(0)));\n         // bug [3264409]\n     }\n \n"
+  },
+  "timestamp": "2026-06-27 08:18:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Time",
+    "bug_id": "Time_22",
+    "repo_path": "/defects4j/framework/bin/temp/Time_22",
+    "github_url": "https://github.com/JodaOrg/joda-time.git",
+    "description": "#113 Duration.toPeriod with fixed time zones.\nI have a question concerning the conversion of a Duration to Period.  I'm not sure if this is a bug, or if there is a different way to do this.\nThe basis of the problem, is that using Duration.toPeriod() uses the chronology of the default time zone to do the conversion.  This can cause different results from a timezone with DST and one without.  This can be reproduced easily with this test.\n//set default time zone with this argument -Duser.timezone=\"GMT\"\npublic void testForJodaForum()\n{\n    System.out.println(\"Timezone: \" + DateTimeZone.getDefault());\n\n    //Duration of more than 24 hours\n    Duration aDuration = new Duration(DateTimeConstants.MILLIS_PER_HOUR * 30 + DateTimeConstants.MILLIS_PER_MINUTE * 50\n        + DateTimeConstants.MILLIS_PER_SECOND * 14);\n\n    System.out.println(\"Duration before: \" + aDuration);\n    Period period = aDuration.toPeriod();\n    System.out.println(\"Period after: \" + period);        \n}\n\nA fixed time zone produces this output\nTimezone: Etc/GMT\nDuration before: PT111014S\nPeriod after: P1DT6H50M14S\nA DST time zone produces this output\nTimezone: America/Chicago\nDuration before: PT111014S\nPeriod after: PT30H50M14S\nIn the joda code, Duration.toPeriod() uses a period constructor that takes the chronology, but null is passed in, so the chronology of the default time zone is used, which leads to this behavior.\nThe javadoc of toPeriod() states that only precise fields of hours, minutes, seconds, and millis will be converted.  But for a fixed timezone, days and weeks are also precise, which is stated in the javadoc for toPeriod(Chronology chrono).  In our app, we need consistent behavior regardless of the default time zone, which is to have all the extra hours put into the hours bucket.  Since Duration is supposed to be a 'time zone independent' length of time, I don't think we should have to do any chronology manipulation to get this to work.\nAny help is appreciated.\nThanks,\nCameron",
+    "commit_message": "Duraton.toPeriod(), new Period(long), new MutablePeriod(long) [3264409] Fixed to obey Javadoc. Previously, they didn't obey the Javadoc if the default time-zone had no daylight savings.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/joda/time/base/BasePeriod.java",
+        "start_line": 222,
+        "end_line": 222,
+        "line_numbers": [
+          222
+        ],
+        "function_name": "",
+        "class_name": "BasePeriod",
+        "filename": "BasePeriod.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.joda.time.TestDuration_Basics::testToPeriod_fixedZone",
+      "org.joda.time.TestPeriod_Constructors::testConstructor_long_fixedZone"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/joda/time/base/BasePeriod.java b/src/main/java/org/joda/time/base/BasePeriod.java\nindex a5dcb74..679b734 100644\n--- a/src/main/java/org/joda/time/base/BasePeriod.java\n+++ b/src/main/java/org/joda/time/base/BasePeriod.java\n@@ -219,13 +219,8 @@ public abstract class BasePeriod\n      * @param duration  the duration, in milliseconds\n      */\n     protected BasePeriod(long duration) {\n+        super();\n-        this(duration, null, null);\n         // bug [3264409]\n+        iType = PeriodType.time();\n+        int[] values = ISOChronology.getInstanceUTC().get(this, duration);\n+        iType = PeriodType.standard();\n+        iValues = new int[8];\n+        System.arraycopy(values, 0, iValues, 4, 4);\n     }\n \n     /**",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

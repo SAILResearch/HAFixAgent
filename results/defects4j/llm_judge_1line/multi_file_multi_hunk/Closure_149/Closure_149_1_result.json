@@ -1,0 +1,105 @@
+{
+  "project_name": "Closure",
+  "bug_id": "149",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:05:20",
+      "end_time": "2025-09-30 14:10:58",
+      "duration_seconds": 338,
+      "duration_human": "5m 38s"
+    },
+    "model_cost": 0.0346,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 420826,
+      "output_tokens": 5771,
+      "total_tokens": 426597,
+      "cached_input_tokens": 408000,
+      "uncached_input_tokens": 12826
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/CodeGenerator.java b/src/com/google/javascript/jscomp/CodeGenerator.java\nindex 0839c9b00..01a61cc1e 100644\n--- a/src/com/google/javascript/jscomp/CodeGenerator.java\n+++ b/src/com/google/javascript/jscomp/CodeGenerator.java\n@@ -43,6 +43,7 @@ class CodeGenerator {\n   private final CodeConsumer cc;\n \n   private final CharsetEncoder outputCharsetEncoder;\n+  private final boolean disableStringEscaping = false;\n \n   CodeGenerator(\n       CodeConsumer consumer, Charset outputCharset) {\n@@ -57,6 +58,11 @@ class CodeGenerator {\n       this.outputCharsetEncoder = outputCharset.newEncoder();\n     }\n   }\n+  CodeGenerator(\n+      CodeConsumer consumer, Charset outputCharset, boolean disableStringEscaping) {\n+    this(consumer, outputCharset);\n+    this.disableStringEscaping = disableStringEscaping;\n+  }\n \n   CodeGenerator(CodeConsumer consumer) {\n     this(consumer, null);\n@@ -886,7 +892,7 @@ class CodeGenerator {\n   }\n \n   /** Helper to escape javascript string as well as regular expression */\n-  static String strEscape(String s, char quote,\n+  String strEscape(String s, char quote,\n                           String doublequoteEscape,\n                           String singlequoteEscape,\n                           String backslashEscape,\ndiff --git a/src/com/google/javascript/jscomp/CodePrinter.java b/src/com/google/javascript/jscomp/CodePrinter.java\nindex 1e8ebec89..a234e8e54 100644\n--- a/src/com/google/javascript/jscomp/CodePrinter.java\n+++ b/src/com/google/javascript/jscomp/CodePrinter.java\n@@ -485,6 +485,7 @@ class CodePrinter {\n     // Specify a charset to use when outputting source code.  If null,\n     // then just output ASCII.\n     private Charset outputCharset = null;\n+    private boolean disableStringEscaping = false;\n \n     /**\n      * Sets the root node from which to generate the source code.\n@@ -560,6 +561,13 @@ class CodePrinter {\n       this.outputCharset = outCharset;\n       return this;\n     }\n+    /**\n+     * Set whether to disable escaping of non-ASCII characters in strings.\n+     */\n+    Builder setDisableStringEscaping(boolean disable) {\n+      this.disableStringEscaping = disable;\n+      return this;\n+    }\n \n     /**\n      * Generates the source code and returns it.\ndiff --git a/src/com/google/javascript/jscomp/CommandLineRunner.java b/src/com/google/javascript/jscomp/CommandLineRunner.java\nindex e3334a306..00afdc518 100644\n--- a/src/com/google/javascript/jscomp/CommandLineRunner.java\n+++ b/src/com/google/javascript/jscomp/CommandLineRunner.java\n@@ -278,6 +278,10 @@ public class CommandLineRunner extends\n         usage = \"Processes built-ins from the Closure library, such as \"\n         + \"goog.require(), goog.provide(), and goog.exportSymbol()\")\n     private boolean process_closure_primitives = true;\n+    @Option(name = \"--disable_string_escaping\",\n+        handler = BooleanOptionHandler.class,\n+        usage = \"Disables the escaping of non-ASCII characters in strings\")\n+    private boolean disable_string_escaping = false;\n \n     @Option(name = \"--manage_closure_dependencies\",\n         handler = BooleanOptionHandler.class,\n@@ -468,6 +472,7 @@ public class CommandLineRunner extends\n     }\n \n     options.closurePass = flags.process_closure_primitives;\n+    options.disableStringEscaping = flags.disable_string_escaping;\n     initOptionsFromFlags(options);\n     return options;\n   }\ndiff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java\nindex f4c783637..bbbad18d5 100644\n--- a/src/com/google/javascript/jscomp/CompilerOptions.java\n+++ b/src/com/google/javascript/jscomp/CompilerOptions.java\n@@ -586,6 +586,10 @@ public class CompilerOptions implements Serializable, Cloneable {\n    * This needs to be a string because CompilerOptions is serializable.\n    */\n   public Charset outputCharset;\n+  /**\n+   * Whether to disable escaping of non-ASCII characters in strings.\n+   */\n+  public boolean disableStringEscaping = false;\n \n   /**\n    * Whether the named objects types included 'undefined' by default.\n"
+  },
+  "timestamp": "2025-09-30 14:10:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_149",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_149",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Add option to turn off string escaping\n<b>What steps will reproduce the problem?</b>\n\r\n1. I'm having large files with strings (patterns for hyphenation, see http://code.google.com/p/hyphenator/) and no-ASCII-characters.\r\n2. Minifying with closure compiler makes them bigger\r\n    ru.js (orig): 41'216 Bytes\r\n    ru.js (orig, gzip): 17'124 Bytes\r\n    ru.js (mini): 110'770 Bytes\r\n    ru.js (mini, gzip): 18'860 Bytes\r\n\r\nWhat is the expected output?\r\nI'd like to be able to turn OFF the string escaping mechanism.\r\n\r\nThanks",
+    "commit_message": "Clean up the command-line runner api, which uncovered a bunch of bugs in Options serialization. Set the output charset to US-ASCII by default, but let the user set it to UTF-8. Fixes Issue 205",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/AbstractCommandLineRunner.java",
+        "start_line": 518,
+        "end_line": 522,
+        "line_numbers": [
+          518,
+          519,
+          520,
+          521,
+          522
+        ],
+        "function_name": "doRun",
+        "class_name": "FlagUsageException",
+        "filename": "AbstractCommandLineRunner.java",
+        "code_snippet": "  protected int doRun() throws FlagUsageException, IOException {\n    Compiler.setLoggingLevel(Level.parse(config.loggingLevel));\n\n    List<JSSourceFile> externsList = createExterns();\n    JSSourceFile[] externs = new JSSourceFile[externsList.size()];\n    externsList.toArray(externs);\n\n    compiler = createCompiler();\n    B options = createOptions();\n\n    JSModule[] modules = null;\n    Result result;\n\n    setRunOptions(options);\n    if (inputCharset == Charsets.UTF_8) {\n      options.outputCharset = Charsets.US_ASCII;\n    } else {\n      options.outputCharset = inputCharset;\n    }\n\n    boolean writeOutputToFile = !options.jsOutputFile.isEmpty();\n    if (writeOutputToFile) {\n      out = toWriter(options.jsOutputFile, inputCharset.name());\n    }\n\n    List<String> jsFiles = config.js;\n    List<String> moduleSpecs = config.module;\n    if (!moduleSpecs.isEmpty()) {\n      modules = createJsModules(moduleSpecs, jsFiles);\n      result = compiler.compile(externs, modules, options);\n    } else {\n      List<JSSourceFile> inputList = createSourceInputs(jsFiles);\n      JSSourceFile[] inputs = new JSSourceFile[inputList.size()];\n      inputList.toArray(inputs);\n      result = compiler.compile(externs, inputs, options);\n    }\n\n    int errCode = processResults(result, modules, options);\n    // Close the output if we are writing to a file.\n    if (writeOutputToFile) {\n      ((Writer)out).close();\n    }\n    return errCode;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/CommandLineRunner.java",
+        "start_line": 471,
+        "end_line": 471,
+        "line_numbers": [
+          471
+        ],
+        "function_name": "createOptions",
+        "class_name": "BooleanOptionHandler",
+        "filename": "CommandLineRunner.java",
+        "code_snippet": "  protected CompilerOptions createOptions() {\n    CompilerOptions options = new CompilerOptions();\n    options.setCodingConvention(new ClosureCodingConvention());\n    CompilationLevel level = flags.compilation_level;\n    level.setOptionsForCompilationLevel(options);\n    if (flags.debug) {\n      level.setDebugOptionsForCompilationLevel(options);\n    }\n\n    WarningLevel wLevel = flags.warning_level;\n    wLevel.setOptionsForWarningLevel(options);\n    for (FormattingOption formattingOption : flags.formatting) {\n      formattingOption.applyToOptions(options);\n    }\n\n    options.closurePass = flags.process_closure_primitives;\n    initOptionsFromFlags(options);\n    return options;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/Compiler.java",
+        "start_line": 1362,
+        "end_line": 1362,
+        "line_numbers": [
+          1362
+        ],
+        "function_name": "toSource",
+        "class_name": "Compiler",
+        "filename": "Compiler.java",
+        "code_snippet": "  private String toSource(Node n, SourceMap sourceMap) {\n    CodePrinter.Builder builder = new CodePrinter.Builder(n);\n    builder.setPrettyPrint(options.prettyPrint);\n    builder.setLineBreak(options.lineBreak);\n    builder.setSourceMap(sourceMap);\n    builder.setSourceMapDetailLevel(options.sourceMapDetailLevel);\n\n    Charset charset = options.outputCharset;\n    builder.setOutputCharset(charset);\n\n    return builder.build();\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+        "start_line": 588,
+        "end_line": 588,
+        "line_numbers": [
+          588
+        ],
+        "function_name": "",
+        "class_name": "CompilerOptions",
+        "filename": "CompilerOptions.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CommandLineRunnerTest::testCharSetExpansion"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java b/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\nindex 8e2b2633..8cb44726 100644\n--- a/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\n+++ b/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\n@@ -156,7 +156,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,\n     options.setCodingConvention(config.codingConvention);\n     options.setSummaryDetailLevel(config.summaryDetailLevel);\n \n+    options.outputCharset = getOutputCharset();\n     inputCharset = getInputCharset();\n \n     if (config.jsOutputFile.length() > 0) {\n@@ -516,6 +515,11 @@ abstract class AbstractCommandLineRunner<A extends Compiler,\n     Result result;\n \n     setRunOptions(options);\n-    if (inputCharset == Charsets.UTF_8) {\n-      options.outputCharset = Charsets.US_ASCII;\n-    } else {\n-      options.outputCharset = inputCharset;\n-    }\n \n     boolean writeOutputToFile = !options.jsOutputFile.isEmpty();\n     if (writeOutputToFile) {\n@@ -686,16 +690,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,\n    *    be a supported charset.\n    * @throws FlagUsageException if flag is not a valid Charset name.\n    */\n+  private String getOutputCharset() throws FlagUsageException {\n+    if (!config.charset.isEmpty()) {\n+      if (!Charset.isSupported(config.charset)) {\n+        throw new FlagUsageException(config.charset +\n+            \" is not a valid charset name.\");\n+      }\n+      return config.charset;\n+    }\n+    return \"US-ASCII\";\n+  }\n \n   protected List<JSSourceFile> createExterns() throws FlagUsageException,\n       IOException {\ndiff --git a/src/com/google/javascript/jscomp/CommandLineRunner.java b/src/com/google/javascript/jscomp/CommandLineRunner.java\nindex bd2de605..e3334a30 100644\n--- a/src/com/google/javascript/jscomp/CommandLineRunner.java\n+++ b/src/com/google/javascript/jscomp/CommandLineRunner.java\n@@ -468,6 +468,7 @@ public class CommandLineRunner extends\n     }\n \n     options.closurePass = flags.process_closure_primitives;\n-    initOptionsFromFlags(options);\n     return options;\n   }\n \ndiff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java\nindex 56bc4eb8..7a12c4fc 100644\n--- a/src/com/google/javascript/jscomp/Compiler.java\n+++ b/src/com/google/javascript/jscomp/Compiler.java\n@@ -1359,8 +1359,7 @@ public class Compiler extends AbstractCompiler {\n     builder.setSourceMap(sourceMap);\n     builder.setSourceMapDetailLevel(options.sourceMapDetailLevel);\n \n+    Charset charset = options.outputCharset != null ?\n+        Charset.forName(options.outputCharset) : null;\n-    Charset charset = options.outputCharset;\n     builder.setOutputCharset(charset);\n \n     return builder.build();\ndiff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java\nindex f1c95357..f4c78363 100644\n--- a/src/com/google/javascript/jscomp/CompilerOptions.java\n+++ b/src/com/google/javascript/jscomp/CompilerOptions.java\n@@ -585,7 +585,7 @@ public class CompilerOptions implements Serializable, Cloneable {\n    * Charset to use when generating code.  If null, then output ASCII.\n    * This needs to be a string because CompilerOptions is serializable.\n    */\n+  String outputCharset;\n-  public Charset outputCharset;\n \n   /**\n    * Whether the named objects types included 'undefined' by default.\n@@ -957,9 +957,6 @@ public class CompilerOptions implements Serializable, Cloneable {\n   /**\n    * Sets the output charset by name.\n    */\n+  public void setOutputCharset(String charsetName) {\n+    this.outputCharset = charsetName;\n+  }\n \n   /**\n    * Whether to include \"undefined\" in the default types.",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

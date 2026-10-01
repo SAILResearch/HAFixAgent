@@ -1,0 +1,53 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_37",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-18 17:25:37",
+      "end_time": "2026-06-18 17:33:30",
+      "duration_seconds": 473,
+      "duration_human": "7m 53s"
+    },
+    "model_cost": 0.0492,
+    "model_calls": 43,
+    "token_usage": {
+      "input_tokens": 321824,
+      "output_tokens": 7349,
+      "total_tokens": 329173,
+      "cached_input_tokens": 150656,
+      "uncached_input_tokens": 171168
+    },
+    "agent_steps": 43,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/string_.py b/pandas/core/arrays/string_.py\nindex f82790ac4c..40aec4764c 100644\n--- a/pandas/core/arrays/string_.py\n+++ b/pandas/core/arrays/string_.py\n@@ -271,8 +271,38 @@ class StringArray(PandasArray):\n             if copy:\n                 return self.copy()\n             return self\n-        return super().astype(dtype, copy)\n-\n+        elif isinstance(dtype, ExtensionDtype):\n+            # For other extension dtypes, we need to handle conversion\n+            # Check for integer dtypes\n+            if hasattr(dtype, \"name\") and dtype.name and dtype.name.startswith((\"Int\", \"UInt\")):\n+                # Convert string array to integer array\n+                from pandas.core.arrays import IntegerArray\n+                import numpy as np\n+                import pandas as pd\n+                \n+                data = []\n+                mask = []\n+                for val in self:\n+                    if val is pd.NA or pd.isna(val):\n+                        data.append(0)\n+                        mask.append(True)\n+                    else:\n+                        try:\n+                            data.append(int(val))\n+                            mask.append(False)\n+                        except ValueError:\n+                            # Try float conversion if int fails\n+                            try:\n+                                data.append(int(float(val)))\n+                                mask.append(False)\n+                            except (ValueError, TypeError):\n+                                raise TypeError(f\"Cannot convert string '{val}' to {dtype}\")\n+                return IntegerArray(np.array(data, dtype=dtype.numpy_dtype), np.array(mask))\n+            else:\n+                # For other extension dtypes, fall back to super\n+                return super().astype(dtype, copy)\n+        else:\n+            return super().astype(dtype, copy)\n     def _reduce(self, name, skipna=True, **kwargs):\n         raise TypeError(f\"Cannot perform reduction '{name}' with string dtype\")\n \ndiff --git a/pandas/tests/arrays/string_/test_string.py b/pandas/tests/arrays/string_/test_string.py\nindex 5e2f14af34..fe770eed84 100644\n--- a/pandas/tests/arrays/string_/test_string.py\n+++ b/pandas/tests/arrays/string_/test_string.py\n@@ -214,6 +214,14 @@ def test_from_sequence_no_mutate(copy):\n     tm.assert_numpy_array_equal(a, original)\n \n \n+def test_astype_int():\n+    arr = pd.array([\"1\", pd.NA, \"3\"], dtype=\"string\")\n+\n+    result = arr.astype(\"Int64\")\n+    expected = pd.array([1, pd.NA, 3], dtype=\"Int64\")\n+    tm.assert_extension_array_equal(result, expected)\n+\n+\n @pytest.mark.parametrize(\"skipna\", [True, False])\n @pytest.mark.xfail(reason=\"Not implemented StringArray.sum\")\n def test_reduce(skipna):\n"
+  },
+  "timestamp": "2026-06-18 17:33:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_37",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_37/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: implement astype from string dtype to nullable int dtype (#33062)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/string_.py",
+        "start_line": 16,
+        "end_line": 16,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/string_/test_string.py::test_astype_int"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

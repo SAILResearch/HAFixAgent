@@ -1,0 +1,191 @@
+{
+  "project_name": "fastapi",
+  "bug_id": "fastapi_7",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 15:19:22",
+      "end_time": "2026-06-30 15:21:46",
+      "duration_seconds": 144,
+      "duration_human": "2m 24s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 500548,
+      "output_tokens": 5083,
+      "total_tokens": 505631,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 500548
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/fastapi/exception_handlers.py b/fastapi/exception_handlers.py\nindex cda2f8c7..adfaf2a8 100644\n--- a/fastapi/exception_handlers.py\n+++ b/fastapi/exception_handlers.py\n@@ -1,9 +1,10 @@\n from fastapi.exceptions import RequestValidationError\n from starlette.exceptions import HTTPException\n from starlette.requests import Request\n-from starlette.responses import JSONResponse\n+from starlette.responses import JSONResponse, Response\n from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY\n-\n+from pydantic.json import pydantic_encoder\n+import json\n \n async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:\n     headers = getattr(exc, \"headers\", None)\n@@ -14,10 +15,21 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe\n     else:\n         return JSONResponse({\"detail\": exc.detail}, status_code=exc.status_code)\n \n+class PydanticJSONResponse(JSONResponse):\n+    def render(self, content):\n+        return json.dumps(\n+            content,\n+            default=pydantic_encoder,\n+            ensure_ascii=False,\n+            allow_nan=False,\n+            indent=None,\n+            separators=(\",\", \":\"),\n+        ).encode(\"utf-8\")\n \n async def request_validation_exception_handler(\n     request: Request, exc: RequestValidationError\n-) -> JSONResponse:\n-    return JSONResponse(\n-        status_code=HTTP_422_UNPROCESSABLE_ENTITY, content={\"detail\": exc.errors()}\n+) -> PydanticJSONResponse:\n+    return PydanticJSONResponse(\n+        status_code=HTTP_422_UNPROCESSABLE_ENTITY,\n+        content={\"detail\": exc.errors()}\n     )\ndiff --git a/fastapi/exceptions.py b/fastapi/exceptions.py\nindex d4b1329d..49d87499 100644\n--- a/fastapi/exceptions.py\n+++ b/fastapi/exceptions.py\n@@ -2,12 +2,11 @@ from typing import Any, Sequence\n \n from fastapi.utils import PYDANTIC_1\n from pydantic import ValidationError, create_model\n-from pydantic.error_wrappers import ErrorList\n+from pydantic.error_wrappers import ErrorList, flatten_errors\n from starlette.exceptions import HTTPException as StarletteHTTPException\n from starlette.requests import Request\n from starlette.websockets import WebSocket\n \n-\n class HTTPException(StarletteHTTPException):\n     def __init__(\n         self, status_code: int, detail: Any = None, headers: dict = None\n@@ -15,11 +14,9 @@ class HTTPException(StarletteHTTPException):\n         super().__init__(status_code=status_code, detail=detail)\n         self.headers = headers\n \n-\n RequestErrorModel = create_model(\"Request\")\n WebSocketErrorModel = create_model(\"WebSocket\")\n \n-\n class RequestValidationError(ValidationError):\n     def __init__(self, errors: Sequence[ErrorList]) -> None:\n         if PYDANTIC_1:\n@@ -27,6 +24,17 @@ class RequestValidationError(ValidationError):\n         else:\n             super().__init__(errors, Request)  # type: ignore  # pragma: nocover\n \n+    def errors(self):\n+        if PYDANTIC_1:\n+            return super().errors()\n+        else:\n+            if self._error_cache is None:\n+                try:\n+                    config = self.model.__config__  # type: ignore\n+                except AttributeError:\n+                    config = self.model.__pydantic_model__.__config__  # type: ignore\n+                self._error_cache = list(flatten_errors(self.raw_errors, config))\n+            return self._error_cache\n \n class WebSocketRequestValidationError(ValidationError):\n     def __init__(self, errors: Sequence[ErrorList]) -> None:\n@@ -34,3 +42,15 @@ class WebSocketRequestValidationError(ValidationError):\n             super().__init__(errors, WebSocketErrorModel)\n         else:\n             super().__init__(errors, WebSocket)  # type: ignore  # pragma: nocover\n+\n+    def errors(self):\n+        if PYDANTIC_1:\n+            return super().errors()\n+        else:\n+            if self._error_cache is None:\n+                try:\n+                    config = self.model.__config__  # type: ignore\n+                except AttributeError:\n+                    config = self.model.__pydantic_model__.__config__  # type: ignore\n+                self._error_cache = list(flatten_errors(self.raw_errors, config))\n+            return self._error_cache\ndiff --git a/tests/test_multi_body_errors.py b/tests/test_multi_body_errors.py\nindex ef07c2a8..5824cda2 100644\n--- a/tests/test_multi_body_errors.py\n+++ b/tests/test_multi_body_errors.py\n@@ -1,7 +1,8 @@\n+from decimal import Decimal\n from typing import List\n \n from fastapi import FastAPI\n-from pydantic import BaseModel\n+from pydantic import BaseModel, condecimal\n from starlette.testclient import TestClient\n \n app = FastAPI()\n@@ -9,7 +10,7 @@ app = FastAPI()\n \n class Item(BaseModel):\n     name: str\n-    age: int\n+    age: condecimal(gt=Decimal(0.0))\n \n \n @app.post(\"/items/\")\n@@ -67,7 +68,7 @@ openapi_schema = {\n                 \"type\": \"object\",\n                 \"properties\": {\n                     \"name\": {\"title\": \"Name\", \"type\": \"string\"},\n-                    \"age\": {\"title\": \"Age\", \"type\": \"integer\"},\n+                    \"age\": {\"title\": \"Age\", \"exclusiveMinimum\": 0.0, \"type\": \"number\"},\n                 },\n             },\n             \"ValidationError\": {\n@@ -99,6 +100,17 @@ openapi_schema = {\n     },\n }\n \n+single_error = {\n+    \"detail\": [\n+        {\n+            \"ctx\": {\"limit_value\": 0.0},\n+            \"loc\": [\"body\", \"item\", 0, \"age\"],\n+            \"msg\": \"ensure this value is greater than 0\",\n+            \"type\": \"value_error.number.not_gt\",\n+        }\n+    ]\n+}\n+\n multiple_errors = {\n     \"detail\": [\n         {\n@@ -108,8 +120,8 @@ multiple_errors = {\n         },\n         {\n             \"loc\": [\"body\", \"item\", 0, \"age\"],\n-            \"msg\": \"value is not a valid integer\",\n-            \"type\": \"type_error.integer\",\n+            \"msg\": \"value is not a valid decimal\",\n+            \"type\": \"type_error.decimal\",\n         },\n         {\n             \"loc\": [\"body\", \"item\", 1, \"name\"],\n@@ -118,8 +130,8 @@ multiple_errors = {\n         },\n         {\n             \"loc\": [\"body\", \"item\", 1, \"age\"],\n-            \"msg\": \"value is not a valid integer\",\n-            \"type\": \"type_error.integer\",\n+            \"msg\": \"value is not a valid decimal\",\n+            \"type\": \"type_error.decimal\",\n         },\n     ]\n }\n@@ -137,7 +149,13 @@ def test_put_correct_body():\n     assert response.json() == {\"item\": [{\"name\": \"Foo\", \"age\": 5}]}\n \n \n-def test_put_incorrect_body():\n+def test_jsonable_encoder_requiring_error():\n+    response = client.post(\"/items/\", json=[{\"name\": \"Foo\", \"age\": -1.0}])\n+    assert response.status_code == 422\n+    assert response.json() == single_error\n+\n+\n+def test_put_incorrect_body_multiple():\n     response = client.post(\"/items/\", json=[{\"age\": \"five\"}, {\"age\": \"six\"}])\n     assert response.status_code == 422\n     assert response.json() == multiple_errors\n"
+  },
+  "timestamp": "2026-06-30 15:21:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "fastapi",
+    "bug_id": "fastapi_7",
+    "repo_path": "/BugsInPy/framework/bin/temp/fastapi_7/fastapi",
+    "github_url": "https://github.com/tiangolo/fastapi",
+    "description": "",
+    "commit_message": ":bug: Fix issue with exotic pydantic error serialization (#748)",
+    "fault_locations": [
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 682,
+        "end_line": 682,
+        "suspiciousness": 0.660409,
+        "rank": 1
+      },
+      {
+        "file": "fastapi/exception_handlers.py",
+        "start_line": 21,
+        "end_line": 21,
+        "suspiciousness": 0.660409,
+        "rank": 2
+      },
+      {
+        "file": "fastapi/exception_handlers.py",
+        "start_line": 22,
+        "end_line": 22,
+        "suspiciousness": 0.660409,
+        "rank": 3
+      },
+      {
+        "file": "fastapi/exceptions.py",
+        "start_line": 25,
+        "end_line": 25,
+        "suspiciousness": 0.660409,
+        "rank": 4
+      },
+      {
+        "file": "fastapi/exceptions.py",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 0.660409,
+        "rank": 5
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 123,
+        "end_line": 123,
+        "suspiciousness": 0.660409,
+        "rank": 6
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 449,
+        "end_line": 449,
+        "suspiciousness": 0.545836,
+        "rank": 7
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 450,
+        "end_line": 450,
+        "suspiciousness": 0.545836,
+        "rank": 8
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 451,
+        "end_line": 451,
+        "suspiciousness": 0.545836,
+        "rank": 9
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 452,
+        "end_line": 452,
+        "suspiciousness": 0.545836,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_multi_body_errors.py::test_jsonable_encoder_requiring_error"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 682,
+      "end_line": 682,
+      "suspiciousness": 0.660409,
+      "rank": 1
+    },
+    {
+      "file": "fastapi/exception_handlers.py",
+      "start_line": 21,
+      "end_line": 21,
+      "suspiciousness": 0.660409,
+      "rank": 2
+    },
+    {
+      "file": "fastapi/exception_handlers.py",
+      "start_line": 22,
+      "end_line": 22,
+      "suspiciousness": 0.660409,
+      "rank": 3
+    },
+    {
+      "file": "fastapi/exceptions.py",
+      "start_line": 25,
+      "end_line": 25,
+      "suspiciousness": 0.660409,
+      "rank": 4
+    },
+    {
+      "file": "fastapi/exceptions.py",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 0.660409,
+      "rank": 5
+    },
+    {
+      "file": "fastapi/routing.py",
+      "start_line": 123,
+      "end_line": 123,
+      "suspiciousness": 0.660409,
+      "rank": 6
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 449,
+      "end_line": 449,
+      "suspiciousness": 0.545836,
+      "rank": 7
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 450,
+      "end_line": 450,
+      "suspiciousness": 0.545836,
+      "rank": 8
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 451,
+      "end_line": 451,
+      "suspiciousness": 0.545836,
+      "rank": 9
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 452,
+      "end_line": 452,
+      "suspiciousness": 0.545836,
+      "rank": 10
+    }
+  ]
+}

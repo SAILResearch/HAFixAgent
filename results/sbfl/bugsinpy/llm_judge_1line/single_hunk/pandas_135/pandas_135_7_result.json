@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_135",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 00:11:40",
+      "end_time": "2026-06-26 01:05:04",
+      "duration_seconds": 3205,
+      "duration_human": "53m 25s"
+    },
+    "model_cost": 0.2437,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 4328850,
+      "output_tokens": 88649,
+      "total_tokens": 4417499,
+      "cached_input_tokens": 3561024,
+      "uncached_input_tokens": 767826
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex c766fcaa4f..196e39232c 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -80,13 +80,13 @@ AggScalar = Union[str, Callable[..., Any]]\n ScalarResult = typing.TypeVar(\"ScalarResult\")\n \n \n-def generate_property(name: str, klass: Type[FrameOrSeries]):\n+def generate_property(name, klass):\n     \"\"\"\n     Create a property for a GroupBy subclass to dispatch to DataFrame/Series.\n \n     Parameters\n     ----------\n-    name : str\n+    name \n     klass : {DataFrame, Series}\n \n     Returns\n@@ -103,7 +103,7 @@ def generate_property(name: str, klass: Type[FrameOrSeries]):\n     return property(prop)\n \n \n-def pin_whitelisted_properties(klass: Type[FrameOrSeries], whitelist: FrozenSet[str]):\n+def pin_whitelisted_properties(klass, whitelist):\n     \"\"\"\n     Create GroupBy member defs for DataFrame/Series names in a whitelist.\n \n@@ -143,7 +143,7 @@ def pin_whitelisted_properties(klass: Type[FrameOrSeries], whitelist: FrozenSet[\n class SeriesGroupBy(GroupBy):\n     _apply_whitelist = base.series_apply_whitelist\n \n-    def _iterate_slices(self) -> Iterable[Tuple[Optional[Hashable], Series]]:\n+    def _iterate_slices(self):\n         yield self._selection_name, self._selected_obj\n \n     @property\n@@ -268,7 +268,7 @@ class SeriesGroupBy(GroupBy):\n                 result = self._aggregate_named(func, *args, **kwargs)\n \n             index = Index(sorted(result), name=self.grouper.names[0])\n-            ret = Series(result, index=index)\n+            ret = Series(result, index=index, dtype=self._selected_obj.dtype)\n \n         if not self.as_index:  # pragma: no cover\n             print(\"Warning, ignoring as_index=True\")\n@@ -927,7 +927,7 @@ class DataFrameGroupBy(GroupBy):\n \n     agg = aggregate\n \n-    def _iterate_slices(self) -> Iterable[Tuple[Optional[Hashable], Series]]:\n+    def _iterate_slices(self):\n         obj = self._selected_obj\n         if self.axis == 1:\n             obj = obj.T\n@@ -1543,7 +1543,7 @@ class DataFrameGroupBy(GroupBy):\n \n         Parameters\n         ----------\n-        key : string / list of selections\n+        key ing / list of selections\n         ndim : 1,2\n             requested ndim of result\n         subset : object, default None\n@@ -1863,10 +1863,10 @@ def _make_unique(seq):\n #   error: \"partial[Any]\" has no attribute \"__name__\"\n # the type is:\n #   typing.Sequence[Callable[..., ScalarResult]]\n-#     -> typing.Sequence[Callable[..., ScalarResult]]:\n+#     :\n \n \n-def _managle_lambda_list(aggfuncs: Sequence[Any]) -> Sequence[Any]:\n+def _managle_lambda_list(aggfuncs):\n     \"\"\"\n     Possibly mangle a list of aggfuncs.\n \n@@ -1899,13 +1899,13 @@ def _managle_lambda_list(aggfuncs: Sequence[Any]) -> Sequence[Any]:\n     return mangled_aggfuncs\n \n \n-def _maybe_mangle_lambdas(agg_spec: Any) -> Any:\n+def _maybe_mangle_lambdas(agg_spec):\n     \"\"\"\n     Make new lambdas with unique names.\n \n     Parameters\n     ----------\n-    agg_spec : Any\n+    agg_spec \n         An argument to GroupBy.agg.\n         Non-dict-like `agg_spec` are pass through as is.\n         For dict-like `agg_spec` a new spec is returned\n@@ -1913,7 +1913,7 @@ def _maybe_mangle_lambdas(agg_spec: Any) -> Any:\n \n     Returns\n     -------\n-    mangled : Any\n+    mangled \n         Same type as the input.\n \n     Examples\n@@ -1944,7 +1944,7 @@ def _maybe_mangle_lambdas(agg_spec: Any) -> Any:\n     return mangled_aggspec\n \n \n-def _recast_datetimelike_result(result: DataFrame) -> DataFrame:\n+def _recast_datetimelike_result(result):\n     \"\"\"\n     If we have date/time like in the original, then coerce dates\n     as we are stacking can easily have object dtypes here.\ndiff --git a/pandas/tests/extension/decimal/test_decimal.py b/pandas/tests/extension/decimal/test_decimal.py\nindex 3ac9d37ccf..86724d4d09 100644\n--- a/pandas/tests/extension/decimal/test_decimal.py\n+++ b/pandas/tests/extension/decimal/test_decimal.py\n@@ -426,3 +426,55 @@ def test_array_ufunc_series_defer():\n \n     tm.assert_series_equal(r1, expected)\n     tm.assert_series_equal(r2, expected)\n+\n+\n+def test_groupby_agg():\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame(\n+        {\"id1\": [0, 0, 0, 1, 1], \"id2\": [0, 1, 0, 1, 1], \"decimals\": DecimalArray(data)}\n+    )\n+\n+    # single key, selected column\n+    expected = pd.Series(to_decimal([data[0], data[3]]))\n+    result = df.groupby(\"id1\")[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby(df[\"id1\"]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple keys, selected column\n+    expected = pd.Series(\n+        to_decimal([data[0], data[1], data[3]]),\n+        index=pd.MultiIndex.from_tuples([(0, 0), (0, 1), (1, 1)]),\n+    )\n+    result = df.groupby([\"id1\", \"id2\"])[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby([df[\"id1\"], df[\"id2\"]]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple columns\n+    expected = pd.DataFrame({\"id2\": [0, 1], \"decimals\": to_decimal([data[0], data[3]])})\n+    result = df.groupby(\"id1\").agg(lambda x: x.iloc[0])\n+    tm.assert_frame_equal(result, expected, check_names=False)\n+\n+\n+def test_groupby_agg_ea_method(monkeypatch):\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    def DecimalArray__my_sum(self):\n+        return np.sum(np.array(self))\n+\n+    monkeypatch.setattr(DecimalArray, \"my_sum\", DecimalArray__my_sum, raising=False)\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame({\"id\": [0, 0, 0, 1, 1], \"decimals\": DecimalArray(data)})\n+    expected = pd.Series(to_decimal([data[0] + data[1] + data[2], data[3] + data[4]]))\n+\n+    result = df.groupby(\"id\")[\"decimals\"].agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    s = pd.Series(DecimalArray(data))\n+    result = s.groupby(np.array([0, 0, 0, 1, 1])).agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n"
+  },
+  "timestamp": "2026-06-26 01:05:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_135",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_135/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG/TST: ensure groupby.agg preserves extension dtype (#29144)",
+    "fault_locations": [
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 765,
+        "end_line": 765,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 767,
+        "end_line": 767,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 774,
+        "end_line": 774,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 775,
+        "end_line": 775,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 229,
+        "end_line": 229,
+        "suspiciousness": 0.784471,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 231,
+        "end_line": 231,
+        "suspiciousness": 0.784471,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 232,
+        "end_line": 232,
+        "suspiciousness": 0.784471,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 233,
+        "end_line": 233,
+        "suspiciousness": 0.784471,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 234,
+        "end_line": 234,
+        "suspiciousness": 0.784471,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 245,
+        "end_line": 245,
+        "suspiciousness": 0.784471,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg",
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg_ea_method"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 765,
+      "end_line": 765,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 767,
+      "end_line": 767,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 774,
+      "end_line": 774,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 775,
+      "end_line": 775,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 229,
+      "end_line": 229,
+      "suspiciousness": 0.784471,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 231,
+      "end_line": 231,
+      "suspiciousness": 0.784471,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 232,
+      "end_line": 232,
+      "suspiciousness": 0.784471,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 233,
+      "end_line": 233,
+      "suspiciousness": 0.784471,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 234,
+      "end_line": 234,
+      "suspiciousness": 0.784471,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 245,
+      "end_line": 245,
+      "suspiciousness": 0.784471,
+      "rank": 10
+    }
+  ]
+}

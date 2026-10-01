@@ -1,0 +1,102 @@
+{
+  "project_name": "Lang",
+  "bug_id": "31",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 23:11:41",
+      "end_time": "2026-06-26 23:15:07",
+      "duration_seconds": 206,
+      "duration_human": "3m 26s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 548233,
+      "output_tokens": 8544,
+      "total_tokens": 556777,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 548233
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java\nindex a90b0673d..b61282125 100644\n--- a/src/main/java/org/apache/commons/lang3/StringUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/StringUtils.java\n@@ -1446,10 +1446,26 @@ public class StringUtils {\n \t\tfor (int i = 0; i < csLength; i++) {\n \t\t\tchar ch = cs.charAt(i);\n \t\t\tfor (int j = 0; j < searchLength; j++) {\n-\t\t\t\tif (searchChars[j] == ch) {\n-\t\t\t\t\t\t// ch is a supplementary character\n-\t\t\t\t\t\t// ch is in the Basic Multilingual Plane\n+\t\t\t\tchar searchChar = searchChars[j];\n+\t\t\t\t// Handle supplementary characters - both are high surrogates\n+\t\t\t\tif (Character.isHighSurrogate(ch) && j + 1 < searchLength && Character.isHighSurrogate(searchChars[j])) {\n+\t\t\t\t\tif (ch == searchChars[j] && i + 1 < csLength && cs.charAt(i + 1) == searchChars[j + 1]) {\n \t\t\t\t\t\treturn true;\n+\t\t\t\t\t}\n+\t\t\t\t\t// Skip the low surrogate in the search array\n+\t\t\t\t\tj++;\n+\t\t\t\t}\n+\t\t\t\t// Handle case where searchChar is high surrogate but ch is not\n+\t\t\t\telse if (Character.isHighSurrogate(searchChar) && i + 1 < csLength) {\n+\t\t\t\t\tif (ch == searchChars[j] && cs.charAt(i + 1) == searchChars[j + 1]) {\n+\t\t\t\t\t\treturn true;\n+\t\t\t\t\t}\n+\t\t\t\t\t// Skip the low surrogate in the search array\n+\t\t\t\t\tj++;\n+\t\t\t\t}\n+\t\t\t\t// Handle normal characters\n+\t\t\t\telse if (ch == searchChar) {\n+\t\t\t\t\treturn true;\n \t\t\t\t}\n \t\t\t}\n \t\t}\n"
+  },
+  "timestamp": "2026-06-26 23:15:07 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_31",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_31",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringUtils methods do not handle Unicode 2.0+ supplementary characters correctly.\nStringUtils.containsAny methods incorrectly matches Unicode 2.0+ supplementary characters.\n\nFor example, define a test fixture to be the Unicode character U+20000 where U+20000 is written in Java source as \"\\uD840\\uDC00\"\n\n\tprivate static final String CharU20000 = \"\\uD840\\uDC00\";\n\tprivate static final String CharU20001 = \"\\uD840\\uDC01\";\n\nYou can see Unicode supplementary characters correctly implemented in the JRE call:\n\n\tassertEquals(-1, CharU20000.indexOf(CharU20001));\n\nBut this is broken:\n\n\tassertEquals(false, StringUtils.containsAny(CharU20000, CharU20001));\n\tassertEquals(false, StringUtils.containsAny(CharU20001, CharU20000));\n\nThis is fine:\n\n\tassertEquals(true, StringUtils.contains(CharU20000 + CharU20001, CharU20000));\n\tassertEquals(true, StringUtils.contains(CharU20000 + CharU20001, CharU20001));\n\tassertEquals(true, StringUtils.contains(CharU20000, CharU20000));\n\tassertEquals(false, StringUtils.contains(CharU20000, CharU20001));\n\nbecause the method calls the JRE to perform the match.\n\nMore than you want to know:\n- http://java.sun.com/developer/technicalArticles/Intl/Supplementary/",
+    "commit_message": "https://issues.apache.org/jira/browse/LANG-607 StringUtils.containsAny methods incorrectly matches Unicode 2.0+ supplementary characters.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1445,
+        "end_line": 1445,
+        "line_numbers": [
+          1445
+        ],
+        "function_name": "containsAny",
+        "class_name": "StringUtils",
+        "filename": "StringUtils.java",
+        "code_snippet": "\tpublic static boolean containsAny(CharSequence cs, char[] searchChars) {\n\t\tif (isEmpty(cs) || ArrayUtils.isEmpty(searchChars)) {\n\t\t\treturn false;\n\t\t}\n\t\tint csLength = cs.length();\n\t\tint searchLength = searchChars.length;\n\t\tfor (int i = 0; i < csLength; i++) {\n\t\t\tchar ch = cs.charAt(i);\n\t\t\tfor (int j = 0; j < searchLength; j++) {\n\t\t\t\tif (searchChars[j] == ch) {\n\t\t\t\t\t\t// ch is a supplementary character\n\t\t\t\t\t\t// ch is in the Basic Multilingual Plane\n\t\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1451,
+        "end_line": 1451,
+        "line_numbers": [
+          1451
+        ],
+        "function_name": "containsAny",
+        "class_name": "StringUtils",
+        "filename": "StringUtils.java",
+        "code_snippet": "\tpublic static boolean containsAny(CharSequence cs, char[] searchChars) {\n\t\tif (isEmpty(cs) || ArrayUtils.isEmpty(searchChars)) {\n\t\t\treturn false;\n\t\t}\n\t\tint csLength = cs.length();\n\t\tint searchLength = searchChars.length;\n\t\tfor (int i = 0; i < csLength; i++) {\n\t\t\tchar ch = cs.charAt(i);\n\t\t\tfor (int j = 0; j < searchLength; j++) {\n\t\t\t\tif (searchChars[j] == ch) {\n\t\t\t\t\t\t// ch is a supplementary character\n\t\t\t\t\t\t// ch is in the Basic Multilingual Plane\n\t\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1453,
+        "end_line": 1453,
+        "line_numbers": [
+          1453
+        ],
+        "function_name": "containsAny",
+        "class_name": "StringUtils",
+        "filename": "StringUtils.java",
+        "code_snippet": "\tpublic static boolean containsAny(CharSequence cs, char[] searchChars) {\n\t\tif (isEmpty(cs) || ArrayUtils.isEmpty(searchChars)) {\n\t\t\treturn false;\n\t\t}\n\t\tint csLength = cs.length();\n\t\tint searchLength = searchChars.length;\n\t\tfor (int i = 0; i < csLength; i++) {\n\t\t\tchar ch = cs.charAt(i);\n\t\t\tfor (int j = 0; j < searchLength; j++) {\n\t\t\t\tif (searchChars[j] == ch) {\n\t\t\t\t\t\t// ch is a supplementary character\n\t\t\t\t\t\t// ch is in the Basic Multilingual Plane\n\t\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\treturn false;\n\t}",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+        "start_line": 1459,
+        "end_line": 1459,
+        "line_numbers": [
+          1459
+        ],
+        "function_name": "",
+        "class_name": "StringUtils",
+        "filename": "StringUtils.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsAnyCharArrayWithSupplementaryChars",
+      "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testContainsAnyStringWithSupplementaryChars"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java\nindex 4aac02d..a90b067 100644\n--- a/src/main/java/org/apache/commons/lang3/StringUtils.java\n+++ b/src/main/java/org/apache/commons/lang3/StringUtils.java\n@@ -1443,21 +1443,13 @@ public class StringUtils {\n \t\t}\n \t\tint csLength = cs.length();\n \t\tint searchLength = searchChars.length;\n+\t\tint csLastIndex = csLength - 1;\n+\t\tint searchLastIndex = searchLength - 1;\n \t\tfor (int i = 0; i < csLength; i++) {\n \t\t\tchar ch = cs.charAt(i);\n \t\t\tfor (int j = 0; j < searchLength; j++) {\n \t\t\t\tif (searchChars[j] == ch) {\n+\t\t\t\t\tif (i < csLastIndex && j < searchLastIndex && ch >= Character.MIN_HIGH_SURROGATE && ch <= Character.MAX_HIGH_SURROGATE) {\n \t\t\t\t\t\t// ch is a supplementary character\n+\t\t\t\t\t\tif (searchChars[j + 1] == cs.charAt(i + 1)) {\n+\t\t\t\t\t\t\treturn true;\n+\t\t\t\t\t\t}\n+\t\t\t\t\t} else {\n \t\t\t\t\t\t// ch is in the Basic Multilingual Plane\n \t\t\t\t\t\treturn true;\n+\t\t\t\t\t}\n \t\t\t\t}\n \t\t\t}\n \t\t}",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

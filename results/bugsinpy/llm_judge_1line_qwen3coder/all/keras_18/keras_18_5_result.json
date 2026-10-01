@@ -1,0 +1,62 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_18",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-23 10:54:19",
+      "end_time": "2026-06-23 10:56:41",
+      "duration_seconds": 142,
+      "duration_human": "2m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 868358,
+      "output_tokens": 4181,
+      "total_tokens": 872539,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 868358
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/backend/tensorflow_backend.py b/keras/backend/tensorflow_backend.py\nindex 99e009493..aa8006725 100644\n--- a/keras/backend/tensorflow_backend.py\n+++ b/keras/backend/tensorflow_backend.py\n@@ -2545,7 +2545,10 @@ class Function(object):\n         # (since the outputs of fetches are never returned).\n         # This requires us to wrap fetches in `identity` ops.\n         self.fetches = [tf.identity(x) for x in self.fetches]\n-        self.session_kwargs = session_kwargs\n+        # self.session_kwargs is used for _legacy_call\n+        self.session_kwargs = session_kwargs.copy()\n+        self.run_options = session_kwargs.pop('options', None)\n+        self.run_metadata = session_kwargs.pop('run_metadata', None)\n         if session_kwargs:\n             raise ValueError('Some keys in session_kwargs are not '\n                              'supported at this '\n@@ -2593,6 +2596,9 @@ class Function(object):\n             callable_opts.fetch.append(x.name)\n         # Handle updates.\n         callable_opts.target.append(self.updates_op.name)\n+        # Handle run_options.\n+        if self.run_options:\n+            callable_opts.run_options.CopyFrom(self.run_options)\n         # Create callable.\n         callable_fn = session._make_callable_from_options(callable_opts)\n         # Cache parameters corresponding to the generated callable, so that\n@@ -2643,7 +2649,10 @@ class Function(object):\n                                 feed_symbols,\n                                 symbol_vals,\n                                 session)\n-        fetched = self._callable_fn(*array_vals)\n+        if self.run_metadata:\n+            fetched = self._callable_fn(*array_vals, run_metadata=self.run_metadata)\n+        else:\n+            fetched = self._callable_fn(*array_vals)\n         return fetched[:len(self.outputs)]\n \n     def _legacy_call(self, inputs):\ndiff --git a/tests/keras/backend/backend_test.py b/tests/keras/backend/backend_test.py\nindex 2126ed435..a0cf7e510 100644\n--- a/tests/keras/backend/backend_test.py\n+++ b/tests/keras/backend/backend_test.py\n@@ -528,6 +528,31 @@ class TestBackend(object):\n         assert output == [21.]\n         assert K.get_session().run(fetches=[x, y]) == [30., 40.]\n \n+    @pytest.mark.skipif(K.backend() != 'tensorflow',\n+                        reason='Uses the `options` and `run_metadata` arguments.')\n+    def test_function_tf_run_options_with_run_metadata(self):\n+        from tensorflow.core.protobuf import config_pb2\n+        x_placeholder = K.placeholder(shape=())\n+        y_placeholder = K.placeholder(shape=())\n+\n+        run_options = config_pb2.RunOptions(output_partition_graphs=True)\n+        run_metadata = config_pb2.RunMetadata()\n+        # enable run_options.\n+        f = K.function(inputs=[x_placeholder, y_placeholder],\n+                       outputs=[x_placeholder + y_placeholder],\n+                       options=run_options,\n+                       run_metadata=run_metadata)\n+        output = f([10., 20.])\n+        assert output == [30.]\n+        assert len(run_metadata.partition_graphs) > 0\n+        # disable run_options.\n+        f = K.function(inputs=[x_placeholder, y_placeholder],\n+                       outputs=[x_placeholder + y_placeholder],\n+                       run_metadata=run_metadata)\n+        output = f([10., 20.])\n+        assert output == [30.]\n+        assert len(run_metadata.partition_graphs) == 0\n+\n     @pytest.mark.skipif(K.backend() != 'tensorflow',\n                         reason='Uses the `string` type for a tensor.')\n     def test_function_tf_string_input(self):\n"
+  },
+  "timestamp": "2026-06-23 10:56:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_18",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_18/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix TF Function accepts session_kwargs: options and run_metadata (#11107)",
+    "fault_locations": [
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 2548,
+        "end_line": 2548,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 2646,
+        "end_line": 2646,
+        "function_name": "_call",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/backend/backend_test.py::TestBackend::test_function_tf_run_options_with_run_metadata"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

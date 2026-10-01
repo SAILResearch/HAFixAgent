@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_80",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 20:03:34",
+      "end_time": "2026-06-24 20:59:53",
+      "duration_seconds": 3379,
+      "duration_human": "56m 19s"
+    },
+    "model_cost": 0.2183,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 3046649,
+      "output_tokens": 95829,
+      "total_tokens": 3142478,
+      "cached_input_tokens": 2383616,
+      "uncached_input_tokens": 663033
+    },
+    "agent_steps": 39,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\ndeleted file mode 100644\nindex 75374e4e..00000000\n--- a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n+++ /dev/null\n@@ -1,143 +0,0 @@\n-package org.jsoup.parser;\n-\n-import org.jsoup.Jsoup;\n-import org.jsoup.helper.Validate;\n-import org.jsoup.nodes.*;\n-\n-import java.io.Reader;\n-import java.io.StringReader;\n-import java.util.List;\n-\n-/**\n- * Use the {@code XmlTreeBuilder} when you want to parse XML without any of the HTML DOM rules being applied to the\n- * document.\n- * <p>Usage example: {@code Document xmlDoc = Jsoup.parse(html, baseUrl, Parser.xmlParser());}</p>\n- *\n- * @author Jonathan Hedley\n- */\n-public class XmlTreeBuilder extends TreeBuilder {\n-    ParseSettings defaultSettings() {\n-        return ParseSettings.preserveCase;\n-    }\n-\n-    Document parse(Reader input, String baseUri) {\n-        return parse(input, baseUri, ParseErrorList.noTracking(), ParseSettings.preserveCase);\n-    }\n-\n-    Document parse(String input, String baseUri) {\n-        return parse(new StringReader(input), baseUri, ParseErrorList.noTracking(), ParseSettings.preserveCase);\n-    }\n-\n-    @Override\n-    protected void initialiseParse(Reader input, String baseUri, ParseErrorList errors, ParseSettings settings) {\n-        super.initialiseParse(input, baseUri, errors, settings);\n-        stack.add(doc); // place the document onto the stack. differs from HtmlTreeBuilder (not on stack)\n-        doc.outputSettings().syntax(Document.OutputSettings.Syntax.xml);\n-    }\n-\n-    @Override\n-    protected boolean process(Token token) {\n-        // start tag, end tag, doctype, comment, character, eof\n-        switch (token.type) {\n-            case StartTag:\n-                insert(token.asStartTag());\n-                break;\n-            case EndTag:\n-                popStackToClose(token.asEndTag());\n-                break;\n-            case Comment:\n-                insert(token.asComment());\n-                break;\n-            case Character:\n-                insert(token.asCharacter());\n-                break;\n-            case Doctype:\n-                insert(token.asDoctype());\n-                break;\n-            case EOF: // could put some normalisation here if desired\n-                break;\n-            default:\n-                Validate.fail(\"Unexpected token type: \" + token.type);\n-        }\n-        return true;\n-    }\n-\n-    private void insertNode(Node node) {\n-        currentElement().appendChild(node);\n-    }\n-\n-    Element insert(Token.StartTag startTag) {\n-        Tag tag = Tag.valueOf(startTag.name(), settings);\n-        // todo: wonder if for xml parsing, should treat all tags as unknown? because it's not html.\n-        Element el = new Element(tag, baseUri, settings.normalizeAttributes(startTag.attributes));\n-        insertNode(el);\n-        if (startTag.isSelfClosing()) {\n-            if (!tag.isKnownTag()) // unknown tag, remember this is self closing for output. see above.\n-                tag.setSelfClosing();\n-        } else {\n-            stack.add(el);\n-        }\n-        return el;\n-    }\n-\n-    void insert(Token.Comment commentToken) {\n-        Comment comment = new Comment(commentToken.getData());\n-        Node insert = comment;\n-        if (commentToken.bogus) { // xml declarations are emitted as bogus comments (which is right for html, but not xml)\n-            // so we do a bit of a hack and parse the data as an element to pull the attributes out\n-            String data = comment.getData();\n-            if (data.length() > 1 && (data.startsWith(\"!\") || data.startsWith(\"?\"))) {\n-                Document doc = Jsoup.parse(\"<\" + data.substring(1, data.length() -1) + \">\", baseUri, Parser.xmlParser());\n-                    Element el = doc.child(0);\n-                    insert = new XmlDeclaration(settings.normalizeTag(el.tagName()), data.startsWith(\"!\"));\n-                    insert.attributes().addAll(el.attributes());\n-            }\n-        }\n-        insertNode(insert);\n-    }\n-\n-    void insert(Token.Character token) {\n-        final String data = token.getData();\n-        insertNode(token.isCData() ? new CDataNode(data) : new TextNode(data));\n-    }\n-\n-    void insert(Token.Doctype d) {\n-        DocumentType doctypeNode = new DocumentType(settings.normalizeTag(d.getName()), d.getPublicIdentifier(), d.getSystemIdentifier());\n-        doctypeNode.setPubSysKey(d.getPubSysKey());\n-        insertNode(doctypeNode);\n-    }\n-\n-    /**\n-     * If the stack contains an element with this tag's name, pop up the stack to remove the first occurrence. If not\n-     * found, skips.\n-     *\n-     * @param endTag tag to close\n-     */\n-    private void popStackToClose(Token.EndTag endTag) {\n-        String elName = settings.normalizeTag(endTag.tagName);\n-        Element firstFound = null;\n-\n-        for (int pos = stack.size() -1; pos >= 0; pos--) {\n-            Element next = stack.get(pos);\n-            if (next.nodeName().equals(elName)) {\n-                firstFound = next;\n-                break;\n-            }\n-        }\n-        if (firstFound == null)\n-            return; // not found, skip\n-\n-        for (int pos = stack.size() -1; pos >= 0; pos--) {\n-            Element next = stack.get(pos);\n-            stack.remove(pos);\n-            if (next == firstFound)\n-                break;\n-        }\n-    }\n-\n-    List<Node> parseFragment(String inputFragment, String baseUri, ParseErrorList errors, ParseSettings settings) {\n-        initialiseParse(new StringReader(inputFragment), baseUri, errors, settings);\n-        runParser();\n-        return doc.childNodes();\n-    }\n-}\n"
+  },
+  "timestamp": "2026-06-24 20:59:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_80",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_80",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Faulty Xml Causes IndexOutOfBoundsException\n\r\n```java\r\n@Test\r\npublic void parseFaultyXml() {\r\n    String xml = \"<?xml version='1.0'><val>One</val>\";\r\n    Document doc = Jsoup.parse(xml, \"\", Parser.xmlParser());\r\n}\r\n```\r\n\r\nResults in:\r\n\r\n```\r\njava.lang.IndexOutOfBoundsException: Index: 0, Size: 0\r\n\r\n\tat java.util.ArrayList.rangeCheck(ArrayList.java:657)\r\n\tat java.util.ArrayList.get(ArrayList.java:433)\r\n\tat org.jsoup.nodes.Element.child(Element.java:254)\r\n\tat org.jsoup.parser.XmlTreeBuilder.insert(XmlTreeBuilder.java:91)\r\n\tat org.jsoup.parser.XmlTreeBuilder.process(XmlTreeBuilder.java:49)\r\n\tat org.jsoup.parser.TreeBuilder.runParser(TreeBuilder.java:52)\r\n\tat org.jsoup.parser.TreeBuilder.parse(TreeBuilder.java:45)\r\n\tat org.jsoup.parser.Parser.parseInput(Parser.java:34)\r\n\tat org.jsoup.Jsoup.parse(Jsoup.java:45)\r\n```\r\n\n",
+    "commit_message": "Check that XML declarations parse OK",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 88,
+        "end_line": 88,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 89,
+        "end_line": 89,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 90,
+        "end_line": 90,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 91,
+        "end_line": 91,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 49,
+        "end_line": 49,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 85,
+        "end_line": 85,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 86,
+        "end_line": 86,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 233,
+        "end_line": 233,
+        "suspiciousness": 0.25,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 235,
+        "end_line": 235,
+        "suspiciousness": 0.25,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.XmlTreeBuilderTest::handlesDodgyXmlDecl"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 88,
+      "end_line": 88,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 89,
+      "end_line": 89,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 90,
+      "end_line": 90,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 91,
+      "end_line": 91,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 49,
+      "end_line": 49,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 85,
+      "end_line": 85,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+      "start_line": 86,
+      "end_line": 86,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+      "start_line": 233,
+      "end_line": 233,
+      "suspiciousness": 0.25,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+      "start_line": 235,
+      "end_line": 235,
+      "suspiciousness": 0.25,
+      "rank": 10
+    }
+  ]
+}

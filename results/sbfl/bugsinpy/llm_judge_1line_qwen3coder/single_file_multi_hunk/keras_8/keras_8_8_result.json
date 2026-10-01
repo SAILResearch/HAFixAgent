@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_8",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 18:37:21",
+      "end_time": "2026-06-29 18:46:11",
+      "duration_seconds": 530,
+      "duration_human": "8m 50s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 766293,
+      "output_tokens": 5898,
+      "total_tokens": 772191,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 766293
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/network.py b/keras/engine/network.py\nindex 7d36df7a5..143b0b33d 100644\n--- a/keras/engine/network.py\n+++ b/keras/engine/network.py\n@@ -958,6 +958,12 @@ class Network(Layer):\n         unprocessed_nodes = {}\n \n         def add_unprocessed_node(layer, node_data):\n+            \"\"\"Add node to layer list\n+\n+            Args:\n+                layer: layer object\n+                node_data: Node data specifying layer call\n+            \"\"\"\n             if layer not in unprocessed_nodes:\n                 unprocessed_nodes[layer] = [node_data]\n             else:\n@@ -976,9 +982,10 @@ class Network(Layer):\n                 else:\n                     raise ValueError('Improperly formatted model config.')\n                 inbound_layer = created_layers[inbound_layer_name]\n+                # Raise an error if the corresponding layer node\n+                # has not yet been created\n                 if len(inbound_layer._inbound_nodes) <= inbound_node_index:\n-                    add_unprocessed_node(layer, node_data)\n-                    return\n+                    raise LookupError\n                 inbound_node = inbound_layer._inbound_nodes[inbound_node_index]\n                 input_tensors.append(\n                     inbound_node.output_tensors[inbound_tensor_index])\n@@ -1024,10 +1031,33 @@ class Network(Layer):\n         while unprocessed_nodes:\n             for layer_data in config['layers']:\n                 layer = created_layers[layer_data['name']]\n+\n+                # Process all nodes in layer, if not yet processed\n                 if layer in unprocessed_nodes:\n-                    for node_data in unprocessed_nodes.pop(layer):\n-                        process_node(layer, node_data)\n+                    node_data_list = unprocessed_nodes[layer]\n+\n+                    # Process nodes in order\n+                    node_index = 0\n+                    while node_index < len(node_data_list):\n+                        node_data = node_data_list[node_index]\n+                        try:\n+                            process_node(layer, node_data)\n+\n+                        # If the node does not have all inbound layers\n+                        # available, stop processing and continue later\n+                        except LookupError:\n+                            break\n+\n+                        node_index += 1\n+\n+                    # If not all nodes processed then store unprocessed nodes\n+                    if node_index < len(node_data_list):\n+                        unprocessed_nodes[layer] = node_data_list[node_index:]\n+                    # If all nodes processed remove the layer\n+                    else:\n+                        del unprocessed_nodes[layer]\n \n+        # Create lits of input and output tensors and return new class\n         name = config.get('name')\n         input_tensors = []\n         output_tensors = []\ndiff --git a/tests/keras/engine/test_topology.py b/tests/keras/engine/test_topology.py\nindex 9f5c2eebf..9813adbce 100644\n--- a/tests/keras/engine/test_topology.py\n+++ b/tests/keras/engine/test_topology.py\n@@ -760,6 +760,43 @@ def test_layer_sharing_at_heterogeneous_depth_with_concat():\n     np.testing.assert_allclose(output_val, output_val_2, atol=1e-6)\n \n \n+def test_layer_sharing_at_heterogeneous_depth_order():\n+    # This tests for the bug in this issue\n+    # https://github.com/keras-team/keras/issues/11159\n+    # It occurs with layer sharing at heterogeneous depth when\n+    # the layers need to be applied in an order that differs from\n+    # the order that occurs in the config.\n+\n+    input_shape = (1, 12)\n+    input_layer = Input(shape=input_shape)\n+\n+    A = Dense(12, name='layer_a')\n+    r1 = layers.Reshape((12,))(input_layer)\n+    Aout1 = A(r1)\n+\n+    r2 = layers.Reshape((12,))(A(input_layer))\n+    Aout2 = A(r2)\n+\n+    # Note: if the order of the layers in the concat is\n+    # changed to ([Aout1, Aout2]) the bug doesn't trigger\n+    c1 = layers.concatenate([Aout2, Aout1])\n+    output = Dense(2, name='layer_b')(c1)\n+\n+    M = Model(inputs=input_layer, outputs=output)\n+\n+    x_val = np.random.random((10,) + input_shape)\n+    output_val = M.predict(x_val)\n+\n+    config = M.get_config()\n+    weights = M.get_weights()\n+\n+    M2 = Model.from_config(config)\n+    M2.set_weights(weights)\n+\n+    output_val_2 = M2.predict(x_val)\n+    np.testing.assert_allclose(output_val, output_val_2, atol=1e-6)\n+\n+\n def test_multi_output_mask():\n     \"\"\"Fixes #7589\"\"\"\n     class TestMultiOutputLayer(Layer):\n"
+  },
+  "timestamp": "2026-06-29 18:46:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_8",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_8/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fixed loading bug for shared layers accross multiple depths (#11588)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 1121,
+        "end_line": 1121,
+        "suspiciousness": 0.784471,
+        "rank": 1
+      },
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 1129,
+        "end_line": 1129,
+        "suspiciousness": 0.784471,
+        "rank": 2
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1231,
+        "end_line": 1231,
+        "suspiciousness": 0.784471,
+        "rank": 3
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1249,
+        "end_line": 1249,
+        "suspiciousness": 0.784471,
+        "rank": 4
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1256,
+        "end_line": 1256,
+        "suspiciousness": 0.784471,
+        "rank": 5
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1257,
+        "end_line": 1257,
+        "suspiciousness": 0.784471,
+        "rank": 6
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1258,
+        "end_line": 1258,
+        "suspiciousness": 0.784471,
+        "rank": 7
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1259,
+        "end_line": 1259,
+        "suspiciousness": 0.784471,
+        "rank": 8
+      },
+      {
+        "file": "keras/engine/saving.py",
+        "start_line": 590,
+        "end_line": 590,
+        "suspiciousness": 0.784471,
+        "rank": 9
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 485,
+        "end_line": 485,
+        "suspiciousness": 0.784471,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/engine/test_topology.py::test_layer_sharing_at_heterogeneous_depth_order"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 1121,
+      "end_line": 1121,
+      "suspiciousness": 0.784471,
+      "rank": 1
+    },
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 1129,
+      "end_line": 1129,
+      "suspiciousness": 0.784471,
+      "rank": 2
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1231,
+      "end_line": 1231,
+      "suspiciousness": 0.784471,
+      "rank": 3
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1249,
+      "end_line": 1249,
+      "suspiciousness": 0.784471,
+      "rank": 4
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1256,
+      "end_line": 1256,
+      "suspiciousness": 0.784471,
+      "rank": 5
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1257,
+      "end_line": 1257,
+      "suspiciousness": 0.784471,
+      "rank": 6
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1258,
+      "end_line": 1258,
+      "suspiciousness": 0.784471,
+      "rank": 7
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1259,
+      "end_line": 1259,
+      "suspiciousness": 0.784471,
+      "rank": 8
+    },
+    {
+      "file": "keras/engine/saving.py",
+      "start_line": 590,
+      "end_line": 590,
+      "suspiciousness": 0.784471,
+      "rank": 9
+    },
+    {
+      "file": "keras/engine/training.py",
+      "start_line": 485,
+      "end_line": 485,
+      "suspiciousness": 0.784471,
+      "rank": 10
+    }
+  ]
+}

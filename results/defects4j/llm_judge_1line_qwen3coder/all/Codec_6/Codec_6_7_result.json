@@ -1,0 +1,62 @@
+{
+  "project_name": "Codec",
+  "bug_id": "6",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 06:42:50",
+      "end_time": "2026-06-20 06:45:18",
+      "duration_seconds": 148,
+      "duration_human": "2m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 826664,
+      "output_tokens": 4533,
+      "total_tokens": 831197,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 826664
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex 20a6ba86..ac6c5c16 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -51,7 +51,7 @@ limitations under the License.\n         <tstamp/>\n     </target>\n     <target name=\"compile\" depends=\"static\" description=\"Compile shareable components\">\n-        <javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\"\n+        <javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" encoding=\"UTF-8\"\n             source=\"${compile.source}\" target=\"${compile.target}\"\n             debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" optimize=\"${compile.optimize}\">\n             <classpath refid=\"compile.classpath\"/>\n@@ -184,7 +184,7 @@ limitations under the License.\n     </target>\n     <!-- ========== Unit Test Targets ========================================= -->\n     <target name=\"compile.tests\" depends=\"compile\" description=\"Compile unit test cases\">\n-        <javac srcdir=\"${test.home}\" destdir=\"${build.home}/tests\"\n+        <javac srcdir=\"${test.home}\" destdir=\"${build.home}/tests\" encoding=\"UTF-8\"\n             source=\"${compile.source}\" target=\"${compile.target}\"\n             debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" optimize=\"${compile.optimize}\">\n             <classpath refid=\"test.classpath\"/>\ndiff --git a/src/java/org/apache/commons/codec/binary/Base64InputStream.java b/src/java/org/apache/commons/codec/binary/Base64InputStream.java\nindex 583a5847..479638bc 100644\n--- a/src/java/org/apache/commons/codec/binary/Base64InputStream.java\n+++ b/src/java/org/apache/commons/codec/binary/Base64InputStream.java\n@@ -145,6 +145,7 @@ public class Base64InputStream extends FilterInputStream {\n         } else if (len == 0) {\n             return 0;\n         } else {\n+            int readLen = 0;\n             /*\n              Rationale for while-loop on (readLen == 0):\n              -----\n@@ -161,6 +162,7 @@ public class Base64InputStream extends FilterInputStream {\n              -----\n              This is a fix for CODEC-101\n             */\n+            while (readLen == 0) {\n                 if (!base64.hasData()) {\n                     byte[] buf = new byte[doEncode ? 4096 : 8192];\n                     int c = in.read(buf);\n@@ -175,7 +177,9 @@ public class Base64InputStream extends FilterInputStream {\n                         base64.decode(buf, 0, c);\n                     }\n                 }\n-            return base64.readResults(b, offset, len);\n+                readLen = base64.readResults(b, offset, len);\n+            }\n+            return readLen;\n         }\n     }\n \n"
+  },
+  "timestamp": "2026-06-20 06:45:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Codec",
+    "bug_id": "Codec_6",
+    "repo_path": "/defects4j/framework/bin/temp/Codec_6",
+    "github_url": "https://github.com/apache/commons-codec.git",
+    "description": "Base64InputStream#read(byte[]) incorrectly returns 0 at end of any stream which is multiple of 3 bytes long\nUsing new InputStreamReader(new Base64InputStream(in, true)) sometimes fails with \"java.io.IOException: Underlying input stream returned zero bytes\".\n\nThis is been tracked down that Base64InputStream#read(byte[]) incorrectly returns 0 at end of any stream which is multiple of 3 bytes long.",
+    "commit_message": "Fix for CODEC-101:  java.io.InputStreamReader hates it when InputStream.read(byte[]) returns a zero.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/codec/binary/Base64InputStream.java",
+        "start_line": 178,
+        "end_line": 178,
+        "line_numbers": [
+          178
+        ],
+        "function_name": "read",
+        "class_name": "Base64InputStream",
+        "filename": "Base64InputStream.java",
+        "code_snippet": "    public int read(byte b[], int offset, int len) throws IOException {\n        if (b == null) {\n            throw new NullPointerException();\n        } else if (offset < 0 || len < 0) {\n            throw new IndexOutOfBoundsException();\n        } else if (offset > b.length || offset + len > b.length) {\n            throw new IndexOutOfBoundsException();\n        } else if (len == 0) {\n            return 0;\n        } else {\n            /*\n             Rationale for while-loop on (readLen == 0):\n             -----\n             Base64.readResults() usually returns > 0 or EOF (-1).  In the\n             rare case where it returns 0, we just keep trying.\n\n             This is essentially an undocumented contract for InputStream\n             implementors that want their code to work properly with\n             java.io.InputStreamReader, since the latter hates it when\n             InputStream.read(byte[]) returns a zero.  Unfortunately our\n             readResults() call must return 0 if a large amount of the data\n             being decoded was non-base64, so this while-loop enables proper\n             interop with InputStreamReader for that scenario.\n             -----\n             This is a fix for CODEC-101\n            */\n                if (!base64.hasData()) {\n                    byte[] buf = new byte[doEncode ? 4096 : 8192];\n                    int c = in.read(buf);\n                    // A little optimization to avoid System.arraycopy()\n                    // when possible.\n                    if (c > 0 && b.length == len) {\n                        base64.setInitialBuffer(b, offset, len);\n                    }\n                    if (doEncode) {\n                        base64.encode(buf, 0, c);\n                    } else {\n                        base64.decode(buf, 0, c);\n                    }\n                }\n            return base64.readResults(b, offset, len);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.codec.binary.Base64InputStreamTest::testCodec101"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/codec/binary/Base64InputStream.java b/src/java/org/apache/commons/codec/binary/Base64InputStream.java\nindex 479638bc..583a5847 100644\n--- a/src/java/org/apache/commons/codec/binary/Base64InputStream.java\n+++ b/src/java/org/apache/commons/codec/binary/Base64InputStream.java\n@@ -145,7 +145,6 @@ public class Base64InputStream extends FilterInputStream {\n         } else if (len == 0) {\n             return 0;\n         } else {\n+            int readLen = 0;\n             /*\n              Rationale for while-loop on (readLen == 0):\n              -----\n@@ -162,7 +161,6 @@ public class Base64InputStream extends FilterInputStream {\n              -----\n              This is a fix for CODEC-101\n             */\n+            while (readLen == 0) {\n                 if (!base64.hasData()) {\n                     byte[] buf = new byte[doEncode ? 4096 : 8192];\n                     int c = in.read(buf);\n@@ -177,9 +175,7 @@ public class Base64InputStream extends FilterInputStream {\n                         base64.decode(buf, 0, c);\n                     }\n                 }\n+                readLen = base64.readResults(b, offset, len);\n+            }\n+            return readLen;\n-            return base64.readResults(b, offset, len);\n         }\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

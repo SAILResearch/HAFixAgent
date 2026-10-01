@@ -1,0 +1,55 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_7",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-23 11:18:12",
+      "end_time": "2026-06-23 11:22:29",
+      "duration_seconds": 257,
+      "duration_human": "4m 17s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 537327,
+      "output_tokens": 3406,
+      "total_tokens": 540733,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 537327
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex fb43fc9b..b84aa849 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -823,8 +823,8 @@ class Scheduler(object):\n                 for batch_task in self._state.get_batch_running_tasks(task.batch_id):\n                     batch_task.expl = expl\n \n-        if not (task.status in (RUNNING, BATCH_RUNNING) and status == PENDING) or new_deps:\n-            # don't allow re-scheduling of task while it is running, it must either fail or succeed first\n+        if not (task.status in (RUNNING, BATCH_RUNNING) and (status not in (DONE, FAILED, RUNNING) or task.worker_running != worker_id)) or new_deps:\n+            # don't allow re-scheduling of task while it is running, it must either fail or succeed on the worker actually running it\n             if status == PENDING or status != task.status:\n                 # Update the DB only if there was a acctual change, to prevent noise.\n                 # We also check for status == PENDING b/c that's the default value\ndiff --git a/test/scheduler_api_test.py b/test/scheduler_api_test.py\nindex d0bfd726..1947119b 100644\n--- a/test/scheduler_api_test.py\n+++ b/test/scheduler_api_test.py\n@@ -102,6 +102,14 @@ class SchedulerApiTest(unittest.TestCase):\n         self.assertEqual(self.sch.get_work(worker='Y')['task_id'], 'C')\n         self.assertEqual(self.sch.get_work(worker='X')['task_id'], 'B')\n \n+    def test_status_wont_override(self):\n+        # Worker X is running A\n+        # Worker Y wants to override the status to UNKNOWN (e.g. complete is throwing an exception)\n+        self.sch.add_task(worker='X', task_id='A')\n+        self.assertEqual(self.sch.get_work(worker='X')['task_id'], 'A')\n+        self.sch.add_task(worker='Y', task_id='A', status=UNKNOWN)\n+        self.assertEqual({'A'}, set(self.sch.task_list(RUNNING, '').keys()))\n+\n     def test_retry(self):\n         # Try to build A but fails, will retry after 100s\n         self.setTime(0)\n"
+  },
+  "timestamp": "2026-06-23 11:22:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_7",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_7/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "[bug-fix] scheduler won't override running status incorrectly (#2187)",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 826,
+        "end_line": 827,
+        "function_name": "add_task",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/scheduler_api_test.py::SchedulerApiTest::test_status_wont_override"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

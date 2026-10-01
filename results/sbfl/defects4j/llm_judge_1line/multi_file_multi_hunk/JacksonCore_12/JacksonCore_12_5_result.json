@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "JacksonCore_12",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 03:43:51",
+      "end_time": "2026-06-17 04:19:52",
+      "duration_seconds": 2160,
+      "duration_human": "36m 0s"
+    },
+    "model_cost": 0.1424,
+    "model_calls": 48,
+    "token_usage": {
+      "input_tokens": 1107915,
+      "output_tokens": 56143,
+      "total_tokens": 1164058,
+      "cached_input_tokens": 665856,
+      "uncached_input_tokens": 442059
+    },
+    "agent_steps": 48,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\nindex 60c577ac..767f147e 100644\n--- a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n+++ b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n@@ -130,6 +130,22 @@ public abstract class ParserBase extends ParserMinimalBase\n     protected JsonToken _nextToken;\n \n     /*\n+    /**\n+     * Location information for the next token (value that follows FIELD_NAME).\n+     * Only used when _nextToken is set.\n+     */\n+    protected long _nextTokenInputTotal = 0;\n+\n+    /**\n+     * Input row on which next token starts, 1-based\n+     */\n+    protected int _nextTokenInputRow = 1;\n+\n+    /**\n+     * Column on input row that next token starts; 0-based\n+     */\n+    protected int _nextTokenInputCol = 0;\n+\n     /**********************************************************\n     /* Buffer(s) for local name(s) and text content\n     /**********************************************************\ndiff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\nindex 60919c88..9457ef56 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java\n@@ -629,6 +629,9 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n             // First, field name itself:\n             String name = (i == INT_QUOTE) ? _parseName() : _handleOddName(i);\n             _parsingContext.setCurrentName(name);\n+            _tokenInputTotal = _nameInputTotal;\n+            _tokenInputRow = _nameInputRow;\n+            _tokenInputCol = _nameInputCol;\n             _currToken = JsonToken.FIELD_NAME;\n             i = _skipColon();\n         }\n@@ -858,6 +861,9 @@ public class ReaderBasedJsonParser // final in 2.3, earlier\n         _parsingContext.setCurrentName(name);\n         _currToken = JsonToken.FIELD_NAME;\n         i = _skipColon();\n+        _tokenInputTotal = _nameInputTotal;\n+        _tokenInputRow = _nameInputRow;\n+        _tokenInputCol = _nameInputCol;\n \n         if (i == INT_QUOTE) {\n             _tokenIncomplete = true;\ndiff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\nindex 589a34c4..96472c97 100644\n--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n+++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java\n@@ -843,6 +843,10 @@ public class UTF8StreamJsonParser\n         _nextToken = null;\n \n  // !!! 16-Nov-2015, tatu: TODO: fix [databind#37], copy next location to current here\n+        // Copy location info for the next token\n+        _tokenInputTotal = _nextTokenInputTotal;\n+        _tokenInputRow = _nextTokenInputRow;\n+        _tokenInputCol = _nextTokenInputCol;\n         \n         // Also: may need to start new context?\n         if (t == JsonToken.START_ARRAY) {\n"
+  },
+  "timestamp": "2026-06-17 04:19:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_12",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_12",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "JsonParser.getTokenLocation() doesn't update after field names.\nThere's a unit test to repro the issue below.  Basically, when you're on a FIELD_NAME token, if you call getTokenLocation() and then nextToken() and then getTokenLocation() again, you'll get the same location for both calls to getTokenLocation(), even though you've advanced to a new token.\n\nThe issue seems to be the _nextToken logic in ReaderBasedJsonParser and UTF8StreamJsonParser.  When calling nextToken() on a FIELD_NAME, it calls _nextAfterName(), which updates _currToken but doesn't update _tokenInputRow and _tokenInputCol for the new token's location.\n\nI started to try to fix it, but the _nextToken logic is spread across so much code that it looked like it'd be a pretty major surgery.  Not something I'm willing to do at this point. :-)\n\n```\npublic void testTokenLocationAfterFieldName() throws Exception\n{\n    _testTokenLocationAfterFieldName(false);\n    _testTokenLocationAfterFieldName(true);\n}\n\nprivate void _testTokenLocationAfterFieldName(Boolean useStream) throws Exception\n{\n    final String DOC = \"{\\\"name\\\":123}\";\n    JsonFactory jf = new JsonFactory();\n    JsonParser jp = useStream ?\n            jf.createJsonParser(new ByteArrayInputStream(DOC.getBytes(\"UTF-8\")))\n            : jf.createJsonParser(new StringReader(DOC));\n\n    assertEquals(JsonToken.START_OBJECT, jp.nextToken());\n    assertEquals(JsonToken.FIELD_NAME, jp.nextToken());\n    assertEquals(JsonToken.VALUE_NUMBER_INT, jp.nextToken());\n    assertEquals(1, jp.getTokenLocation().getLineNr());\n    assertEquals(9, jp.getTokenLocation().getColumnNr());\n    jp.close();\n}\n```\n\n",
+    "commit_message": "Fix #37",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 881,
+        "end_line": 881,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 890,
+        "end_line": 890,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 893,
+        "end_line": 893,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2670,
+        "end_line": 2670,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2671,
+        "end_line": 2671,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2672,
+        "end_line": 2672,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2673,
+        "end_line": 2673,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+        "start_line": 2674,
+        "end_line": 2674,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonLocation.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java",
+        "start_line": 475,
+        "end_line": 475,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.LocationInObjectTest::testOffsetWithObjectFieldsUsingReader"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 881,
+      "end_line": 881,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 890,
+      "end_line": 890,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 893,
+      "end_line": 893,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+      "start_line": 2670,
+      "end_line": 2670,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+      "start_line": 2671,
+      "end_line": 2671,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+      "start_line": 2672,
+      "end_line": 2672,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+      "start_line": 2673,
+      "end_line": 2673,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+      "start_line": 2674,
+      "end_line": 2674,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonLocation.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java",
+      "start_line": 475,
+      "end_line": 475,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

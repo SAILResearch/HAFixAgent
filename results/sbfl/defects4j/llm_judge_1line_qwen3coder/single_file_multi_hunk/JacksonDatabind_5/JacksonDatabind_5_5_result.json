@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_5",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 20:30:13",
+      "end_time": "2026-06-28 20:37:27",
+      "duration_seconds": 434,
+      "duration_human": "7m 14s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 933207,
+      "output_tokens": 20393,
+      "total_tokens": 953600,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 933207
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\nindex d6e44ab58..87604e6b4 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n@@ -655,7 +655,10 @@ public final class AnnotatedClass\n                      */\n                 } else {\n                     // Well, or, as per [Issue#515], multi-level merge within mixins...\n-                        mixIns.add(_constructMethod(m));\n+                        // But do not add if already present (to avoid overwriting with less specific annotations)\n+                        if (mixIns.find(m) == null) {\n+                            mixIns.add(_constructMethod(m));\n+                        }\n                 }\n             }\n         }\n"
+  },
+  "timestamp": "2026-06-28 20:37:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_5",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_5",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Mixin annotations lost when using a mixin class hierarchy with non-mixin interfaces\nIn summary, mixin annotations are lost when Jackson scans a parent mixin class with Json annotations followed by an interface implemented by the parent mixin class that does not have the same Json annotations.\nJackson version: 2.4.0\n\nDetail:\nI have the following class structure\n\n``` java\npublic interface Contact {\n    String getCity();\n}\n\npublic class ContactImpl implements Contact {\n    public String getCity() { ... }\n}\n\npublic class ContactMixin implements Contact {\n    @JsonProperty\n    public String getCity() { return null; }\n}\n\npublic interface Person extends Contact {}\n\npublic class PersonImpl extends ContactImpl implements Person {}\n\npublic class PersonMixin extends ContactMixin implements Person {}\n```\n\nand I configure a module as\n\n``` java\n// There are other getters/properties in the Impl class that do not need to be serialized and so\n// I am using the Mixin to match the interface and explicitly annotate all the inherited methods\nmodule.disable(MapperFeature.ALLOW_FINAL_FIELDS_AS_MUTATORS)\n    .disable(MapperFeature.AUTO_DETECT_FIELDS)\n    .disable(MapperFeature.AUTO_DETECT_GETTERS)\n    .disable(MapperFeature.AUTO_DETECT_IS_GETTERS)\n    .disable(MapperFeature.INFER_PROPERTY_MUTATORS);\nmodule.setMixInAnnotation(Person.class, PersonMixin.class);\n```\n\nWhen a `PersonImpl` instance is serialized, `city` is not included.\n\nI debugged the code and this is what happens:\nIn `AnnotatedClass.resolveMemberMethods()` the supertypes of `PersonImpl` are `[Person.class, Contact.class, ContactImpl.class]` in that order.\n\nIt starts with `Person` for which it finds `PersonMixin` and proceeds to `AnnotatedClass._addMethodMixIns()`. Here the `parents` list has `[PersonMixin, ContactMixin, Contact]`. When it processes `ContactMixin` it adds `getCity()` with the `JsonProperty` annotation. Then it processes `Contact`, doesn't find `getCity()` in `methods` map and so creates a new `AnnotatedMethod` for `getCity()` with the one from the interface which has no annotation which replaces the one from `ContactMixin`\n\nThe workaround for this issue is to explicitly add any parent mixins to the module i.e.\n\n``` java\nmodule.setMixInAnnotation(Contact.class, ContactMixin.class);\n```\n\n",
+    "commit_message": "Fix #515",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/SerializationConfig.java",
+        "start_line": 470,
+        "end_line": 470,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+        "start_line": 326,
+        "end_line": 326,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+        "start_line": 515,
+        "end_line": 515,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+        "start_line": 516,
+        "end_line": 516,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/SerializationConfig.java",
+        "start_line": 467,
+        "end_line": 467,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 0.5,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+        "start_line": 59,
+        "end_line": 59,
+        "suspiciousness": 0.5,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 363,
+        "end_line": 363,
+        "suspiciousness": 0.5,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 364,
+        "end_line": 364,
+        "suspiciousness": 0.5,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 366,
+        "end_line": 366,
+        "suspiciousness": 0.5,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.introspect.TestMixinMerging::testDisappearingMixins515"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/SerializationConfig.java",
+      "start_line": 470,
+      "end_line": 470,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+      "start_line": 326,
+      "end_line": 326,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+      "start_line": 515,
+      "end_line": 515,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+      "start_line": 516,
+      "end_line": 516,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/SerializationConfig.java",
+      "start_line": 467,
+      "end_line": 467,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 0.5,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+      "start_line": 59,
+      "end_line": 59,
+      "suspiciousness": 0.5,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 363,
+      "end_line": 363,
+      "suspiciousness": 0.5,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 364,
+      "end_line": 364,
+      "suspiciousness": 0.5,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 366,
+      "end_line": 366,
+      "suspiciousness": 0.5,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_15",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 08:05:00",
+      "end_time": "2026-06-29 08:06:34",
+      "duration_seconds": 94,
+      "duration_human": "1m 34s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 987059,
+      "output_tokens": 4857,
+      "total_tokens": 991916,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 987059
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdDelegatingSerializer.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdDelegatingSerializer.java\nindex 3aeb4f306..8236cbfbe 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/StdDelegatingSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/StdDelegatingSerializer.java\n@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.jsontype.TypeSerializer;\n import com.fasterxml.jackson.databind.ser.ContextualSerializer;\n import com.fasterxml.jackson.databind.ser.ResolvableSerializer;\n import com.fasterxml.jackson.databind.util.Converter;\n+import com.fasterxml.jackson.databind.ser.impl.UnknownSerializer;\n \n import java.io.IOException;\n import java.lang.reflect.Type;\n"
+  },
+  "timestamp": "2026-06-29 08:06:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_15",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_15",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "XmlAdapter result marshaling error in case of ValueType=Object \nHi,\n\nI have an error \"com.fasterxml.jackson.databind.JsonMappingException: No serializer found for class java.lang.String and no properties discovered to create BeanSerializer\" in case of using custom XmlAdapter with such declaration:\n\n``` java\npublic static class IntegerListXmlAdapter extends XmlAdapter<Object, List<Integer>> {\n        ...\n        @Override\n        public Object marshal(List<Integer> list) throws Exception {\n            return Joiner.on(\",\").join(list);\n        }\n}\n```\n\nIf change declaration of this class to \"extends XmlAdapter<String, List<Integer>>\" it works good.\n\nFull example:\n\n``` java\npublic class IntegerListXmlAdapterTest {\n    @Test\n    public void testBasic() throws JsonProcessingException {\n        ObjectMapper mapper = (new ObjectMapper()).setAnnotationIntrospector(new JaxbAnnotationIntrospector());\n        SomeIntListHolder listHolder = new SomeIntListHolder();\n        listHolder.setListOne(asList(1, 2, 3));\n        System.out.println(mapper.writeValueAsString(listHolder));\n    }\n\n    public static class IntegerListXmlAdapter extends XmlAdapter<Object, List<Integer>> {\n        @Override\n        public List<Integer> unmarshal(Object value) throws Exception {return null;}\n\n        @Override\n        public Object marshal(List<Integer> list) throws Exception {\n            return Joiner.on(\",\").join(list);\n        }\n    }\n\n    public static class IntegerListToStringXmlAdapter extends XmlAdapter<String, List<Integer>> {\n        public List<Integer> unmarshal(String value) throws Exception {return null;}\n\n        public String marshal(List<Integer> list) throws Exception {\n            return Joiner.on(\",\").join(list);\n        }\n    }\n\n    @XmlRootElement\n    @XmlAccessorType(XmlAccessType.NONE)\n    public static class SomeIntListHolder {\n\n        @XmlAttribute\n        @XmlJavaTypeAdapter(IntegerListXmlAdapter.class)\n        private List<Integer> listOne;\n\n        public List<Integer> getListOne() {\n            return listOne;\n        }\n\n        public void setListOne(List<Integer> listOne) {\n            this.listOne = listOne;\n        }\n    }\n}\n```\n\nIn this state with last Jackson version we will get an error\n\n```\ncom.fasterxml.jackson.databind.JsonMappingException: No serializer found for class java.lang.String and no properties discovered to create BeanSerializer (to avoid exception, disable SerializationFeature.FAIL_ON_EMPTY_BEANS) ) (through reference chain: SomeIntListHolder[\"listOne\"])\n    at com.fasterxml.jackson.databind.ser.impl.UnknownSerializer.failForEmpty(UnknownSerializer.java:59)\n    at com.fasterxml.jackson.databind.ser.impl.UnknownSerializer.serialize(UnknownSerializer.java:26)\n    at com.fasterxml.jackson.databind.ser.std.StdDelegatingSerializer.serialize(StdDelegatingSerializer.java:157)\n    at com.fasterxml.jackson.databind.ser.BeanPropertyWriter.serializeAsField(BeanPropertyWriter.java:575)\n    at com.fasterxml.jackson.databind.ser.std.BeanSerializerBase.serializeFields(BeanSerializerBase.java:663)\n    at com.fasterxml.jackson.databind.ser.BeanSerializer.serialize(BeanSerializer.java:156)\n    at com.fasterxml.jackson.databind.ser.DefaultSerializerProvider.serializeValue(DefaultSerializerProvider.java:129)\n    at com.fasterxml.jackson.databind.ObjectMapper._configAndWriteValue(ObjectMapper.java:3385)\n    at com.fasterxml.jackson.databind.ObjectMapper.writeValueAsString(ObjectMapper.java:2779)\n```\n\nBut if we change XmlJavaTypeAdapter to IntegerListToStringXmlAdapter error will be fixed and code will work fine.\nThis error exists only in Jackson 2, we have this code with Object generic on Jackson 1 and get an issue only during migration to new major version.\n\nThis concrete error can be fixed by hack in com.fasterxml.jackson.databind.ser.std.StdDelegatingSerializer:\n\n``` java\n    @Override\n    public void serialize(Object value, JsonGenerator gen, SerializerProvider provider) throws IOException\n    {\n        Object delegateValue = convertValue(value);\n        // should we accept nulls?\n        if (delegateValue == null) {\n            provider.defaultSerializeNull(gen);\n            return;\n        }\n\n        //original code:\n        //_delegateSerializer.serialize(delegateValue, gen, provider);\n\n        JsonSerializer<Object> delegateSerializer;\n        if (_delegateSerializer instanceof UnknownSerializer) {\n            delegateSerializer =  provider.findValueSerializer(delegateValue.getClass());\n        } else {\n            delegateSerializer = _delegateSerializer;\n        }\n\n        delegateSerializer.serialize(delegateValue, gen, provider);\n    }\n```\n\nYou can find test class here: https://github.com/Spikhalskiy/jackson_xmladapter__bug/blob/master/src/test/java/IntegerListXmlAdapterTest.java\n\nand hacked serializer code here: https://github.com/Spikhalskiy/jackson_xmladapter__bug/blob/master/src/main/java/com/fasterxml/jackson/databind/ser/std/StdDelegatingSerializer.java\n\nNow test passing in this repo because of fake StdDelegatingSerializer in classpath - try to delete it to get an issue.\n\n",
+    "commit_message": "Fix #731",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+        "start_line": 326,
+        "end_line": 326,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+        "start_line": 343,
+        "end_line": 343,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 924,
+        "end_line": 924,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 925,
+        "end_line": 925,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 1064,
+        "end_line": 1064,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 1066,
+        "end_line": 1066,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 1067,
+        "end_line": 1067,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+        "start_line": 1069,
+        "end_line": 1069,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 0.5,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+        "start_line": 59,
+        "end_line": 59,
+        "suspiciousness": 0.5,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.convert.TestConvertingSerializer::testIssue731"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+      "start_line": 326,
+      "end_line": 326,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+      "start_line": 343,
+      "end_line": 343,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 924,
+      "end_line": 924,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 925,
+      "end_line": 925,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 1064,
+      "end_line": 1064,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 1066,
+      "end_line": 1066,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 1067,
+      "end_line": 1067,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java",
+      "start_line": 1069,
+      "end_line": 1069,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 0.5,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnknownSerializer.java",
+      "start_line": 59,
+      "end_line": 59,
+      "suspiciousness": 0.5,
+      "rank": 10
+    }
+  ]
+}

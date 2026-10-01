@@ -1,0 +1,193 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_1",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 19:44:33",
+      "end_time": "2026-06-30 19:46:14",
+      "duration_seconds": 101,
+      "duration_human": "1m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 477310,
+      "output_tokens": 5204,
+      "total_tokens": 482514,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 477310
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py\nindex a055b08e71..7c55c99afa 100644\n--- a/lib/ansible/galaxy/collection.py\n+++ b/lib/ansible/galaxy/collection.py\n@@ -670,6 +670,9 @@ def verify_collections(collections, search_paths, apis, validate_certs, ignore_e\n                         if os.path.isdir(b_search_path):\n                             local_collection = CollectionRequirement.from_path(b_search_path, False)\n                             break\n+                    # Check if collection has MANIFEST.json\n+                    if local_collection.latest_version == \"*\":\n+                        raise AnsibleError(message='Collection %s does not appear to have a MANIFEST.json. A MANIFEST.json is expected if the collection has been built and installed via ansible-galaxy.' % collection_name)\n                     if local_collection is None:\n                         raise AnsibleError(message='Collection %s is not installed in any of the collection paths.' % collection_name)\n \ndiff --git a/test/units/galaxy/test_collection.py b/test/units/galaxy/test_collection.py\nindex f6b285cca0..1fced76933 100644\n--- a/test/units/galaxy/test_collection.py\n+++ b/test/units/galaxy/test_collection.py\n@@ -1154,6 +1154,25 @@ def test_verify_identical(monkeypatch, mock_collection, manifest_info, files_man\n             assert mock_debug.call_args_list[-1][0][0] == success_msg\n \n \n+@patch.object(os.path, 'isdir', return_value=True)\n+def test_verify_collections_no_version(mock_isdir, mock_collection, monkeypatch):\n+    namespace = 'ansible_namespace'\n+    name = 'collection'\n+    version = '*'  # Occurs if MANIFEST.json does not exist\n+\n+    local_collection = mock_collection(namespace=namespace, name=name, version=version)\n+    monkeypatch.setattr(collection.CollectionRequirement, 'from_path', MagicMock(return_value=local_collection))\n+\n+    collections = [('%s.%s' % (namespace, name), version, None)]\n+\n+    with pytest.raises(AnsibleError) as err:\n+        collection.verify_collections(collections, './', local_collection.api, False, False)\n+\n+    err_msg = 'Collection %s.%s does not appear to have a MANIFEST.json. ' % (namespace, name)\n+    err_msg += 'A MANIFEST.json is expected if the collection has been built and installed via ansible-galaxy.'\n+    assert err.value.message == err_msg\n+\n+\n @patch.object(collection.CollectionRequirement, 'verify')\n def test_verify_collections_not_installed(mock_verify, mock_collection, monkeypatch):\n     namespace = 'ansible_namespace'\n@@ -1208,11 +1227,14 @@ def test_verify_collections_not_installed_ignore_errors(mock_verify, mock_collec\n \n @patch.object(os.path, 'isdir', return_value=True)\n @patch.object(collection.CollectionRequirement, 'verify')\n-def test_verify_collections_no_remote(mock_verify, mock_isdir, mock_collection):\n+def test_verify_collections_no_remote(mock_verify, mock_isdir, mock_collection, monkeypatch):\n     namespace = 'ansible_namespace'\n     name = 'collection'\n     version = '1.0.0'\n \n+    monkeypatch.setattr(os.path, 'isfile', MagicMock(side_effect=[False, True]))\n+    monkeypatch.setattr(collection.CollectionRequirement, 'from_path', MagicMock(return_value=mock_collection()))\n+\n     collections = [('%s.%s' % (namespace, name), version, None)]\n     search_path = './'\n     validate_certs = False\n@@ -1227,12 +1249,13 @@ def test_verify_collections_no_remote(mock_verify, mock_isdir, mock_collection):\n \n @patch.object(os.path, 'isdir', return_value=True)\n @patch.object(collection.CollectionRequirement, 'verify')\n-def test_verify_collections_no_remote_ignore_errors(mock_verify, mock_isdir, mock_collection):\n+def test_verify_collections_no_remote_ignore_errors(mock_verify, mock_isdir, mock_collection, monkeypatch):\n     namespace = 'ansible_namespace'\n     name = 'collection'\n     version = '1.0.0'\n \n-    local_collection = mock_collection(local_installed=False)\n+    monkeypatch.setattr(os.path, 'isfile', MagicMock(side_effect=[False, True]))\n+    monkeypatch.setattr(collection.CollectionRequirement, 'from_path', MagicMock(return_value=mock_collection()))\n \n     collections = [('%s.%s' % (namespace, name), version, None)]\n     search_path = './'\n@@ -1292,13 +1315,14 @@ def test_verify_collections_url(monkeypatch):\n     assert err.value.message == msg\n \n \n-@patch.object(os.path, 'isfile', return_value=False)\n @patch.object(os.path, 'isdir', return_value=True)\n @patch.object(collection.CollectionRequirement, 'verify')\n-def test_verify_collections_name(mock_verify, mock_isdir, mock_isfile, mock_collection, monkeypatch):\n+def test_verify_collections_name(mock_verify, mock_isdir, mock_collection, monkeypatch):\n     local_collection = mock_collection()\n     monkeypatch.setattr(collection.CollectionRequirement, 'from_path', MagicMock(return_value=local_collection))\n \n+    monkeypatch.setattr(os.path, 'isfile', MagicMock(side_effect=[False, True, False]))\n+\n     located_remote_from_name = MagicMock(return_value=mock_collection(local=False))\n     monkeypatch.setattr(collection.CollectionRequirement, 'from_name', located_remote_from_name)\n \n"
+  },
+  "timestamp": "2026-06-30 19:46:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_1/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "better error for \"ansible-galaxy collection verify\" if there's no MANIFEST.json (#67498)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/module_utils/common/text/converters.py",
+        "start_line": 202,
+        "end_line": 202,
+        "suspiciousness": 0.275077,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/module_utils/common/text/converters.py",
+        "start_line": 201,
+        "end_line": 201,
+        "suspiciousness": 0.261473,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 671,
+        "end_line": 671,
+        "suspiciousness": 0.180923,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 672,
+        "end_line": 672,
+        "suspiciousness": 0.180923,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 677,
+        "end_line": 677,
+        "suspiciousness": 0.180923,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 678,
+        "end_line": 678,
+        "suspiciousness": 0.180923,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 679,
+        "end_line": 679,
+        "suspiciousness": 0.180923,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/galaxy/api.py",
+        "start_line": 213,
+        "end_line": 213,
+        "suspiciousness": 0.179301,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/galaxy/api.py",
+        "start_line": 216,
+        "end_line": 216,
+        "suspiciousness": 0.179301,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/galaxy/api.py",
+        "start_line": 220,
+        "end_line": 220,
+        "suspiciousness": 0.179301,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/galaxy/test_collection.py::test_verify_collections_no_version"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/module_utils/common/text/converters.py",
+      "start_line": 202,
+      "end_line": 202,
+      "suspiciousness": 0.275077,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/module_utils/common/text/converters.py",
+      "start_line": 201,
+      "end_line": 201,
+      "suspiciousness": 0.261473,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 671,
+      "end_line": 671,
+      "suspiciousness": 0.180923,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 672,
+      "end_line": 672,
+      "suspiciousness": 0.180923,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 677,
+      "end_line": 677,
+      "suspiciousness": 0.180923,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 678,
+      "end_line": 678,
+      "suspiciousness": 0.180923,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/galaxy/collection.py",
+      "start_line": 679,
+      "end_line": 679,
+      "suspiciousness": 0.180923,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/galaxy/api.py",
+      "start_line": 213,
+      "end_line": 213,
+      "suspiciousness": 0.179301,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/galaxy/api.py",
+      "start_line": 216,
+      "end_line": 216,
+      "suspiciousness": 0.179301,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/galaxy/api.py",
+      "start_line": 220,
+      "end_line": 220,
+      "suspiciousness": 0.179301,
+      "rank": 10
+    }
+  ]
+}

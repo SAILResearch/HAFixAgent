@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_63",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 18:07:01",
+      "end_time": "2026-03-23 18:11:29",
+      "duration_seconds": 268,
+      "duration_human": "4m 28s"
+    },
+    "model_cost": 0.0266,
+    "model_calls": 28,
+    "token_usage": {
+      "input_tokens": 187307,
+      "output_tokens": 6534,
+      "total_tokens": 193841,
+      "cached_input_tokens": 98624,
+      "uncached_input_tokens": 88683
+    },
+    "agent_steps": 28,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexing.py b/pandas/core/indexing.py\nindex 3e468fb567..4147e42451 100755\n--- a/pandas/core/indexing.py\n+++ b/pandas/core/indexing.py\n@@ -2090,17 +2090,10 @@ class _AtIndexer(_ScalarAccessIndexer):\n         for ax, i in zip(self.obj.axes, key):\n             if ax.is_integer():\n                 if not is_integer(i):\n-                    raise ValueError(\n-                        \"At based indexing on an integer index \"\n-                        \"can only have integer indexers\"\n-                    )\n+                    ax._invalid_indexer(\"label\", i)\n             else:\n                 if is_integer(i) and not (ax.holds_integer() or ax.is_floating()):\n-                    raise ValueError(\n-                        \"At based indexing on an non-integer \"\n-                        \"index can only have non-integer \"\n-                        \"indexers\"\n-                    )\n+                    ax._invalid_indexer(\"label\", i)\n         return key\n \n \ndiff --git a/pandas/tests/indexing/test_scalar.py b/pandas/tests/indexing/test_scalar.py\nindex 9e6446ebc8..312a0c6531 100644\n--- a/pandas/tests/indexing/test_scalar.py\n+++ b/pandas/tests/indexing/test_scalar.py\n@@ -129,38 +129,79 @@ class TestScalar2:\n         result = df.iat[2, 0]\n         assert result == 2\n \n-    def test_at_to_fail(self):\n+    def test_series_at_raises_type_error(self):\n         # at should not fallback\n         # GH 7814\n-        s = Series([1, 2, 3], index=list(\"abc\"))\n-        result = s.at[\"a\"]\n+        # GH#31724 .at should match .loc\n+        ser = Series([1, 2, 3], index=list(\"abc\"))\n+        result = ser.at[\"a\"]\n         assert result == 1\n+        result = ser.loc[\"a\"]\n+        assert result == 1\n+\n         msg = (\n-            \"At based indexing on an non-integer index can only have \"\n-            \"non-integer indexers\"\n+            \"cannot do label indexing on <class 'pandas.core.indexes.base.Index'> \"\n+            r\"with these indexers \\[0\\] of <class 'int'>\"\n         )\n-        with pytest.raises(ValueError, match=msg):\n-            s.at[0]\n+        with pytest.raises(TypeError, match=msg):\n+            ser.at[0]\n+        with pytest.raises(TypeError, match=msg):\n+            ser.loc[0]\n \n+    def test_frame_raises_type_error(self):\n+        # GH#31724 .at should match .loc\n         df = DataFrame({\"A\": [1, 2, 3]}, index=list(\"abc\"))\n         result = df.at[\"a\", \"A\"]\n         assert result == 1\n-        with pytest.raises(ValueError, match=msg):\n+        result = df.loc[\"a\", \"A\"]\n+        assert result == 1\n+\n+        msg = (\n+            \"cannot do label indexing on <class 'pandas.core.indexes.base.Index'> \"\n+            r\"with these indexers \\[0\\] of <class 'int'>\"\n+        )\n+        with pytest.raises(TypeError, match=msg):\n             df.at[\"a\", 0]\n+        with pytest.raises(TypeError, match=msg):\n+            df.loc[\"a\", 0]\n+\n+    def test_series_at_raises_key_error(self):\n+        # GH#31724 .at should match .loc\n \n-        s = Series([1, 2, 3], index=[3, 2, 1])\n-        result = s.at[1]\n+        ser = Series([1, 2, 3], index=[3, 2, 1])\n+        result = ser.at[1]\n         assert result == 3\n-        msg = \"At based indexing on an integer index can only have integer indexers\"\n-        with pytest.raises(ValueError, match=msg):\n-            s.at[\"a\"]\n+        result = ser.loc[1]\n+        assert result == 3\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n+            ser.at[\"a\"]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            # .at should match .loc\n+            ser.loc[\"a\"]\n+\n+    def test_frame_at_raises_key_error(self):\n+        # GH#31724 .at should match .loc\n \n         df = DataFrame({0: [1, 2, 3]}, index=[3, 2, 1])\n+\n         result = df.at[1, 0]\n         assert result == 3\n-        with pytest.raises(ValueError, match=msg):\n+        result = df.loc[1, 0]\n+        assert result == 3\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n             df.at[\"a\", 0]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.loc[\"a\", 0]\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.at[1, \"a\"]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.loc[1, \"a\"]\n \n+    # TODO: belongs somewhere else?\n+    def test_getitem_list_missing_key(self):\n         # GH 13822, incorrect error string with non-unique columns when missing\n         # column is accessed\n         df = DataFrame({\"x\": [1.0], \"y\": [2.0], \"z\": [3.0]})\n"
+  },
+  "timestamp": "2026-03-23 14:11:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_63",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_63/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "API/BUG: make .at raise same exceptions as .loc (#31724)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2090,
+        "end_line": 2104,
+        "function_name": "_convert_key",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_scalar.py::TestScalar2::test_series_at_raises_type_error"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

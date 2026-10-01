@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_90",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 21:48:05",
+      "end_time": "2026-06-17 21:53:10",
+      "duration_seconds": 305,
+      "duration_human": "5m 5s"
+    },
+    "model_cost": 0.0604,
+    "model_calls": 28,
+    "token_usage": {
+      "input_tokens": 429542,
+      "output_tokens": 7471,
+      "total_tokens": 437013,
+      "cached_input_tokens": 217024,
+      "uncached_input_tokens": 212518
+    },
+    "agent_steps": 28,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/io/common.py b/pandas/io/common.py\nindex 771a302d64..416db433a0 100644\n--- a/pandas/io/common.py\n+++ b/pandas/io/common.py\n@@ -373,9 +373,8 @@ def get_handle(\n     is_path = isinstance(path_or_buf, str)\n \n     compression, compression_args = get_compression_method(compression)\n-    if is_path:\n-        compression = infer_compression(path_or_buf, compression)\n \n+    compression = infer_compression(path_or_buf, compression)\n     if compression:\n \n         # GZ Compression\ndiff --git a/pandas/io/pickle.py b/pandas/io/pickle.py\nindex 6ce52da21b..6201d3204e 100644\n--- a/pandas/io/pickle.py\n+++ b/pandas/io/pickle.py\n@@ -4,7 +4,7 @@ import warnings\n \n from pandas.compat import pickle_compat as pc\n \n-from pandas.io.common import get_handle, stringify_path\n+from pandas.io.common import get_handle, stringify_path, get_filepath_or_buffer\n \n \n def to_pickle(obj, path, compression=\"infer\", protocol=pickle.HIGHEST_PROTOCOL):\n@@ -135,8 +135,12 @@ def read_pickle(path, compression=\"infer\"):\n     >>> os.remove(\"./dummy.pkl\")\n     \"\"\"\n     path = stringify_path(path)\n-    f, fh = get_handle(path, \"rb\", compression=compression, is_text=False)\n-\n+    path = stringify_path(path)\n+    # Handle URLs, S3, GCS, etc.\n+    path_or_buffer, _, updated_compression, should_close = get_filepath_or_buffer(\n+        path, compression=compression\n+    )\n+    f, fh = get_handle(path_or_buffer, \"rb\", compression=updated_compression, is_text=False)\n     # 1) try standard library Pickle\n     # 2) try pickle_compat (older pandas version) to handle subclass changes\n \ndiff --git a/pandas/tests/io/test_pickle.py b/pandas/tests/io/test_pickle.py\nindex ccd77f47b5..3d427dde57 100644\n--- a/pandas/tests/io/test_pickle.py\n+++ b/pandas/tests/io/test_pickle.py\n@@ -22,6 +22,7 @@ import zipfile\n import pytest\n \n from pandas.compat import _get_lzma_file, _import_lzma, is_platform_little_endian\n+import pandas.util._test_decorators as td\n \n import pandas as pd\n from pandas import Index\n@@ -390,3 +391,99 @@ def test_unicode_decode_error(datapath):\n     # just test the columns are correct since the values are random\n     excols = pd.Index([\"a\", \"b\", \"c\"])\n     tm.assert_index_equal(df.columns, excols)\n+\n+\n+# ---------------------\n+# tests for buffer I/O\n+# ---------------------\n+\n+\n+def test_pickle_buffer_roundtrip():\n+    with tm.ensure_clean() as path:\n+        df = tm.makeDataFrame()\n+        with open(path, \"wb\") as fh:\n+            df.to_pickle(fh)\n+        with open(path, \"rb\") as fh:\n+            result = pd.read_pickle(fh)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+# ---------------------\n+# tests for URL I/O\n+# ---------------------\n+\n+\n+@pytest.mark.parametrize(\n+    \"mockurl\", [\"http://url.com\", \"ftp://test.com\", \"http://gzip.com\"]\n+)\n+def test_pickle_generalurl_read(monkeypatch, mockurl):\n+    def python_pickler(obj, path):\n+        with open(path, \"wb\") as fh:\n+            pickle.dump(obj, fh, protocol=-1)\n+\n+    class MockReadResponse:\n+        def __init__(self, path):\n+            self.file = open(path, \"rb\")\n+            if \"gzip\" in path:\n+                self.headers = {\"Content-Encoding\": \"gzip\"}\n+            else:\n+                self.headers = {\"Content-Encoding\": None}\n+\n+        def read(self):\n+            return self.file.read()\n+\n+        def close(self):\n+            return self.file.close()\n+\n+    with tm.ensure_clean() as path:\n+\n+        def mock_urlopen_read(*args, **kwargs):\n+            return MockReadResponse(path)\n+\n+        df = tm.makeDataFrame()\n+        python_pickler(df, path)\n+        monkeypatch.setattr(\"urllib.request.urlopen\", mock_urlopen_read)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+@td.skip_if_no(\"gcsfs\")\n+@pytest.mark.parametrize(\"mockurl\", [\"gs://gcs.com\", \"gcs://gcs.com\"])\n+def test_pickle_gcsurl_roundtrip(monkeypatch, mockurl):\n+    with tm.ensure_clean() as path:\n+\n+        class MockGCSFileSystem:\n+            def __init__(self, *args, **kwargs):\n+                pass\n+\n+            def open(self, *args):\n+                mode = args[1] or None\n+                f = open(path, mode)\n+                return f\n+\n+        monkeypatch.setattr(\"gcsfs.GCSFileSystem\", MockGCSFileSystem)\n+        df = tm.makeDataFrame()\n+        df.to_pickle(mockurl)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+@td.skip_if_no(\"s3fs\")\n+@pytest.mark.parametrize(\"mockurl\", [\"s3://s3.com\", \"s3n://s3.com\", \"s3a://s3.com\"])\n+def test_pickle_s3url_roundtrip(monkeypatch, mockurl):\n+    with tm.ensure_clean() as path:\n+\n+        class MockS3FileSystem:\n+            def __init__(self, *args, **kwargs):\n+                pass\n+\n+            def open(self, *args):\n+                mode = args[1] or None\n+                f = open(path, mode)\n+                return f\n+\n+        monkeypatch.setattr(\"s3fs.S3FileSystem\", MockS3FileSystem)\n+        df = tm.makeDataFrame()\n+        df.to_pickle(mockurl)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n"
+  },
+  "timestamp": "2026-06-17 21:53:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_90",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_90/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: func 'to_pickle' and 'read_pickle' where not accepting URL GH#30163 (#30301)",
+    "fault_locations": [
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 420,
+        "end_line": 420,
+        "suspiciousness": 0.47619,
+        "rank": 1
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 421,
+        "end_line": 421,
+        "suspiciousness": 0.47619,
+        "rank": 2
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 75,
+        "end_line": 75,
+        "suspiciousness": 0.47619,
+        "rank": 3
+      },
+      {
+        "file": "pandas/io/common.py",
+        "start_line": 302,
+        "end_line": 302,
+        "suspiciousness": 0.359445,
+        "rank": 4
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1558,
+        "end_line": 1558,
+        "suspiciousness": 0.335229,
+        "rank": 5
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1563,
+        "end_line": 1563,
+        "suspiciousness": 0.335229,
+        "rank": 6
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1781,
+        "end_line": 1781,
+        "suspiciousness": 0.335229,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1782,
+        "end_line": 1782,
+        "suspiciousness": 0.335229,
+        "rank": 8
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1812,
+        "end_line": 1812,
+        "suspiciousness": 0.335229,
+        "rank": 9
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1813,
+        "end_line": 1813,
+        "suspiciousness": 0.335229,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/test_pickle.py::test_pickle_buffer_roundtrip",
+      "pytest pandas/tests/io/test_pickle.py::test_pickle_generalurl_read"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/io/common.py",
+      "start_line": 420,
+      "end_line": 420,
+      "suspiciousness": 0.47619,
+      "rank": 1
+    },
+    {
+      "file": "pandas/io/common.py",
+      "start_line": 421,
+      "end_line": 421,
+      "suspiciousness": 0.47619,
+      "rank": 2
+    },
+    {
+      "file": "pandas/io/common.py",
+      "start_line": 75,
+      "end_line": 75,
+      "suspiciousness": 0.47619,
+      "rank": 3
+    },
+    {
+      "file": "pandas/io/common.py",
+      "start_line": 302,
+      "end_line": 302,
+      "suspiciousness": 0.359445,
+      "rank": 4
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1558,
+      "end_line": 1558,
+      "suspiciousness": 0.335229,
+      "rank": 5
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1563,
+      "end_line": 1563,
+      "suspiciousness": 0.335229,
+      "rank": 6
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1781,
+      "end_line": 1781,
+      "suspiciousness": 0.335229,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1782,
+      "end_line": 1782,
+      "suspiciousness": 0.335229,
+      "rank": 8
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1812,
+      "end_line": 1812,
+      "suspiciousness": 0.335229,
+      "rank": 9
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 1813,
+      "end_line": 1813,
+      "suspiciousness": 0.335229,
+      "rank": 10
+    }
+  ]
+}

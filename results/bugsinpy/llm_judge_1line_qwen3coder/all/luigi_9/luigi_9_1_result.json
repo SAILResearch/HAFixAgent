@@ -1,0 +1,81 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_9",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 12:55:59",
+      "end_time": "2026-06-20 12:58:16",
+      "duration_seconds": 137,
+      "duration_human": "2m 17s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 841888,
+      "output_tokens": 3081,
+      "total_tokens": 844969,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 841888
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/execution_summary.py b/luigi/execution_summary.py\nindex 27efbcb6..256f341b 100644\n--- a/luigi/execution_summary.py\n+++ b/luigi/execution_summary.py\n@@ -43,12 +43,13 @@ def _partition_tasks(worker):\n     set_tasks[\"completed\"] = {task for (task, status, ext) in task_history if status == 'DONE' and task in pending_tasks}\n     set_tasks[\"already_done\"] = {task for (task, status, ext) in task_history\n                                  if status == 'DONE' and task not in pending_tasks and task not in set_tasks[\"completed\"]}\n-    set_tasks[\"failed\"] = {task for (task, status, ext) in task_history if status == 'FAILED'}\n+    set_tasks[\"ever_failed\"] = {task for (task, status, ext) in task_history if status == 'FAILED'}\n+    set_tasks[\"failed\"] = set_tasks[\"ever_failed\"] - set_tasks[\"completed\"]\n     set_tasks[\"scheduling_error\"] = {task for(task, status, ext) in task_history if status == 'UNKNOWN'}\n     set_tasks[\"still_pending_ext\"] = {task for (task, status, ext) in task_history\n-                                      if status == 'PENDING' and task not in set_tasks[\"failed\"] and task not in set_tasks[\"completed\"] and not ext}\n+                                      if status == 'PENDING' and task not in set_tasks[\"ever_failed\"] and task not in set_tasks[\"completed\"] and not ext}\n     set_tasks[\"still_pending_not_ext\"] = {task for (task, status, ext) in task_history\n-                                          if status == 'PENDING' and task not in set_tasks[\"failed\"] and task not in set_tasks[\"completed\"] and ext}\n+                                          if status == 'PENDING' and task not in set_tasks[\"ever_failed\"] and task not in set_tasks[\"completed\"] and ext}\n     set_tasks[\"run_by_other_worker\"] = set()\n     set_tasks[\"upstream_failure\"] = set()\n     set_tasks[\"upstream_missing_dependency\"] = set()\n@@ -87,7 +88,7 @@ def _depth_first_search(set_tasks, current_task, visited):\n         for task in current_task._requires():\n             if task not in visited:\n                 _depth_first_search(set_tasks, task, visited)\n-            if task in set_tasks[\"failed\"] or task in set_tasks[\"upstream_failure\"]:\n+            if task in set_tasks[\"ever_failed\"] or task in set_tasks[\"upstream_failure\"]:\n                 set_tasks[\"upstream_failure\"].add(current_task)\n                 upstream_failure = True\n             if task in set_tasks[\"still_pending_ext\"] or task in set_tasks[\"upstream_missing_dependency\"]:\n@@ -261,6 +262,7 @@ def _get_comments(group_tasks):\n _ORDERED_STATUSES = (\n     \"already_done\",\n     \"completed\",\n+    \"ever_failed\",\n     \"failed\",\n     \"scheduling_error\",\n     \"still_pending\",\n@@ -377,11 +379,15 @@ def _summary_format(set_tasks, worker):\n         str_output += 'Did not run any tasks'\n     smiley = \"\"\n     reason = \"\"\n-    if set_tasks[\"failed\"]:\n-        smiley = \":(\"\n-        reason = \"there were failed tasks\"\n-        if set_tasks[\"scheduling_error\"]:\n-            reason += \" and tasks whose scheduling failed\"\n+    if set_tasks[\"ever_failed\"]:\n+        if not set_tasks[\"failed\"]:\n+            smiley = \":)\"\n+            reason = \"there were failed tasks but they all suceeded in a retry\"\n+        else:\n+            smiley = \":(\"\n+            reason = \"there were failed tasks\"\n+            if set_tasks[\"scheduling_error\"]:\n+                reason += \" and tasks whose scheduling failed\"\n     elif set_tasks[\"scheduling_error\"]:\n         smiley = \":(\"\n         reason = \"there were tasks whose scheduling failed\"\ndiff --git a/test/execution_summary_test.py b/test/execution_summary_test.py\nindex eb330c47..1b8419c5 100644\n--- a/test/execution_summary_test.py\n+++ b/test/execution_summary_test.py\n@@ -1086,3 +1086,34 @@ class ExecutionSummaryTest(LuigiTestCase):\n         self.assertIn('Luigi Execution Summary', s)\n         self.assertNotIn('00:00:00', s)\n         self.assertNotIn('\\n\\n\\n', s)\n+\n+    \"\"\"\n+    Test that a task once crashing and then succeeding should be counted as no failure.\n+    \"\"\"\n+    def test_status_with_task_retry(self):\n+        class Foo(luigi.Task):\n+            run_count = 0\n+\n+            def run(self):\n+                self.run_count += 1\n+                if self.run_count == 1:\n+                    raise ValueError()\n+\n+            def complete(self):\n+                return self.run_count > 0\n+\n+        self.run_task(Foo())\n+        self.run_task(Foo())\n+        d = self.summary_dict()\n+        self.assertEqual({Foo()}, d['completed'])\n+        self.assertEqual({Foo()}, d['ever_failed'])\n+        self.assertFalse(d['failed'])\n+        self.assertFalse(d['upstream_failure'])\n+        self.assertFalse(d['upstream_missing_dependency'])\n+        self.assertFalse(d['run_by_other_worker'])\n+        self.assertFalse(d['still_pending_ext'])\n+        s = self.summary()\n+        self.assertIn('Scheduled 1 task', s)\n+        self.assertIn('Luigi Execution Summary', s)\n+        self.assertNotIn('ever failed', s)\n+        self.assertIn('\\n\\nThis progress looks :) because there were failed tasks but they all suceeded in a retry', s)\n"
+  },
+  "timestamp": "2026-06-20 12:58:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_9",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_9/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "retcodes: Understand succesful retries (#1951)",
+    "fault_locations": [
+      {
+        "file": "luigi/execution_summary.py",
+        "start_line": 46,
+        "end_line": 46,
+        "function_name": "_partition_tasks",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/execution_summary.py",
+        "start_line": 49,
+        "end_line": 49,
+        "function_name": "_partition_tasks",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/execution_summary.py",
+        "start_line": 51,
+        "end_line": 51,
+        "function_name": "_partition_tasks",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/execution_summary.py",
+        "start_line": 90,
+        "end_line": 90,
+        "function_name": "_depth_first_search",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/execution_summary.py",
+        "start_line": 380,
+        "end_line": 384,
+        "function_name": "_summary_format",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/execution_summary_test.py::ExecutionSummaryTest::test_status_with_task_retry"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

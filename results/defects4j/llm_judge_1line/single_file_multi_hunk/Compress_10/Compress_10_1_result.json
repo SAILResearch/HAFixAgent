@@ -1,0 +1,63 @@
+{
+  "project_name": "Compress",
+  "bug_id": "10",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 17:45:33",
+      "end_time": "2025-09-30 17:59:53",
+      "duration_seconds": 860,
+      "duration_human": "14m 20s"
+    },
+    "model_cost": 0.1033,
+    "model_calls": 46,
+    "token_usage": {
+      "input_tokens": 1278957,
+      "output_tokens": 17424,
+      "total_tokens": 1296381,
+      "cached_input_tokens": 1248192,
+      "uncached_input_tokens": 30765
+    },
+    "agent_steps": 47,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\nindex 964c86db..a6fb4dbd 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\n@@ -840,6 +840,10 @@ public class ZipFile {\n                 }\n             }\n         }\n+        // Fix for COMPRESS-164 - reconstruct entries map after Unicode processing\n+        Map<ZipArchiveEntry, OffsetEntry> copy = new LinkedHashMap<ZipArchiveEntry, OffsetEntry>(entries);\n+        entries.clear();\n+        entries.putAll(copy);\n     }\n \n     /**\n"
+  },
+  "timestamp": "2025-09-30 17:59:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_10",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_10",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Cannot Read Winzip Archives With Unicode Extra Fields\nI have a zip file created with WinZip containing Unicode extra fields. Upon attempting to extract it with org.apache.commons.compress.archivers.zip.ZipFile, ZipFile.getInputStream() returns null for ZipArchiveEntries previously retrieved with ZipFile.getEntry() or even ZipFile.getEntries(). See UTF8ZipFilesTest.patch in the attachments for a test case exposing the bug. The original test case stopped short of trying to read the entries, that's why this wasn't flagged up before. \n\nThe problem lies in the fact that inside ZipFile.java entries are stored in a HashMap. However, at one point after populating the HashMap, the unicode extra fields are read, which leads to a change of the ZipArchiveEntry name, and therefore a change of its hash code. Because of this, subsequent gets on the HashMap fail to retrieve the original values.\n\nZipFile.patch contains an (admittedly simple-minded) fix for this problem by reconstructing the entries HashMap after the Unicode extra fields have been parsed. The purpose of this patch is mainly to show that the problem is indeed what I think, rather than providing a well-designed solution.\n\nThe patches have been tested against revision 1210416.",
+    "commit_message": "ZipFile doesn't work properly for unicode extra fields.  Based on patch by Volker Leidl.  COMPRESS-164",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 808,
+        "end_line": 809,
+        "line_numbers": [
+          808,
+          809
+        ],
+        "function_name": "resolveLocalFileHeaderData",
+        "class_name": "OffsetEntry",
+        "filename": "ZipFile.java",
+        "code_snippet": "    private void resolveLocalFileHeaderData(Map<ZipArchiveEntry, NameAndComment>\n                                            entriesWithoutUTF8Flag)\n        throws IOException {\n        // changing the name of a ZipArchiveEntry is going to change\n        // the hashcode - see COMPRESS-164\n        // Map needs to be reconstructed in order to keep central\n        // directory order\n        for (ZipArchiveEntry ze : entries.keySet()) {\n            OffsetEntry offsetEntry = entries.get(ze);\n            long offset = offsetEntry.headerOffset;\n            archive.seek(offset + LFH_OFFSET_FOR_FILENAME_LENGTH);\n            byte[] b = new byte[SHORT];\n            archive.readFully(b);\n            int fileNameLen = ZipShort.getValue(b);\n            archive.readFully(b);\n            int extraFieldLen = ZipShort.getValue(b);\n            int lenToSkip = fileNameLen;\n            while (lenToSkip > 0) {\n                int skipped = archive.skipBytes(lenToSkip);\n                if (skipped <= 0) {\n                    throw new RuntimeException(\"failed to skip file name in\"\n                                               + \" local file header\");\n                }\n                lenToSkip -= skipped;\n            }\n            byte[] localExtraData = new byte[extraFieldLen];\n            archive.readFully(localExtraData);\n            ze.setExtra(localExtraData);\n            offsetEntry.dataOffset = offset + LFH_OFFSET_FOR_FILENAME_LENGTH\n                + SHORT + SHORT + fileNameLen + extraFieldLen;\n\n            if (entriesWithoutUTF8Flag.containsKey(ze)) {\n                String orig = ze.getName();\n                NameAndComment nc = entriesWithoutUTF8Flag.get(ze);\n                ZipUtil.setNameAndCommentFromExtraFields(ze, nc.name,\n                                                         nc.comment);\n                if (!orig.equals(ze.getName())) {\n                    nameMap.remove(orig);\n                    nameMap.put(ze.getName(), ze);\n                }\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.UTF8ZipFilesTest::testReadWinZipArchive"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\nindex b0588695..964c86db 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java\n@@ -805,11 +805,8 @@ public class ZipFile {\n         // the hashcode - see COMPRESS-164\n         // Map needs to be reconstructed in order to keep central\n         // directory order\n+        Map<ZipArchiveEntry, OffsetEntry> origMap =\n+            new LinkedHashMap<ZipArchiveEntry, OffsetEntry>(entries);\n+        entries.clear();\n+        for (ZipArchiveEntry ze : origMap.keySet()) {\n+            OffsetEntry offsetEntry = origMap.get(ze);\n-        for (ZipArchiveEntry ze : entries.keySet()) {\n-            OffsetEntry offsetEntry = entries.get(ze);\n             long offset = offsetEntry.headerOffset;\n             archive.seek(offset + LFH_OFFSET_FOR_FILENAME_LENGTH);\n             byte[] b = new byte[SHORT];\n@@ -842,7 +839,6 @@ public class ZipFile {\n                     nameMap.put(ze.getName(), ze);\n                 }\n             }\n+            entries.put(ze, offsetEntry);\n         }\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

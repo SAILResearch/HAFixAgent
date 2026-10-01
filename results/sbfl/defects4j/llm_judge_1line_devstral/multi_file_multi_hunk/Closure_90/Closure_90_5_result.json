@@ -1,0 +1,194 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_90",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 21:40:24",
+      "end_time": "2026-06-29 21:44:45",
+      "duration_seconds": 262,
+      "duration_human": "4m 22s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 939811,
+      "output_tokens": 4717,
+      "total_tokens": 944528,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 939811
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex ec2152455..346222aff 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -59,12 +59,14 @@\n     <javac debug=\"true\" srcdir=\"${gen.dir}\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn\"\n+           encoding=\"UTF-8\"\n            >\n       <classpath refid=\"classpath.path\" />\n     </javac>\n     <javac debug=\"true\" srcdir=\"${src.dir}\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn,/jsonml/\"\n+           encoding=\"UTF-8\"\n            >\n       <classpath refid=\"classpath.path\" />\n     </javac>\ndiff --git a/src/com/google/javascript/jscomp/FunctionTypeBuilder.java b/src/com/google/javascript/jscomp/FunctionTypeBuilder.java\nindex 99c9fce70..5ecb22cdb 100644\n--- a/src/com/google/javascript/jscomp/FunctionTypeBuilder.java\n+++ b/src/com/google/javascript/jscomp/FunctionTypeBuilder.java\n@@ -38,6 +38,8 @@ import com.google.javascript.rhino.jstype.InstanceObjectType;\n import com.google.javascript.rhino.jstype.JSType;\n import com.google.javascript.rhino.jstype.JSTypeRegistry;\n import com.google.javascript.rhino.jstype.ObjectType;\n+import com.google.javascript.rhino.jstype.UnionType;\n+import com.google.javascript.rhino.jstype.ProxyObjectType;\n \n import java.util.Iterator;\n import java.util.List;\n@@ -170,26 +172,36 @@ final class FunctionTypeBuilder {\n       }\n       return false;\n     }\n-  };\n-\n   private class ThisTypeValidator implements Predicate<JSType> {\n     @Override\n     public boolean apply(JSType type) {\n-      // TODO(user): Doing an instanceof check here is too\n-      // restrictive as (Date,Error) is, for instance, an object type\n-      // even though its implementation is a UnionType. Would need to\n-      // create interfaces JSType, ObjectType, FunctionType etc and have\n-      // separate implementation instead of the class hierarchy, so that\n-      // union types can also be object types, etc.\n-      if (!type.isSubtype(\n-              typeRegistry.getNativeType(OBJECT_TYPE))) {\n+      // Allow union types that contain only object types (e.g., typedefs like (Array|null|undefined))\n+      if (type.isUnionType()) {\n+        for (JSType alternate : ((UnionType) type).getAlternates()) {\n+          if (!alternate.isSubtype(typeRegistry.getNativeType(OBJECT_TYPE))) {\n+            reportWarning(THIS_TYPE_NON_OBJECT, type.toString());\n+            return false;\n+          }\n+        }\n+        return true;\n+      }\n+      // For ProxyObjectType (typedefs), check the referenced type\n+      if (type instanceof ProxyObjectType) {\n+        return apply(((ProxyObjectType) type).getReferencedType());\n+      }\n+      // For non-union types, check if it's a subtype of OBJECT_TYPE\n+      if (!type.isSubtype(typeRegistry.getNativeType(OBJECT_TYPE))) {\n         reportWarning(THIS_TYPE_NON_OBJECT, type.toString());\n         return false;\n       }\n       return true;\n     }\n   };\n-\n+        return false;\n+      }\n+      return true;\n+    }\n+  };\n   /**\n    * @param fnName The function name.\n    * @param compiler The compiler.\n"
+  },
+  "timestamp": "2026-06-29 21:44:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_90",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_90",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "@this emits warning when used with a typedef\n<b>What steps will reproduce the problem?</b>\n\r\n1. Compile this with r520:\r\n\r\ngoog.provide('bug');\r\n\r\n/**\r\n * @this {bug.Thing}\r\n */\r\nbug.sharedMethod = function() {};\r\n\r\n/**\r\n * @constructor\r\n */\r\nbug.A = function() {};\r\n\r\n/**\r\n * @constructor\r\n */\r\nbug.B = function() {};\r\n\r\n/**\r\n * @type {bug.A|bug.B}\r\n */\r\nbug.Thing = goog.typedef;\r\n\r\n2. Observe this warning:\r\n\r\nOct 28, 2010 9:59:15 PM com.google.javascript.jscomp.PhaseOptimizer$NamedPass process\r\nINFO: sanityCheckVars\r\nOct 28, 2010 9:59:15 PM com.google.javascript.jscomp.LoggerErrorManager println\r\nWARNING: /home/elf/JSPATH/compiler_bug_this_typedef.js:6: WARNING - @this type of a function must be an object\r\nActual type: (bug.A|bug.B|null)\r\nbug.sharedMethod = function() {};\r\n\r\n\r\nNote that @this {!bug.Thing} doesn't work either, while @this {bug.A|bug.B} works.  This code did not emit a warning in r481.\r\n\r\nThis code is what caused me to run into http://code.google.com/p/closure-compiler/issues/detail?id=268",
+    "commit_message": "Coerce null and undefined out of the @this type when we resolve lazily. We already do this when we resolve @this blocks immediately. There's some question about whether we should be coercing to the global object instead, but i'm going to just punt on this for now. Fixes issue 274",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ProxyObjectType.java",
+        "start_line": 76,
+        "end_line": 76,
+        "suspiciousness": 0.3244428422615251,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/NamedType.java",
+        "start_line": 298,
+        "end_line": 298,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/ProxyObjectType.java",
+        "start_line": 183,
+        "end_line": 183,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/NamedType.java",
+        "start_line": 134,
+        "end_line": 134,
+        "suspiciousness": 0.2721655269759087,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+        "start_line": 412,
+        "end_line": 412,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+        "start_line": 413,
+        "end_line": 413,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+        "start_line": 416,
+        "end_line": 416,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+        "start_line": 417,
+        "end_line": 417,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+        "start_line": 963,
+        "end_line": 963,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/JSType.java",
+        "start_line": 845,
+        "end_line": 845,
+        "suspiciousness": 0.24618298195866545,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testBackwardsTypedefUse8",
+      "com.google.javascript.jscomp.TypeCheckTest::testBackwardsTypedefUse9"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/jstype/ProxyObjectType.java",
+      "start_line": 76,
+      "end_line": 76,
+      "suspiciousness": 0.3244428422615251,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/NamedType.java",
+      "start_line": 298,
+      "end_line": 298,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/ProxyObjectType.java",
+      "start_line": 183,
+      "end_line": 183,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/NamedType.java",
+      "start_line": 134,
+      "end_line": 134,
+      "suspiciousness": 0.2721655269759087,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+      "start_line": 412,
+      "end_line": 412,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+      "start_line": 413,
+      "end_line": 413,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+      "start_line": 416,
+      "end_line": 416,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionTypeBuilder.java",
+      "start_line": 417,
+      "end_line": 417,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+      "start_line": 963,
+      "end_line": 963,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/JSType.java",
+      "start_line": 845,
+      "end_line": 845,
+      "suspiciousness": 0.24618298195866545,
+      "rank": 10
+    }
+  ]
+}

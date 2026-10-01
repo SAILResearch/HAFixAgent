@@ -1,0 +1,198 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_36",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 08:42:38",
+      "end_time": "2026-06-29 08:46:34",
+      "duration_seconds": 236,
+      "duration_human": "3m 56s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 922345,
+      "output_tokens": 10701,
+      "total_tokens": 933046,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 922345
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex f07173ce..819b56de 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -86,6 +86,8 @@ public class DataUtil {\n                     foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                 } else {\n                     foundCharset = meta.attr(\"charset\");\n+                    // strip quotes from meta charset attribute (e.g., <meta charset=\"UTF-8\"> or <meta charset=UTF-8\">)\n+                    foundCharset = stripQuotes(foundCharset);\n                 }\n \n                 if (foundCharset != null && foundCharset.length() != 0 && !foundCharset.equals(defaultCharset)) { // need to re-decode\n@@ -157,14 +159,88 @@ public class DataUtil {\n         if (contentType == null) return null;\n         Matcher m = charsetPattern.matcher(contentType);\n         if (m.find()) {\n-            String charset = m.group(1).trim();\n+            String charset = m.group(1);\n+            \n+            // strip quotes (both single and double)\n+            charset = stripQuotes(charset);\n+            \n+            // handle empty string\n+            if (charset.length() == 0) return null;\n+            \n+            // handle duplicate \"charset=\" prefix (e.g., \"charset=charset=iso-8859-1\")\n+            if (charset.toLowerCase(Locale.ENGLISH).startsWith(\"charset=\")) {\n+                charset = charset.substring(8); // remove \"charset=\"\n+                charset = stripQuotes(charset);\n+            }\n+            \n+            // handle multiple charsets (comma-separated), take the first one\n+            int commaIndex = charset.indexOf(',');\n+            if (commaIndex != -1) {\n+                charset = charset.substring(0, commaIndex);\n+            }\n+            \n+            // trim and validate\n+            charset = charset.trim();\n+            \n+            if (charset.length() == 0) return null;\n+            \n+            // check if charset name is valid before using it\n+            if (!isValidCharset(charset)) return null;\n+            \n+            try {\n                 if (Charset.isSupported(charset)) return charset;\n                 charset = charset.toUpperCase(Locale.ENGLISH);\n                 if (Charset.isSupported(charset)) return charset;\n-                // if our advanced charset matching fails.... we just take the default\n+            } catch (IllegalArgumentException e) {\n+                // charset name is invalid\n+                return null;\n+            }\n         }\n         return null;\n     }\n     \n+    /**\n+     * Check if a charset name contains only valid characters.\n+     * Charset names should only contain alphanumeric characters, hyphens, and underscores.\n+     * @param charset the charset name to check\n+     * @return true if valid, false otherwise\n+     */\n+    static boolean isValidCharset(String charset) {\n+        if (charset == null || charset.length() == 0) return false;\n+        \n+        for (int i = 0; i < charset.length(); i++) {\n+            char c = charset.charAt(i);\n+            // Allow alphanumeric, hyphen, underscore\n+            if (!(Character.isLetterOrDigit(c) || c == '-' || c == '_')) {\n+                return false;\n+            }\n+        }\n+        return true;\n+    }\n+    \n+    /**\n+     * Strip leading and trailing quotes (both single and double) from a string.\n+     * @param str the string to strip\n+     * @return the stripped string, or null if input is null\n+     */\n+    static String stripQuotes(String str) {\n+        if (str == null || str.length() == 0) return str;\n+        \n+        int start = 0;\n+        int end = str.length();\n+        \n+        // strip leading quotes\n+        while (start < end && (str.charAt(start) == '\"' || str.charAt(start) == '\\'')) {\n+            start++;\n+        }\n+        \n+        // strip trailing quotes\n+        while (end > start && (str.charAt(end - 1) == '\"' || str.charAt(end - 1) == '\\'')) {\n+            end--;\n+        }\n+        \n+        return str.substring(start, end);\n+    }\n+    \n     \n }\n"
+  },
+  "timestamp": "2026-06-29 08:46:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_36",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_36",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "More robust charset detection code\nWith the following HTML:\n\n```\n<html lang=\"en-US\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta http-equiv=\"Content-Type\" content=\"text/html; \" />\n</head>\n```\n\njsoup fails to parse the page with a IllegalCharsetNameException. I see that http-equiv=\"Content-Type\" has an invalid content-type but it would be possible to still parse it correctly by using the html5  <meta charset=\"UTF-8\">, i.e. jsoup could be more robust on this one.\n\nother domains which are not working but could be:\n9kuhkep.net\nwww.a-bright.org\n\nI use this code to parse the sites:\n\n```\nJsoup.connect(url).execute()\n```\n\n",
+    "commit_message": "Make http charset detection code more robust",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 157,
+        "end_line": 157,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 159,
+        "end_line": 159,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 160,
+        "end_line": 160,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 161,
+        "end_line": 161,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 19,
+        "end_line": 19,
+        "suspiciousness": 0.5619514869490164,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 118,
+        "end_line": 118,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 54,
+        "end_line": 54,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 55,
+        "end_line": 55,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 88,
+        "end_line": 88,
+        "suspiciousness": 0.2886751345948129,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::shouldCorrectCharsetForDuplicateCharsetString",
+      "org.jsoup.helper.DataUtilTest::shouldNotThrowExceptionOnEmptyCharset",
+      "org.jsoup.helper.DataUtilTest::testQuotedCharset",
+      "org.jsoup.helper.DataUtilTest::shouldSelectFirstCharsetOnWeirdMultileCharsetsInMetaTags",
+      "org.jsoup.helper.DataUtilTest::shouldReturnNullForIllegalCharsetNames",
+      "org.jsoup.integration.ParseTest::testBrokenHtml5CharsetWithASingleDoubleQuote"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 157,
+      "end_line": 157,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 159,
+      "end_line": 159,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 160,
+      "end_line": 160,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 161,
+      "end_line": 161,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 19,
+      "end_line": 19,
+      "suspiciousness": 0.5619514869490164,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 118,
+      "end_line": 118,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 54,
+      "end_line": 54,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 55,
+      "end_line": 55,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 88,
+      "end_line": 88,
+      "suspiciousness": 0.2886751345948129,
+      "rank": 10
+    }
+  ]
+}

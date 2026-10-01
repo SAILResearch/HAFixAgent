@@ -1,0 +1,147 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "2",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 10:32:01",
+      "end_time": "2026-06-27 10:33:04",
+      "duration_seconds": 63,
+      "duration_human": "1m 3s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 200450,
+      "output_tokens": 3463,
+      "total_tokens": 203913,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 200450
+    },
+    "agent_steps": 36,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex da4bdcea..b6017b6f 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -145,6 +145,7 @@ public class Parser {\n         if (tag.isData()) {\n             String data = tq.chompTo(\"</\" + tagName);\n             tq.chompTo(\">\");\n+            stack.removeLast();\n             \n             Node dataNode;\n             if (tag.equals(titleTag) || tag.equals(textareaTag)) // want to show as text, but not contain inside tags (so not a data tag?)\n"
+  },
+  "timestamp": "2026-06-27 10:33:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_2",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_2",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Unadorned text following data-only tags doesn't parse properly\nThis HTML, parsed and immediately printed out, results in:\n\n&lt;html&gt;\n&lt;body&gt;\n&lt;script type=&quot;text/javascript&quot;&gt;\n  var inside = true;\n&lt;/script&gt;\nthis should be outside.\n&lt;/body&gt;\n&lt;/html&gt;\n\nResults:\n\n&lt;html&gt; \n&lt;head&gt; \n&lt;/head&gt; \n&lt;body&gt; \n &lt;script type=&quot;text/javascript&quot;&gt; \n  var inside = true;\n\nthis should be outside.\n\n&lt;/script&gt; \n&lt;/body&gt; \n&lt;/html&gt;\n\nNote how \"this should be outside\" ends up inside the &lt;script&gt; tag, instead of following it.  From what I can tell, this only happens to data-only tags.\n\n",
+    "commit_message": "Clean up the parse stack correctly when parsing data-nodes.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 147,
+        "end_line": 147,
+        "line_numbers": [
+          147
+        ],
+        "function_name": "parseStartTag",
+        "class_name": "Parser",
+        "filename": "Parser.java",
+        "code_snippet": "    private void parseStartTag() {\n        tq.consume(\"<\");\n        String tagName = tq.consumeWord();\n\n        if (tagName.length() == 0) { // doesn't look like a start tag after all; put < back on stack and handle as text\n            tq.addFirst(\"&lt;\");\n            parseTextNode();\n            return;\n        }\n\n        Attributes attributes = new Attributes();\n        while (!tq.matchesAny(\"<\", \"/>\", \">\") && !tq.isEmpty()) {\n            Attribute attribute = parseAttribute();\n            if (attribute != null)\n                attributes.put(attribute);\n        }\n\n        Tag tag = Tag.valueOf(tagName);\n        Element child = new Element(tag, baseUri, attributes);\n\n        boolean isEmptyElement = tag.isEmpty(); // empty element if empty tag (e.g. img) or self-closed el (<div/>\n        if (tq.matchChomp(\"/>\")) { // close empty element or tag\n            isEmptyElement = true;\n        } else {\n            tq.matchChomp(\">\");\n        }\n        addChildToParent(child, isEmptyElement);\n\n        // pc data only tags (textarea, script): chomp to end tag, add content as text node\n        if (tag.isData()) {\n            String data = tq.chompTo(\"</\" + tagName);\n            tq.chompTo(\">\");\n            \n            Node dataNode;\n            if (tag.equals(titleTag) || tag.equals(textareaTag)) // want to show as text, but not contain inside tags (so not a data tag?)\n                dataNode = TextNode.createFromEncoded(data, baseUri);\n            else\n                dataNode = new DataNode(data, baseUri); // data not encoded but raw (for \" in script)\n            child.appendChild(dataNode);   \n        }\n\n        // <base href>: update the base uri\n        if (child.tagName().equals(\"base\")) {\n            String href = child.absUrl(\"href\");\n            if (href.length() != 0) { // ignore <base target> etc\n                baseUri = href;\n                doc.setBaseUri(href); // set on the doc so doc.createElement(Tag) will get updated base\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.ParserTest::handlesTextAfterData"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex e7284d5..da4bdce 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -145,7 +145,6 @@ public class Parser {\n         if (tag.isData()) {\n             String data = tq.chompTo(\"</\" + tagName);\n             tq.chompTo(\">\");\n+            popStackToClose(tag);\n             \n             Node dataNode;\n             if (tag.equals(titleTag) || tag.equals(textareaTag)) // want to show as text, but not contain inside tags (so not a data tag?)",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2010-01-03 23:54:47",
+        "commit_message": "Support for data only tags (script, textarea etc)",
+        "commit_hash": "4bd743a3a5492d1d185bd21f421e49ce3a27af7c"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "isData"
+        ],
+        "functions_name_modified_file": [
+          "parseAttribute",
+          "Parser",
+          "parse",
+          "popStackToSuitableContainer",
+          "parseEndTag",
+          "popStackToClose",
+          "parseComment",
+          "parseStartTag",
+          "parseXmlDecl",
+          "last",
+          "parseTextNode"
+        ],
+        "functions_name_all_files": [
+          "matchChomp",
+          "setContainDataOnly",
+          "popStackToClose",
+          "createInline",
+          "last",
+          "isInline",
+          "getName",
+          "Parser",
+          "parse",
+          "Tag",
+          "matches",
+          "isEmpty",
+          "toString",
+          "consumeWhitespace",
+          "consumeTo",
+          "TokenQueue",
+          "register",
+          "matchesWord",
+          "equals",
+          "consumeWord",
+          "matchesAny",
+          "peek",
+          "consume",
+          "setContainInlineOnly",
+          "remainder",
+          "consumeToAny",
+          "popStackToSuitableContainer",
+          "parseEndTag",
+          "setOptionalClosing",
+          "parseComment",
+          "parseStartTag",
+          "parseXmlDecl",
+          "hashCode",
+          "isBlock",
+          "createBlock",
+          "consumeClassName",
+          "parseAttribute",
+          "canContain",
+          "isData",
+          "setEmpty",
+          "chompTo",
+          "valueOf",
+          "matchesWhitespace",
+          "parseTextNode"
+        ],
+        "function_code_before": "                parseStartTag();\n            } else {",
+        "function_code_after": "                parseStartTag();\n            } else {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/parser/Parser.java",
+          "src/main/java/org/jsoup/parser/Tag.java",
+          "src/main/java/org/jsoup/parser/TokenQueue.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/parser/Parser.java": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex b8adfd03..3a409176 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -84,9 +84,6 @@ public class Parser {\n         if (!tagName.isEmpty()) {\n             Tag tag = Tag.valueOf(tagName);\n             Element closed = popStackToClose(tag);\n-\n-            if (closed != null && closed.getTag().equals(titleTag))\n-                doc.setTitle(closed.text());\n         }\n     }\n \n@@ -113,6 +110,17 @@ public class Parser {\n             emptyTag = false;\n         }\n \n+        // pc data only tags (textarea, script): chomp to end tag, add content as text node\n+        if (tag.isData()) {\n+            String data = tq.chompTo(\"</\" + tagName);\n+            tq.chompTo(\">\");\n+            TextNode textNode = TextNode.createFromEncoded(data);\n+            child.addChild(textNode);\n+\n+            if (tag.equals(titleTag))\n+                doc.setTitle(child.text());\n+        }\n+\n         // switch between html, head, body, to preserve doc structure\n         if (tag.equals(htmlTag)) {\n             doc.getAttributes().mergeAttributes(attributes);\n@@ -133,7 +141,7 @@ public class Parser {\n         } else {\n             Element parent = popStackToSuitableContainer(tag);\n             parent.addChild(child);\n-            if (!emptyTag)\n+            if (!emptyTag && !tag.isData()) // TODO: only check for data here because last() == head is wrong; should be ancestor is head\n                 stack.addLast(child);\n         }\n     }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

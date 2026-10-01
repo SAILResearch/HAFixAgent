@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_45",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 16:51:38",
+      "end_time": "2026-03-23 17:28:54",
+      "duration_seconds": 2236,
+      "duration_human": "37m 16s"
+    },
+    "model_cost": 0.089,
+    "model_calls": 13,
+    "token_usage": {
+      "input_tokens": 253551,
+      "output_tokens": 95866,
+      "total_tokens": 349417,
+      "cached_input_tokens": 69632,
+      "uncached_input_tokens": 183919
+    },
+    "agent_steps": 13,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/layers/recurrent.py b/keras/layers/recurrent.py\nindex ec9fa871c..27a1b3549 100644\n--- a/keras/layers/recurrent.py\n+++ b/keras/layers/recurrent.py\n@@ -866,7 +866,7 @@ class SimpleRNNCell(Layer):\n             ones = K.ones_like(K.squeeze(inputs[:, 0:1, :], axis=1))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._dropout_mask = K.in_train_phase(\n                 dropped_inputs,\n@@ -881,7 +881,7 @@ class SimpleRNNCell(Layer):\n             ones = K.tile(ones, (1, self.units))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._recurrent_dropout_mask = K.in_train_phase(\n                 dropped_inputs,\n@@ -1268,7 +1268,7 @@ class GRUCell(Layer):\n             ones = K.ones_like(K.squeeze(inputs[:, 0:1, :], axis=1))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._dropout_mask = [K.in_train_phase(\n                 dropped_inputs,\n@@ -1284,7 +1284,7 @@ class GRUCell(Layer):\n             ones = K.tile(ones, (1, self.units))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._recurrent_dropout_mask = [K.in_train_phase(\n                 dropped_inputs,\n@@ -1303,7 +1303,7 @@ class GRUCell(Layer):\n         rec_dp_mask = self._recurrent_dropout_mask\n \n         if self.implementation == 1:\n-            if 0. < self.dropout < 1.:\n+            if 0 < self.dropout < 1.:\n                 inputs_z = inputs * dp_mask[0]\n                 inputs_r = inputs * dp_mask[1]\n                 inputs_h = inputs * dp_mask[2]\n@@ -1319,7 +1319,7 @@ class GRUCell(Layer):\n                 x_r = K.bias_add(x_r, self.bias_r)\n                 x_h = K.bias_add(x_h, self.bias_h)\n \n-            if 0. < self.recurrent_dropout < 1.:\n+            if 0 < self.recurrent_dropout < 1.:\n                 h_tm1_z = h_tm1 * rec_dp_mask[0]\n                 h_tm1_r = h_tm1 * rec_dp_mask[1]\n                 h_tm1_h = h_tm1 * rec_dp_mask[2]\n@@ -1335,12 +1335,12 @@ class GRUCell(Layer):\n             hh = self.activation(x_h + K.dot(r * h_tm1_h,\n                                              self.recurrent_kernel_h))\n         else:\n-            if 0. < self.dropout < 1.:\n+            if 0 < self.dropout < 1.:\n                 inputs *= dp_mask[0]\n             matrix_x = K.dot(inputs, self.kernel)\n             if self.use_bias:\n                 matrix_x = K.bias_add(matrix_x, self.bias)\n-            if 0. < self.recurrent_dropout < 1.:\n+            if 0 < self.recurrent_dropout < 1.:\n                 h_tm1 *= rec_dp_mask[0]\n             matrix_inner = K.dot(h_tm1,\n                                  self.recurrent_kernel[:, :2 * self.units])\n@@ -1757,7 +1757,7 @@ class LSTMCell(Layer):\n             ones = K.ones_like(K.squeeze(inputs[:, 0:1, :], axis=1))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._dropout_mask = [K.in_train_phase(\n                 dropped_inputs,\n@@ -1773,7 +1773,7 @@ class LSTMCell(Layer):\n             ones = K.tile(ones, (1, self.units))\n \n             def dropped_inputs():\n-                return K.dropout(ones, self.dropout)\n+                return K.dropout(ones, self.recurrent_dropout)\n \n             self._recurrent_dropout_mask = [K.in_train_phase(\n                 dropped_inputs,\n@@ -1827,10 +1827,10 @@ class LSTMCell(Layer):\n             o = self.recurrent_activation(x_o + K.dot(h_tm1_o,\n                                                       self.recurrent_kernel_o))\n         else:\n-            if 0. < self.dropout < 1.:\n+            if 0 < self.dropout < 1.:\n                 inputs *= dp_mask[0]\n             z = K.dot(inputs, self.kernel)\n-            if 0. < self.recurrent_dropout < 1.:\n+            if 0 < self.recurrent_dropout < 1.:\n                 h_tm1 *= rec_dp_mask[0]\n             z += K.dot(h_tm1, self.recurrent_kernel)\n             if self.use_bias:\ndiff --git a/tests/keras/layers/recurrent_test.py b/tests/keras/layers/recurrent_test.py\nindex 19d318a06..20f0065f3 100644\n--- a/tests/keras/layers/recurrent_test.py\n+++ b/tests/keras/layers/recurrent_test.py\n@@ -183,6 +183,12 @@ def test_implementation_mode(layer_class):\n                            'dropout': 0.1,\n                            'recurrent_dropout': 0.1},\n                    input_shape=(num_samples, timesteps, embedding_dim))\n+        # Without bias\n+        layer_test(layer_class,\n+                   kwargs={'units': units,\n+                           'implementation': mode,\n+                           'use_bias': False},\n+                   input_shape=(num_samples, timesteps, embedding_dim))\n \n \n @rnn_test\n"
+  },
+  "timestamp": "2026-03-23 13:28:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_45",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_45/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix ValueError for LSTM(implementation=1, use_bias=False) (#8299)",
+    "fault_locations": [
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 1806,
+        "end_line": 1809,
+        "function_name": "call",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/recurrent_test.py::test_implementation_mode[LSTM]"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

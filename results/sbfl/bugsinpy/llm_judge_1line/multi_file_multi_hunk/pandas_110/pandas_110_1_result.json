@@ -1,0 +1,192 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_110",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 15:27:20",
+      "end_time": "2026-06-17 15:44:13",
+      "duration_seconds": 1013,
+      "duration_human": "16m 53s"
+    },
+    "model_cost": 0.1321,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 949744,
+      "output_tokens": 16257,
+      "total_tokens": 966001,
+      "cached_input_tokens": 485056,
+      "uncached_input_tokens": 464688
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/category.py b/pandas/core/indexes/category.py\nindex 2cc853ecf5..883a4cb7e9 100644\n--- a/pandas/core/indexes/category.py\n+++ b/pandas/core/indexes/category.py\n@@ -511,410 +511,431 @@ class CategoricalIndex(Index, accessor.PandasDelegate):\n         except KeyError:\n             raise KeyError(key)\n \n-    def get_value(self, series: AnyArrayLike, key: Any):\n+\n+        def _maybe_cast_slice_bound(self, label, side, kind):\n         \"\"\"\n-        Fast lookup of value from 1-dimensional ndarray. Only use this if you\n-        know what you're doing\n+        If label is a string or integer, cast it to categorical value according to our\n+        categories.\n+        \"\"\"\n+        from pandas.core.dtypes.common import is_integer\n+        \n+        # For CategoricalIndex, we should accept integer labels\n+        # The base Index class rejects integer slice bounds for non-integer-based\n+        # indexes, but CategoricalIndex can have integer categories.\n+        # We should accept integer bounds and let it fail later with KeyError\n+        # if the integer is not in our categories.\n+        if is_integer(label):\n+            # Just return the integer as-is\n+            # It will be checked later if it's in categories\n+            return label\n+        \n+        # For other cases, use parent implementation\n+        return super()._maybe_cast_slice_bound(label, side, kind)\n \n-        Parameters\n-        ----------\n-        series : Series, ExtensionArray, Index, or ndarray\n-            1-dimensional array to take values from\n-        key: : scalar\n-            The value of this index at the position of the desired value,\n-            otherwise the positional index of the desired value\n+    def get_value(self, series: AnyArrayLike, key: Any):\n+    \"\"\"\n+    Fast lookup of value from 1-dimensional ndarray. Only use this if you\n+    know what you're doing\n \n-        Returns\n-        -------\n-        Any\n-            The element of the series at the position indicated by the key\n-        \"\"\"\n-        try:\n-            k = com.values_from_object(key)\n-            k = self._convert_scalar_indexer(k, kind=\"getitem\")\n-            indexer = self.get_loc(k)\n-            return series.take([indexer])[0]\n-        except (KeyError, TypeError):\n-            pass\n+    Parameters\n+    ----------\n+    series : Series, ExtensionArray, Index, or ndarray\n+        1-dimensional array to take values from\n+    key: : scalar\n+        The value of this index at the position of the desired value,\n+        otherwise the positional index of the desired value\n+\n+    Returns\n+    -------\n+    Any\n+        The element of the series at the position indicated by the key\n+    \"\"\"\n+    try:\n+        k = com.values_from_object(key)\n+        k = self._convert_scalar_indexer(k, kind=\"getitem\")\n+        indexer = self.get_loc(k)\n+        return series.take([indexer])[0]\n+    except (KeyError, TypeError):\n+        pass\n \n-        # we might be a positional inexer\n-        return super().get_value(series, key)\n+    # we might be a positional inexer\n+    return super().get_value(series, key)\n \n     @Substitution(klass=\"CategoricalIndex\")\n     @Appender(_shared_docs[\"searchsorted\"])\n     def searchsorted(self, value, side=\"left\", sorter=None):\n-        return self._data.searchsorted(value, side=side, sorter=sorter)\n+    return self._data.searchsorted(value, side=side, sorter=sorter)\n \n     @Appender(_index_shared_docs[\"where\"])\n     def where(self, cond, other=None):\n-        # TODO: Investigate an alternative implementation with\n-        # 1. copy the underlying Categorical\n-        # 2. setitem with `cond` and `other`\n-        # 3. Rebuild CategoricalIndex.\n-        if other is None:\n-            other = self._na_value\n-        values = np.where(cond, self.values, other)\n-        cat = Categorical(values, dtype=self.dtype)\n-        return self._shallow_copy(cat, **self._get_attributes_dict())\n+    # TODO: Investigate an alternative implementation with\n+    # 1. copy the underlying Categorical\n+    # 2. setitem with `cond` and `other`\n+    # 3. Rebuild CategoricalIndex.\n+    if other is None:\n+        other = self._na_value\n+    values = np.where(cond, self.values, other)\n+    cat = Categorical(values, dtype=self.dtype)\n+    return self._shallow_copy(cat, **self._get_attributes_dict())\n \n     def reindex(self, target, method=None, level=None, limit=None, tolerance=None):\n-        \"\"\"\n-        Create index with target's values (move/add/delete values as necessary)\n+    \"\"\"\n+    Create index with target's values (move/add/delete values as necessary)\n \n-        Returns\n-        -------\n-        new_index : pd.Index\n-            Resulting index\n-        indexer : np.ndarray or None\n-            Indices of output values in original index\n+    Returns\n+    -------\n+    new_index : pd.Index\n+        Resulting index\n+    indexer : np.ndarray or None\n+        Indices of output values in original index\n \n-        \"\"\"\n-        if method is not None:\n-            raise NotImplementedError(\n-                \"argument method is not implemented for CategoricalIndex.reindex\"\n-            )\n-        if level is not None:\n-            raise NotImplementedError(\n-                \"argument level is not implemented for CategoricalIndex.reindex\"\n-            )\n-        if limit is not None:\n-            raise NotImplementedError(\n-                \"argument limit is not implemented for CategoricalIndex.reindex\"\n-            )\n+    \"\"\"\n+    if method is not None:\n+        raise NotImplementedError(\n+            \"argument method is not implemented for CategoricalIndex.reindex\"\n+        )\n+    if level is not None:\n+        raise NotImplementedError(\n+            \"argument level is not implemented for CategoricalIndex.reindex\"\n+        )\n+    if limit is not None:\n+        raise NotImplementedError(\n+            \"argument limit is not implemented for CategoricalIndex.reindex\"\n+        )\n \n-        target = ibase.ensure_index(target)\n+    target = ibase.ensure_index(target)\n \n-        if self.equals(target):\n-            indexer = None\n-            missing = []\n-        else:\n-            indexer, missing = self.get_indexer_non_unique(np.array(target))\n+    if self.equals(target):\n+        indexer = None\n+        missing = []\n+    else:\n+        indexer, missing = self.get_indexer_non_unique(np.array(target))\n \n-        if len(self.codes) and indexer is not None:\n-            new_target = self.take(indexer)\n-        else:\n-            new_target = target\n-\n-        # filling in missing if needed\n-        if len(missing):\n-            cats = self.categories.get_indexer(target)\n-\n-            if (cats == -1).any():\n-                # coerce to a regular index here!\n-                result = Index(np.array(self), name=self.name)\n-                new_target, indexer, _ = result._reindex_non_unique(np.array(target))\n-            else:\n-\n-                codes = new_target.codes.copy()\n-                codes[indexer == -1] = cats[missing]\n-                new_target = self._create_from_codes(codes)\n-\n-        # we always want to return an Index type here\n-        # to be consistent with .reindex for other index types (e.g. they don't\n-        # coerce based on the actual values, only on the dtype)\n-        # unless we had an initial Categorical to begin with\n-        # in which case we are going to conform to the passed Categorical\n-        new_target = np.asarray(new_target)\n-        if is_categorical_dtype(target):\n-            new_target = target._shallow_copy(new_target, name=self.name)\n+    if len(self.codes) and indexer is not None:\n+        new_target = self.take(indexer)\n+    else:\n+        new_target = target\n+\n+    # filling in missing if needed\n+    if len(missing):\n+        cats = self.categories.get_indexer(target)\n+\n+        if (cats == -1).any():\n+            # coerce to a regular index here!\n+            result = Index(np.array(self), name=self.name)\n+            new_target, indexer, _ = result._reindex_non_unique(np.array(target))\n         else:\n-            new_target = Index(new_target, name=self.name)\n \n-        return new_target, indexer\n+            codes = new_target.codes.copy()\n+            codes[indexer == -1] = cats[missing]\n+            new_target = self._create_from_codes(codes)\n+\n+    # we always want to return an Index type here\n+    # to be consistent with .reindex for other index types (e.g. they don't\n+    # coerce based on the actual values, only on the dtype)\n+    # unless we had an initial Categorical to begin with\n+    # in which case we are going to conform to the passed Categorical\n+    new_target = np.asarray(new_target)\n+    if is_categorical_dtype(target):\n+        new_target = target._shallow_copy(new_target, name=self.name)\n+    else:\n+        new_target = Index(new_target, name=self.name)\n+\n+    return new_target, indexer\n \n     def _reindex_non_unique(self, target):\n-        \"\"\" reindex from a non-unique; which CategoricalIndex's are almost\n-        always\n-        \"\"\"\n-        new_target, indexer = self.reindex(target)\n-        new_indexer = None\n+    \"\"\" reindex from a non-unique; which CategoricalIndex's are almost\n+    always\n+    \"\"\"\n+    new_target, indexer = self.reindex(target)\n+    new_indexer = None\n \n-        check = indexer == -1\n-        if check.any():\n-            new_indexer = np.arange(len(self.take(indexer)))\n-            new_indexer[check] = -1\n+    check = indexer == -1\n+    if check.any():\n+        new_indexer = np.arange(len(self.take(indexer)))\n+        new_indexer[check] = -1\n \n-        cats = self.categories.get_indexer(target)\n-        if not (cats == -1).any():\n-            # .reindex returns normal Index. Revert to CategoricalIndex if\n-            # all targets are included in my categories\n-            new_target = self._shallow_copy(new_target)\n+    cats = self.categories.get_indexer(target)\n+    if not (cats == -1).any():\n+        # .reindex returns normal Index. Revert to CategoricalIndex if\n+        # all targets are included in my categories\n+        new_target = self._shallow_copy(new_target)\n \n-        return new_target, indexer, new_indexer\n+    return new_target, indexer, new_indexer\n \n     @Appender(_index_shared_docs[\"get_indexer\"] % _index_doc_kwargs)\n     def get_indexer(self, target, method=None, limit=None, tolerance=None):\n-        method = missing.clean_reindex_fill_method(method)\n-        target = ibase.ensure_index(target)\n+    method = missing.clean_reindex_fill_method(method)\n+    target = ibase.ensure_index(target)\n \n-        if self.is_unique and self.equals(target):\n-            return np.arange(len(self), dtype=\"intp\")\n+    if self.is_unique and self.equals(target):\n+        return np.arange(len(self), dtype=\"intp\")\n \n-        if method == \"pad\" or method == \"backfill\":\n-            raise NotImplementedError(\n-                \"method='pad' and method='backfill' not \"\n-                \"implemented yet for CategoricalIndex\"\n-            )\n-        elif method == \"nearest\":\n-            raise NotImplementedError(\n-                \"method='nearest' not implemented yet for CategoricalIndex\"\n-            )\n+    if method == \"pad\" or method == \"backfill\":\n+        raise NotImplementedError(\n+            \"method='pad' and method='backfill' not \"\n+            \"implemented yet for CategoricalIndex\"\n+        )\n+    elif method == \"nearest\":\n+        raise NotImplementedError(\n+            \"method='nearest' not implemented yet for CategoricalIndex\"\n+        )\n \n-        if isinstance(target, CategoricalIndex) and self.values.is_dtype_equal(target):\n-            if self.values.equals(target.values):\n-                # we have the same codes\n-                codes = target.codes\n-            else:\n-                codes = _recode_for_categories(\n-                    target.codes, target.categories, self.values.categories\n-                )\n+    if isinstance(target, CategoricalIndex) and self.values.is_dtype_equal(target):\n+        if self.values.equals(target.values):\n+            # we have the same codes\n+            codes = target.codes\n         else:\n-            if isinstance(target, CategoricalIndex):\n-                code_indexer = self.categories.get_indexer(target.categories)\n-                codes = take_1d(code_indexer, target.codes, fill_value=-1)\n-            else:\n-                codes = self.categories.get_indexer(target)\n+            codes = _recode_for_categories(\n+                target.codes, target.categories, self.values.categories\n+            )\n+    else:\n+        if isinstance(target, CategoricalIndex):\n+            code_indexer = self.categories.get_indexer(target.categories)\n+            codes = take_1d(code_indexer, target.codes, fill_value=-1)\n+        else:\n+            codes = self.categories.get_indexer(target)\n \n-        indexer, _ = self._engine.get_indexer_non_unique(codes)\n-        return ensure_platform_int(indexer)\n+    indexer, _ = self._engine.get_indexer_non_unique(codes)\n+    return ensure_platform_int(indexer)\n \n     @Appender(_index_shared_docs[\"get_indexer_non_unique\"] % _index_doc_kwargs)\n     def get_indexer_non_unique(self, target):\n-        target = ibase.ensure_index(target)\n+    target = ibase.ensure_index(target)\n \n-        if isinstance(target, CategoricalIndex):\n-            # Indexing on codes is more efficient if categories are the same:\n-            if target.categories is self.categories:\n-                target = target.codes\n-                indexer, missing = self._engine.get_indexer_non_unique(target)\n-                return ensure_platform_int(indexer), missing\n-            target = target.values\n+    if isinstance(target, CategoricalIndex):\n+        # Indexing on codes is more efficient if categories are the same:\n+        if target.categories is self.categories:\n+            target = target.codes\n+            indexer, missing = self._engine.get_indexer_non_unique(target)\n+            return ensure_platform_int(indexer), missing\n+        target = target.values\n \n-        codes = self.categories.get_indexer(target)\n-        indexer, missing = self._engine.get_indexer_non_unique(codes)\n-        return ensure_platform_int(indexer), missing\n+    codes = self.categories.get_indexer(target)\n+    indexer, missing = self._engine.get_indexer_non_unique(codes)\n+    return ensure_platform_int(indexer), missing\n \n     @Appender(_index_shared_docs[\"_convert_scalar_indexer\"])\n     def _convert_scalar_indexer(self, key, kind=None):\n-        if kind == \"loc\":\n-            try:\n-                return self.categories._convert_scalar_indexer(key, kind=kind)\n-            except TypeError:\n-                self._invalid_indexer(\"label\", key)\n-        return super()._convert_scalar_indexer(key, kind=kind)\n+    if kind == \"loc\":\n+        try:\n+            return self.categories._convert_scalar_indexer(key, kind=kind)\n+        except TypeError:\n+            self._invalid_indexer(\"label\", key)\n+    return super()._convert_scalar_indexer(key, kind=kind)\n \n     @Appender(_index_shared_docs[\"_convert_list_indexer\"])\n     def _convert_list_indexer(self, keyarr, kind=None):\n-        # Return our indexer or raise if all of the values are not included in\n-        # the categories\n-\n-        if self.categories._defer_to_indexing:\n-            indexer = self.categories._convert_list_indexer(keyarr, kind=kind)\n-            return Index(self.codes).get_indexer_for(indexer)\n-\n-        indexer = self.categories.get_indexer(np.asarray(keyarr))\n-        if (indexer == -1).any():\n-            raise KeyError(\n-                \"a list-indexer must only \"\n-                \"include values that are \"\n-                \"in the categories\"\n-            )\n+    # Return our indexer or raise if all of the values are not included in\n+    # the categories\n+\n+    if self.categories._defer_to_indexing:\n+        indexer = self.categories._convert_list_indexer(keyarr, kind=kind)\n+        return Index(self.codes).get_indexer_for(indexer)\n+\n+    indexer = self.categories.get_indexer(np.asarray(keyarr))\n+    if (indexer == -1).any():\n+        raise KeyError(\n+            \"a list-indexer must only \"\n+            \"include values that are \"\n+            \"in the categories\"\n+        )\n \n-        return self.get_indexer(keyarr)\n+    return self.get_indexer(keyarr)\n \n     @Appender(_index_shared_docs[\"_convert_arr_indexer\"])\n     def _convert_arr_indexer(self, keyarr):\n-        keyarr = com.asarray_tuplesafe(keyarr)\n+    keyarr = com.asarray_tuplesafe(keyarr)\n \n-        if self.categories._defer_to_indexing:\n-            return keyarr\n+    if self.categories._defer_to_indexing:\n+        return keyarr\n \n-        return self._shallow_copy(keyarr)\n+    return self._shallow_copy(keyarr)\n \n     @Appender(_index_shared_docs[\"_convert_index_indexer\"])\n     def _convert_index_indexer(self, keyarr):\n-        return self._shallow_copy(keyarr)\n+    return self._shallow_copy(keyarr)\n \n     @Appender(_index_shared_docs[\"take\"] % _index_doc_kwargs)\n     def take(self, indices, axis=0, allow_fill=True, fill_value=None, **kwargs):\n-        nv.validate_take(tuple(), kwargs)\n-        indices = ensure_platform_int(indices)\n-        taken = self._assert_take_fillable(\n-            self.codes,\n-            indices,\n-            allow_fill=allow_fill,\n-            fill_value=fill_value,\n-            na_value=-1,\n-        )\n-        return self._create_from_codes(taken)\n+    nv.validate_take(tuple(), kwargs)\n+    indices = ensure_platform_int(indices)\n+    taken = self._assert_take_fillable(\n+        self.codes,\n+        indices,\n+        allow_fill=allow_fill,\n+        fill_value=fill_value,\n+        na_value=-1,\n+    )\n+    return self._create_from_codes(taken)\n \n     def is_dtype_equal(self, other):\n-        return self._data.is_dtype_equal(other)\n+    return self._data.is_dtype_equal(other)\n \n     take_nd = take\n \n     def map(self, mapper):\n-        \"\"\"\n-        Map values using input correspondence (a dict, Series, or function).\n+    \"\"\"\n+    Map values using input correspondence (a dict, Series, or function).\n \n-        Maps the values (their categories, not the codes) of the index to new\n-        categories. If the mapping correspondence is one-to-one the result is a\n-        :class:`~pandas.CategoricalIndex` which has the same order property as\n-        the original, otherwise an :class:`~pandas.Index` is returned.\n+    Maps the values (their categories, not the codes) of the index to new\n+    categories. If the mapping correspondence is one-to-one the result is a\n+    :class:`~pandas.CategoricalIndex` which has the same order property as\n+    the original, otherwise an :class:`~pandas.Index` is returned.\n \n-        If a `dict` or :class:`~pandas.Series` is used any unmapped category is\n-        mapped to `NaN`. Note that if this happens an :class:`~pandas.Index`\n-        will be returned.\n+    If a `dict` or :class:`~pandas.Series` is used any unmapped category is\n+    mapped to `NaN`. Note that if this happens an :class:`~pandas.Index`\n+    will be returned.\n \n-        Parameters\n-        ----------\n-        mapper : function, dict, or Series\n-            Mapping correspondence.\n+    Parameters\n+    ----------\n+    mapper : function, dict, or Series\n+        Mapping correspondence.\n \n-        Returns\n-        -------\n-        pandas.CategoricalIndex or pandas.Index\n-            Mapped index.\n+    Returns\n+    -------\n+    pandas.CategoricalIndex or pandas.Index\n+        Mapped index.\n \n-        See Also\n-        --------\n-        Index.map : Apply a mapping correspondence on an\n-            :class:`~pandas.Index`.\n-        Series.map : Apply a mapping correspondence on a\n-            :class:`~pandas.Series`.\n-        Series.apply : Apply more complex functions on a\n-            :class:`~pandas.Series`.\n+    See Also\n+    --------\n+    Index.map : Apply a mapping correspondence on an\n+        :class:`~pandas.Index`.\n+    Series.map : Apply a mapping correspondence on a\n+        :class:`~pandas.Series`.\n+    Series.apply : Apply more complex functions on a\n+        :class:`~pandas.Series`.\n \n-        Examples\n-        --------\n-        >>> idx = pd.CategoricalIndex(['a', 'b', 'c'])\n-        >>> idx\n-        CategoricalIndex(['a', 'b', 'c'], categories=['a', 'b', 'c'],\n-                         ordered=False, dtype='category')\n-        >>> idx.map(lambda x: x.upper())\n-        CategoricalIndex(['A', 'B', 'C'], categories=['A', 'B', 'C'],\n-                         ordered=False, dtype='category')\n-        >>> idx.map({'a': 'first', 'b': 'second', 'c': 'third'})\n-        CategoricalIndex(['first', 'second', 'third'], categories=['first',\n-                         'second', 'third'], ordered=False, dtype='category')\n-\n-        If the mapping is one-to-one the ordering of the categories is\n-        preserved:\n-\n-        >>> idx = pd.CategoricalIndex(['a', 'b', 'c'], ordered=True)\n-        >>> idx\n-        CategoricalIndex(['a', 'b', 'c'], categories=['a', 'b', 'c'],\n-                         ordered=True, dtype='category')\n-        >>> idx.map({'a': 3, 'b': 2, 'c': 1})\n-        CategoricalIndex([3, 2, 1], categories=[3, 2, 1], ordered=True,\n-                         dtype='category')\n-\n-        If the mapping is not one-to-one an :class:`~pandas.Index` is returned:\n-\n-        >>> idx.map({'a': 'first', 'b': 'second', 'c': 'first'})\n-        Index(['first', 'second', 'first'], dtype='object')\n-\n-        If a `dict` is used, all unmapped categories are mapped to `NaN` and\n-        the result is an :class:`~pandas.Index`:\n-\n-        >>> idx.map({'a': 'first', 'b': 'second'})\n-        Index(['first', 'second', nan], dtype='object')\n-        \"\"\"\n-        return self._shallow_copy_with_infer(self.values.map(mapper))\n+    Examples\n+    --------\n+    >>> idx = pd.CategoricalIndex(['a', 'b', 'c'])\n+    >>> idx\n+    CategoricalIndex(['a', 'b', 'c'], categories=['a', 'b', 'c'],\n+                     ordered=False, dtype='category')\n+    >>> idx.map(lambda x: x.upper())\n+    CategoricalIndex(['A', 'B', 'C'], categories=['A', 'B', 'C'],\n+                     ordered=False, dtype='category')\n+    >>> idx.map({'a': 'first', 'b': 'second', 'c': 'third'})\n+    CategoricalIndex(['first', 'second', 'third'], categories=['first',\n+                     'second', 'third'], ordered=False, dtype='category')\n+\n+    If the mapping is one-to-one the ordering of the categories is\n+    preserved:\n+\n+    >>> idx = pd.CategoricalIndex(['a', 'b', 'c'], ordered=True)\n+    >>> idx\n+    CategoricalIndex(['a', 'b', 'c'], categories=['a', 'b', 'c'],\n+                     ordered=True, dtype='category')\n+    >>> idx.map({'a': 3, 'b': 2, 'c': 1})\n+    CategoricalIndex([3, 2, 1], categories=[3, 2, 1], ordered=True,\n+                     dtype='category')\n+\n+    If the mapping is not one-to-one an :class:`~pandas.Index` is returned:\n+\n+    >>> idx.map({'a': 'first', 'b': 'second', 'c': 'first'})\n+    Index(['first', 'second', 'first'], dtype='object')\n+\n+    If a `dict` is used, all unmapped categories are mapped to `NaN` and\n+    the result is an :class:`~pandas.Index`:\n+\n+    >>> idx.map({'a': 'first', 'b': 'second'})\n+    Index(['first', 'second', nan], dtype='object')\n+    \"\"\"\n+    return self._shallow_copy_with_infer(self.values.map(mapper))\n \n     def delete(self, loc):\n-        \"\"\"\n-        Make new Index with passed location(-s) deleted\n+    \"\"\"\n+    Make new Index with passed location(-s) deleted\n \n-        Returns\n-        -------\n-        new_index : Index\n-        \"\"\"\n-        return self._create_from_codes(np.delete(self.codes, loc))\n+    Returns\n+    -------\n+    new_index : Index\n+    \"\"\"\n+    return self._create_from_codes(np.delete(self.codes, loc))\n \n     def insert(self, loc, item):\n-        \"\"\"\n-        Make new Index inserting new item at location. Follows\n-        Python list.append semantics for negative values\n+    \"\"\"\n+    Make new Index inserting new item at location. Follows\n+    Python list.append semantics for negative values\n \n-        Parameters\n-        ----------\n-        loc : int\n-        item : object\n+    Parameters\n+    ----------\n+    loc : int\n+    item : object\n \n-        Returns\n-        -------\n-        new_index : Index\n+    Returns\n+    -------\n+    new_index : Index\n \n-        Raises\n-        ------\n-        ValueError if the item is not in the categories\n+    Raises\n+    ------\n+    ValueError if the item is not in the categories\n \n-        \"\"\"\n-        code = self.categories.get_indexer([item])\n-        if (code == -1) and not (is_scalar(item) and isna(item)):\n-            raise TypeError(\n-                \"cannot insert an item into a CategoricalIndex \"\n-                \"that is not already an existing category\"\n-            )\n+    \"\"\"\n+    code = self.categories.get_indexer([item])\n+    if (code == -1) and not (is_scalar(item) and isna(item)):\n+        raise TypeError(\n+            \"cannot insert an item into a CategoricalIndex \"\n+            \"that is not already an existing category\"\n+        )\n \n-        codes = self.codes\n-        codes = np.concatenate((codes[:loc], code, codes[loc:]))\n-        return self._create_from_codes(codes)\n+    codes = self.codes\n+    codes = np.concatenate((codes[:loc], code, codes[loc:]))\n+    return self._create_from_codes(codes)\n \n     def _concat(self, to_concat, name):\n-        # if calling index is category, don't check dtype of others\n-        return CategoricalIndex._concat_same_dtype(self, to_concat, name)\n+    # if calling index is category, don't check dtype of others\n+    return CategoricalIndex._concat_same_dtype(self, to_concat, name)\n \n     def _concat_same_dtype(self, to_concat, name):\n-        \"\"\"\n-        Concatenate to_concat which has the same class\n-        ValueError if other is not in the categories\n-        \"\"\"\n-        codes = np.concatenate([self._is_dtype_compat(c).codes for c in to_concat])\n-        result = self._create_from_codes(codes, name=name)\n-        # if name is None, _create_from_codes sets self.name\n-        result.name = name\n-        return result\n+    \"\"\"\n+    Concatenate to_concat which has the same class\n+    ValueError if other is not in the categories\n+    \"\"\"\n+    codes = np.concatenate([self._is_dtype_compat(c).codes for c in to_concat])\n+    result = self._create_from_codes(codes, name=name)\n+    # if name is None, _create_from_codes sets self.name\n+    result.name = name\n+    return result\n \n     def _codes_for_groupby(self, sort, observed):\n-        \"\"\" Return a Categorical adjusted for groupby \"\"\"\n-        return self.values._codes_for_groupby(sort, observed)\n+    \"\"\" Return a Categorical adjusted for groupby \"\"\"\n+    return self.values._codes_for_groupby(sort, observed)\n \n     @classmethod\n     def _add_comparison_methods(cls):\n-        \"\"\" add in comparison methods \"\"\"\n+    \"\"\" add in comparison methods \"\"\"\n \n-        def _make_compare(op):\n-            opname = \"__{op}__\".format(op=op.__name__)\n+    def _make_compare(op):\n+        opname = \"__{op}__\".format(op=op.__name__)\n \n-            def _evaluate_compare(self, other):\n-                with np.errstate(all=\"ignore\"):\n-                    result = op(self.array, other)\n-                if isinstance(result, ABCSeries):\n-                    # Dispatch to pd.Categorical returned NotImplemented\n-                    # and we got a Series back; down-cast to ndarray\n-                    result = result._values\n-                return result\n+        def _evaluate_compare(self, other):\n+            with np.errstate(all=\"ignore\"):\n+                result = op(self.array, other)\n+            if isinstance(result, ABCSeries):\n+                # Dispatch to pd.Categorical returned NotImplemented\n+                # and we got a Series back; down-cast to ndarray\n+                result = result._values\n+            return result\n \n-            return compat.set_function_name(_evaluate_compare, opname, cls)\n+        return compat.set_function_name(_evaluate_compare, opname, cls)\n \n-        cls.__eq__ = _make_compare(operator.eq)\n-        cls.__ne__ = _make_compare(operator.ne)\n-        cls.__lt__ = _make_compare(operator.lt)\n-        cls.__gt__ = _make_compare(operator.gt)\n-        cls.__le__ = _make_compare(operator.le)\n-        cls.__ge__ = _make_compare(operator.ge)\n+    cls.__eq__ = _make_compare(operator.eq)\n+    cls.__ne__ = _make_compare(operator.ne)\n+    cls.__lt__ = _make_compare(operator.lt)\n+    cls.__gt__ = _make_compare(operator.gt)\n+    cls.__le__ = _make_compare(operator.le)\n+    cls.__ge__ = _make_compare(operator.ge)\n \n     def _delegate_method(self, name, *args, **kwargs):\n-        \"\"\" method delegation to the ._values \"\"\"\n-        method = getattr(self._values, name)\n-        if \"inplace\" in kwargs:\n-            raise ValueError(\"cannot use inplace with CategoricalIndex\")\n-        res = method(*args, **kwargs)\n-        if is_scalar(res):\n-            return res\n-        return CategoricalIndex(res, name=self.name)\n+    \"\"\" method delegation to the ._values \"\"\"\n+    method = getattr(self._values, name)\n+    if \"inplace\" in kwargs:\n+        raise ValueError(\"cannot use inplace with CategoricalIndex\")\n+    res = method(*args, **kwargs)\n+    if is_scalar(res):\n+        return res\n+    return CategoricalIndex(res, name=self.name)\n \n \n CategoricalIndex._add_numeric_methods_add_sub_disabled()\ndiff --git a/pandas/tests/indexing/test_categorical.py b/pandas/tests/indexing/test_categorical.py\nindex bc3ee1c59f..40fd6575ab 100644\n--- a/pandas/tests/indexing/test_categorical.py\n+++ b/pandas/tests/indexing/test_categorical.py\n@@ -654,22 +654,13 @@ class TestCategoricalIndex:\n             df.reindex([\"a\"], limit=2)\n \n     def test_loc_slice(self):\n-        # slicing\n-        # not implemented ATM\n         # GH9748\n-\n-        msg = (\n-            \"cannot do slice indexing on {klass} with these \"\n-            r\"indexers \\[1\\] of {kind}\".format(\n-                klass=str(CategoricalIndex), kind=str(int)\n-            )\n-        )\n-        with pytest.raises(TypeError, match=msg):\n+        with pytest.raises(KeyError, match=\"1\"):\n             self.df.loc[1:5]\n \n-        # result = df.loc[1:5]\n-        # expected = df.iloc[[1,2,3,4]]\n-        # tm.assert_frame_equal(result, expected)\n+        result = self.df.loc[\"b\":\"c\"]\n+        expected = self.df.iloc[[2, 3, 4]]\n+        tm.assert_frame_equal(result, expected)\n \n     def test_loc_and_at_with_categorical_index(self):\n         # GH 20629\n@@ -794,6 +785,7 @@ class TestCategoricalIndex:\n         # GH-17569\n         cat_idx = CategoricalIndex(idx_values, ordered=ordered_fixture)\n         df = DataFrame({\"A\": [\"foo\", \"bar\", \"baz\"]}, index=cat_idx)\n+        sl = slice(idx_values[0], idx_values[1])\n \n         # scalar selection\n         result = df.loc[idx_values[0]]\n@@ -805,6 +797,11 @@ class TestCategoricalIndex:\n         expected = DataFrame([\"foo\", \"bar\"], index=cat_idx[:2], columns=[\"A\"])\n         tm.assert_frame_equal(result, expected)\n \n+        # slice selection\n+        result = df.loc[sl]\n+        expected = DataFrame([\"foo\", \"bar\"], index=cat_idx[:2], columns=[\"A\"])\n+        tm.assert_frame_equal(result, expected)\n+\n         # scalar assignment\n         result = df.copy()\n         result.loc[idx_values[0]] = \"qux\"\n@@ -816,3 +813,9 @@ class TestCategoricalIndex:\n         result.loc[idx_values[:2], \"A\"] = [\"qux\", \"qux2\"]\n         expected = DataFrame({\"A\": [\"qux\", \"qux2\", \"baz\"]}, index=cat_idx)\n         tm.assert_frame_equal(result, expected)\n+\n+        # slice assignment\n+        result = df.copy()\n+        result.loc[sl, \"A\"] = [\"qux\", \"qux2\"]\n+        expected = DataFrame({\"A\": [\"qux\", \"qux2\", \"baz\"]}, index=cat_idx)\n+        tm.assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-17 15:44:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_110",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_110/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: slice indexing with CategoricalIndex (#30225)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 419,
+        "end_line": 419,
+        "suspiciousness": 0.998686,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 420,
+        "end_line": 420,
+        "suspiciousness": 0.998686,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 421,
+        "end_line": 421,
+        "suspiciousness": 0.998686,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 422,
+        "end_line": 422,
+        "suspiciousness": 0.998686,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 924,
+        "end_line": 924,
+        "suspiciousness": 0.998686,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 925,
+        "end_line": 925,
+        "suspiciousness": 0.998686,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 926,
+        "end_line": 926,
+        "suspiciousness": 0.998686,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 927,
+        "end_line": 927,
+        "suspiciousness": 0.998686,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 928,
+        "end_line": 928,
+        "suspiciousness": 0.998686,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 929,
+        "end_line": 929,
+        "suspiciousness": 0.998686,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_categorical.py::TestCategoricalIndex::test_loc_with_non_string_categories",
+      "pytest pandas/tests/indexing/test_categorical.py::TestCategoricalIndex::test_loc_slice"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 419,
+      "end_line": 419,
+      "suspiciousness": 0.998686,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 420,
+      "end_line": 420,
+      "suspiciousness": 0.998686,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 421,
+      "end_line": 421,
+      "suspiciousness": 0.998686,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 422,
+      "end_line": 422,
+      "suspiciousness": 0.998686,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 924,
+      "end_line": 924,
+      "suspiciousness": 0.998686,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 925,
+      "end_line": 925,
+      "suspiciousness": 0.998686,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 926,
+      "end_line": 926,
+      "suspiciousness": 0.998686,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 927,
+      "end_line": 927,
+      "suspiciousness": 0.998686,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 928,
+      "end_line": 928,
+      "suspiciousness": 0.998686,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 929,
+      "end_line": 929,
+      "suspiciousness": 0.998686,
+      "rank": 10
+    }
+  ]
+}

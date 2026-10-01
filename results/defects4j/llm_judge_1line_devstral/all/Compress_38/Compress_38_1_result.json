@@ -1,0 +1,62 @@
+{
+  "project_name": "Compress",
+  "bug_id": "38",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:58:08",
+      "end_time": "2026-06-26 19:59:31",
+      "duration_seconds": 83,
+      "duration_human": "1m 23s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 116302,
+      "output_tokens": 2485,
+      "total_tokens": 118787,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 116302
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\nindex 941bbbd3..fce2b626 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\n@@ -856,6 +856,10 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {\n             return true;\n         }\n \n+                if (isPaxHeader()) {\n+            return false;\n+        }\n+\n         if (getName().endsWith(\"/\")) {\n             return true;\n         }\n"
+  },
+  "timestamp": "2026-06-26 19:59:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_38",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_38",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "PAX header entry name ending with / causes problems\nThere seems to be a problem when a PAX header entry (link flag is 'x') has a name ending with \"/\". The {{TarArchiveEntry.isDirectory()}} check ends up returning {{true}} because of the trailing slash which means no content can be read from the entry. PAX header parsing effectively finds nothing and the stream is not advanced; this leaves the stream in a bad state as the next entry's header is actually read from the header contents.\n\nIf the name is modified to remove the trailing slash when the link flag indicates a PAX header everything seems to work fine. That would be one potential fix in {{parseTarHeader}}. Changing {{isDirectory}} to return {{false}} if {{isPaxHeader}} is {{true}} (before the trailing \"/\" check) would probably also fix the issue (though I can't verify that in the debugger like I can with changing the name).\n\nSo far I have only seen this when using Docker to save images that contain a yum database. For example:\n{noformat}\ndocker pull centos:latest && docker save centos:latest | tar x --include \"*/layer.tar\"\n{noformat}\nWill produce at least one \"layer.tar\" that exhibits this issue. If I come across a smaller TAR for testing I will attach it.",
+    "commit_message": "COMPRESS-356 properly deal with PAX header entries ending in slash",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+        "start_line": 859,
+        "end_line": 859,
+        "line_numbers": [
+          859
+        ],
+        "function_name": "isDirectory",
+        "class_name": "TarArchiveEntry",
+        "filename": "TarArchiveEntry.java",
+        "code_snippet": "    public boolean isDirectory() {\n        if (file != null) {\n            return file.isDirectory();\n        }\n\n        if (linkFlag == LF_DIR) {\n            return true;\n        }\n\n        if (getName().endsWith(\"/\")) {\n            return true;\n        }\n\n        return false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::survivesPaxHeaderWithNameEndingInSlash"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\nindex a5050bfa..941bbbd3 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java\n@@ -856,7 +856,7 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {\n             return true;\n         }\n \n+        if (!isPaxHeader() && !isGlobalPaxHeader() && getName().endsWith(\"/\")) {\n-        if (getName().endsWith(\"/\")) {\n             return true;\n         }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

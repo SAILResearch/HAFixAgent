@@ -1,0 +1,62 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "84",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:37:15",
+      "end_time": "2025-10-10 22:38:32",
+      "duration_seconds": 76,
+      "duration_human": "1m 16s"
+    },
+    "model_cost": 0.0041,
+    "model_calls": 14,
+    "token_usage": {
+      "input_tokens": 43916,
+      "output_tokens": 1135,
+      "total_tokens": 45051,
+      "cached_input_tokens": 41216,
+      "uncached_input_tokens": 2700
+    },
+    "agent_steps": 14,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java\nindex 7b309a3f..be47742f 100644\n--- a/src/main/java/org/jsoup/helper/W3CDom.java\n+++ b/src/main/java/org/jsoup/helper/W3CDom.java\n@@ -89,7 +89,7 @@ public class W3CDom {\n                 String tagName = sourceEl.tagName();\n \n                 Element el = \n-                    doc.createElementNS(namespace, tagName);\n+                    doc.createElementNS(namespace == null ? \"\" : namespace, tagName);\n                 copyAttributes(sourceEl, el);\n                 if (dest == null) { // sets up the root\n                     doc.appendChild(el);\n"
+  },
+  "timestamp": "2025-10-10 18:38:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_84",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_84",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "W3CDom Helper fails to convert whenever some namespace declarations are missing\nHello\r\n\r\nI've been running into an issue where if I convert my Jsoup parsed document into a org.w3c.dom.Document with the W3CDom helper and that document happens to be missing namespace declarations we get the following exception:\r\n\r\n```\r\nNAMESPACE_ERR: An attempt is made to create or change an object in a way which is incorrect with regard to namespaces.\r\n```\r\n\r\nI've looked into this a bit and first thing I tried was using a locally forked version of the W3CDom helper that simply turned this flag off:\r\n\r\n```\r\nfactory.setNamespaceAware(false);\r\n```\r\n\r\nHowever the issue continued, so instead I simply hacked the code to completely ignore namespaces\r\n\r\n```\r\n// (csueiras): We purposely remove any namespace because we get malformed HTML that might not be\r\n// declaring all of it's namespaces!\r\nElement el = doc.createElementNS(\"\", sourceEl.tagName());\r\n```\r\n\r\nI am not completely sure if this will have any side effects, but it resolved the issues with the document I'm interacting with. I would be glad to provide a pull request if I have some guidance regarding how to properly handle this issue if it can be handled by Jsoup.\r\n\r\nThe document I'm having issues is simply making use of the Facebook like buttons using tags like this:\r\n\r\n```\r\n<fb:like ...\r\n```\r\n\r\nBut there's no namespace declaration for \"fb\".\n",
+    "commit_message": "Don't blow up if a namespace is undefined",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/W3CDom.java",
+        "start_line": 91,
+        "end_line": 91,
+        "line_numbers": [
+          91
+        ],
+        "function_name": "head",
+        "class_name": "W3CBuilder",
+        "filename": "W3CDom.java",
+        "code_snippet": "        public void head(org.jsoup.nodes.Node source, int depth) {\n            namespacesStack.push(new HashMap<>(namespacesStack.peek())); // inherit from above on the stack\n            if (source instanceof org.jsoup.nodes.Element) {\n                org.jsoup.nodes.Element sourceEl = (org.jsoup.nodes.Element) source;\n\n                String prefix = updateNamespaces(sourceEl);\n                String namespace = namespacesStack.peek().get(prefix);\n                String tagName = sourceEl.tagName();\n\n                Element el = \n                    doc.createElementNS(namespace, tagName);\n                copyAttributes(sourceEl, el);\n                if (dest == null) { // sets up the root\n                    doc.appendChild(el);\n                } else {\n                    dest.appendChild(el);\n                }\n                dest = el; // descend\n            } else if (source instanceof org.jsoup.nodes.TextNode) {\n                org.jsoup.nodes.TextNode sourceText = (org.jsoup.nodes.TextNode) source;\n                Text text = doc.createTextNode(sourceText.getWholeText());\n                dest.appendChild(text);\n            } else if (source instanceof org.jsoup.nodes.Comment) {\n                org.jsoup.nodes.Comment sourceComment = (org.jsoup.nodes.Comment) source;\n                Comment comment = doc.createComment(sourceComment.getData());\n                dest.appendChild(comment);\n            } else if (source instanceof org.jsoup.nodes.DataNode) {\n                org.jsoup.nodes.DataNode sourceData = (org.jsoup.nodes.DataNode) source;\n                Text node = doc.createTextNode(sourceData.getWholeData());\n                dest.appendChild(node);\n            } else {\n                // unhandled\n            }\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.W3CDomTest::treatsUndeclaredNamespaceAsLocalName"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java\nindex 6847574..7b309a3 100644\n--- a/src/main/java/org/jsoup/helper/W3CDom.java\n+++ b/src/main/java/org/jsoup/helper/W3CDom.java\n@@ -88,8 +88,7 @@ public class W3CDom {\n                 String namespace = namespacesStack.peek().get(prefix);\n                 String tagName = sourceEl.tagName();\n \n+                Element el = namespace == null && tagName.contains(\":\") ?\n+                    doc.createElementNS(\"\", tagName) : // doesn't have a real namespace defined\n-                Element el = \n                     doc.createElementNS(namespace, tagName);\n                 copyAttributes(sourceEl, el);\n                 if (dest == null) { // sets up the root",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

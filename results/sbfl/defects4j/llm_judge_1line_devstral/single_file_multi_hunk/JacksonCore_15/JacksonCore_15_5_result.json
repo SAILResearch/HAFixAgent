@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "JacksonCore_15",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 22:25:11",
+      "end_time": "2026-06-29 22:27:14",
+      "duration_seconds": 123,
+      "duration_human": "2m 3s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 801517,
+      "output_tokens": 5649,
+      "total_tokens": 807166,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 801517
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\nindex e2de6f85..b47c910e 100644\n--- a/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n+++ b/src/main/java/com/fasterxml/jackson/core/filter/FilteringParserDelegate.java\n@@ -105,6 +105,13 @@ public class FilteringParserDelegate extends JsonParserDelegate\n      */\n     protected int _matchCount;\n \n+    /**\n+     * Flag to indicate whether we have found the first complete match when\n+     * _allowMultipleMatches is false. Once set to true, we should stop\n+     * processing after the current subtree is complete.\n+     */\n+    protected boolean _foundFirstMatch;\n+\n     /*\n     /**********************************************************\n     /* Construction, initialization\n@@ -121,6 +128,7 @@ public class FilteringParserDelegate extends JsonParserDelegate\n         _headContext = TokenFilterContext.createRootContext(f);\n         _includePath = includePath;\n         _allowMultipleMatches = allowMultipleMatches;\n+        _foundFirstMatch = false;\n     }\n \n     /*\n@@ -375,6 +383,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 f = _headContext.setFieldName(name);\n                 if (f == TokenFilter.INCLUDE_ALL) {\n                     _itemFilter = f;\n+                    if (_allowMultipleMatches || !_foundFirstMatch) {\n+                        _foundFirstMatch = true;\n+                    }\n                     if (!_includePath) {\n                         // Minor twist here: if parent NOT included, may need to induce output of\n                         // surrounding START_OBJECT/END_OBJECT\n@@ -398,6 +409,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 }\n                 _itemFilter = f;\n                 if (f == TokenFilter.INCLUDE_ALL) {\n+                    if (_allowMultipleMatches || !_foundFirstMatch) {\n+                        _foundFirstMatch = true;\n+                    }\n                     if (_includePath) {\n                         return (_currToken = t);\n                     }\n@@ -415,12 +429,18 @@ public class FilteringParserDelegate extends JsonParserDelegate\n         default: // scalar value\n             f = _itemFilter;\n             if (f == TokenFilter.INCLUDE_ALL) {\n+                if (_allowMultipleMatches || !_foundFirstMatch) {\n+                    _foundFirstMatch = true;\n+                }\n                 return (_currToken = t);\n             }\n             if (f != null) {\n                 f = _headContext.checkValue(f);\n                 if ((f == TokenFilter.INCLUDE_ALL)\n                         || ((f != null) && f.includeValue(delegate))) {\n+                    if (f == TokenFilter.INCLUDE_ALL && (_allowMultipleMatches || !_foundFirstMatch)) {\n+                        _foundFirstMatch = true;\n+                    }\n                     return (_currToken = t);\n                 }\n             }\n@@ -457,13 +477,19 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 }\n                 if (f == null) { // does this occur?\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 // Otherwise still iffy, need to check\n                 f = _headContext.checkValue(f);\n                 if (f == null) {\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 if (f != TokenFilter.INCLUDE_ALL) {\n                     f = f.filterStartArray();\n@@ -482,6 +508,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                         return t;\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_START_OBJECT:\n@@ -492,13 +521,19 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 }\n                 if (f == null) { // does this occur?\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 // Otherwise still iffy, need to check\n                 f = _headContext.checkValue(f);\n                 if (f == null) {\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 if (f != TokenFilter.INCLUDE_ALL) {\n                     f = f.filterStartObject();\n@@ -516,6 +551,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                         return t;\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_END_ARRAY:\n@@ -532,6 +570,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                         return (_currToken = t);\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_FIELD_NAME:\n@@ -545,13 +586,19 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     if (f == null) { // filter out the value\n                         delegate.nextToken();\n                         delegate.skipChildren();\n-                        continue main_loop;\n+                        if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                     }\n                     f = f.includeProperty(name);\n                     if (f == null) { // filter out the value\n                         delegate.nextToken();\n                         delegate.skipChildren();\n-                        continue main_loop;\n+                        if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                     }\n                     _itemFilter = f;\n                     if (f == TokenFilter.INCLUDE_ALL) {\n@@ -559,7 +606,10 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                             return (_currToken = t);\n                         }\n //                        if (_includeImmediateParent) { ...\n-                        continue main_loop;\n+                        if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                     }\n                     if (_includePath) {\n                         t = _nextTokenWithBuffering(_headContext);\n@@ -569,6 +619,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                         }\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             default: // scalar value\n@@ -612,7 +665,10 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 f = _headContext.checkValue(_itemFilter);\n                 if (f == null) {\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 if (f != TokenFilter.INCLUDE_ALL) {\n                     f = f.filterStartArray();\n@@ -623,6 +679,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     return _nextBuffered(buffRoot);\n                 }\n                 _headContext = _headContext.createChildArrayContext(f, false);\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_START_OBJECT:\n@@ -633,13 +692,19 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                 }\n                 if (f == null) { // does this occur?\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 // Otherwise still iffy, need to check\n                 f = _headContext.checkValue(f);\n                 if (f == null) {\n                     delegate.skipChildren();\n-                    continue main_loop;\n+                    if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                 }\n                 if (f != TokenFilter.INCLUDE_ALL) {\n                     f = f.filterStartObject();\n@@ -650,6 +715,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     return _nextBuffered(buffRoot);\n                 }\n                 _headContext = _headContext.createChildObjectContext(f, false);\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_END_ARRAY:\n@@ -675,6 +743,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                         return null;\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             case ID_FIELD_NAME:\n@@ -688,19 +759,28 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     if (f == null) { // filter out the value\n                         delegate.nextToken();\n                         delegate.skipChildren();\n-                        continue main_loop;\n+                        if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                     }\n                     f = f.includeProperty(name);\n                     if (f == null) { // filter out the value\n                         delegate.nextToken();\n                         delegate.skipChildren();\n-                        continue main_loop;\n+                        if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n+                continue main_loop;\n                     }\n                     _itemFilter = f;\n                     if (f == TokenFilter.INCLUDE_ALL) {\n                         return _nextBuffered(buffRoot);\n                     }\n                 }\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n \n             default: // scalar value\n@@ -716,6 +796,9 @@ public class FilteringParserDelegate extends JsonParserDelegate\n                     }\n                 }\n                 // Otherwise not included (leaves must be explicitly included)\n+                if (_foundFirstMatch && !_allowMultipleMatches) {\n+                    return null;\n+                }\n                 continue main_loop;\n             }\n         }\n"
+  },
+  "timestamp": "2026-06-29 22:27:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_15",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_15",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "Make use of `_allowMultipleMatches` in `FilteringParserDelegate`\nCurrently, it looks like that the _allowMultipleMatches attribute in FilteringGeneratorDelegate is not utilised (i.e. no value is assigned to this variable). Re. the documentation this attribute offers some useful functionality. So it would be nice, if it could be implemented properly. See https://groups.google.com/d/msg/jackson-user/VzZ94G9hvrs/JGFozl6lCQAJ\n\n",
+    "commit_message": "Fix #209",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/SerializedString.java",
+        "start_line": 87,
+        "end_line": 87,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 406,
+        "end_line": 406,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 407,
+        "end_line": 407,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 409,
+        "end_line": 409,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 414,
+        "end_line": 414,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 415,
+        "end_line": 415,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 416,
+        "end_line": 416,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 420,
+        "end_line": 420,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 777,
+        "end_line": 777,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+        "start_line": 778,
+        "end_line": 778,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.filter.BasicParserFilteringTest::testNotAllowMultipleMatches"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/SerializedString.java",
+      "start_line": 87,
+      "end_line": 87,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 406,
+      "end_line": 406,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 407,
+      "end_line": 407,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 409,
+      "end_line": 409,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 414,
+      "end_line": 414,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 415,
+      "end_line": 415,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 416,
+      "end_line": 416,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 420,
+      "end_line": 420,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 777,
+      "end_line": 777,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+      "start_line": 778,
+      "end_line": 778,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 10
+    }
+  ]
+}

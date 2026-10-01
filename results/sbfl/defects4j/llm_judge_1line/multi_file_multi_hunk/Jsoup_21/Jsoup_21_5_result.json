@@ -1,0 +1,194 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_21",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 11:26:27",
+      "end_time": "2026-06-24 11:33:33",
+      "duration_seconds": 426,
+      "duration_human": "7m 6s"
+    },
+    "model_cost": 0.1276,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 634343,
+      "output_tokens": 17163,
+      "total_tokens": 651506,
+      "cached_input_tokens": 187904,
+      "uncached_input_tokens": 446439
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/select/QueryParser.java b/src/main/java/org/jsoup/select/QueryParser.java\nindex 9ff43bad..2c634bc4 100644\n--- a/src/main/java/org/jsoup/select/QueryParser.java\n+++ b/src/main/java/org/jsoup/select/QueryParser.java\n@@ -1,13 +1,17 @@\n-package org.jsoup.select;\n+/*\n+ * Copyright (c) Jonathan Hedley, https://jsoup.org/\n+ */\n \n-import java.util.ArrayList;\n-import java.util.List;\n-import java.util.regex.Pattern;\n+package org.jsoup.select;\n \n import org.jsoup.helper.StringUtil;\n import org.jsoup.helper.Validate;\n import org.jsoup.parser.TokenQueue;\n \n+import java.util.ArrayList;\n+import java.util.List;\n+import java.util.regex.Pattern;\n+\n /**\n  * Parses a CSS selector into an Evaluator tree.\n  */\n@@ -15,23 +19,12 @@ class QueryParser {\n     private final static String[] combinators = {\",\", \">\", \"+\", \"~\", \" \"};\n \n     private TokenQueue tq;\n-    private String query;\n-    private List<Evaluator> evals = new ArrayList<Evaluator>();\n+    private List<Evaluator> evals = new ArrayList<>();\n \n-    /**\n-     * Create a new QueryParser.\n-     * @param query CSS query\n-     */\n-    private QueryParser(String query) {\n-        this.query = query;\n+    QueryParser(String query) {\n         this.tq = new TokenQueue(query);\n     }\n \n-    /**\n-     * Parse a CSS query into an Evaluator.\n-     * @param query CSS query\n-     * @return Evaluator\n-     */\n     public static Evaluator parse(String query) {\n         QueryParser p = new QueryParser(query);\n         return p.parse();\n@@ -60,8 +53,11 @@ class QueryParser {\n                 evals.clear();\n                 evals.add(or);\n                 while (!tq.isEmpty()) {\n-                    String subQuery = tq.chompTo(\",\");\n+                    String subQuery = consumeToComma();\n                     or.add(parse(subQuery));\n+                    if (!tq.matchChomp(\",\")) {\n+                        break;\n+                    }\n                 }\n             } else if (tq.matchesAny(combinators)) {\n                 combinator(tq.consume());\n@@ -78,6 +74,26 @@ class QueryParser {\n         return new CombiningEvaluator.And(evals);\n     }\n \n+    /**\n+     * Consume a selector group up to a top-level comma or end of string.\n+     * Respects brackets and parentheses so commas inside \\\\[ or ( are not treated as separators.\n+     */\n+    private String consumeToComma() {\n+        StringBuilder sb = new StringBuilder();\n+        while (!tq.isEmpty()) {\n+            if (tq.matches(\"(\")) {\n+                sb.append(\"(\").append(tq.chompBalanced('(', ')')).append(\")\");\n+            } else if (tq.matches(\"[\")) {\n+                sb.append(\"[\").append(tq.chompBalanced('[', ']')).append(\"]\");\n+            } else if (tq.peek() == ',') {\n+                break;\n+            } else {\n+                sb.append(tq.consume());\n+            }\n+        }\n+        return sb.toString();\n+    }\n+\n     private void combinator(char combinator) {\n         tq.consumeWhitespace();\n         String subQuery = consumeSubQuery(); // support multi > childs\n@@ -118,22 +134,14 @@ class QueryParser {\n     }\n \n     private void findElements() {\n-        if (tq.matchChomp(\"#\"))\n+        if (tq.matches(\"#\"))\n             byId();\n-        else if (tq.matchChomp(\".\"))\n+        else if (tq.matches(\".\"))\n             byClass();\n         else if (tq.matchesWord())\n             byTag();\n         else if (tq.matches(\"[\"))\n             byAttribute();\n-        else if (tq.matchChomp(\"*\"))\n-            allElements();\n-        else if (tq.matchChomp(\":lt(\"))\n-            indexLessThan();\n-        else if (tq.matchChomp(\":gt(\"))\n-            indexGreaterThan();\n-        else if (tq.matchChomp(\":eq(\"))\n-            indexEquals();\n         else if (tq.matches(\":has(\"))\n             has();\n         else if (tq.matches(\":contains(\"))\n@@ -146,18 +154,43 @@ class QueryParser {\n             matches(true);\n         else if (tq.matches(\":not(\"))\n             not();\n-        else // unhandled\n-            throw new Selector.SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n-\n+        else if (tq.matches(\":nth-child(\"))\n+            cssNthChild(false, false);\n+        else if (tq.matches(\":nth-last-child(\"))\n+            cssNthChild(true, false);\n+        else if (tq.matches(\":nth-of-type(\"))\n+            cssNthChild(false, true);\n+        else if (tq.matches(\":nth-last-of-type(\"))\n+            cssNthChild(true, true);\n+        else if (tq.matches(\":first-child\"))\n+            evals.add(new Evaluator.IsFirstChild());\n+        else if (tq.matches(\":last-child\"))\n+            evals.add(new Evaluator.IsLastChild());\n+        else if (tq.matches(\":first-of-type\"))\n+            evals.add(new Evaluator.IsFirstOfType());\n+        else if (tq.matches(\":last-of-type\"))\n+            evals.add(new Evaluator.IsLastOfType());\n+        else if (tq.matches(\":only-child\"))\n+            evals.add(new Evaluator.IsOnlyChild());\n+        else if (tq.matches(\":only-of-type\"))\n+            evals.add(new Evaluator.IsOnlyOfType());\n+        else if (tq.matches(\":empty\"))\n+            evals.add(new Evaluator.IsEmpty());\n+        else if (tq.matches(\":root\"))\n+            evals.add(new Evaluator.IsRoot());\n+        else\n+            throw new Selector.SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", tq.remainder(), tq.remainder());\n     }\n \n     private void byId() {\n+        tq.consume(\"#\");\n         String id = tq.consumeCssIdentifier();\n         Validate.notEmpty(id);\n-        evals.add(new Evaluator.Id(id));\n+        evals.add(new Evaluator.Id(id.toLowerCase()));\n     }\n \n     private void byClass() {\n+        tq.consume(\".\");\n         String className = tq.consumeCssIdentifier();\n         Validate.notEmpty(className);\n         evals.add(new Evaluator.Class(className.trim().toLowerCase()));\n@@ -167,10 +200,7 @@ class QueryParser {\n         String tagName = tq.consumeElementSelector();\n         Validate.notEmpty(tagName);\n \n-        // namespaces: if element name is \"abc:def\", selector must be \"abc|def\", so flip:\n-        if (tagName.contains(\"|\"))\n-            tagName = tagName.replace(\"|\", \":\");\n-\n+        // namespaces: wildcard match equals(tagName) or ending in \":\"+tagName\n         evals.add(new Evaluator.Tag(tagName.trim().toLowerCase()));\n     }\n \n@@ -178,60 +208,30 @@ class QueryParser {\n         TokenQueue cq = new TokenQueue(tq.chompBalanced('[', ']')); // content queue\n         String key = cq.consumeToAny(\"=\", \"!=\", \"^=\", \"$=\", \"*=\", \"~=\"); // eq, not, start, end, contain, match, (no val)\n         Validate.notEmpty(key);\n+\n         cq.consumeWhitespace();\n \n         if (cq.isEmpty()) {\n-            if (key.startsWith(\"^\"))\n-                evals.add(new Evaluator.AttributeStarting(key.substring(1)));\n-            else\n-                evals.add(new Evaluator.Attribute(key));\n+            evals.add(new Evaluator.Attribute(key.trim().toLowerCase()));\n         } else {\n             if (cq.matchChomp(\"=\"))\n-                evals.add(new Evaluator.AttributeWithValue(key, cq.remainder()));\n-\n+                evals.add(new Evaluator.AttributeWithValue(key.trim().toLowerCase(), cq.remainder()));\n             else if (cq.matchChomp(\"!=\"))\n-                evals.add(new Evaluator.AttributeWithValueNot(key, cq.remainder()));\n-\n+                evals.add(new Evaluator.AttributeWithValueNot(key.trim().toLowerCase(), cq.remainder()));\n             else if (cq.matchChomp(\"^=\"))\n-                evals.add(new Evaluator.AttributeWithValueStarting(key, cq.remainder()));\n-\n+                evals.add(new Evaluator.AttributeWithValueStarting(key.trim().toLowerCase(), cq.remainder()));\n             else if (cq.matchChomp(\"$=\"))\n-                evals.add(new Evaluator.AttributeWithValueEnding(key, cq.remainder()));\n-\n+                evals.add(new Evaluator.AttributeWithValueEnding(key.trim().toLowerCase(), cq.remainder()));\n             else if (cq.matchChomp(\"*=\"))\n-                evals.add(new Evaluator.AttributeWithValueContaining(key, cq.remainder()));\n-\n+                evals.add(new Evaluator.AttributeWithValueContaining(key.trim().toLowerCase(), cq.remainder()));\n             else if (cq.matchChomp(\"~=\"))\n-                evals.add(new Evaluator.AttributeWithValueMatching(key, Pattern.compile(cq.remainder())));\n+                evals.add(new Evaluator.AttributeWithValueMatching(key.trim().toLowerCase(), Pattern.compile(cq.remainder())));\n             else\n-                throw new Selector.SelectorParseException(\"Could not parse attribute query '%s': unexpected token at '%s'\", query, cq.remainder());\n+                throw new Selector.SelectorParseException(\"Invalid attribute query '%s': unexpected token at '%s'\", cq.remainder(), cq.remainder());\n         }\n     }\n \n-    private void allElements() {\n-        evals.add(new Evaluator.AllElements());\n-    }\n-\n-    // pseudo selectors :lt, :gt, :eq\n-    private void indexLessThan() {\n-        evals.add(new Evaluator.IndexLessThan(consumeIndex()));\n-    }\n-\n-    private void indexGreaterThan() {\n-        evals.add(new Evaluator.IndexGreaterThan(consumeIndex()));\n-    }\n-\n-    private void indexEquals() {\n-        evals.add(new Evaluator.IndexEquals(consumeIndex()));\n-    }\n-\n-    private int consumeIndex() {\n-        String indexS = tq.chompTo(\")\").trim();\n-        Validate.isTrue(StringUtil.isNumeric(indexS), \"Index must be numeric\");\n-        return Integer.parseInt(indexS);\n-    }\n-\n-    // pseudo selector :has(el)\n+    // :has(el)\n     private void has() {\n         tq.consume(\":has\");\n         String subQuery = tq.chompBalanced('(', ')');\n@@ -239,11 +239,12 @@ class QueryParser {\n         evals.add(new StructuralEvaluator.Has(parse(subQuery)));\n     }\n \n-    // pseudo selector :contains(text), containsOwn(text)\n+    // :contains(text), containsOwn(text)\n     private void contains(boolean own) {\n         tq.consume(own ? \":containsOwn\" : \":contains\");\n         String searchText = TokenQueue.unescape(tq.chompBalanced('(', ')'));\n         Validate.notEmpty(searchText, \":contains(text) query must not be empty\");\n+\n         if (own)\n             evals.add(new Evaluator.ContainsOwnText(searchText));\n         else\n@@ -270,4 +271,30 @@ class QueryParser {\n \n         evals.add(new StructuralEvaluator.Not(parse(subQuery)));\n     }\n+\n+    // pseudo selectors :nth-child, ...\n+    private void cssNthChild(boolean backwards, boolean ofType) {\n+        tq.consume(backwards ? \":nth-last-child\" : ofType ? \":nth-of-type\" : \":nth-child\");\n+        String arg = tq.chompBalanced('(', ')');\n+        Validate.notEmpty(arg, \":nth-child(n) subselect must not be empty\");\n+        evals.add(new Evaluator.CssNthEvaluator(arg, backwards, ofType));\n+    }\n+\n+    private void indexLessThan() {\n+        evals.add(new Evaluator.IndexLessThan(consumeIndex()));\n+    }\n+\n+    private void indexGreaterThan() {\n+        evals.add(new Evaluator.IndexGreaterThan(consumeIndex()));\n+    }\n+\n+    private void indexEquals() {\n+        evals.add(new Evaluator.IndexEquals(consumeIndex()));\n+    }\n+\n+    private int consumeIndex() {\n+        String indexS = tq.chompTo(\")\").trim();\n+        Validate.isTrue(StringUtil.isNumeric(indexS), \"Index must be numeric\");\n+        return Integer.parseInt(indexS);\n+    }\n }\n"
+  },
+  "timestamp": "2026-06-24 11:33:33 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_21",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_21",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Selector parsing gets confused by commata in regexes\nThe selector `div, li:matches([0-9,]+)` causes a java.util.regex.PatternSyntaxException because  [QueryParser (line 63)](https://github.com/jhy/jsoup/blob/master/src/main/java/org/jsoup/select/QueryParser.java#L63) thinks that the comma inside the regex is a combinator and thus extracts `, li:matches([0-9` as the second alternative.\n\nInstead of scanning ahead with `chompTo(\",\"), the parser needs to parse its way through the alternative until it reaches a comma or the end of a string. That way, commata in regular expressions will be correctly interpreted as part of the regex.\n\nNote that there may be many more variations of this bug in the parser. Wherever a construct allows embedding an arbitrary string one should expect this problem. `[attr=a,b]` for example is likely to cause the same issue. In a way, any invocation of chompTo() needs to examined.\n\n",
+    "commit_message": "Fixed parsing of group-or commas in CSS selectors.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 53,
+        "end_line": 53,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 54,
+        "end_line": 54,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 27,
+        "end_line": 27,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 17,
+        "end_line": 17,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tag.java",
+        "start_line": 55,
+        "end_line": 55,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tag.java",
+        "start_line": 56,
+        "end_line": 56,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Tag.java",
+        "start_line": 57,
+        "end_line": 57,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/Validate.java",
+        "start_line": 15,
+        "end_line": 15,
+        "suspiciousness": 0.9979487157886733,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/Validate.java",
+        "start_line": 17,
+        "end_line": 17,
+        "suspiciousness": 0.9979487157886733,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/Validate.java",
+        "start_line": 91,
+        "end_line": 91,
+        "suspiciousness": 0.9979487157886733,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.select.SelectorTest::handlesCommasInSelector",
+      "org.jsoup.select.SelectorTest::mixCombinatorGroup"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 53,
+      "end_line": 53,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 54,
+      "end_line": 54,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 27,
+      "end_line": 27,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 17,
+      "end_line": 17,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Tag.java",
+      "start_line": 55,
+      "end_line": 55,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Tag.java",
+      "start_line": 56,
+      "end_line": 56,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Tag.java",
+      "start_line": 57,
+      "end_line": 57,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/Validate.java",
+      "start_line": 15,
+      "end_line": 15,
+      "suspiciousness": 0.9979487157886733,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/Validate.java",
+      "start_line": 17,
+      "end_line": 17,
+      "suspiciousness": 0.9979487157886733,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/Validate.java",
+      "start_line": 91,
+      "end_line": 91,
+      "suspiciousness": 0.9979487157886733,
+      "rank": 10
+    }
+  ]
+}

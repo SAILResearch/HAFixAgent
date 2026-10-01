@@ -1,0 +1,207 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "52",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 00:09:49",
+      "end_time": "2025-10-01 00:30:23",
+      "duration_seconds": 1233,
+      "duration_human": "20m 33s"
+    },
+    "model_cost": 0.1631,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 2029438,
+      "output_tokens": 29801,
+      "total_tokens": 2059239,
+      "cached_input_tokens": 1989056,
+      "uncached_input_tokens": 40382
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\nindex 99807fcf..a346c392 100644\n--- a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n@@ -76,6 +76,16 @@ public class XmlTreeBuilder extends TreeBuilder {\n                 String declaration = data.substring(1);\n                 insert = new XmlDeclaration(declaration, comment.baseUri(), data.startsWith(\"!\"));\n             }\n+                // If this is an XML declaration with encoding, set the document charset\n+                if (insert instanceof XmlDeclaration) {\n+                    XmlDeclaration xmlDecl = (XmlDeclaration) insert;\n+                    if (xmlDecl.name().equals(\"xml\")) {\n+                        String encoding = xmlDecl.attr(\"encoding\");\n+                        if (encoding != null && doc.outputSettings().charset() == null) {\n+                            doc.outputSettings().charset(encoding);\n+                        }\n+                    }\n+                }\n         }\n         insertNode(insert);\n     }\n"
+  },
+  "timestamp": "2025-09-30 20:30:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_52",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_52",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Should detect ?xml encoding charset\nHi,\n\nFor example this is target URL: http://www.elacontecer.com.uy/rss/hoy.xml, its charset is `ISO-8859-1`.\n\nI use Jsoup like this:\n\n``` java\nfinal Document doc = Jsoup.connect(\"http://...\").parser(Parser.xmlParser()).get();\nSystem.out.println(\"charset=\" + doc.charset());\n```\n\nThe result is: `java.nio.charset.CharsetICU[UTF-8]`\n\nWould you please check to see if it's a bug?\n\nThanks,\n\n",
+    "commit_message": "Detect charset from xml prolog",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 112,
+        "end_line": 113,
+        "line_numbers": [
+          112,
+          113
+        ],
+        "function_name": "parseByteData",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseByteData(ByteBuffer byteData, String charsetName, String baseUri, Parser parser) {\n        String docData;\n        Document doc = null;\n\n        // look for BOM - overrides any other header or input\n        charsetName = detectCharsetFromBom(byteData, charsetName);\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            docData = Charset.forName(defaultCharset).decode(byteData).toString();\n            doc = parser.parseInput(docData, baseUri);\n            Element meta = doc.select(\"meta[http-equiv=content-type], meta[charset]\").first();\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            if (meta != null) {\n                if (meta.hasAttr(\"http-equiv\")) {\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                }\n                if (foundCharset == null && meta.hasAttr(\"charset\")) {\n                    try {\n                        if (Charset.isSupported(meta.attr(\"charset\"))) {\n                    foundCharset = meta.attr(\"charset\");\n                        }\n                    } catch (IllegalCharsetNameException e) {\n                        foundCharset = null;\n                    }\n                }\n            }\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNode(0) instanceof XmlDeclaration) {\n                XmlDeclaration prolog = (XmlDeclaration) doc.childNode(0);\n                if (prolog.name().equals(\"xml\")) {\n                    foundCharset = prolog.attr(\"encoding\");\n                }\n            }\n            foundCharset = validateCharset(foundCharset);\n\n            if (foundCharset != null && !foundCharset.equals(defaultCharset)) { // need to re-decode\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                byteData.rewind();\n                docData = Charset.forName(foundCharset).decode(byteData).toString();\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n            docData = Charset.forName(charsetName).decode(byteData).toString();\n        }\n        if (doc == null) {\n            doc = parser.parseInput(docData, baseUri);\n            doc.outputSettings().charset(charsetName);\n        }\n        return doc;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 115,
+        "end_line": 118,
+        "line_numbers": [
+          115,
+          116,
+          117,
+          118
+        ],
+        "function_name": "parseByteData",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseByteData(ByteBuffer byteData, String charsetName, String baseUri, Parser parser) {\n        String docData;\n        Document doc = null;\n\n        // look for BOM - overrides any other header or input\n        charsetName = detectCharsetFromBom(byteData, charsetName);\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            docData = Charset.forName(defaultCharset).decode(byteData).toString();\n            doc = parser.parseInput(docData, baseUri);\n            Element meta = doc.select(\"meta[http-equiv=content-type], meta[charset]\").first();\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            if (meta != null) {\n                if (meta.hasAttr(\"http-equiv\")) {\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                }\n                if (foundCharset == null && meta.hasAttr(\"charset\")) {\n                    try {\n                        if (Charset.isSupported(meta.attr(\"charset\"))) {\n                    foundCharset = meta.attr(\"charset\");\n                        }\n                    } catch (IllegalCharsetNameException e) {\n                        foundCharset = null;\n                    }\n                }\n            }\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNode(0) instanceof XmlDeclaration) {\n                XmlDeclaration prolog = (XmlDeclaration) doc.childNode(0);\n                if (prolog.name().equals(\"xml\")) {\n                    foundCharset = prolog.attr(\"encoding\");\n                }\n            }\n            foundCharset = validateCharset(foundCharset);\n\n            if (foundCharset != null && !foundCharset.equals(defaultCharset)) { // need to re-decode\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                byteData.rewind();\n                docData = Charset.forName(foundCharset).decode(byteData).toString();\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n            docData = Charset.forName(charsetName).decode(byteData).toString();\n        }\n        if (doc == null) {\n            doc = parser.parseInput(docData, baseUri);\n            doc.outputSettings().charset(charsetName);\n        }\n        return doc;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 46,
+        "end_line": 61,
+        "line_numbers": [
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61
+        ],
+        "function_name": "getWholeDeclaration",
+        "class_name": "XmlDeclaration",
+        "filename": "XmlDeclaration.java",
+        "code_snippet": "    public String getWholeDeclaration() {\n        final String decl = this.name;\n        if(decl.equals(\"xml\") && attributes.size() > 1 ) {\n            StringBuilder sb = new StringBuilder(decl);\n            final String version = attributes.get(\"version\");\n            if( version != null ) {\n                sb.append(\" version=\\\"\").append(version).append(\"\\\"\");\n            }\n            final String encoding = attributes.get(\"encoding\");\n            if( encoding != null ) {\n                sb.append(\" encoding=\\\"\").append(encoding).append(\"\\\"\");\n            }\n            return sb.toString();\n        }\n        else {\n            return this.name;\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 68,
+        "end_line": 68,
+        "line_numbers": [
+          68
+        ],
+        "function_name": "outerHtmlHead",
+        "class_name": "XmlDeclaration",
+        "filename": "XmlDeclaration.java",
+        "code_snippet": "\tvoid outerHtmlHead(Appendable accum, int depth, Document.OutputSettings out) throws IOException {\n        accum\n            .append(\"<\")\n            .append(isProcessingInstruction ? \"!\" : \"?\")\n                .append(getWholeDeclaration())\n            .append(\">\");\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/XmlTreeBuilder.java",
+        "start_line": 76,
+        "end_line": 77,
+        "line_numbers": [
+          76,
+          77
+        ],
+        "function_name": "insert",
+        "class_name": "XmlTreeBuilder",
+        "filename": "XmlTreeBuilder.java",
+        "code_snippet": "    void insert(Token.Comment commentToken) {\n        Comment comment = new Comment(commentToken.getData(), baseUri);\n        Node insert = comment;\n        if (commentToken.bogus) { // xml declarations are emitted as bogus comments (which is right for html, but not xml)\n            // so we do a bit of a hack and parse the data as an element to pull the attributes out\n            String data = comment.getData();\n            if (data.length() > 1 && (data.startsWith(\"!\") || data.startsWith(\"?\"))) {\n                String declaration = data.substring(1);\n                insert = new XmlDeclaration(declaration, comment.baseUri(), data.startsWith(\"!\"));\n            }\n        }\n        insertNode(insert);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlNoCharset",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlIso8859",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlUtf8",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlDisabledNoChanges",
+      "org.jsoup.parser.XmlTreeBuilderTest::handlesXmlDeclarationAsDeclaration",
+      "org.jsoup.parser.XmlTreeBuilderTest::testDetectCharsetEncodingDeclaration",
+      "org.jsoup.parser.XmlTreeBuilderTest::testParseDeclarationAttributes"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 6567e36..99c7976 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -109,7 +109,13 @@ public final class DataUtil {\n                     foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                 }\n                 if (foundCharset == null && meta.hasAttr(\"charset\")) {\n-                    try {\n-                        if (Charset.isSupported(meta.attr(\"charset\"))) {\n                     foundCharset = meta.attr(\"charset\");\n-                        }\n-                    } catch (IllegalCharsetNameException e) {\n-                        foundCharset = null;\n-                    }\n                 }\n             }\n             // look for <?xml encoding='ISO-8859-1'?>\ndiff --git a/src/main/java/org/jsoup/nodes/XmlDeclaration.java b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\nindex 619cd14..24a9f16 100644\n--- a/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n+++ b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n@@ -43,17 +43,29 @@ public class XmlDeclaration extends Node {\n      @return XML declaration\n      */\n     public String getWholeDeclaration() {\n+        return attributes.html().trim(); // attr html starts with a \" \"\n-        final String decl = this.name;\n-        if(decl.equals(\"xml\") && attributes.size() > 1 ) {\n-            StringBuilder sb = new StringBuilder(decl);\n-            final String version = attributes.get(\"version\");\n-            if( version != null ) {\n-                sb.append(\" version=\\\"\").append(version).append(\"\\\"\");\n-            }\n-            final String encoding = attributes.get(\"encoding\");\n-            if( encoding != null ) {\n-                sb.append(\" encoding=\\\"\").append(encoding).append(\"\\\"\");\n-            }\n-            return sb.toString();\n-        }\n-        else {\n-            return this.name;\n-        }\n     }\n \n \tvoid outerHtmlHead(Appendable accum, int depth, Document.OutputSettings out) throws IOException {\n         accum\n             .append(\"<\")\n             .append(isProcessingInstruction ? \"!\" : \"?\")\n+            .append(name);\n+        attributes.html(accum, out);\n+        accum\n+            .append(isProcessingInstruction ? \"!\" : \"?\")\n-                .append(getWholeDeclaration())\n             .append(\">\");\n     }\n \ndiff --git a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\nindex 3ccd7df..99807fc 100644\n--- a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n@@ -1,6 +1,5 @@\n package org.jsoup.parser;\n \n+import org.jsoup.Jsoup;\n import org.jsoup.helper.Validate;\n import org.jsoup.nodes.*;\n \n@@ -74,10 +73,8 @@ public class XmlTreeBuilder extends TreeBuilder {\n             // so we do a bit of a hack and parse the data as an element to pull the attributes out\n             String data = comment.getData();\n             if (data.length() > 1 && (data.startsWith(\"!\") || data.startsWith(\"?\"))) {\n+                Document doc = Jsoup.parse(\"<\" + data.substring(1, data.length() -1) + \">\", baseUri, Parser.xmlParser());\n+                Element el = doc.child(0);\n+                insert = new XmlDeclaration(el.tagName(), comment.baseUri(), data.startsWith(\"!\"));\n+                insert.attributes().addAll(el.attributes());\n-                String declaration = data.substring(1);\n-                insert = new XmlDeclaration(declaration, comment.baseUri(), data.startsWith(\"!\"));\n             }\n         }\n         insertNode(insert);",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "offa",
+        "commit_date": "2014-10-30 07:35:41",
+        "commit_message": "Implementation for Xml incl. tests.",
+        "commit_hash": "eb7e65e9a19e68b550e7fd0eb73c5cfea2622ff3"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "XmlDeclaration",
+          "outerHtmlTail",
+          "outerHtmlHead",
+          "getWholeDeclaration",
+          "nodeName",
+          "toString"
+        ],
+        "functions_name_all_files": [
+          "Syntax",
+          "Document",
+          "XmlDeclaration",
+          "text",
+          "findFirstElementByTagName",
+          "prettyPrint",
+          "outerHtmlHead",
+          "outputSettings",
+          "equals",
+          "normalise",
+          "createElement",
+          "clone",
+          "toString",
+          "quirksMode",
+          "encoder",
+          "outerHtmlTail",
+          "normaliseStructure",
+          "OutputSettings",
+          "body",
+          "title",
+          "nodeName",
+          "head",
+          "location",
+          "indentAmount",
+          "ensureMetaCharset",
+          "outerHtml",
+          "normaliseTextNodes",
+          "getWholeDeclaration",
+          "charset",
+          "updateMetaCharset",
+          "syntax",
+          "outline",
+          "QuirksMode",
+          "escapeMode"
+        ],
+        "function_code_before": "    public String getWholeDeclaration() {\n        return attributes.get(DECL_KEY);\n    }",
+        "function_code_after": "    public String getWholeDeclaration() {\n        final String decl = attributes.get(DECL_KEY);\n        \n        if( decl.equals(\"xml\") == true && attributes.size() > 1 ) {\n            StringBuilder sb = new StringBuilder(decl);\n            final String version = attributes.get(\"version\");\n            \n            if( version != null ) {\n                sb.append(\" version=\\\"\").append(version).append(\"\\\"\");\n            }\n            \n            final String encoding = attributes.get(\"encoding\");\n            \n            if( encoding != null ) {\n                sb.append(\" encoding=\\\"\").append(encoding).append(\"\\\"\");\n            }\n            \n            return sb.toString();\n        }\n        else {\n            return attributes.get(DECL_KEY);\n        }\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/nodes/Document.java",
+          "src/main/java/org/jsoup/nodes/XmlDeclaration.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/nodes/XmlDeclaration.java": "diff --git a/src/main/java/org/jsoup/nodes/XmlDeclaration.java b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\nindex 66605933..29a6bc88 100644\n--- a/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n+++ b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n@@ -5,7 +5,7 @@ package org.jsoup.nodes;\n \n  @author Jonathan Hedley, jonathan@hedley.net */\n public class XmlDeclaration extends Node {\n-    private static final String DECL_KEY = \"declaration\";\n+    static final String DECL_KEY = \"declaration\";\n     private final boolean isProcessingInstruction; // <! if true, <? if false, declaration (and last data char should be ?)\n \n     /**\n@@ -29,9 +29,29 @@ public class XmlDeclaration extends Node {\n      @return XML declaration\n      */\n     public String getWholeDeclaration() {\n-        return attributes.get(DECL_KEY);\n+        final String decl = attributes.get(DECL_KEY);\n+        \n+        if( decl.equals(\"xml\") == true && attributes.size() > 1 ) {\n+            StringBuilder sb = new StringBuilder(decl);\n+            final String version = attributes.get(\"version\");\n+            \n+            if( version != null ) {\n+                sb.append(\" version=\\\"\").append(version).append(\"\\\"\");\n+            }\n+            \n+            final String encoding = attributes.get(\"encoding\");\n+            \n+            if( encoding != null ) {\n+                sb.append(\" encoding=\\\"\").append(encoding).append(\"\\\"\");\n+            }\n+            \n+            return sb.toString();\n+        }\n+        else {\n+            return attributes.get(DECL_KEY);\n+        }\n     }\n-\n+    \n     void outerHtmlHead(StringBuilder accum, int depth, Document.OutputSettings out) {\n         accum\n                 .append(\"<\")"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

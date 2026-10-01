@@ -1,0 +1,62 @@
+{
+  "project_name": "Compress",
+  "bug_id": "36",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-11 00:17:52",
+      "end_time": "2025-10-11 00:20:25",
+      "duration_seconds": 153,
+      "duration_human": "2m 33s"
+    },
+    "model_cost": 0.0091,
+    "model_calls": 25,
+    "token_usage": {
+      "input_tokens": 102245,
+      "output_tokens": 2542,
+      "total_tokens": 104787,
+      "cached_input_tokens": 97920,
+      "uncached_input_tokens": 4325
+    },
+    "agent_steps": 25,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\nindex 3e2113df..42802f6e 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\n@@ -824,8 +824,7 @@ public class SevenZFile implements Closeable {\n         final int folderIndex = archive.streamMap.fileFolderIndex[currentEntryIndex];\n         if (folderIndex < 0) {\n             deferredBlockStreams.clear();\n-            // TODO: previously it'd return an empty stream?\n-            // new BoundedInputStream(new ByteArrayInputStream(new byte[0]), 0);\n+            deferredBlockStreams.add(new BoundedInputStream(new ByteArrayInputStream(new byte[0]), 0));\n             return;\n         }\n         final SevenZArchiveEntry file = archive.files[currentEntryIndex];\n"
+  },
+  "timestamp": "2025-10-10 20:20:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_36",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_36",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Calling SevenZFile.read() on empty SevenZArchiveEntry throws IllegalStateException\nI'm pretty sure COMPRESS-340 breaks reading empty archive entries. When calling getNextEntry() and that entry has no content, the code jumps into the first block at line 830 (SevenZFile.class), clearing the deferredBlockStreams. When calling entry.read(...) afterwards an IllegalStateException (\"No current 7z entry (call getNextEntry() first).\") is thrown. IMHO, there should be another check for entry.getSize() == 0.\n\nThis worked correctly up until 1.10.\n",
+    "commit_message": "COMPRESS-348 7z fails to read from empty entries.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java",
+        "start_line": 901,
+        "end_line": 901,
+        "line_numbers": [
+          901
+        ],
+        "function_name": "getCurrentStream",
+        "class_name": "SevenZFile",
+        "filename": "SevenZFile.java",
+        "code_snippet": "    private InputStream getCurrentStream() throws IOException {\n        if (deferredBlockStreams.isEmpty()) {\n            throw new IllegalStateException(\"No current 7z entry (call getNextEntry() first).\");\n        }\n        \n        while (deferredBlockStreams.size() > 1) {\n            // In solid compression mode we need to decompress all leading folder'\n            // streams to get access to an entry. We defer this until really needed\n            // so that entire blocks can be skipped without wasting time for decompression.\n            final InputStream stream = deferredBlockStreams.remove(0);\n            IOUtils.skip(stream, Long.MAX_VALUE);\n            stream.close();\n        }\n\n        return deferredBlockStreams.get(0);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.sevenz.SevenZFileTest::readEntriesOfSize0"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\nindex 10568407..3e2113df 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java\n@@ -899,9 +899,6 @@ public class SevenZFile implements Closeable {\n     }\n     \n     private InputStream getCurrentStream() throws IOException {\n+        if (archive.files[currentEntryIndex].getSize() == 0) {\n+            return new ByteArrayInputStream(new byte[0]);\n+        }\n         if (deferredBlockStreams.isEmpty()) {\n             throw new IllegalStateException(\"No current 7z entry (call getNextEntry() first).\");\n         }",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

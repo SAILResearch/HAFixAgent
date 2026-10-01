@@ -1,0 +1,199 @@
+{
+  "project_name": "JacksonXml",
+  "bug_id": "3",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 20:02:31",
+      "end_time": "2025-10-01 20:08:44",
+      "duration_seconds": 373,
+      "duration_human": "6m 13s"
+    },
+    "model_cost": 0.0372,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 461046,
+      "output_tokens": 5425,
+      "total_tokens": 466471,
+      "cached_input_tokens": 448320,
+      "uncached_input_tokens": 12726
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex 7b163edf..56433562 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -606,12 +606,25 @@ public class FromXmlParser\n             _currToken = t;\n             _nextToken = null;\n \n-            // expected case; yes, got a String\n             if (t == JsonToken.VALUE_STRING) {\n                 return _currText;\n             }\n+            if (t == JsonToken.FIELD_NAME) {\n+                // For attributes, we need to advance to get the value\n+                int nextToken = _xmlTokens.next();\n+                if (nextToken == XmlTokenStream.XML_ATTRIBUTE_VALUE) {\n+                    _currText = _xmlTokens.getText();\n+                    _currToken = JsonToken.VALUE_STRING;\n+                    return _currText;\n+                }\n+                // If not an attribute value, restore state and return null\n+                _xmlTokens.pushBack(nextToken);\n+                _updateState(t);\n+                return null;\n+            }\n             _updateState(t);\n             return null;\n+            return null;\n         }\n \n         int token = _xmlTokens.next();\n@@ -667,8 +680,7 @@ public class FromXmlParser\n             break;\n         case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n             _currText = _xmlTokens.getText();\n-            _currToken = JsonToken.VALUE_STRING;\n-            break;\n+            return _currText;\n         case XmlTokenStream.XML_TEXT:\n             _currText = _xmlTokens.getText();\n             if (_mayBeLeaf) {\ndiff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\nindex f37e3d71..58345cd1 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\n@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.util.NameTransformer;\n  * Copy of {@link UnwrappingBeanSerializer} required to extend\n  * {@link XmlBeanSerializerBase} for XML-specific handling.\n  * \n- * @author Pascal G\u00e9linas\n+ * @author Pascal Gelinas\n  * \n  */\n public class UnwrappingXmlBeanSerializer extends XmlBeanSerializerBase\ndiff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\nindex 90f7cbd5..819c3de1 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\n@@ -16,7 +16,7 @@ import com.fasterxml.jackson.databind.util.NameTransformer;\n /**\n  * Variant of {@link BeanSerializer} for XML handling.\n  * \n- * @author Pascal G\u00e9linas\n+ * @author Pascal Gelinas\n  */\n public class XmlBeanSerializer extends XmlBeanSerializerBase\n {\n"
+  },
+  "timestamp": "2025-10-01 16:08:44 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonXml",
+    "bug_id": "JacksonXml_3",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonXml_3",
+    "github_url": "https://github.com/FasterXML/jackson-dataformat-xml.git",
+    "description": "FromXMLParser nextTextValue() incorrect for attributes\nAs of #129 the Method nextTextValue of FromXMLParser will no longer return a value for attributes. As the _currToken is JsonToken.VALUE_STRING in this case I think it is wrong to return null and it should return _currText.\n\n",
+    "commit_message": "Fix #204",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java",
+        "start_line": 669,
+        "end_line": 669,
+        "line_numbers": [
+          669
+        ],
+        "function_name": "nextTextValue",
+        "class_name": "FromXmlParser",
+        "filename": "FromXmlParser.java",
+        "code_snippet": "    public String nextTextValue() throws IOException\n    {\n        _binaryValue = null;\n        if (_nextToken != null) {\n            JsonToken t = _nextToken;\n            _currToken = t;\n            _nextToken = null;\n\n            // expected case; yes, got a String\n            if (t == JsonToken.VALUE_STRING) {\n                return _currText;\n            }\n            _updateState(t);\n            return null;\n        }\n\n        int token = _xmlTokens.next();\n\n        // mostly copied from 'nextToken()'\n        while (token == XmlTokenStream.XML_START_ELEMENT) {\n            if (_mayBeLeaf) {\n                _nextToken = JsonToken.FIELD_NAME;\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n                return null;\n            }\n            if (_parsingContext.inArray()) {\n                token = _xmlTokens.next();\n                _mayBeLeaf = true;\n                continue;\n            }\n            String name = _xmlTokens.getLocalName();\n            _parsingContext.setCurrentName(name);\n            if (_namesToWrap != null && _namesToWrap.contains(name)) {\n                _xmlTokens.repeatStartElement();\n            }\n            _mayBeLeaf = true;\n            _currToken = JsonToken.FIELD_NAME;\n            return null;\n        }\n\n        // Ok; beyond start element, what do we get?\n        switch (token) {\n        case XmlTokenStream.XML_END_ELEMENT:\n            if (_mayBeLeaf) {\n                // NOTE: this is different from nextToken() -- produce \"\", NOT null\n                _mayBeLeaf = false;\n                _currToken = JsonToken.VALUE_STRING;\n                return (_currText = \"\");\n            }\n            _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n            _parsingContext = _parsingContext.getParent();\n            _namesToWrap = _parsingContext.getNamesToWrap();\n            break;\n        case XmlTokenStream.XML_ATTRIBUTE_NAME:\n            // If there was a chance of leaf node, no more...\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                _nextToken = JsonToken.FIELD_NAME;\n                _currText = _xmlTokens.getText();\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n            } else {\n                _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n                _currToken = JsonToken.FIELD_NAME;\n            }\n            break;\n        case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n            _currText = _xmlTokens.getText();\n            _currToken = JsonToken.VALUE_STRING;\n            break;\n        case XmlTokenStream.XML_TEXT:\n            _currText = _xmlTokens.getText();\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                // Also: must skip following END_ELEMENT\n                _xmlTokens.skipEndElement();\n\n                // NOTE: this is different from nextToken() -- NO work-around\n                // for otherwise empty List/array\n                _currToken = JsonToken.VALUE_STRING;\n                return _currText;\n            }\n            // If not a leaf, need to transform into property...\n            _parsingContext.setCurrentName(_cfgNameForTextElement);\n            _nextToken = JsonToken.VALUE_STRING;\n            _currToken = JsonToken.FIELD_NAME;\n            break;\n        case XmlTokenStream.XML_END:\n            _currToken = null;\n        }\n        return null;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java",
+        "start_line": 671,
+        "end_line": 671,
+        "line_numbers": [
+          671
+        ],
+        "function_name": "nextTextValue",
+        "class_name": "FromXmlParser",
+        "filename": "FromXmlParser.java",
+        "code_snippet": "    public String nextTextValue() throws IOException\n    {\n        _binaryValue = null;\n        if (_nextToken != null) {\n            JsonToken t = _nextToken;\n            _currToken = t;\n            _nextToken = null;\n\n            // expected case; yes, got a String\n            if (t == JsonToken.VALUE_STRING) {\n                return _currText;\n            }\n            _updateState(t);\n            return null;\n        }\n\n        int token = _xmlTokens.next();\n\n        // mostly copied from 'nextToken()'\n        while (token == XmlTokenStream.XML_START_ELEMENT) {\n            if (_mayBeLeaf) {\n                _nextToken = JsonToken.FIELD_NAME;\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n                return null;\n            }\n            if (_parsingContext.inArray()) {\n                token = _xmlTokens.next();\n                _mayBeLeaf = true;\n                continue;\n            }\n            String name = _xmlTokens.getLocalName();\n            _parsingContext.setCurrentName(name);\n            if (_namesToWrap != null && _namesToWrap.contains(name)) {\n                _xmlTokens.repeatStartElement();\n            }\n            _mayBeLeaf = true;\n            _currToken = JsonToken.FIELD_NAME;\n            return null;\n        }\n\n        // Ok; beyond start element, what do we get?\n        switch (token) {\n        case XmlTokenStream.XML_END_ELEMENT:\n            if (_mayBeLeaf) {\n                // NOTE: this is different from nextToken() -- produce \"\", NOT null\n                _mayBeLeaf = false;\n                _currToken = JsonToken.VALUE_STRING;\n                return (_currText = \"\");\n            }\n            _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n            _parsingContext = _parsingContext.getParent();\n            _namesToWrap = _parsingContext.getNamesToWrap();\n            break;\n        case XmlTokenStream.XML_ATTRIBUTE_NAME:\n            // If there was a chance of leaf node, no more...\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                _nextToken = JsonToken.FIELD_NAME;\n                _currText = _xmlTokens.getText();\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n            } else {\n                _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n                _currToken = JsonToken.FIELD_NAME;\n            }\n            break;\n        case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n            _currText = _xmlTokens.getText();\n            _currToken = JsonToken.VALUE_STRING;\n            break;\n        case XmlTokenStream.XML_TEXT:\n            _currText = _xmlTokens.getText();\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                // Also: must skip following END_ELEMENT\n                _xmlTokens.skipEndElement();\n\n                // NOTE: this is different from nextToken() -- NO work-around\n                // for otherwise empty List/array\n                _currToken = JsonToken.VALUE_STRING;\n                return _currText;\n            }\n            // If not a leaf, need to transform into property...\n            _parsingContext.setCurrentName(_cfgNameForTextElement);\n            _nextToken = JsonToken.VALUE_STRING;\n            _currToken = JsonToken.FIELD_NAME;\n            break;\n        case XmlTokenStream.XML_END:\n            _currToken = null;\n        }\n        return null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.dataformat.xml.stream.XmlParserNextXxxTest::testXmlAttributesWithNextTextValue"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex c71cd1d..7b163ed 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -666,8 +666,9 @@ public class FromXmlParser\n             }\n             break;\n         case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n-            _currText = _xmlTokens.getText();\n             _currToken = JsonToken.VALUE_STRING;\n+            return (_currText = _xmlTokens.getText());\n-            break;\n         case XmlTokenStream.XML_TEXT:\n             _currText = _xmlTokens.getText();\n             if (_mayBeLeaf) {",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2014-12-30 23:28:23",
+        "commit_message": "Fix #129",
+        "commit_hash": "ac88d6619cbd9003444532219ff5f70f5273321f"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "nextToken",
+          "nextTextValue",
+          "_updateState"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "nextToken",
+          "nextTextValue",
+          "_updateState"
+        ],
+        "functions_name_modified_file": [
+          "nextToken",
+          "addVirtualWrapping",
+          "getDecimalValue",
+          "getLongValue",
+          "requiresCustomCodec",
+          "nextTextValue",
+          "getNumberValue",
+          "getTextLength",
+          "getTextOffset",
+          "close",
+          "getIntValue",
+          "getMask",
+          "getParsingContext",
+          "_getByteArrayBuilder",
+          "hasTextCharacters",
+          "enabledByDefault",
+          "getText",
+          "getCurrentName",
+          "getCodec",
+          "getTokenLocation",
+          "getCurrentLocation",
+          "_updateState",
+          "isClosed",
+          "setCodec",
+          "isEnabled",
+          "getDoubleValue",
+          "getValueAsString",
+          "getFloatValue",
+          "Feature",
+          "enable",
+          "disable",
+          "_releaseBuffers",
+          "_isEmpty",
+          "version",
+          "getEmbeddedObject",
+          "setXMLTextElementName",
+          "FromXmlParser",
+          "isExpectedStartArrayToken",
+          "getNumberType",
+          "getBigIntegerValue",
+          "_handleEOF",
+          "getStaxReader",
+          "overrideCurrentName",
+          "configure",
+          "collectDefaults"
+        ],
+        "functions_name_all_files": [
+          "nextToken",
+          "addVirtualWrapping",
+          "getDecimalValue",
+          "getLongValue",
+          "requiresCustomCodec",
+          "nextTextValue",
+          "getNumberValue",
+          "getTextLength",
+          "getTextOffset",
+          "close",
+          "getIntValue",
+          "getMask",
+          "getParsingContext",
+          "_getByteArrayBuilder",
+          "hasTextCharacters",
+          "enabledByDefault",
+          "getText",
+          "getCurrentName",
+          "getCodec",
+          "getTokenLocation",
+          "getCurrentLocation",
+          "_updateState",
+          "isClosed",
+          "setCodec",
+          "isEnabled",
+          "getDoubleValue",
+          "getValueAsString",
+          "getFloatValue",
+          "Feature",
+          "enable",
+          "disable",
+          "_releaseBuffers",
+          "_isEmpty",
+          "version",
+          "getEmbeddedObject",
+          "setXMLTextElementName",
+          "FromXmlParser",
+          "isExpectedStartArrayToken",
+          "getNumberType",
+          "getBigIntegerValue",
+          "_handleEOF",
+          "getStaxReader",
+          "overrideCurrentName",
+          "configure",
+          "collectDefaults"
+        ],
+        "function_code_before": "    /**\n     * Method overridden to support more reliable deserialization of\n     * String collections.\n     */\n    @Override\n    public String nextTextValue() throws IOException, JsonParseException {\n        // !!! TODO: optimize\n        return (nextToken() == JsonToken.VALUE_STRING) ? getText() : null;\n    }",
+        "function_code_after": "    /**\n     * Method overridden to support more reliable deserialization of\n     * String collections.\n     */\n    @Override\n    public String nextTextValue() throws IOException\n    {\n        _binaryValue = null;\n        if (_nextToken != null) {\n            JsonToken t = _nextToken;\n            _currToken = t;\n            _nextToken = null;\n\n            // expected case; yes, got a String\n            if (t == JsonToken.VALUE_STRING) {\n                return _currText;\n            }\n            _updateState(t);\n            return null;\n        }\n\n        int token = _xmlTokens.next();\n\n        // mostly copied from 'nextToken()'\n        while (token == XmlTokenStream.XML_START_ELEMENT) {\n            if (_mayBeLeaf) {\n                _nextToken = JsonToken.FIELD_NAME;\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n                return null;\n            }\n            if (_parsingContext.inArray()) {\n                token = _xmlTokens.next();\n                _mayBeLeaf = true;\n                continue;\n            }\n            String name = _xmlTokens.getLocalName();\n            _parsingContext.setCurrentName(name);\n            if (_namesToWrap != null && _namesToWrap.contains(name)) {\n                _xmlTokens.repeatStartElement();\n            }\n            _mayBeLeaf = true;\n            _currToken = JsonToken.FIELD_NAME;\n            return null;\n        }\n\n        // Ok; beyond start element, what do we get?\n        switch (token) {\n        case XmlTokenStream.XML_END_ELEMENT:\n            if (_mayBeLeaf) {\n                // NOTE: this is different from nextToken() -- produce \"\", NOT null\n                _mayBeLeaf = false;\n                _currToken = JsonToken.VALUE_STRING;\n                return (_currText = \"\");\n            }\n            _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n            _parsingContext = _parsingContext.getParent();\n            _namesToWrap = _parsingContext.getNamesToWrap();\n            break;\n            \n        case XmlTokenStream.XML_ATTRIBUTE_NAME:\n            // If there was a chance of leaf node, no more...\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                _nextToken = JsonToken.FIELD_NAME;\n                _currText = _xmlTokens.getText();\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                _currToken = JsonToken.START_OBJECT;\n            } else {\n                _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n                _currToken = JsonToken.FIELD_NAME;\n            }\n            break;\n        case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n            _currText = _xmlTokens.getText();\n            _currToken = JsonToken.VALUE_STRING;\n            break;\n        case XmlTokenStream.XML_TEXT:\n            _currText = _xmlTokens.getText();\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                // Also: must skip following END_ELEMENT\n                _xmlTokens.skipEndElement();\n\n                // NOTE: this is different from nextToken() -- NO work-around\n                // for otherwise empty List/array\n                _currToken = JsonToken.VALUE_STRING;\n                return _currText;\n            }\n            // If not a leaf, need to transform into property...\n            _parsingContext.setCurrentName(_cfgNameForTextElement);\n            _nextToken = JsonToken.VALUE_STRING;\n            _currToken = JsonToken.FIELD_NAME;\n            break;\n        case XmlTokenStream.XML_END:\n            _currToken = null;\n        }\n        return null;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex b46ce92b..f0c5ddee 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -418,7 +418,7 @@ public class FromXmlParser\n     */\n \n     @Override\n-    public JsonToken nextToken() throws IOException, JsonParseException\n+    public JsonToken nextToken() throws IOException\n     {\n         _binaryValue = null; // to fix [Issue-29]\n         if (_nextToken != null) {\n@@ -556,11 +556,123 @@ public class FromXmlParser\n      * String collections.\n      */\n     @Override\n-    public String nextTextValue() throws IOException, JsonParseException {\n-        // !!! TODO: optimize\n-        return (nextToken() == JsonToken.VALUE_STRING) ? getText() : null;\n+    public String nextTextValue() throws IOException\n+    {\n+        _binaryValue = null;\n+        if (_nextToken != null) {\n+            JsonToken t = _nextToken;\n+            _currToken = t;\n+            _nextToken = null;\n+\n+            // expected case; yes, got a String\n+            if (t == JsonToken.VALUE_STRING) {\n+                return _currText;\n+            }\n+            _updateState(t);\n+            return null;\n+        }\n+\n+        int token = _xmlTokens.next();\n+\n+        // mostly copied from 'nextToken()'\n+        while (token == XmlTokenStream.XML_START_ELEMENT) {\n+            if (_mayBeLeaf) {\n+                _nextToken = JsonToken.FIELD_NAME;\n+                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n+                _currToken = JsonToken.START_OBJECT;\n+                return null;\n+            }\n+            if (_parsingContext.inArray()) {\n+                token = _xmlTokens.next();\n+                _mayBeLeaf = true;\n+                continue;\n+            }\n+            String name = _xmlTokens.getLocalName();\n+            _parsingContext.setCurrentName(name);\n+            if (_namesToWrap != null && _namesToWrap.contains(name)) {\n+                _xmlTokens.repeatStartElement();\n+            }\n+            _mayBeLeaf = true;\n+            _currToken = JsonToken.FIELD_NAME;\n+            return null;\n+        }\n+\n+        // Ok; beyond start element, what do we get?\n+        switch (token) {\n+        case XmlTokenStream.XML_END_ELEMENT:\n+            if (_mayBeLeaf) {\n+                // NOTE: this is different from nextToken() -- produce \"\", NOT null\n+                _mayBeLeaf = false;\n+                _currToken = JsonToken.VALUE_STRING;\n+                return (_currText = \"\");\n+            }\n+            _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n+            _parsingContext = _parsingContext.getParent();\n+            _namesToWrap = _parsingContext.getNamesToWrap();\n+            break;\n+            \n+        case XmlTokenStream.XML_ATTRIBUTE_NAME:\n+            // If there was a chance of leaf node, no more...\n+            if (_mayBeLeaf) {\n+                _mayBeLeaf = false;\n+                _nextToken = JsonToken.FIELD_NAME;\n+                _currText = _xmlTokens.getText();\n+                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n+                _currToken = JsonToken.START_OBJECT;\n+            } else {\n+                _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n+                _currToken = JsonToken.FIELD_NAME;\n+            }\n+            break;\n+        case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n+            _currText = _xmlTokens.getText();\n+            _currToken = JsonToken.VALUE_STRING;\n+            break;\n+        case XmlTokenStream.XML_TEXT:\n+            _currText = _xmlTokens.getText();\n+            if (_mayBeLeaf) {\n+                _mayBeLeaf = false;\n+                // Also: must skip following END_ELEMENT\n+                _xmlTokens.skipEndElement();\n+\n+                // NOTE: this is different from nextToken() -- NO work-around\n+                // for otherwise empty List/array\n+                _currToken = JsonToken.VALUE_STRING;\n+                return _currText;\n+            }\n+            // If not a leaf, need to transform into property...\n+            _parsingContext.setCurrentName(_cfgNameForTextElement);\n+            _nextToken = JsonToken.VALUE_STRING;\n+            _currToken = JsonToken.FIELD_NAME;\n+            break;\n+        case XmlTokenStream.XML_END:\n+            _currToken = null;\n+        }\n+        return null;\n     }\n-    \n+\n+\n+    private void _updateState(JsonToken t)\n+    {\n+        switch (t) {\n+        case START_OBJECT:\n+            _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n+            break;\n+        case START_ARRAY:\n+            _parsingContext = _parsingContext.createChildArrayContext(-1, -1);\n+            break;\n+        case END_OBJECT:\n+        case END_ARRAY:\n+            _parsingContext = _parsingContext.getParent();\n+            _namesToWrap = _parsingContext.getNamesToWrap();\n+            break;\n+        case FIELD_NAME:\n+            _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n+            break;\n+        default:\n+        }\n+    }\n+\n     /*\n     /**********************************************************\n     /* Public API, access to token information, text"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "project_name": "Closure",
+  "bug_id": "42",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 22:11:01",
+      "end_time": "2025-09-30 22:25:31",
+      "duration_seconds": 870,
+      "duration_human": "14m 30s"
+    },
+    "model_cost": 0.0391,
+    "model_calls": 21,
+    "token_usage": {
+      "input_tokens": 384982,
+      "output_tokens": 16507,
+      "total_tokens": 401489,
+      "cached_input_tokens": 360000,
+      "uncached_input_tokens": 24982
+    },
+    "agent_steps": 22,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/CodeGenerator.java b/src/com/google/javascript/jscomp/CodeGenerator.java\nindex 168179a16..482870707 100644\n--- a/src/com/google/javascript/jscomp/CodeGenerator.java\n+++ b/src/com/google/javascript/jscomp/CodeGenerator.java\n@@ -405,12 +405,16 @@ class CodeGenerator {\n           addNonEmptyStatement(\n               last, getContextForNonEmptyExpression(context), false);\n         } else {\n-          Preconditions.checkState(childCount == 3);\n-          add(\"for(\");\n+          if (n.getBooleanProp(Node.FOR_EACH_PROP)) {\n+            add(\"for each(\");\n+          } else {\n+            add(\"for(\");\n+          }\n           add(first);\n           add(\"in\");\n           add(first.getNext());\n           add(\")\");\n+          add(\")\");\n           addNonEmptyStatement(\n               last, getContextForNonEmptyExpression(context), false);\n         }\ndiff --git a/src/com/google/javascript/jscomp/parsing/IRFactory.java b/src/com/google/javascript/jscomp/parsing/IRFactory.java\nindex 1a95aa2f8..421e2f0f9 100644\n--- a/src/com/google/javascript/jscomp/parsing/IRFactory.java\n+++ b/src/com/google/javascript/jscomp/parsing/IRFactory.java\n@@ -565,13 +565,16 @@ class IRFactory {\n \n     @Override\n     Node processForInLoop(ForInLoop loopNode) {\n-\n-        // Return the bare minimum to put the AST in a valid state.\n-      return newNode(\n+      boolean isForEach = loopNode.isForEach();\n+      Node result = newNode(\n           Token.FOR,\n           transform(loopNode.getIterator()),\n-          transform(loopNode.getIteratedObject()),\n-          transformBlock(loopNode.getBody()));\n+          transform(loopNode.getIteratedObject()));\n+      if (isForEach) {\n+        result.putBooleanProp(Node.FOR_EACH_PROP, true);\n+      }\n+      result.addChildToBack(transformBlock(loopNode.getBody()));\n+      return result;\n     }\n \n     @Override\ndiff --git a/src/com/google/javascript/rhino/Node.java b/src/com/google/javascript/rhino/Node.java\nindex 3561b0a46..085f4569e 100644\n--- a/src/com/google/javascript/rhino/Node.java\n+++ b/src/com/google/javascript/rhino/Node.java\n@@ -107,7 +107,8 @@ public class Node implements Cloneable, Serializable {\n       SLASH_V            = 54,    // Whether a STRING node contains a \\v\n                                   // vertical tab escape. This is a total hack.\n                                   // See comments in IRFactory about this.\n-      LAST_PROP          = 54;\n+      LAST_PROP = 55;\n+  public static final int FOR_EACH_PROP = 55;\n \n   public static final int   // flags for INCRDECR_PROP\n       DECR_FLAG = 0x1,\n@@ -130,6 +131,7 @@ public class Node implements Cloneable, Serializable {\n         case EMPTY_BLOCK:        return \"empty_block\";\n         case ORIGINALNAME_PROP:  return \"originalname\";\n         case SIDE_EFFECT_FLAGS:  return \"side_effect_flags\";\n+        case FOR_EACH_PROP:     return \"for_each\";\n \n         case IS_CONSTANT_NAME:   return \"is_constant_name\";\n         case IS_OPTIONAL_PARAM:  return \"is_optional_param\";\n"
+  },
+  "timestamp": "2025-09-30 22:25:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_42",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_42",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Simple \"Whitespace only\" compression removing \"each\" keyword from \"for each (var x in arr)\" loop\n<b>What steps will reproduce the problem?</b>\nSee below code snippet before after compression\r\n\r\n---Before---\r\ncontactcenter.screenpop.updatePopStatus = function(stamp, status) {\r\nfor each ( var curTiming in this.timeLog.timings ) {\r\nif ( curTiming.callId == stamp ) {\r\ncurTiming.flag = status;\r\nbreak;\r\n}\r\n}\r\n};\r\n---After---\r\ncontactcenter.screenpop.updatePopStatus=function(stamp,status){for(var curTiming in this.timeLog.timings)if(curTiming.callId==stamp){curTiming.flag=status;break}};\r\n\r\n\r\n<b>What is the expected output? What do you see instead?</b>\n---each keyword should be preserved\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n<b>Please provide any additional information below.</b>\nfor each (** in **) ---&gt;  returns object value\r\nfor (** in **) --&gt; returns index",
+    "commit_message": "Don't silently ignore transform \"for each\" into \"for\" loops, report an error instead. Fixes issue 644",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 567,
+        "end_line": 567,
+        "line_numbers": [
+          567
+        ],
+        "function_name": "processForInLoop",
+        "class_name": "TransformDispatcher",
+        "filename": "IRFactory.java",
+        "code_snippet": "    Node processForInLoop(ForInLoop loopNode) {\n\n        // Return the bare minimum to put the AST in a valid state.\n      return newNode(\n          Token.FOR,\n          transform(loopNode.getIterator()),\n          transform(loopNode.getIteratedObject()),\n          transformBlock(loopNode.getBody()));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 574,
+        "end_line": 574,
+        "line_numbers": [
+          574
+        ],
+        "function_name": "processForInLoop",
+        "class_name": "TransformDispatcher",
+        "filename": "IRFactory.java",
+        "code_snippet": "    Node processForInLoop(ForInLoop loopNode) {\n\n        // Return the bare minimum to put the AST in a valid state.\n      return newNode(\n          Token.FOR,\n          transform(loopNode.getIterator()),\n          transform(loopNode.getIteratedObject()),\n          transformBlock(loopNode.getBody()));\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.parsing.ParserTest::testForEach"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/parsing/IRFactory.java b/src/com/google/javascript/jscomp/parsing/IRFactory.java\nindex c6b70c5..1a95aa2 100644\n--- a/src/com/google/javascript/jscomp/parsing/IRFactory.java\n+++ b/src/com/google/javascript/jscomp/parsing/IRFactory.java\n@@ -565,15 +565,8 @@ class IRFactory {\n \n     @Override\n     Node processForInLoop(ForInLoop loopNode) {\n+      if (loopNode.isForEach()) {\n+        errorReporter.error(\n+            \"unsupported language extension: for each\",\n+            sourceName,\n+            loopNode.getLineno(), \"\", 0);\n \n         // Return the bare minimum to put the AST in a valid state.\n+        return newNode(Token.EXPR_RESULT, Node.newNumber(0));\n+      }\n       return newNode(\n           Token.FOR,\n           transform(loopNode.getIterator()),",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

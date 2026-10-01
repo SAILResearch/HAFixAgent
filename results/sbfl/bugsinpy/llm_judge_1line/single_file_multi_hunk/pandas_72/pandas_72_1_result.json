@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_72",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 16:40:27",
+      "end_time": "2026-06-17 16:49:55",
+      "duration_seconds": 567,
+      "duration_human": "9m 27s"
+    },
+    "model_cost": 0.0746,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 619071,
+      "output_tokens": 7485,
+      "total_tokens": 626556,
+      "cached_input_tokens": 354304,
+      "uncached_input_tokens": 264767
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py\nindex a93211edf1..cc40fc8b0b 100644\n--- a/pandas/core/internals/blocks.py\n+++ b/pandas/core/internals/blocks.py\n@@ -848,21 +848,37 @@ class Block(PandasObject):\n                 dtype = value.dtype\n                 find_dtype = True\n \n+\n+            elif lib.is_scalar(value) and not isna(value):\n             elif lib.is_scalar(value) and not isna(value):\n+                dtype, _ = infer_dtype_from_scalar(value, pandas_dtype=True)\n                 dtype, _ = infer_dtype_from_scalar(value, pandas_dtype=True)\n                 find_dtype = True\n+                find_dtype = True\n+\n \n             if find_dtype:\n+            if find_dtype:\n+                dtype = find_common_type([values.dtype, dtype])\n                 dtype = find_common_type([values.dtype, dtype])\n+                if not is_dtype_equal(self.dtype, dtype):\n                 if not is_dtype_equal(self.dtype, dtype):\n                     b = self.astype(dtype)\n+                    b = self.astype(dtype)\n+                    return b.setitem(indexer, value)\n                     return b.setitem(indexer, value)\n \n+\n+        # value must be storeable at this moment\n         # value must be storeable at this moment\n+        if is_extension_array_dtype(getattr(value, \"dtype\", None)):\n         if is_extension_array_dtype(getattr(value, \"dtype\", None)):\n             # We need to be careful not to allow through strings that\n+            # We need to be careful not to allow through strings that\n+            #  can be parsed to EADtypes\n             #  can be parsed to EADtypes\n             arr_value = value\n+            arr_value = value\n         else:\n             arr_value = np.array(value)\n \n@@ -893,10 +909,14 @@ class Block(PandasObject):\n             and arr_value.shape[0] == values.shape[0]\n             and arr_value.size == values.size\n         ):\n-            values[indexer] = value\n+            if is_extension_array_dtype(getattr(value, \"dtype\", None)):\n+                # For ExtensionArrays, use the value directly\n+                values = value\n+            else:\n+                values[indexer] = value\n             try:\n                 values = values.astype(arr_value.dtype)\n-            except ValueError:\n+            except (ValueError, TypeError):\n                 pass\n \n         # set\ndiff --git a/pandas/tests/frame/indexing/test_categorical.py b/pandas/tests/frame/indexing/test_categorical.py\nindex 5de38915f0..a29c193676 100644\n--- a/pandas/tests/frame/indexing/test_categorical.py\n+++ b/pandas/tests/frame/indexing/test_categorical.py\n@@ -354,6 +354,16 @@ class TestDataFrameIndexingCategorical:\n                 df.value, range(0, 105, 10), right=False, labels=labels\n             )\n \n+    def test_setitem_single_row_categorical(self):\n+        # GH 25495\n+        df = DataFrame({\"Alpha\": [\"a\"], \"Numeric\": [0]})\n+        categories = pd.Categorical(df[\"Alpha\"], categories=[\"a\", \"b\", \"c\"])\n+        df.loc[:, \"Alpha\"] = categories\n+\n+        result = df[\"Alpha\"]\n+        expected = Series(categories, index=df.index, name=\"Alpha\")\n+        tm.assert_series_equal(result, expected)\n+\n     def test_loc_indexing_preserves_index_category_dtype(self):\n         # GH 15166\n         df = DataFrame(\n"
+  },
+  "timestamp": "2026-06-17 16:49:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_72",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_72/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: GH25495 incorrect dtype when using .loc to set Categorical value for column in 1-row DataFrame (#29393)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1910,
+        "end_line": 1910,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1911,
+        "end_line": 1911,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1913,
+        "end_line": 1913,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1915,
+        "end_line": 1915,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1921,
+        "end_line": 1921,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1924,
+        "end_line": 1924,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1925,
+        "end_line": 1925,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1932,
+        "end_line": 1932,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1933,
+        "end_line": 1933,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 1934,
+        "end_line": 1934,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/indexing/test_categorical.py::TestDataFrameIndexingCategorical::test_setitem_single_row_categorical"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1910,
+      "end_line": 1910,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1911,
+      "end_line": 1911,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1913,
+      "end_line": 1913,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1915,
+      "end_line": 1915,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1921,
+      "end_line": 1921,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1924,
+      "end_line": 1924,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1925,
+      "end_line": 1925,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1932,
+      "end_line": 1932,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1933,
+      "end_line": 1933,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 1934,
+      "end_line": 1934,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

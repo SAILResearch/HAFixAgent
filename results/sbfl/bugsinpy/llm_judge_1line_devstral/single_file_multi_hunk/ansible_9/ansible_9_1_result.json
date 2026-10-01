@@ -1,0 +1,191 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_9",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 15:13:55",
+      "end_time": "2026-06-30 15:15:56",
+      "duration_seconds": 121,
+      "duration_human": "2m 1s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 757384,
+      "output_tokens": 5409,
+      "total_tokens": 762793,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 757384
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/modules/packaging/os/redhat_subscription.py b/lib/ansible/modules/packaging/os/redhat_subscription.py\nindex bc0bcc3ee7..3039b8a6fc 100644\n--- a/lib/ansible/modules/packaging/os/redhat_subscription.py\n+++ b/lib/ansible/modules/packaging/os/redhat_subscription.py\n@@ -513,95 +513,19 @@ class Rhsm(RegistrationBase):\n \n         available_pool_ids = [p.get_pool_id() for p in available_pools]\n \n-        for pool_id, quantity in sorted(pool_ids.items()):\n+        for pool_id_item in sorted(pool_ids):\n+            if isinstance(pool_id_item, dict):\n+                pool_id, quantity = list(pool_id_item.items())[0]\n+                args = [SUBMAN_CMD, 'attach', '--pool', pool_id, '--quantity', str(quantity)]\n+            else:\n+                pool_id = pool_id_item\n+                args = [SUBMAN_CMD, 'attach', '--pool', pool_id]\n             if pool_id in available_pool_ids:\n-                args = [SUBMAN_CMD, 'attach', '--pool', pool_id, '--quantity', quantity]\n                 rc, stderr, stdout = self.module.run_command(args, check_rc=True)\n             else:\n                 self.module.fail_json(msg='Pool ID: %s not in list of available pools' % pool_id)\n         return pool_ids\n \n-    def subscribe_pool(self, regexp):\n-        '''\n-            Subscribe current system to available pools matching the specified\n-            regular expression\n-            Raises:\n-              * Exception - if error occurs while running command\n-        '''\n-\n-        # Available pools ready for subscription\n-        available_pools = RhsmPools(self.module)\n-\n-        subscribed_pool_ids = []\n-        for pool in available_pools.filter_pools(regexp):\n-            pool.subscribe()\n-            subscribed_pool_ids.append(pool.get_pool_id())\n-        return subscribed_pool_ids\n-\n-    def subscribe_product(self, regexp):\n-        '''\n-            Subscribe current system to available pools matching the specified\n-            regular expression\n-            Raises:\n-              * Exception - if error occurs while running command\n-        '''\n-\n-        # Available pools ready for subscription\n-        available_pools = RhsmPools(self.module)\n-\n-        subscribed_pool_ids = []\n-        for pool in available_pools.filter_products(regexp):\n-            pool.subscribe()\n-            subscribed_pool_ids.append(pool.get_pool_id())\n-        return subscribed_pool_ids\n-\n-    def update_subscriptions(self, regexp):\n-        changed = False\n-        consumed_pools = RhsmPools(self.module, consumed=True)\n-        pool_ids_to_keep = [p.get_pool_id() for p in consumed_pools.filter_pools(regexp)]\n-        pool_ids_to_keep.extend([p.get_pool_id() for p in consumed_pools.filter_products(regexp)])\n-\n-        serials_to_remove = [p.Serial for p in consumed_pools if p.get_pool_id() not in pool_ids_to_keep]\n-        serials = self.unsubscribe(serials=serials_to_remove)\n-\n-        subscribed_pool_ids = self.subscribe(regexp)\n-\n-        if subscribed_pool_ids or serials:\n-            changed = True\n-        return {'changed': changed, 'subscribed_pool_ids': subscribed_pool_ids,\n-                'unsubscribed_serials': serials}\n-\n-    def update_subscriptions_by_pool_ids(self, pool_ids):\n-        changed = False\n-        consumed_pools = RhsmPools(self.module, consumed=True)\n-\n-        existing_pools = {}\n-        for p in consumed_pools:\n-            existing_pools[p.get_pool_id()] = p.QuantityUsed\n-\n-        serials_to_remove = [p.Serial for p in consumed_pools if pool_ids.get(p.get_pool_id(), 0) != p.QuantityUsed]\n-        serials = self.unsubscribe(serials=serials_to_remove)\n-\n-        missing_pools = {}\n-        for pool_id, quantity in sorted(pool_ids.items()):\n-            if existing_pools.get(pool_id, 0) != quantity:\n-                missing_pools[pool_id] = quantity\n-\n-        self.subscribe_by_pool_ids(missing_pools)\n-\n-        if missing_pools or serials:\n-            changed = True\n-        return {'changed': changed, 'subscribed_pool_ids': missing_pools.keys(),\n-                'unsubscribed_serials': serials}\n-\n-    def sync_syspurpose(self):\n-        \"\"\"\n-        Try to synchronize syspurpose attributes with server\n-        \"\"\"\n-        args = [SUBMAN_CMD, 'status']\n-        rc, stdout, stderr = self.module.run_command(args, check_rc=False)\n-\n-\n class RhsmPool(object):\n     '''\n         Convenience class for housing subscription information\n@@ -833,15 +757,15 @@ def main():\n     environment = module.params['environment']\n     pool = module.params['pool']\n     pool_ids = {}\n-    for value in module.params['pool_ids']:\n-        if isinstance(value, dict):\n-            if len(value) != 1:\n-                module.fail_json(msg='Unable to parse pool_ids option.')\n-            pool_id, quantity = list(value.items())[0]\n-        else:\n-            pool_id, quantity = value, 1\n-        pool_ids[pool_id] = str(quantity)\n-    consumer_type = module.params[\"consumer_type\"]\n+    pool = module.params[\"pool\"]\\\n+    pool_ids = []\\\n+    for value in module.params[\"pool_ids\"]:\\\n+        if isinstance(value, dict):\\\n+            if len(value) != 1:\\\n+                module.fail_json(msg=\"Unable to parse pool_ids option.\")\\\n+            pool_ids.append(value)\\\n+        else:\\\n+            pool_ids.append(value)\n     consumer_name = module.params[\"consumer_name\"]\n     consumer_id = module.params[\"consumer_id\"]\n     force_register = module.params[\"force_register\"]\ndiff --git a/test/units/modules/packaging/os/test_redhat_subscription.py b/test/units/modules/packaging/os/test_redhat_subscription.py\nindex 50c714b1e7..b2a11894fa 100644\n--- a/test/units/modules/packaging/os/test_redhat_subscription.py\n+++ b/test/units/modules/packaging/os/test_redhat_subscription.py\n@@ -557,8 +557,7 @@ Entitlement Type:    Physical\n                     [\n                         '/testbin/subscription-manager',\n                         'attach',\n-                        '--pool', 'ff8080816b8e967f016b8e99632804a6',\n-                        '--quantity', '1'\n+                        '--pool', 'ff8080816b8e967f016b8e99632804a6'\n                     ],\n                     {'check_rc': True},\n                     (0, '', '')\n@@ -567,8 +566,7 @@ Entitlement Type:    Physical\n                     [\n                         '/testbin/subscription-manager',\n                         'attach',\n-                        '--pool', 'ff8080816b8e967f016b8e99747107e9',\n-                        '--quantity', '1'\n+                        '--pool', 'ff8080816b8e967f016b8e99747107e9'\n                     ],\n                     {'check_rc': True},\n                     (0, '', '')\n@@ -658,7 +656,6 @@ Entitlement Type:    Physical\n                         '/testbin/subscription-manager',\n                         'attach',\n                         '--pool', 'ff8080816b8e967f016b8e99632804a6',\n-                        '--quantity', '1'\n                     ],\n                     {'check_rc': True},\n                     (0, '', '')\n"
+  },
+  "timestamp": "2026-06-30 15:15:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_9",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_9/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "When no pool quantity is set, then do not set quantity to 1 (#66807)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 842,
+        "end_line": 842,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 901,
+        "end_line": 901,
+        "suspiciousness": 0.784471,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 512,
+        "end_line": 512,
+        "suspiciousness": 0.68296,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 514,
+        "end_line": 514,
+        "suspiciousness": 0.68296,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 516,
+        "end_line": 516,
+        "suspiciousness": 0.68296,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 517,
+        "end_line": 517,
+        "suspiciousness": 0.68296,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 518,
+        "end_line": 518,
+        "suspiciousness": 0.68296,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 519,
+        "end_line": 519,
+        "suspiciousness": 0.68296,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 522,
+        "end_line": 522,
+        "suspiciousness": 0.68296,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+        "start_line": 640,
+        "end_line": 640,
+        "suspiciousness": 0.68296,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/modules/packaging/os/test_redhat_subscription.py::test_redhat_subscribtion"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 842,
+      "end_line": 842,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 901,
+      "end_line": 901,
+      "suspiciousness": 0.784471,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 512,
+      "end_line": 512,
+      "suspiciousness": 0.68296,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 514,
+      "end_line": 514,
+      "suspiciousness": 0.68296,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 516,
+      "end_line": 516,
+      "suspiciousness": 0.68296,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 517,
+      "end_line": 517,
+      "suspiciousness": 0.68296,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 518,
+      "end_line": 518,
+      "suspiciousness": 0.68296,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 519,
+      "end_line": 519,
+      "suspiciousness": 0.68296,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 522,
+      "end_line": 522,
+      "suspiciousness": 0.68296,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/modules/packaging/os/redhat_subscription.py",
+      "start_line": 640,
+      "end_line": 640,
+      "suspiciousness": 0.68296,
+      "rank": 10
+    }
+  ]
+}

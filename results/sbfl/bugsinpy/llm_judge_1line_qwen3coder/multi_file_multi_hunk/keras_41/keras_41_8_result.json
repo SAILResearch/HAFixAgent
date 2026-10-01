@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_41",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 18:28:40",
+      "end_time": "2026-06-29 18:36:38",
+      "duration_seconds": 479,
+      "duration_human": "7m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 853987,
+      "output_tokens": 4425,
+      "total_tokens": 858412,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 853987
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/utils/data_utils.py b/keras/utils/data_utils.py\nindex ce1a60acd..bff910118 100644\n--- a/keras/utils/data_utils.py\n+++ b/keras/utils/data_utils.py\n@@ -11,6 +11,7 @@ import sys\n import tarfile\n import threading\n import time\n+import traceback\n import zipfile\n from abc import abstractmethod\n from multiprocessing.pool import ThreadPool\n@@ -614,6 +615,7 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n         self._use_multiprocessing = use_multiprocessing\n         self._threads = []\n         self._stop_event = None\n+        self._manager = None\n         self.queue = None\n         self.seed = seed\n \n@@ -631,18 +633,27 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n                 try:\n                     if self._use_multiprocessing or self.queue.qsize() < max_queue_size:\n                         generator_output = next(self._generator)\n-                        self.queue.put(generator_output)\n+                        self.queue.put((True, generator_output))\n                     else:\n                         time.sleep(self.wait_time)\n                 except StopIteration:\n                     break\n-                except Exception:\n+                except Exception as e:\n+                    # Can't pick tracebacks.\n+                    # As a compromise, print the traceback and pickle None instead.\n+                    if self._use_multiprocessing:\n+                        traceback.print_exc()\n+                        setattr(e, '__traceback__', None)\n+                    elif not hasattr(e, '__traceback__'):\n+                        setattr(e, '__traceback__', sys.exc_info()[2])\n+                    self.queue.put((False, e))\n                     self._stop_event.set()\n-                    raise\n+                    break\n \n         try:\n             if self._use_multiprocessing:\n-                self.queue = multiprocessing.Queue(maxsize=max_queue_size)\n+                self._manager = multiprocessing.Manager()\n+                self.queue = self._manager.Queue(maxsize=max_queue_size)\n                 self._stop_event = multiprocessing.Event()\n             else:\n                 self.queue = queue.Queue()\n@@ -686,9 +697,8 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n                 else:\n                     thread.join(timeout)\n \n-        if self._use_multiprocessing:\n-            if self.queue is not None:\n-                self.queue.close()\n+        if self._manager:\n+            self._manager.shutdown()\n \n         self._threads = []\n         self._stop_event = None\n@@ -704,12 +714,22 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n         \"\"\"\n         while self.is_running():\n             if not self.queue.empty():\n-                inputs = self.queue.get()\n-                if inputs is not None:\n-                    yield inputs\n+                success, value = self.queue.get()\n+                # Rethrow any exceptions found in the queue\n+                if not success:\n+                    six.reraise(value.__class__, value, value.__traceback__)\n+                # Yield regular values\n+                if value is not None:\n+                    yield value\n             else:\n                 all_finished = all([not thread.is_alive() for thread in self._threads])\n                 if all_finished and self.queue.empty():\n                     raise StopIteration()\n                 else:\n                     time.sleep(self.wait_time)\n+\n+        # Make sure to rethrow the first exception in the queue, if any\n+        while not self.queue.empty():\n+            success, value = self.queue.get()\n+            if not success:\n+                six.reraise(value.__class__, value, value.__traceback__)\ndiff --git a/tests/keras/utils/data_utils_test.py b/tests/keras/utils/data_utils_test.py\nindex 753330e41..f83ea6ec7 100644\n--- a/tests/keras/utils/data_utils_test.py\n+++ b/tests/keras/utils/data_utils_test.py\n@@ -182,7 +182,7 @@ def test_generator_enqueuer_fail_threads():\n         FaultSequence()), use_multiprocessing=False)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \n@@ -191,7 +191,7 @@ def test_generator_enqueuer_fail_processes():\n         FaultSequence()), use_multiprocessing=True)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \n"
+  },
+  "timestamp": "2026-06-29 18:37:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_41",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_41/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Rethrow original exception in GeneratorEnqueuer. (#8485)",
+    "fault_locations": [
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 639,
+        "end_line": 639,
+        "suspiciousness": 0.660409,
+        "rank": 1
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 640,
+        "end_line": 640,
+        "suspiciousness": 0.660409,
+        "rank": 2
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 641,
+        "end_line": 641,
+        "suspiciousness": 0.660409,
+        "rank": 3
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 612,
+        "end_line": 612,
+        "suspiciousness": 0.561151,
+        "rank": 4
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 613,
+        "end_line": 613,
+        "suspiciousness": 0.561151,
+        "rank": 5
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 614,
+        "end_line": 614,
+        "suspiciousness": 0.561151,
+        "rank": 6
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 615,
+        "end_line": 615,
+        "suspiciousness": 0.561151,
+        "rank": 7
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 616,
+        "end_line": 616,
+        "suspiciousness": 0.561151,
+        "rank": 8
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 617,
+        "end_line": 617,
+        "suspiciousness": 0.561151,
+        "rank": 9
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 618,
+        "end_line": 618,
+        "suspiciousness": 0.561151,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/utils/data_utils_test.py::test_generator_enqueuer_fail_threads"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 639,
+      "end_line": 639,
+      "suspiciousness": 0.660409,
+      "rank": 1
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 640,
+      "end_line": 640,
+      "suspiciousness": 0.660409,
+      "rank": 2
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 641,
+      "end_line": 641,
+      "suspiciousness": 0.660409,
+      "rank": 3
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 612,
+      "end_line": 612,
+      "suspiciousness": 0.561151,
+      "rank": 4
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 613,
+      "end_line": 613,
+      "suspiciousness": 0.561151,
+      "rank": 5
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 614,
+      "end_line": 614,
+      "suspiciousness": 0.561151,
+      "rank": 6
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 615,
+      "end_line": 615,
+      "suspiciousness": 0.561151,
+      "rank": 7
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 616,
+      "end_line": 616,
+      "suspiciousness": 0.561151,
+      "rank": 8
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 617,
+      "end_line": 617,
+      "suspiciousness": 0.561151,
+      "rank": 9
+    },
+    {
+      "file": "keras/utils/data_utils.py",
+      "start_line": 618,
+      "end_line": 618,
+      "suspiciousness": 0.561151,
+      "rank": 10
+    }
+  ]
+}

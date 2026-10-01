@@ -1,0 +1,100 @@
+{
+  "project_name": "Closure",
+  "bug_id": "85",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:40:52",
+      "end_time": "2026-06-26 18:41:55",
+      "duration_seconds": 62,
+      "duration_human": "1m 2s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 497151,
+      "output_tokens": 2579,
+      "total_tokens": 499730,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 497151
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\nindex c2150b147..3762f441a 100644\n--- a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n+++ b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n@@ -141,96 +141,5 @@ class UnreachableCodeElimination extends AbstractPostOrderCallback\n \n     // If n is null the target is the end of the function, nothing to do.\n     if (n == null) {\n-       return n;\n-    }\n-\n-    DiGraphNode<Node, Branch> gNode = curCfg.getDirectedGraphNode(n);\n-\n-    if (gNode == null) {\n-      return n;\n-    }\n-\n-    if (n.getParent() == null) {\n-      List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n-      if (outEdges.size() == 1) {\n-        return tryRemoveUnconditionalBranching(outEdges.get(0).getDestination().getValue());\n-      }\n-    }\n-    switch (n.getType()) {\n-      case Token.BLOCK:\n-        if (n.hasChildren()) {\n-          Node first = n.getFirstChild();\n-          return tryRemoveUnconditionalBranching(first);\n-        } else {\n-          return tryRemoveUnconditionalBranching(ControlFlowAnalysis.computeFollowNode(n));\n-        }\n-      case Token.RETURN:\n-        if (n.hasChildren()) {\n-          break;\n-        }\n-      case Token.BREAK:\n-      case Token.CONTINUE:\n-\n-        // We are looking for a control flow changing statement that always\n-        // branches to the same node. If removing it the control flow still\n-        // branches to that same node. It is safe to remove it.\n-        List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n-        if (outEdges.size() == 1 &&\n-            // If there is a next node, there is no chance this jump is useless.\n-            (n.getNext() == null || n.getNext().getType() == Token.FUNCTION)) {\n-\n-          Preconditions.checkState(outEdges.get(0).getValue() == Branch.UNCOND);\n-          Node fallThrough = tryRemoveUnconditionalBranching(computeFollowing(n));\n-          Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n-          if (nextCfgNode == fallThrough) {\n-            removeDeadExprStatementSafely(n);\n-            return fallThrough;\n-          }\n-        }\n-    }\n-    return n;\n-  }\n-\n-  private Node computeFollowing(Node n) {\n-    Node next = ControlFlowAnalysis.computeFollowNode(n);\n-    return next;\n-  }\n-\n-  private void removeDeadExprStatementSafely(Node n) {\n-    Node parent = n.getParent();\n-    if (n.getType() == Token.EMPTY ||\n-        (n.getType() == Token.BLOCK && !n.hasChildren())) {\n-      // Not always trivial to remove, let FoldContants work its magic later.\n-      return;\n-    }\n-\n-    switch (n.getType()) {\n-      // Removing an unreachable DO node is messy because it means we still have\n-      // to execute one iteration. If the DO's body has breaks in the middle, it\n-      // can get even more trickier and code size might actually increase.\n-      case Token.DO:\n-        return;\n-\n-      case Token.BLOCK:\n-        // BLOCKs are used in several ways including wrapping CATCH blocks in TRYs\n-        if (parent.getType() == Token.TRY) {\n-          if (NodeUtil.isTryCatchNodeContainer(n)) {\n-            return;\n-          }\n-        }\n-        break;\n-\n-      case Token.CATCH:\n-        Node tryNode = parent.getParent();\n-        NodeUtil.maybeAddFinally(tryNode);\n-        break;\n-    }\n-\n-    NodeUtil.redeclareVarsInsideBranch(n);\n-    compiler.reportCodeChange();\n-    if (logger.isLoggable(Level.FINE)) {\n-      logger.fine(\"Removing \" + n.toString());\n-    }\n-    NodeUtil.removeChild(n.getParent(), n);\n   }\n }\n"
+  },
+  "timestamp": "2026-06-26 18:41:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_85",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_85",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Reproduceable crash with switch statement\nWhen attempting to compile the following code with default options (-jar compiler.jar --js filename) always produces the same error.\r\n\r\nfunction a(b) {\r\n  switch (b.v) {\r\n    case 'SWITCH':\r\n      if (b.i &gt;= 0) {\r\n        return b.o;\r\n      } else {\r\n        return undefined;\r\n      }\r\n      break;\r\n  }\r\n}\r\n\r\nWhenever I try and compile the above script I get a RuntimeException thrown:\r\n\r\nINTERNAL COMPILER ERROR.\r\nPlease report this problem.\r\nnull\r\n  Node(BREAK): C:\\test.js:11:3\r\n      break;\r\n  Parent: NULL\r\n\r\nThe result of calling --version on compiler.jar:\r\n\r\nVersion: 20100917 (revision 440)\r\nBuilt on: 2010/09/17 17:55\r\n\r\nThe result of calling -version on java.exe:\r\n\r\njava version &quot;1.6.0_11&quot;\r\nJava(TM) SE Runtime Environment (build 1.6.0_11-b03)\r\nJava HotSpot(TM) Client VM (build 11.0-b16, mixed mode, sharing)\r\n\r\nAnyone else with the same issue - to work around in the short term, comment out the &quot;break;&quot; line.",
+    "commit_message": "Don't remove nodes out of traversal order. Fixes issue 311.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/UnreachableCodeElimination.java",
+        "start_line": 153,
+        "end_line": 158,
+        "line_numbers": [
+          153,
+          154,
+          155,
+          156,
+          157,
+          158
+        ],
+        "function_name": "tryRemoveUnconditionalBranching",
+        "class_name": "UnreachableCodeElimination",
+        "filename": "UnreachableCodeElimination.java",
+        "code_snippet": "  private Node tryRemoveUnconditionalBranching(Node n) {\n    /*\n     * For each of the unconditional branching control flow node, check to see\n     * if the ControlFlowAnalysis.computeFollowNode of that node is same as\n     * the branching target. If it is, the branch node is safe to be removed.\n     *\n     * This is not as clever as MinimizeExitPoints because it doesn't do any\n     * if-else conversion but it handles more complicated switch statements\n     * much nicer.\n     */\n\n    // If n is null the target is the end of the function, nothing to do.\n    if (n == null) {\n       return n;\n    }\n\n    DiGraphNode<Node, Branch> gNode = curCfg.getDirectedGraphNode(n);\n\n    if (gNode == null) {\n      return n;\n    }\n\n    if (n.getParent() == null) {\n      List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n      if (outEdges.size() == 1) {\n        return tryRemoveUnconditionalBranching(outEdges.get(0).getDestination().getValue());\n      }\n    }\n    switch (n.getType()) {\n      case Token.BLOCK:\n        if (n.hasChildren()) {\n          Node first = n.getFirstChild();\n          return tryRemoveUnconditionalBranching(first);\n        } else {\n          return tryRemoveUnconditionalBranching(ControlFlowAnalysis.computeFollowNode(n));\n        }\n      case Token.RETURN:\n        if (n.hasChildren()) {\n          break;\n        }\n      case Token.BREAK:\n      case Token.CONTINUE:\n\n        // We are looking for a control flow changing statement that always\n        // branches to the same node. If removing it the control flow still\n        // branches to that same node. It is safe to remove it.\n        List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n        if (outEdges.size() == 1 &&\n            // If there is a next node, there is no chance this jump is useless.\n            (n.getNext() == null || n.getNext().getType() == Token.FUNCTION)) {\n\n          Preconditions.checkState(outEdges.get(0).getValue() == Branch.UNCOND);\n          Node fallThrough = tryRemoveUnconditionalBranching(computeFollowing(n));\n          Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n          if (nextCfgNode == fallThrough) {\n            removeDeadExprStatementSafely(n);\n            return fallThrough;\n          }\n        }\n    }\n    return n;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/UnreachableCodeElimination.java",
+        "start_line": 160,
+        "end_line": 166,
+        "line_numbers": [
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166
+        ],
+        "function_name": "tryRemoveUnconditionalBranching",
+        "class_name": "UnreachableCodeElimination",
+        "filename": "UnreachableCodeElimination.java",
+        "code_snippet": "  private Node tryRemoveUnconditionalBranching(Node n) {\n    /*\n     * For each of the unconditional branching control flow node, check to see\n     * if the ControlFlowAnalysis.computeFollowNode of that node is same as\n     * the branching target. If it is, the branch node is safe to be removed.\n     *\n     * This is not as clever as MinimizeExitPoints because it doesn't do any\n     * if-else conversion but it handles more complicated switch statements\n     * much nicer.\n     */\n\n    // If n is null the target is the end of the function, nothing to do.\n    if (n == null) {\n       return n;\n    }\n\n    DiGraphNode<Node, Branch> gNode = curCfg.getDirectedGraphNode(n);\n\n    if (gNode == null) {\n      return n;\n    }\n\n    if (n.getParent() == null) {\n      List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n      if (outEdges.size() == 1) {\n        return tryRemoveUnconditionalBranching(outEdges.get(0).getDestination().getValue());\n      }\n    }\n    switch (n.getType()) {\n      case Token.BLOCK:\n        if (n.hasChildren()) {\n          Node first = n.getFirstChild();\n          return tryRemoveUnconditionalBranching(first);\n        } else {\n          return tryRemoveUnconditionalBranching(ControlFlowAnalysis.computeFollowNode(n));\n        }\n      case Token.RETURN:\n        if (n.hasChildren()) {\n          break;\n        }\n      case Token.BREAK:\n      case Token.CONTINUE:\n\n        // We are looking for a control flow changing statement that always\n        // branches to the same node. If removing it the control flow still\n        // branches to that same node. It is safe to remove it.\n        List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n        if (outEdges.size() == 1 &&\n            // If there is a next node, there is no chance this jump is useless.\n            (n.getNext() == null || n.getNext().getType() == Token.FUNCTION)) {\n\n          Preconditions.checkState(outEdges.get(0).getValue() == Branch.UNCOND);\n          Node fallThrough = tryRemoveUnconditionalBranching(computeFollowing(n));\n          Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n          if (nextCfgNode == fallThrough) {\n            removeDeadExprStatementSafely(n);\n            return fallThrough;\n          }\n        }\n    }\n    return n;\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/UnreachableCodeElimination.java",
+        "start_line": 183,
+        "end_line": 183,
+        "line_numbers": [
+          183
+        ],
+        "function_name": "tryRemoveUnconditionalBranching",
+        "class_name": "UnreachableCodeElimination",
+        "filename": "UnreachableCodeElimination.java",
+        "code_snippet": "  private Node tryRemoveUnconditionalBranching(Node n) {\n    /*\n     * For each of the unconditional branching control flow node, check to see\n     * if the ControlFlowAnalysis.computeFollowNode of that node is same as\n     * the branching target. If it is, the branch node is safe to be removed.\n     *\n     * This is not as clever as MinimizeExitPoints because it doesn't do any\n     * if-else conversion but it handles more complicated switch statements\n     * much nicer.\n     */\n\n    // If n is null the target is the end of the function, nothing to do.\n    if (n == null) {\n       return n;\n    }\n\n    DiGraphNode<Node, Branch> gNode = curCfg.getDirectedGraphNode(n);\n\n    if (gNode == null) {\n      return n;\n    }\n\n    if (n.getParent() == null) {\n      List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n      if (outEdges.size() == 1) {\n        return tryRemoveUnconditionalBranching(outEdges.get(0).getDestination().getValue());\n      }\n    }\n    switch (n.getType()) {\n      case Token.BLOCK:\n        if (n.hasChildren()) {\n          Node first = n.getFirstChild();\n          return tryRemoveUnconditionalBranching(first);\n        } else {\n          return tryRemoveUnconditionalBranching(ControlFlowAnalysis.computeFollowNode(n));\n        }\n      case Token.RETURN:\n        if (n.hasChildren()) {\n          break;\n        }\n      case Token.BREAK:\n      case Token.CONTINUE:\n\n        // We are looking for a control flow changing statement that always\n        // branches to the same node. If removing it the control flow still\n        // branches to that same node. It is safe to remove it.\n        List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n        if (outEdges.size() == 1 &&\n            // If there is a next node, there is no chance this jump is useless.\n            (n.getNext() == null || n.getNext().getType() == Token.FUNCTION)) {\n\n          Preconditions.checkState(outEdges.get(0).getValue() == Branch.UNCOND);\n          Node fallThrough = tryRemoveUnconditionalBranching(computeFollowing(n));\n          Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n          if (nextCfgNode == fallThrough) {\n            removeDeadExprStatementSafely(n);\n            return fallThrough;\n          }\n        }\n    }\n    return n;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testCascadedRemovalOfUnlessUnconditonalJumps",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testIssue311"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\nindex e6d4320..c2150b1 100644\n--- a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n+++ b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n@@ -150,7 +150,20 @@ class UnreachableCodeElimination extends AbstractPostOrderCallback\n       return n;\n     }\n \n-    if (n.getParent() == null) {\n-      List<DiGraphEdge<Node,Branch>> outEdges = gNode.getOutEdges();\n-      if (outEdges.size() == 1) {\n-        return tryRemoveUnconditionalBranching(outEdges.get(0).getDestination().getValue());\n-      }\n-    }\n     switch (n.getType()) {\n-      case Token.BLOCK:\n-        if (n.hasChildren()) {\n-          Node first = n.getFirstChild();\n-          return tryRemoveUnconditionalBranching(first);\n-        } else {\n-          return tryRemoveUnconditionalBranching(ControlFlowAnalysis.computeFollowNode(n));\n-        }\n       case Token.RETURN:\n         if (n.hasChildren()) {\n           break;\n@@ -167,7 +180,7 @@ class UnreachableCodeElimination extends AbstractPostOrderCallback\n             (n.getNext() == null || n.getNext().getType() == Token.FUNCTION)) {\n \n           Preconditions.checkState(outEdges.get(0).getValue() == Branch.UNCOND);\n+          Node fallThrough = computeFollowing(n);\n-          Node fallThrough = tryRemoveUnconditionalBranching(computeFollowing(n));\n           Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n           if (nextCfgNode == fallThrough) {\n             removeDeadExprStatementSafely(n);\n@@ -180,13 +193,6 @@ class UnreachableCodeElimination extends AbstractPostOrderCallback\n \n   private Node computeFollowing(Node n) {\n     Node next = ControlFlowAnalysis.computeFollowNode(n);\n+    while (next != null && next.getType() == Token.BLOCK) {\n+      if (next.hasChildren()) {\n+        next = next.getFirstChild();\n+      } else {\n+        next = computeFollowing(next);\n+      }\n+    }\n     return next;\n   }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

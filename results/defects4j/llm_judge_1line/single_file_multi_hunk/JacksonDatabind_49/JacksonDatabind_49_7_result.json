@@ -1,0 +1,136 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "49",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-02 00:13:49",
+      "end_time": "2025-10-02 00:15:58",
+      "duration_seconds": 129,
+      "duration_human": "2m 9s"
+    },
+    "model_cost": 0.0122,
+    "model_calls": 15,
+    "token_usage": {
+      "input_tokens": 125771,
+      "output_tokens": 2309,
+      "total_tokens": 128080,
+      "cached_input_tokens": 114048,
+      "uncached_input_tokens": 11723
+    },
+    "agent_steps": 16,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\nindex af141e12a..d84269445 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n@@ -47,7 +47,9 @@ public final class WritableObjectId\n         // 04-Jun-2016, tatu: As per [databind#1255], need to consider possibility of\n         //    id being generated for \"alwaysAsId\", but not being written as POJO; regardless,\n         //    need to use existing id if there is one:\n+        if (id == null) {\n             id = generator.generateId(forPojo);\n+        }\n         return id;\n     }\n \n"
+  },
+  "timestamp": "2025-10-01 20:15:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_49",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_49",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "JsonIdentityInfo incorrectly serializing forward references\nI wrote this small test program to demonstrate the issue:\n\n``` java\nimport com.fasterxml.jackson.annotation.JsonIdentityInfo;\nimport com.fasterxml.jackson.annotation.JsonIdentityReference;\nimport com.fasterxml.jackson.annotation.ObjectIdGenerators;\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\npublic class ObjectIdTest {\n\n    public static class Foo {\n\n        @JsonIdentityReference(alwaysAsId = true)\n        public Bar bar1;\n\n        @JsonIdentityReference()\n        public Bar bar2;\n    }\n\n    @JsonIdentityInfo(generator = ObjectIdGenerators.IntSequenceGenerator.class)\n    public static class Bar {\n\n    }\n\n    public static void main(String[] args) throws Exception {\n        ObjectMapper mapper = new ObjectMapper();\n\n        // create structure to serialize\n        Foo mo = new Foo();\n        mo.bar1 = new Bar();\n        mo.bar2 = mo.bar1;\n\n        // serialize it\n        System.out.println(mapper.writeValueAsString(mo));\n    }\n\n}\n```\n\nWhen executing this test program in the latest version (2.7.4), the output will be `{\"bar1\":1,\"bar2\":{\"@id\":2}}` - the second field will be written with a new id even though both fields reference the same object. Because of this, writing forward references is essentially impossible.\n\nThe issue seems to be the fact that BeanSerializerBase will always call WritableObjectId.generateId if the referenced object has not been written in plain format yet (https://github.com/FasterXML/jackson-databind/blob/master/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java#L600). This will also happen if an id has been generated before.\nIt might also be smarter to only generate a new id in WritableObjectId.generateId if that hasn't happened before; as that method doesn't have a javadoc I can't tell how it is supposed to work.\n\n",
+    "commit_message": "Fix #1255",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java",
+        "start_line": 49,
+        "end_line": 49,
+        "line_numbers": [
+          49
+        ],
+        "function_name": "generateId",
+        "class_name": "WritableObjectId",
+        "filename": "WritableObjectId.java",
+        "code_snippet": "    public Object generateId(Object forPojo) {\n        // 04-Jun-2016, tatu: As per [databind#1255], need to consider possibility of\n        //    id being generated for \"alwaysAsId\", but not being written as POJO; regardless,\n        //    need to use existing id if there is one:\n            id = generator.generateId(forPojo);\n        return id;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java",
+        "start_line": 51,
+        "end_line": 51,
+        "line_numbers": [
+          51
+        ],
+        "function_name": "generateId",
+        "class_name": "WritableObjectId",
+        "filename": "WritableObjectId.java",
+        "code_snippet": "    public Object generateId(Object forPojo) {\n        // 04-Jun-2016, tatu: As per [databind#1255], need to consider possibility of\n        //    id being generated for \"alwaysAsId\", but not being written as POJO; regardless,\n        //    need to use existing id if there is one:\n            id = generator.generateId(forPojo);\n        return id;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.objectid.AlwaysAsReferenceFirstTest::testIssue1255"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\nindex d84269445..af141e12a 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n@@ -47,9 +47,7 @@ public final class WritableObjectId\n         // 04-Jun-2016, tatu: As per [databind#1255], need to consider possibility of\n         //    id being generated for \"alwaysAsId\", but not being written as POJO; regardless,\n         //    need to use existing id if there is one:\n+        if (id == null) {\n             id = generator.generateId(forPojo);\n+        }\n         return id;\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Cowtowncoder",
+        "commit_date": "2015-06-26 18:20:07",
+        "commit_message": "minor code cleanup, renaming",
+        "commit_hash": "7ac0e3490b6ea9e48602a3c72ea9be6e4758b475"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "writeAsField",
+          "writeAsId"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "serializeAsField",
+          "writeAsField",
+          "writeAsId"
+        ],
+        "functions_name_modified_file": [
+          "writeAsField",
+          "generateId",
+          "WritableObjectId",
+          "writeAsId"
+        ],
+        "functions_name_all_files": [
+          "isUnwrappingSerializer",
+          "withIgnorals",
+          "UnwrappingBeanSerializer",
+          "rename",
+          "UnwrappingBeanPropertyWriter",
+          "unwrappingSerializer",
+          "WritableObjectId",
+          "expectObjectFormat",
+          "_depositSchemaProperty",
+          "_findAndAddDynamic",
+          "isUnwrapping",
+          "serializeWithType",
+          "serializeAsField",
+          "serialize",
+          "writeAsId",
+          "withObjectIdWriter",
+          "asArraySerializer",
+          "writeAsField",
+          "withFilterId",
+          "depositSchemaProperty",
+          "generateId",
+          "assignSerializer"
+        ],
+        "function_code_before": "    public Object generateId(Object forPojo) {\n        return (id = generator.generateId(forPojo));\n    }",
+        "function_code_after": "    public Object generateId(Object forPojo) {\n        return (id = generator.generateId(forPojo));\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnwrappingBeanPropertyWriter.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/impl/UnwrappingBeanSerializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\nindex d40b0a5b5..f16a6e7fb 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/impl/WritableObjectId.java\n@@ -4,7 +4,6 @@ import java.io.IOException;\n \n import com.fasterxml.jackson.annotation.ObjectIdGenerator;\n \n-import com.fasterxml.jackson.core.JsonGenerationException;\n import com.fasterxml.jackson.core.JsonGenerator;\n import com.fasterxml.jackson.core.SerializableString;\n \n@@ -21,20 +20,19 @@ public final class WritableObjectId\n     public Object id;\n \n     protected boolean idWritten = false;\n-    \n+\n     public WritableObjectId(ObjectIdGenerator<?> generator) {\n         this.generator = generator;\n     }\n-    \n-    public boolean writeAsId(JsonGenerator jgen, SerializerProvider provider, ObjectIdWriter w)\n-        throws IOException, JsonGenerationException\n+\n+    public boolean writeAsId(JsonGenerator gen, SerializerProvider provider, ObjectIdWriter w) throws IOException\n     {\n         if (id != null && (idWritten || w.alwaysAsId)) {\n             // 03-Aug-2013, tatu: Prefer Native Object Ids if available\n-            if (jgen.canWriteObjectId()) {\n-                jgen.writeObjectRef(String.valueOf(id));\n+            if (gen.canWriteObjectId()) {\n+                gen.writeObjectRef(String.valueOf(id));\n             } else {\n-                w.serializer.serialize(id, jgen, provider);\n+                w.serializer.serialize(id, gen, provider);\n             }\n             return true;\n         }\n@@ -48,23 +46,22 @@ public final class WritableObjectId\n     /**\n      * Method called to output Object Id as specified.\n      */\n-    public void writeAsField(JsonGenerator jgen, SerializerProvider provider,\n-            ObjectIdWriter w)\n-        throws IOException, JsonGenerationException\n+    public void writeAsField(JsonGenerator gen, SerializerProvider provider,\n+            ObjectIdWriter w) throws IOException\n     {\n         idWritten = true;\n \n         // 03-Aug-2013, tatu: Prefer Native Object Ids if available\n-        if (jgen.canWriteObjectId()) {\n+        if (gen.canWriteObjectId()) {\n             // Need to assume String(ified) ids, for now... could add 'long' variant?\n-            jgen.writeObjectId(String.valueOf(id));\n+            gen.writeObjectId(String.valueOf(id));\n             return;\n         }\n         \n         SerializableString name = w.propertyName;\n         if (name != null) {\n-            jgen.writeFieldName(name);\n-            w.serializer.serialize(id, jgen, provider);\n+            gen.writeFieldName(name);\n+            w.serializer.serialize(id, gen, provider);\n         }\n     }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

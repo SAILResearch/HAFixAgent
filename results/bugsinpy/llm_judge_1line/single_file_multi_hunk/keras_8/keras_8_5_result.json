@@ -1,0 +1,62 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_8",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 17:46:45",
+      "end_time": "2026-03-23 18:01:57",
+      "duration_seconds": 912,
+      "duration_human": "15m 12s"
+    },
+    "model_cost": 0.0666,
+    "model_calls": 28,
+    "token_usage": {
+      "input_tokens": 451141,
+      "output_tokens": 23829,
+      "total_tokens": 474970,
+      "cached_input_tokens": 240704,
+      "uncached_input_tokens": 210437
+    },
+    "agent_steps": 28,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/network.py b/keras/engine/network.py\nindex 7d36df7a5..b75623808 100644\n--- a/keras/engine/network.py\n+++ b/keras/engine/network.py\n@@ -983,6 +983,7 @@ class Network(Layer):\n                 input_tensors.append(\n                     inbound_node.output_tensors[inbound_tensor_index])\n             # Call layer on its inputs, thus creating the node\n+            return True\n             # and building the layer if needed.\n             if input_tensors:\n                 layer(unpack_singleton(input_tensors), **kwargs)\n@@ -1022,16 +1023,19 @@ class Network(Layer):\n         # does not yet exist) are re-enqueued, and the process\n         # is repeated until all nodes are processed.\n         while unprocessed_nodes:\n-            for layer_data in config['layers']:\n-                layer = created_layers[layer_data['name']]\n+            for layer_data in config[\"layers\"]:\n+                layer_name = layer_data[\"name\"]\n+                layer = created_layers[layer_name]\n                 if layer in unprocessed_nodes:\n-                    for node_data in unprocessed_nodes.pop(layer):\n-                        process_node(layer, node_data)\n-\n-        name = config.get('name')\n-        input_tensors = []\n-        output_tensors = []\n-        for layer_data in config['input_layers']:\n+                    node_data_list = unprocessed_nodes[layer]\n+                    i = 0\n+                    while i < len(node_data_list):\n+                        if process_node(layer, node_data_list[i]):\n+                            node_data_list.pop(i)\n+                        else:\n+                            break\n+                    if not node_data_list:\n+                        unprocessed_nodes.pop(layer, None)\n             layer_name, node_index, tensor_index = layer_data\n             assert layer_name in created_layers\n             layer = created_layers[layer_name]\ndiff --git a/tests/keras/engine/test_topology.py b/tests/keras/engine/test_topology.py\nindex 9f5c2eebf..9813adbce 100644\n--- a/tests/keras/engine/test_topology.py\n+++ b/tests/keras/engine/test_topology.py\n@@ -760,6 +760,43 @@ def test_layer_sharing_at_heterogeneous_depth_with_concat():\n     np.testing.assert_allclose(output_val, output_val_2, atol=1e-6)\n \n \n+def test_layer_sharing_at_heterogeneous_depth_order():\n+    # This tests for the bug in this issue\n+    # https://github.com/keras-team/keras/issues/11159\n+    # It occurs with layer sharing at heterogeneous depth when\n+    # the layers need to be applied in an order that differs from\n+    # the order that occurs in the config.\n+\n+    input_shape = (1, 12)\n+    input_layer = Input(shape=input_shape)\n+\n+    A = Dense(12, name='layer_a')\n+    r1 = layers.Reshape((12,))(input_layer)\n+    Aout1 = A(r1)\n+\n+    r2 = layers.Reshape((12,))(A(input_layer))\n+    Aout2 = A(r2)\n+\n+    # Note: if the order of the layers in the concat is\n+    # changed to ([Aout1, Aout2]) the bug doesn't trigger\n+    c1 = layers.concatenate([Aout2, Aout1])\n+    output = Dense(2, name='layer_b')(c1)\n+\n+    M = Model(inputs=input_layer, outputs=output)\n+\n+    x_val = np.random.random((10,) + input_shape)\n+    output_val = M.predict(x_val)\n+\n+    config = M.get_config()\n+    weights = M.get_weights()\n+\n+    M2 = Model.from_config(config)\n+    M2.set_weights(weights)\n+\n+    output_val_2 = M2.predict(x_val)\n+    np.testing.assert_allclose(output_val, output_val_2, atol=1e-6)\n+\n+\n def test_multi_output_mask():\n     \"\"\"Fixes #7589\"\"\"\n     class TestMultiOutputLayer(Layer):\n"
+  },
+  "timestamp": "2026-03-23 14:01:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_8",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_8/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fixed loading bug for shared layers accross multiple depths (#11588)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 980,
+        "end_line": 981,
+        "function_name": "process_node",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1028,
+        "end_line": 1029,
+        "function_name": "from_config",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/engine/test_topology.py::test_layer_sharing_at_heterogeneous_depth_order"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

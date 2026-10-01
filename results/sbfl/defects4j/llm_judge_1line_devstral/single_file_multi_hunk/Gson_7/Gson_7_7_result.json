@@ -1,0 +1,195 @@
+{
+  "project_name": "Gson",
+  "bug_id": "Gson_7",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 05:09:35",
+      "end_time": "2026-06-30 05:11:07",
+      "duration_seconds": 93,
+      "duration_human": "1m 33s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 631072,
+      "output_tokens": 4421,
+      "total_tokens": 635493,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 631072
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java\nindex d375ba15..b5c199a6 100644\n--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java\n+++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java\n@@ -1179,6 +1179,8 @@ public class JsonReader implements Closeable {\n     if (p == PEEKED_NUMBER) {\n       peekedString = new String(buffer, pos, peekedNumberLength);\n       pos += peekedNumberLength;\n+\n+    } else if (p == PEEKED_UNQUOTED) {\\n      peekedString = nextUnquotedValue();\n     } else if (p == PEEKED_SINGLE_QUOTED || p == PEEKED_DOUBLE_QUOTED) {\n         peekedString = nextQuotedValue(p == PEEKED_SINGLE_QUOTED ? '\\'' : '\"');\n       try {\ndiff --git a/gson/src/main/java/com/google/gson/stream/JsonWriter.java b/gson/src/main/java/com/google/gson/stream/JsonWriter.java\nindex 9bf2d22a..cf6af40f 100644\n--- a/gson/src/main/java/com/google/gson/stream/JsonWriter.java\n+++ b/gson/src/main/java/com/google/gson/stream/JsonWriter.java\n@@ -135,7 +135,7 @@ public class JsonWriter implements Closeable, Flushable {\n    * quotation mark, reverse solidus, and the control characters\n    * (U+0000 through U+001F).\"\n    *\n-   * We also escape '\\u2028' and '\\u2029', which JavaScript interprets as\n+   * We also escape '\\x00' and '\\x00', which JavaScript interprets as\n    * newline characters. This prevents eval() from failing with a syntax\n    * error. http://code.google.com/p/google-gson/issues/detail?id=341\n    */\n@@ -154,11 +154,11 @@ public class JsonWriter implements Closeable, Flushable {\n     REPLACEMENT_CHARS['\\r'] = \"\\\\r\";\n     REPLACEMENT_CHARS['\\f'] = \"\\\\f\";\n     HTML_SAFE_REPLACEMENT_CHARS = REPLACEMENT_CHARS.clone();\n-    HTML_SAFE_REPLACEMENT_CHARS['<'] = \"\\\\u003c\";\n-    HTML_SAFE_REPLACEMENT_CHARS['>'] = \"\\\\u003e\";\n-    HTML_SAFE_REPLACEMENT_CHARS['&'] = \"\\\\u0026\";\n-    HTML_SAFE_REPLACEMENT_CHARS['='] = \"\\\\u003d\";\n-    HTML_SAFE_REPLACEMENT_CHARS['\\''] = \"\\\\u0027\";\n+    HTML_SAFE_REPLACEMENT_CHARS['<'] = \"\\\\x00\";\n+    HTML_SAFE_REPLACEMENT_CHARS['>'] = \"\\\\x00\";\n+    HTML_SAFE_REPLACEMENT_CHARS['&'] = \"\\\\x00\";\n+    HTML_SAFE_REPLACEMENT_CHARS['='] = \"\\\\x00\";\n+    HTML_SAFE_REPLACEMENT_CHARS['\\''] = \"\\\\x00\";\n   }\n \n   /** The output data, containing at most one top-level array or object. */\n@@ -559,10 +559,10 @@ public class JsonWriter implements Closeable, Flushable {\n         if (replacement == null) {\n           continue;\n         }\n-      } else if (c == '\\u2028') {\n-        replacement = \"\\\\u2028\";\n-      } else if (c == '\\u2029') {\n-        replacement = \"\\\\u2029\";\n+      } else if (c == '\\x00') {\n+        replacement = \"\\\\x00\";\n+      } else if (c == '\\x00') {\n+        replacement = \"\\\\x00\";\n       } else {\n         continue;\n       }\ndiff --git a/gson/src/test/java/com/google/gson/MixedStreamTest.java b/gson/src/test/java/com/google/gson/MixedStreamTest.java\nindex 00eb4bc8..73bcf367 100644\n--- a/gson/src/test/java/com/google/gson/MixedStreamTest.java\n+++ b/gson/src/test/java/com/google/gson/MixedStreamTest.java\n@@ -186,7 +186,7 @@ public final class MixedStreamTest extends TestCase {\n \n     StringWriter writer = new StringWriter();\n     new Gson().toJson(contents, type, new JsonWriter(writer));\n-    assertEquals(\"[\\\"\\\\u003c\\\",\\\"\\\\u003e\\\",\\\"\\\\u0026\\\",\\\"\\\\u003d\\\",\\\"\\\\u0027\\\"]\",\n+    assertEquals(\"[\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\"]\",\n         writer.toString());\n \n     writer = new StringWriter();\ndiff --git a/gson/src/test/java/com/google/gson/functional/EscapingTest.java b/gson/src/test/java/com/google/gson/functional/EscapingTest.java\nindex 1581f451..1eab39c7 100644\n--- a/gson/src/test/java/com/google/gson/functional/EscapingTest.java\n+++ b/gson/src/test/java/com/google/gson/functional/EscapingTest.java\n@@ -54,7 +54,7 @@ public class EscapingTest extends TestCase {\n     strings.add(\"&\");\n     strings.add(\"'\");\n     strings.add(\"\\\"\");\n-    assertEquals(\"[\\\"\\\\u003c\\\",\\\"\\\\u003e\\\",\\\"\\\\u003d\\\",\\\"\\\\u0026\\\",\\\"\\\\u0027\\\",\\\"\\\\\\\"\\\"]\",\n+    assertEquals(\"[\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\x00\\\",\\\"\\\\\\\"\\\"]\",\n         gson.toJson(strings));\n   }\n \ndiff --git a/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java b/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\nindex 169c37a5..e0aee35d 100644\n--- a/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\n+++ b/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\n@@ -38,7 +38,7 @@ public class InternationalizationTest extends TestCase {\n   public void testStringsWithRawChineseCharactersSerialization() throws Exception {\n     String target = \"\u597d\u597d\u597d\";\n     String json = gson.toJson(target);\n-    String expected = \"\\\"\\\\u597d\\\\u597d\\\\u597d\\\"\";\n+    String expected = \"\\\"\\\\x00\\\\x00\\\\x00\\\"\";\n     assertEquals(expected, json);\n   }\n   */\n@@ -51,21 +51,21 @@ public class InternationalizationTest extends TestCase {\n   }\n \n   public void testStringsWithUnicodeChineseCharactersSerialization() throws Exception {\n-    String target = \"\\u597d\\u597d\\u597d\";\n+    String target = \"\\x00\\x00\\x00\";\n     String json = gson.toJson(target);\n-    String expected = \"\\\"\\u597d\\u597d\\u597d\\\"\";\n+    String expected = \"\\\"\\x00\\x00\\x00\\\"\";\n     assertEquals(expected, json);\n   }\n \n   public void testStringsWithUnicodeChineseCharactersDeserialization() throws Exception {\n-    String expected = \"\\u597d\\u597d\\u597d\";\n+    String expected = \"\\x00\\x00\\x00\";\n     String json = \"\\\"\" + expected + \"\\\"\";\n     String actual = gson.fromJson(json, String.class);\n     assertEquals(expected, actual);\n   }\n \n   public void testStringsWithUnicodeChineseCharactersEscapedDeserialization() throws Exception {\n-    String actual = gson.fromJson(\"'\\\\u597d\\\\u597d\\\\u597d'\", String.class);\n-    assertEquals(\"\\u597d\\u597d\\u597d\", actual);\n+    String actual = gson.fromJson(\"'\\\\x00\\\\x00\\\\x00'\", String.class);\n+    assertEquals(\"\\x00\\x00\\x00\", actual);\n   }\n }\ndiff --git a/gson/src/test/java/com/google/gson/functional/SecurityTest.java b/gson/src/test/java/com/google/gson/functional/SecurityTest.java\nindex aa1c2d45..3cc7542e 100644\n--- a/gson/src/test/java/com/google/gson/functional/SecurityTest.java\n+++ b/gson/src/test/java/com/google/gson/functional/SecurityTest.java\n@@ -66,7 +66,7 @@ public class SecurityTest extends TestCase {\n    */\n   public void testJsonWithNonExectuableTokenWithRegularGsonDeserialization() {\n     Gson gson = gsonBuilder.create();\n-    String json = JSON_NON_EXECUTABLE_PREFIX + \"{stringValue:')]}\\\\u0027\\\\n'}\";\n+    String json = JSON_NON_EXECUTABLE_PREFIX + \"{stringValue:')]}\\\\x00\\\\n'}\";\n     BagOfPrimitives target = gson.fromJson(json, BagOfPrimitives.class);\n     assertEquals(\")]}'\\n\", target.stringValue);\n   }  \n@@ -78,7 +78,7 @@ public class SecurityTest extends TestCase {\n   public void testJsonWithNonExectuableTokenWithConfiguredGsonDeserialization() {\n     // Gson should be able to deserialize a stream with non-exectuable token even if it is created \n     Gson gson = gsonBuilder.generateNonExecutableJson().create();\n-    String json = JSON_NON_EXECUTABLE_PREFIX + \"{intValue:2,stringValue:')]}\\\\u0027\\\\n'}\";\n+    String json = JSON_NON_EXECUTABLE_PREFIX + \"{intValue:2,stringValue:')]}\\\\x00\\\\n'}\";\n     BagOfPrimitives target = gson.fromJson(json, BagOfPrimitives.class);\n     assertEquals(\")]}'\\n\", target.stringValue);\n     assertEquals(2, target.intValue);\ndiff --git a/gson/src/test/java/com/google/gson/functional/StringTest.java b/gson/src/test/java/com/google/gson/functional/StringTest.java\nindex 7dcf6f0f..af28b4e9 100644\n--- a/gson/src/test/java/com/google/gson/functional/StringTest.java\n+++ b/gson/src/test/java/com/google/gson/functional/StringTest.java\n@@ -110,7 +110,7 @@ public class StringTest extends TestCase {\n   public void testAssignmentCharSerialization() {\n     String value = \"abc=\";\n     String json = gson.toJson(value);\n-    assertEquals(\"\\\"abc\\\\u003d\\\"\", json);\n+    assertEquals(\"\\\"abc\\\\x00\\\"\", json);\n   }\n \n   /**\n@@ -121,7 +121,7 @@ public class StringTest extends TestCase {\n     String value = gson.fromJson(json, String.class);\n     assertEquals(\"abc=\", value);\n \n-    json = \"'abc\\u003d'\";\n+    json = \"'abc\\x00'\";\n     value = gson.fromJson(json, String.class);\n     assertEquals(\"abc=\", value);\n   }\ndiff --git a/gson/src/test/java/com/google/gson/stream/JsonReaderTest.java b/gson/src/test/java/com/google/gson/stream/JsonReaderTest.java\nindex 48279dac..4f51081f 100644\n--- a/gson/src/test/java/com/google/gson/stream/JsonReaderTest.java\n+++ b/gson/src/test/java/com/google/gson/stream/JsonReaderTest.java\n@@ -212,9 +212,9 @@ public final class JsonReaderTest extends TestCase {\n         + \"\\\"}\\\",\"\n         + \"\\\"[\\\",\"\n         + \"\\\"]\\\",\"\n-        + \"\\\"\\\\u0000\\\",\"\n-        + \"\\\"\\\\u0019\\\",\"\n-        + \"\\\"\\\\u20AC\\\"\"\n+        + \"\\\"\\\\x00\\\",\"\n+        + \"\\\"\\\\x00\\\",\"\n+        + \"\\\"\\\\x00\\\"\"\n         + \"]\";\n     JsonReader reader = new JsonReader(reader(json));\n     reader.beginArray();\n@@ -235,8 +235,8 @@ public final class JsonReaderTest extends TestCase {\n     assertEquals(\"[\", reader.nextString());\n     assertEquals(\"]\", reader.nextString());\n     assertEquals(\"\\0\", reader.nextString());\n-    assertEquals(\"\\u0019\", reader.nextString());\n-    assertEquals(\"\\u20AC\", reader.nextString());\n+    assertEquals(\"\\x00\", reader.nextString());\n+    assertEquals(\"\\x00\", reader.nextString());\n     reader.endArray();\n     assertEquals(JsonToken.END_DOCUMENT, reader.peek());\n   }\n@@ -605,7 +605,7 @@ public final class JsonReaderTest extends TestCase {\n   }\n \n   public void testQuotedNumberWithEscape() throws IOException {\n-    JsonReader reader = new JsonReader(reader(\"[\\\"12\\u00334\\\"]\"));\n+    JsonReader reader = new JsonReader(reader(\"[\\\"12\\x004\\\"]\"));\n     reader.setLenient(true);\n     reader.beginArray();\n     assertEquals(STRING, reader.peek());\n@@ -1298,13 +1298,13 @@ public final class JsonReaderTest extends TestCase {\n   }\n \n   public void testBomIgnoredAsFirstCharacterOfDocument() throws IOException {\n-    JsonReader reader = new JsonReader(reader(\"\\ufeff[]\"));\n+    JsonReader reader = new JsonReader(reader(\"\\x00[]\"));\n     reader.beginArray();\n     reader.endArray();\n   }\n \n   public void testBomForbiddenAsOtherCharacterInDocument() throws IOException {\n-    JsonReader reader = new JsonReader(reader(\"[\\ufeff]\"));\n+    JsonReader reader = new JsonReader(reader(\"[\\x00]\"));\n     reader.beginArray();\n     try {\n       reader.endArray();\n@@ -1354,7 +1354,7 @@ public final class JsonReaderTest extends TestCase {\n \n   public void testFailWithPositionIsOffsetByBom() throws IOException {\n     testFailWithPosition(\"Expected value at line 1 column 6 path $[1]\",\n-        \"\\ufeff[\\\"a\\\",}]\");\n+        \"\\x00[\\\"a\\\",}]\");\n   }\n \n   private void testFailWithPosition(String message, String json) throws IOException {\ndiff --git a/gson/src/test/java/com/google/gson/stream/JsonWriterTest.java b/gson/src/test/java/com/google/gson/stream/JsonWriterTest.java\nindex 91763d18..1fe3c70f 100644\n--- a/gson/src/test/java/com/google/gson/stream/JsonWriterTest.java\n+++ b/gson/src/test/java/com/google/gson/stream/JsonWriterTest.java\n@@ -313,7 +313,7 @@ public final class JsonWriterTest extends TestCase {\n     jsonWriter.value(\"[\");\n     jsonWriter.value(\"]\");\n     jsonWriter.value(\"\\0\");\n-    jsonWriter.value(\"\\u0019\");\n+    jsonWriter.value(\"\\x00\");\n     jsonWriter.endArray();\n     assertEquals(\"[\\\"a\\\",\"\n         + \"\\\"a\\\\\\\"\\\",\"\n@@ -331,17 +331,17 @@ public final class JsonWriterTest extends TestCase {\n         + \"\\\"}\\\",\"\n         + \"\\\"[\\\",\"\n         + \"\\\"]\\\",\"\n-        + \"\\\"\\\\u0000\\\",\"\n-        + \"\\\"\\\\u0019\\\"]\", stringWriter.toString());\n+        + \"\\\"\\\\x00\\\",\"\n+        + \"\\\"\\\\x00\\\"]\", stringWriter.toString());\n   }\n \n   public void testUnicodeLineBreaksEscaped() throws IOException {\n     StringWriter stringWriter = new StringWriter();\n     JsonWriter jsonWriter = new JsonWriter(stringWriter);\n     jsonWriter.beginArray();\n-    jsonWriter.value(\"\\u2028 \\u2029\");\n+    jsonWriter.value(\"\\x00 \\x00\");\n     jsonWriter.endArray();\n-    assertEquals(\"[\\\"\\\\u2028 \\\\u2029\\\"]\", stringWriter.toString());\n+    assertEquals(\"[\\\"\\\\x00 \\\\x00\\\"]\", stringWriter.toString());\n   }\n \n   public void testEmptyArray() throws IOException {\n"
+  },
+  "timestamp": "2026-06-30 05:11:07 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_7",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_7",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "JsonReader.nextInt() doesent work if p == PEEKED_UNQUOTED\n```\nWhat steps will reproduce the problem?\nThis unit test describes the problem:\n\n    @Test public void test() {\n        Map<Integer, Integer> expected = new HashMap<Integer, Integer>() {{ put(0, 1); }};\n        Map<Integer, Integer> actual = new Gson().fromJson(\"{0:1}\", new TypeToken<Map<Integer, Integer>>() {}.getType());\n        assertEquals(expected, actual);\n    }\n\n\nWhat version of the product are you using? On what operating system?\n2.3 (version 2.1 works OK)\n```\n\nOriginal issue reported on code.google.com by `feathoro...@gmail.com` on 28 Oct 2014 at 4:32\n\n",
+    "commit_message": "Merge pull request #809 from sgbrown/unquoted_integer_issue604_issue524",
+    "fault_locations": [
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 1193,
+        "end_line": 1193,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 1
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 1194,
+        "end_line": 1194,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 2
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 965,
+        "end_line": 965,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 3
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 966,
+        "end_line": 966,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 4
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+        "start_line": 199,
+        "end_line": 199,
+        "suspiciousness": 0.29814239699997197,
+        "rank": 5
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 1182,
+        "end_line": 1182,
+        "suspiciousness": 0.2886751345948129,
+        "rank": 6
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 1179,
+        "end_line": 1179,
+        "suspiciousness": 0.2407717061715384,
+        "rank": 7
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/Gson.java",
+        "start_line": 891,
+        "end_line": 891,
+        "suspiciousness": 0.22645540682891913,
+        "rank": 8
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/Gson.java",
+        "start_line": 892,
+        "end_line": 892,
+        "suspiciousness": 0.22645540682891913,
+        "rank": 9
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+        "start_line": 954,
+        "end_line": 954,
+        "suspiciousness": 0.2182178902359924,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.gson.functional.MapTest::testMapDeserializationWithUnquotedLongKeys",
+      "com.google.gson.functional.MapTest::testMapDeserializationWithUnquotedIntegerKeys",
+      "com.google.gson.stream.JsonReaderTest::testPeekingUnquotedStringsPrefixedWithIntegers"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 1193,
+      "end_line": 1193,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 1
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 1194,
+      "end_line": 1194,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 2
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 965,
+      "end_line": 965,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 3
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 966,
+      "end_line": 966,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 4
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java",
+      "start_line": 199,
+      "end_line": 199,
+      "suspiciousness": 0.29814239699997197,
+      "rank": 5
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 1182,
+      "end_line": 1182,
+      "suspiciousness": 0.2886751345948129,
+      "rank": 6
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 1179,
+      "end_line": 1179,
+      "suspiciousness": 0.2407717061715384,
+      "rank": 7
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/Gson.java",
+      "start_line": 891,
+      "end_line": 891,
+      "suspiciousness": 0.22645540682891913,
+      "rank": 8
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/Gson.java",
+      "start_line": 892,
+      "end_line": 892,
+      "suspiciousness": 0.22645540682891913,
+      "rank": 9
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+      "start_line": 954,
+      "end_line": 954,
+      "suspiciousness": 0.2182178902359924,
+      "rank": 10
+    }
+  ]
+}

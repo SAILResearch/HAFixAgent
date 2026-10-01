@@ -1,0 +1,160 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_41",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 23:15:32",
+      "end_time": "2026-03-23 23:40:29",
+      "duration_seconds": 1496,
+      "duration_human": "24m 56s"
+    },
+    "model_cost": 0.0796,
+    "model_calls": 41,
+    "token_usage": {
+      "input_tokens": 571921,
+      "output_tokens": 58687,
+      "total_tokens": 630608,
+      "cached_input_tokens": 366080,
+      "uncached_input_tokens": 205841
+    },
+    "agent_steps": 41,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/utils/data_utils.py b/keras/utils/data_utils.py\nindex ce1a60acd..4dd2b9566 100644\n--- a/keras/utils/data_utils.py\n+++ b/keras/utils/data_utils.py\n@@ -636,18 +636,24 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n                         time.sleep(self.wait_time)\n                 except StopIteration:\n                     break\n-                except Exception:\n+                except Exception as e:\n                     self._stop_event.set()\n+                    if not self._use_multiprocessing:\n+                        import threading\n+                        threading.current_thread().exception = e\n+                    else:\n+                        if hasattr(self, '_exception_queue'):\n+                            self._exception_queue.put(e)\n                     raise\n-\n         try:\n             if self._use_multiprocessing:\n                 self.queue = multiprocessing.Queue(maxsize=max_queue_size)\n+                self._exception_queue = multiprocessing.Queue()\n                 self._stop_event = multiprocessing.Event()\n             else:\n                 self.queue = queue.Queue()\n                 self._stop_event = threading.Event()\n-\n+                self._exception_queue = None\n             for _ in range(workers):\n                 if self._use_multiprocessing:\n                     # Reset random seed else all children processes\n@@ -697,7 +703,7 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n     def get(self):\n         \"\"\"Creates a generator to extract data from the queue.\n \n-        Skip the data if it is `None`.\n+        Skip the data if it is .\n \n         # Returns\n             A generator\n@@ -710,6 +716,22 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n             else:\n                 all_finished = all([not thread.is_alive() for thread in self._threads])\n                 if all_finished and self.queue.empty():\n-                    raise StopIteration()\n+                    # No more data and all threads finished, break the loop\n+                    break\n                 else:\n                     time.sleep(self.wait_time)\n+\n+        # We are out of the while loop, either because stop event is set or because all threads finished and queue is empty.\n+        # Check for exceptions in threads or processes.\n+        if not self._use_multiprocessing:\n+            for thread in self._threads:\n+                if hasattr(thread, 'exception'):\n+                    raise thread.exception\n+        else:\n+            if hasattr(self, '_exception_queue') and self._exception_queue is not None:\n+                while not self._exception_queue.empty():\n+                    e = self._exception_queue.get()\n+                    raise e\n+\n+        # If no exception was raised, then we raise StopIteration\n+        raise StopIteration()\n\\ No newline at end of file\ndiff --git a/tests/keras/utils/data_utils_test.py b/tests/keras/utils/data_utils_test.py\nindex 753330e41..f83ea6ec7 100644\n--- a/tests/keras/utils/data_utils_test.py\n+++ b/tests/keras/utils/data_utils_test.py\n@@ -182,7 +182,7 @@ def test_generator_enqueuer_fail_threads():\n         FaultSequence()), use_multiprocessing=False)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \n@@ -191,7 +191,7 @@ def test_generator_enqueuer_fail_processes():\n         FaultSequence()), use_multiprocessing=True)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \n"
+  },
+  "timestamp": "2026-03-23 19:40:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_41",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_41/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Rethrow original exception in GeneratorEnqueuer. (#8485)",
+    "fault_locations": [
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 556,
+        "end_line": 556,
+        "function_name": "get",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 634,
+        "end_line": 634,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 639,
+        "end_line": 639,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 641,
+        "end_line": 641,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 645,
+        "end_line": 645,
+        "function_name": "start",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 689,
+        "end_line": 691,
+        "function_name": "stop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 707,
+        "end_line": 709,
+        "function_name": "get",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 235,
+        "end_line": 235,
+        "function_name": "custom_generator",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 244,
+        "end_line": 244,
+        "function_name": "test_multiprocessing_fit_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 250,
+        "end_line": 250,
+        "function_name": "test_multiprocessing_fit_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 266,
+        "end_line": 266,
+        "function_name": "custom_generator",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 273,
+        "end_line": 273,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 275,
+        "end_line": 276,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 279,
+        "end_line": 279,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 302,
+        "end_line": 302,
+        "function_name": "test_multiprocessing_predict_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 308,
+        "end_line": 308,
+        "function_name": "test_multiprocessing_predict_error",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/utils/data_utils_test.py::test_generator_enqueuer_fail_threads"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

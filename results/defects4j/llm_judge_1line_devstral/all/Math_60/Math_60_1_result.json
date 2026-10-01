@@ -1,0 +1,83 @@
+{
+  "project_name": "Math",
+  "bug_id": "60",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 17:20:25",
+      "end_time": "2026-06-26 17:24:35",
+      "duration_seconds": 250,
+      "duration_human": "4m 10s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1499632,
+      "output_tokens": 5809,
+      "total_tokens": 1505441,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1499632
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 17:24:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_60",
+    "repo_path": "/defects4j/framework/bin/temp/Math_60",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "ConvergenceException in NormalDistributionImpl.cumulativeProbability()\nI get a ConvergenceException in  NormalDistributionImpl.cumulativeProbability() for very large/small parameters including Infinity, -Infinity.\nFor instance in the following code:\n\n\t@Test\n\tpublic void testCumulative() {\n\t\tfinal NormalDistribution nd = new NormalDistributionImpl();\n\t\tfor (int i = 0; i < 500; i++) {\n\t\t\tfinal double val = Math.exp(i);\n\t\t\ttry {\n\t\t\t\tSystem.out.println(\"val = \" + val + \" cumulative = \" + nd.cumulativeProbability(val));\n\t\t\t} catch (MathException e) {\n\t\t\t\te.printStackTrace();\n\t\t\t\tfail();\n\t\t\t}\n\t\t}\n\t}\n\nIn version 2.0, I get no exception. \n\nMy suggestion is to change in the implementation of cumulativeProbability(double) to catch all ConvergenceException (and return for very large and very small values), not just MaxIterationsExceededException.\n",
+    "commit_message": "Modified NormalDistributionImpl.cumulativeProbability to return 0 or 1, respectively for values more than 40 standard deviations from the mean. For these values, the actual probability is indistinguishable from 0 or 1 as a double.  Top coding improves performance for extreme values and prevents convergence exceptions.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java",
+        "start_line": 126,
+        "end_line": 126,
+        "line_numbers": [
+          126
+        ],
+        "function_name": "cumulativeProbability",
+        "class_name": "NormalDistributionImpl",
+        "filename": "NormalDistributionImpl.java",
+        "code_snippet": "    public double cumulativeProbability(double x) throws MathException {\n        final double dev = x - mean;\n        try {\n        return 0.5 * (1.0 + Erf.erf((dev) /\n                    (standardDeviation * FastMath.sqrt(2.0))));\n        } catch (MaxIterationsExceededException ex) {\n            if (x < (mean - 20 * standardDeviation)) { // JDK 1.5 blows at 38\n                return 0;\n            } else if (x > (mean + 20 * standardDeviation)) {\n                return 1;\n            } else {\n                throw ex;\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java",
+        "start_line": 129,
+        "end_line": 137,
+        "line_numbers": [
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137
+        ],
+        "function_name": "cumulativeProbability",
+        "class_name": "NormalDistributionImpl",
+        "filename": "NormalDistributionImpl.java",
+        "code_snippet": "    public double cumulativeProbability(double x) throws MathException {\n        final double dev = x - mean;\n        try {\n        return 0.5 * (1.0 + Erf.erf((dev) /\n                    (standardDeviation * FastMath.sqrt(2.0))));\n        } catch (MaxIterationsExceededException ex) {\n            if (x < (mean - 20 * standardDeviation)) { // JDK 1.5 blows at 38\n                return 0;\n            } else if (x > (mean + 20 * standardDeviation)) {\n                return 1;\n            } else {\n                throw ex;\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.distribution.NormalDistributionTest::testExtremeValues"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java b/src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java\nindex 0d7ce7d..0e124d8 100644\n--- a/src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java\n+++ b/src/main/java/org/apache/commons/math/distribution/NormalDistributionImpl.java\n@@ -123,11 +123,18 @@ public class NormalDistributionImpl extends AbstractContinuousDistribution\n      */\n     public double cumulativeProbability(double x) throws MathException {\n         final double dev = x - mean;\n+        if (FastMath.abs(dev) > 40 * standardDeviation) { \n+            return dev < 0 ? 0.0d : 1.0d;\n+        }\n-        try {\n         return 0.5 * (1.0 + Erf.erf((dev) /\n                     (standardDeviation * FastMath.sqrt(2.0))));\n-        } catch (MaxIterationsExceededException ex) {\n-            if (x < (mean - 20 * standardDeviation)) { // JDK 1.5 blows at 38\n-                return 0;\n-            } else if (x > (mean + 20 * standardDeviation)) {\n-                return 1;\n-            } else {\n-                throw ex;\n-            }\n-        }\n     }\n \n     /**",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

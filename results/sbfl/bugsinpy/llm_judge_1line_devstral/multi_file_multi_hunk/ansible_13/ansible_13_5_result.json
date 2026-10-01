@@ -1,0 +1,193 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_13",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 17:26:02",
+      "end_time": "2026-06-30 17:28:39",
+      "duration_seconds": 157,
+      "duration_human": "2m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 646865,
+      "output_tokens": 4851,
+      "total_tokens": 651716,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 646865
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py\nindex 487f21d0db..00ef80f840 100644\n--- a/lib/ansible/cli/galaxy.py\n+++ b/lib/ansible/cli/galaxy.py\n@@ -805,9 +805,14 @@ class GalaxyCLI(CLI):\n             else:\n                 requirements = []\n                 for collection_input in collections:\n-                    name, dummy, requirement = collection_input.partition(':')\n-                    requirements.append((name, requirement or '*', None))\n-\n+                    # Check if this looks like a URL (starts with http://, https://, etc.)\n+                    # If so, don't split on : as it's part of the URL scheme\n+                    if collection_input.startswith(\"http://\") or collection_input.startswith(\"https://\") or collection_input.startswith(\"ftp://\") or collection_input.startswith(\"file://\"):\n+                    print(f\"DEBUG: Processing collection_input: {repr(collection_input)}\")\n+                        requirements.append((collection_input, \"*\", None))\n+                    else:\n+                        name, dummy, requirement = collection_input.partition(\":\")\n+                        requirements.append((name, requirement or \"*\", None))\n             output_path = GalaxyCLI._resolve_path(output_path)\n             collections_path = C.COLLECTIONS_PATHS\n \ndiff --git a/test/units/cli/test_galaxy.py b/test/units/cli/test_galaxy.py\nindex bc6628d2b3..f34aec24c6 100644\n--- a/test/units/cli/test_galaxy.py\n+++ b/test/units/cli/test_galaxy.py\n@@ -493,7 +493,7 @@ def collection_skeleton(request, tmp_path_factory):\n     if skeleton_path is not None:\n         galaxy_args += ['--collection-skeleton', skeleton_path]\n \n-    test_dir = to_text(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections'))\n+    test_dir = to_text(tmp_path_factory.mktemp('test-ANSIbLE Collections'))\n     galaxy_args += ['--init-path', test_dir, name]\n \n     GalaxyCLI(args=galaxy_args).run()\n@@ -577,7 +577,7 @@ def test_collection_skeleton(collection_skeleton):\n @pytest.fixture()\n def collection_artifact(collection_skeleton, tmp_path_factory):\n     ''' Creates a collection artifact tarball that is ready to be published and installed '''\n-    output_dir = to_text(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Output'))\n+    output_dir = to_text(tmp_path_factory.mktemp('test-ANSIbLE Output'))\n \n     # Because we call GalaxyCLI in collection_skeleton we need to reset the singleton back to None so it uses the new\n     # args, we reset the original args once it is done.\n@@ -626,7 +626,7 @@ def test_invalid_collection_name_init(name):\n     (\"ns.collection.weird\", \"ns.collection.weird\"),\n ])\n def test_invalid_collection_name_install(name, expected, tmp_path_factory):\n-    install_path = to_text(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections'))\n+    install_path = to_text(tmp_path_factory.mktemp('test-ANSIbLE Collections'))\n     expected = \"Invalid collection name '%s', name must be in the format <namespace>.<collection>\" % expected\n \n     gc = GalaxyCLI(args=['ansible-galaxy', 'collection', 'install', name, '-p', os.path.join(install_path, 'install')])\n@@ -734,7 +734,7 @@ def collection_install(reset_cli_args, tmp_path_factory, monkeypatch):\n     mock_warning = MagicMock()\n     monkeypatch.setattr(ansible.utils.display.Display, 'warning', mock_warning)\n \n-    output_dir = to_text((tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Output')))\n+    output_dir = to_text((tmp_path_factory.mktemp('test-ANSIbLE Output')))\n     yield mock_install, mock_warning, output_dir\n \n \n@@ -890,6 +890,29 @@ def test_collection_install_in_collection_dir(collection_install, monkeypatch):\n     assert mock_install.call_args[0][7] is False\n \n \n+def test_collection_install_with_url(collection_install):\n+    mock_install, dummy, output_dir = collection_install\n+\n+    galaxy_args = ['ansible-galaxy', 'collection', 'install', 'https://foo/bar/foo-bar-v1.0.0.tar.gz',\n+                   '--collections-path', output_dir]\n+    GalaxyCLI(args=galaxy_args).run()\n+\n+    collection_path = os.path.join(output_dir, 'ansible_collections')\n+    assert os.path.isdir(collection_path)\n+\n+    assert mock_install.call_count == 1\n+    assert mock_install.call_args[0][0] == [('https://foo/bar/foo-bar-v1.0.0.tar.gz', '*', None)]\n+    assert mock_install.call_args[0][1] == collection_path\n+    assert len(mock_install.call_args[0][2]) == 1\n+    assert mock_install.call_args[0][2][0].api_server == 'https://galaxy.ansible.com'\n+    assert mock_install.call_args[0][2][0].validate_certs is True\n+    assert mock_install.call_args[0][3] is True\n+    assert mock_install.call_args[0][4] is False\n+    assert mock_install.call_args[0][5] is False\n+    assert mock_install.call_args[0][6] is False\n+    assert mock_install.call_args[0][7] is False\n+\n+\n def test_collection_install_name_and_requirements_fail(collection_install):\n     test_path = collection_install[2]\n     expected = 'The positional collection_name arg and --requirements-file are mutually exclusive.'\n@@ -1002,7 +1025,7 @@ def test_collection_install_custom_server(collection_install):\n def requirements_file(request, tmp_path_factory):\n     content = request.param\n \n-    test_dir = to_text(tmp_path_factory.mktemp('test-\u00c5\u00d1\u015a\u00cc\u03b2\u0141\u00c8 Collections Requirements'))\n+    test_dir = to_text(tmp_path_factory.mktemp('test-ANSIbLE Collections Requirements'))\n     requirements_file = os.path.join(test_dir, 'requirements.yml')\n \n     if content:\n"
+  },
+  "timestamp": "2026-06-30 17:28:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_13",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_13/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "Fix using a URL for galaxy collection install (#65272)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/utils/context_objects.py",
+        "start_line": 44,
+        "end_line": 44,
+        "suspiciousness": 0.414195,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/utils/context_objects.py",
+        "start_line": 45,
+        "end_line": 45,
+        "suspiciousness": 0.414195,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/utils/context_objects.py",
+        "start_line": 42,
+        "end_line": 42,
+        "suspiciousness": 0.40425,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/utils/context_objects.py",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.40425,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/utils/context_objects.py",
+        "start_line": 48,
+        "end_line": 48,
+        "suspiciousness": 0.40425,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/cli/galaxy.py",
+        "start_line": 364,
+        "end_line": 364,
+        "suspiciousness": 0.363442,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/cli/galaxy.py",
+        "start_line": 368,
+        "end_line": 368,
+        "suspiciousness": 0.363442,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/galaxy/__init__.py",
+        "start_line": 60,
+        "end_line": 60,
+        "suspiciousness": 0.363442,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/cli/__init__.py",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.35667,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/cli/__init__.py",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 0.35667,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/cli/test_galaxy.py::test_collection_install_with_url"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/utils/context_objects.py",
+      "start_line": 44,
+      "end_line": 44,
+      "suspiciousness": 0.414195,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/utils/context_objects.py",
+      "start_line": 45,
+      "end_line": 45,
+      "suspiciousness": 0.414195,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/utils/context_objects.py",
+      "start_line": 42,
+      "end_line": 42,
+      "suspiciousness": 0.40425,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/utils/context_objects.py",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.40425,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/utils/context_objects.py",
+      "start_line": 48,
+      "end_line": 48,
+      "suspiciousness": 0.40425,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/cli/galaxy.py",
+      "start_line": 364,
+      "end_line": 364,
+      "suspiciousness": 0.363442,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/cli/galaxy.py",
+      "start_line": 368,
+      "end_line": 368,
+      "suspiciousness": 0.363442,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/galaxy/__init__.py",
+      "start_line": 60,
+      "end_line": 60,
+      "suspiciousness": 0.363442,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/cli/__init__.py",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.35667,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/cli/__init__.py",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 0.35667,
+      "rank": 10
+    }
+  ]
+}

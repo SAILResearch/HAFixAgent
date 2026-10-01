@@ -1,0 +1,324 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "68",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 19:46:58",
+      "end_time": "2025-09-30 19:53:24",
+      "duration_seconds": 386,
+      "duration_human": "6m 26s"
+    },
+    "model_cost": 0.0543,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 681986,
+      "output_tokens": 6750,
+      "total_tokens": 688736,
+      "cached_input_tokens": 664448,
+      "uncached_input_tokens": 17538
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\nindex ac95adca7..02df34316 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\n@@ -1362,7 +1362,7 @@ public abstract class BeanDeserializerBase\n             if (t == JsonToken.END_ARRAY && ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n                 return null;\n             }\n-            final Object value = deserialize(p, ctxt);\n+            final Object value = _beanType.isCollectionLikeType() && ctxt.isEnabled(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY) && p.getCurrentToken() == JsonToken.START_OBJECT ? ctxt.findContextualValueDeserializer(_beanType, null).unwrapAndDeserialize(p, ctxt) : deserialize(p, ctxt);\n             if (p.nextToken() != JsonToken.END_ARRAY) {\n                 handleMissingEndArrayForSingle(p, ctxt);\n             }\n"
+  },
+  "timestamp": "2025-09-30 19:53:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_68",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_68",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "ACCEPT_SINGLE_VALUE_AS_ARRAY partially broken in 2.7.x, 2.8.x\nIn 2.7.x, 2.8.x versions following test fails with an exception:\r\n\r\n```\r\npublic class Test {\r\n    private static final String JSON = \"[{\\\"message\\\":\\\"messageHere\\\"}]\";\r\n\r\n    static class A {\r\n        List<B> bs = Collections.emptyList();\r\n\r\n        @JsonCreator\r\n        A(final List<B> bs) {\r\n            this.bs = bs;\r\n        }\r\n    }\r\n\r\n    static class B {\r\n        List<C> cs = Collections.emptyList();\r\n\r\n        @JsonCreator\r\n        B(final List<C> cs) {\r\n            this.cs = cs;\r\n        }\r\n    }\r\n\r\n    public static class C {\r\n        String message;\r\n\r\n        @JsonCreator\r\n        C(@JsonProperty(\"message\") String message) {\r\n            this.message = message;\r\n        }\r\n    }\r\n\r\n    @Test\r\n    public void test() throws IOException {\r\n        ObjectMapper om = new ObjectMapper();\r\n        om.configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true);\r\n        om.readValue(JSON, A.class);\r\n    }\r\n}\r\n\r\n\r\ncom.fasterxml.jackson.databind.exc.InputMismatchException: Can not construct instance of com.fasterxml.jackson.databind.creators.JsonCreatorWithCollectionTest$B, problem: no suitable constructor found, can not deserialize from Object value (missing default constructor or creator, or perhaps need to add/enable type information?)\r\n at [Source: [{\"message\":\"site is missing from bid request (breq) object\"}]; line: 1, column: 3] (through reference chain: java.util.ArrayList[0])\r\n\r\n    at com.fasterxml.jackson.databind.exc.InputMismatchException.from(InputMismatchException.java:58)\r\n    at com.fasterxml.jackson.databind.DeserializationContext.reportInputMismatch(DeserializationContext.java:1354)\r\n    at com.fasterxml.jackson.databind.DeserializationContext.handleMissingInstantiator(DeserializationContext.java:1019)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromObjectUsingNonDefault(BeanDeserializerBase.java:1207)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserializeFromObject(BeanDeserializer.java:314)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:148)\r\n    at com.fasterxml.jackson.databind.deser.std.CollectionDeserializer.deserialize(CollectionDeserializer.java:289)\r\n    at com.fasterxml.jackson.databind.deser.std.CollectionDeserializer.deserialize(CollectionDeserializer.java:261)\r\n    at com.fasterxml.jackson.databind.deser.std.CollectionDeserializer.deserialize(CollectionDeserializer.java:26)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromArray(BeanDeserializerBase.java:1336)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer._deserializeOther(BeanDeserializer.java:174)\r\n    at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:150)\r\n    at com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3806)\r\n    at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:2849)\r\n    at com.fasterxml.jackson.databind.creators.JsonCreatorWithCollectionTest.test(JsonCreatorWithCollectionTest.java:51)\r\n```\r\n\r\nWhile on 2.5 and 2.6 it works fine.\r\n\n",
+    "commit_message": "Fix #1421",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1192,
+        "end_line": 1192,
+        "line_numbers": [
+          1192
+        ],
+        "function_name": "deserializeFromObjectUsingNonDefault",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected Object deserializeFromObjectUsingNonDefault(JsonParser p,\n            DeserializationContext ctxt) throws IOException\n    {\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        if (_propertyBasedCreator != null) {\n            return _deserializeUsingPropertyBased(p, ctxt);\n        }\n        // should only occur for abstract types...\n        if (_beanType.isAbstract()) {\n            return ctxt.handleMissingInstantiator(handledType(), p,\n                    \"abstract type (need to add/enable type information?)\");\n        }\n        return ctxt.handleMissingInstantiator(_beanType.getRawClass(), p,\n                \"no suitable constructor found, can not deserialize from Object value (missing default constructor or creator, or perhaps need to add/enable type information?)\");\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1194,
+        "end_line": 1194,
+        "line_numbers": [
+          1194
+        ],
+        "function_name": "deserializeFromObjectUsingNonDefault",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected Object deserializeFromObjectUsingNonDefault(JsonParser p,\n            DeserializationContext ctxt) throws IOException\n    {\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        if (_propertyBasedCreator != null) {\n            return _deserializeUsingPropertyBased(p, ctxt);\n        }\n        // should only occur for abstract types...\n        if (_beanType.isAbstract()) {\n            return ctxt.handleMissingInstantiator(handledType(), p,\n                    \"abstract type (need to add/enable type information?)\");\n        }\n        return ctxt.handleMissingInstantiator(_beanType.getRawClass(), p,\n                \"no suitable constructor found, can not deserialize from Object value (missing default constructor or creator, or perhaps need to add/enable type information?)\");\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1222,
+        "end_line": 1222,
+        "line_numbers": [
+          1222
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1225,
+        "end_line": 1225,
+        "line_numbers": [
+          1225
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1235,
+        "end_line": 1235,
+        "line_numbers": [
+          1235
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1238,
+        "end_line": 1238,
+        "line_numbers": [
+          1238
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1248,
+        "end_line": 1248,
+        "line_numbers": [
+          1248
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1250,
+        "end_line": 1250,
+        "line_numbers": [
+          1250
+        ],
+        "function_name": "_deserializeUsingPropertyBased",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    protected abstract Object _deserializeUsingPropertyBased(final JsonParser p,\n            final DeserializationContext ctxt)\n        throws IOException, JsonProcessingException;\n\n    @SuppressWarnings(\"incomplete-switch\")\n    public Object deserializeFromNumber(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        switch (p.getNumberType()) {\n        case INT:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n        case LONG:\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromInt()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n        }\n        // actually, could also be BigInteger, so:\n        if (_delegateDeserializer != null) {\n            Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1270,
+        "end_line": 1270,
+        "line_numbers": [
+          1270
+        ],
+        "function_name": "deserializeFromString",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromString(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        /* Bit complicated if we have delegating creator; may need to use it,\n         * or might not...\n         */\n        if (_delegateDeserializer != null) {\n            if (!_valueInstantiator.canCreateFromString()) {\n                Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                        _delegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            }\n        }\n        return _valueInstantiator.createFromString(ctxt, p.getText());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1273,
+        "end_line": 1273,
+        "line_numbers": [
+          1273
+        ],
+        "function_name": "deserializeFromString",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromString(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // First things first: id Object Id is used, most likely that's it\n        if (_objectIdReader != null) {\n            return deserializeFromObjectId(p, ctxt);\n        }\n        /* Bit complicated if we have delegating creator; may need to use it,\n         * or might not...\n         */\n        if (_delegateDeserializer != null) {\n            if (!_valueInstantiator.canCreateFromString()) {\n                Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                        _delegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            }\n        }\n        return _valueInstantiator.createFromString(ctxt, p.getText());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1292,
+        "end_line": 1292,
+        "line_numbers": [
+          1292
+        ],
+        "function_name": "deserializeFromDouble",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromDouble(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        NumberType t = p.getNumberType();\n        // no separate methods for taking float...\n        if ((t == NumberType.DOUBLE) || (t == NumberType.FLOAT)) {\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromDouble()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromDouble(ctxt, p.getDoubleValue());\n        }\n        // actually, could also be BigDecimal, so:\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1295,
+        "end_line": 1295,
+        "line_numbers": [
+          1295
+        ],
+        "function_name": "deserializeFromDouble",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromDouble(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        NumberType t = p.getNumberType();\n        // no separate methods for taking float...\n        if ((t == NumberType.DOUBLE) || (t == NumberType.FLOAT)) {\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromDouble()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromDouble(ctxt, p.getDoubleValue());\n        }\n        // actually, could also be BigDecimal, so:\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1305,
+        "end_line": 1305,
+        "line_numbers": [
+          1305
+        ],
+        "function_name": "deserializeFromDouble",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromDouble(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        NumberType t = p.getNumberType();\n        // no separate methods for taking float...\n        if ((t == NumberType.DOUBLE) || (t == NumberType.FLOAT)) {\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromDouble()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromDouble(ctxt, p.getDoubleValue());\n        }\n        // actually, could also be BigDecimal, so:\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1307,
+        "end_line": 1307,
+        "line_numbers": [
+          1307
+        ],
+        "function_name": "deserializeFromDouble",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromDouble(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        NumberType t = p.getNumberType();\n        // no separate methods for taking float...\n        if ((t == NumberType.DOUBLE) || (t == NumberType.FLOAT)) {\n            if (_delegateDeserializer != null) {\n                if (!_valueInstantiator.canCreateFromDouble()) {\n                    Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                            _delegateDeserializer.deserialize(p, ctxt));\n                    if (_injectables != null) {\n                        injectValues(ctxt, bean);\n                    }\n                    return bean;\n                }\n            }\n            return _valueInstantiator.createFromDouble(ctxt, p.getDoubleValue());\n        }\n        // actually, could also be BigDecimal, so:\n        if (_delegateDeserializer != null) {\n            return _valueInstantiator.createUsingDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n        }\n        return ctxt.handleMissingInstantiator(handledType(), p,\n                \"no suitable creator method found to deserialize from Number value (%s)\",\n                p.getNumberValue());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1319,
+        "end_line": 1319,
+        "line_numbers": [
+          1319
+        ],
+        "function_name": "deserializeFromBoolean",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromBoolean(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        if (_delegateDeserializer != null) {\n            if (!_valueInstantiator.canCreateFromBoolean()) {\n                Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                        _delegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            }\n        }\n        boolean value = (p.getCurrentToken() == JsonToken.VALUE_TRUE);\n        return _valueInstantiator.createFromBoolean(ctxt, value);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1322,
+        "end_line": 1322,
+        "line_numbers": [
+          1322
+        ],
+        "function_name": "deserializeFromBoolean",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromBoolean(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        if (_delegateDeserializer != null) {\n            if (!_valueInstantiator.canCreateFromBoolean()) {\n                Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n                        _delegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            }\n        }\n        boolean value = (p.getCurrentToken() == JsonToken.VALUE_TRUE);\n        return _valueInstantiator.createFromBoolean(ctxt, value);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1336,
+        "end_line": 1346,
+        "line_numbers": [
+          1336,
+          1337,
+          1338,
+          1339,
+          1340,
+          1341,
+          1342,
+          1343,
+          1344,
+          1345,
+          1346
+        ],
+        "function_name": "deserializeFromArray",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromArray(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // note: can not call `_delegateDeserializer()` since order reversed here:\n        if (_arrayDelegateDeserializer != null) {\n            try {\n                Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt, _arrayDelegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            } catch (Exception e) {\n                return wrapInstantiationProblem(e, ctxt);\n            }\n        }\n        // fallback to non-array delegate\n        if (_delegateDeserializer != null) {\n            try {\n            Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n            } catch (Exception e) {\n                wrapInstantiationProblem(e, ctxt);\n                return null;\n            }\n        }\n        if (ctxt.isEnabled(DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY && ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n                return null;\n            }\n            final Object value = deserialize(p, ctxt);\n            if (p.nextToken() != JsonToken.END_ARRAY) {\n                handleMissingEndArrayForSingle(p, ctxt);\n            }\n            return value;\n        }\n        if (ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY) {\n                return null;\n            }\n            return ctxt.handleUnexpectedToken(handledType(),\n                    JsonToken.START_ARRAY, p, null);\n        }\n        return ctxt.handleUnexpectedToken(handledType(), p);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1348,
+        "end_line": 1349,
+        "line_numbers": [
+          1348,
+          1349
+        ],
+        "function_name": "deserializeFromArray",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromArray(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // note: can not call `_delegateDeserializer()` since order reversed here:\n        if (_arrayDelegateDeserializer != null) {\n            try {\n                Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt, _arrayDelegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            } catch (Exception e) {\n                return wrapInstantiationProblem(e, ctxt);\n            }\n        }\n        // fallback to non-array delegate\n        if (_delegateDeserializer != null) {\n            try {\n            Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n            } catch (Exception e) {\n                wrapInstantiationProblem(e, ctxt);\n                return null;\n            }\n        }\n        if (ctxt.isEnabled(DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY && ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n                return null;\n            }\n            final Object value = deserialize(p, ctxt);\n            if (p.nextToken() != JsonToken.END_ARRAY) {\n                handleMissingEndArrayForSingle(p, ctxt);\n            }\n            return value;\n        }\n        if (ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY) {\n                return null;\n            }\n            return ctxt.handleUnexpectedToken(handledType(),\n                    JsonToken.START_ARRAY, p, null);\n        }\n        return ctxt.handleUnexpectedToken(handledType(), p);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1351,
+        "end_line": 1351,
+        "line_numbers": [
+          1351
+        ],
+        "function_name": "deserializeFromArray",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromArray(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // note: can not call `_delegateDeserializer()` since order reversed here:\n        if (_arrayDelegateDeserializer != null) {\n            try {\n                Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt, _arrayDelegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            } catch (Exception e) {\n                return wrapInstantiationProblem(e, ctxt);\n            }\n        }\n        // fallback to non-array delegate\n        if (_delegateDeserializer != null) {\n            try {\n            Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n            } catch (Exception e) {\n                wrapInstantiationProblem(e, ctxt);\n                return null;\n            }\n        }\n        if (ctxt.isEnabled(DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY && ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n                return null;\n            }\n            final Object value = deserialize(p, ctxt);\n            if (p.nextToken() != JsonToken.END_ARRAY) {\n                handleMissingEndArrayForSingle(p, ctxt);\n            }\n            return value;\n        }\n        if (ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY) {\n                return null;\n            }\n            return ctxt.handleUnexpectedToken(handledType(),\n                    JsonToken.START_ARRAY, p, null);\n        }\n        return ctxt.handleUnexpectedToken(handledType(), p);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+        "start_line": 1356,
+        "end_line": 1359,
+        "line_numbers": [
+          1356,
+          1357,
+          1358,
+          1359
+        ],
+        "function_name": "deserializeFromArray",
+        "class_name": "BeanDeserializerBase",
+        "filename": "BeanDeserializerBase.java",
+        "code_snippet": "    public Object deserializeFromArray(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        // note: can not call `_delegateDeserializer()` since order reversed here:\n        if (_arrayDelegateDeserializer != null) {\n            try {\n                Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt, _arrayDelegateDeserializer.deserialize(p, ctxt));\n                if (_injectables != null) {\n                    injectValues(ctxt, bean);\n                }\n                return bean;\n            } catch (Exception e) {\n                return wrapInstantiationProblem(e, ctxt);\n            }\n        }\n        // fallback to non-array delegate\n        if (_delegateDeserializer != null) {\n            try {\n            Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt,\n                    _delegateDeserializer.deserialize(p, ctxt));\n            if (_injectables != null) {\n                injectValues(ctxt, bean);\n            }\n            return bean;\n            } catch (Exception e) {\n                wrapInstantiationProblem(e, ctxt);\n                return null;\n            }\n        }\n        if (ctxt.isEnabled(DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY && ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n                return null;\n            }\n            final Object value = deserialize(p, ctxt);\n            if (p.nextToken() != JsonToken.END_ARRAY) {\n                handleMissingEndArrayForSingle(p, ctxt);\n            }\n            return value;\n        }\n        if (ctxt.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)) {\n            JsonToken t = p.nextToken();\n            if (t == JsonToken.END_ARRAY) {\n                return null;\n            }\n            return ctxt.handleUnexpectedToken(handledType(),\n                    JsonToken.START_ARRAY, p, null);\n        }\n        return ctxt.handleUnexpectedToken(handledType(), p);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.struct.SingleValueAsArrayTest::testSuccessfulDeserializationOfObjectWithChainedArrayCreators",
+      "com.fasterxml.jackson.databind.struct.SingleValueAsArrayTest::testWithSingleString"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\nindex 3c686044f..0b36b0b04 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java\n@@ -1189,10 +1189,9 @@ public abstract class BeanDeserializerBase\n     protected Object deserializeFromObjectUsingNonDefault(JsonParser p,\n             DeserializationContext ctxt) throws IOException\n     {\n+        final JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n+        if (delegateDeser != null) {\n-        if (_delegateDeserializer != null) {\n             return _valueInstantiator.createUsingDelegate(ctxt,\n+                    delegateDeser.deserialize(p, ctxt));\n-                    _delegateDeserializer.deserialize(p, ctxt));\n         }\n         if (_propertyBasedCreator != null) {\n             return _deserializeUsingPropertyBased(p, ctxt);\n@@ -1218,13 +1217,12 @@ public abstract class BeanDeserializerBase\n         if (_objectIdReader != null) {\n             return deserializeFromObjectId(p, ctxt);\n         }\n+        final JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n         switch (p.getNumberType()) {\n         case INT:\n+            if (delegateDeser != null) {\n-            if (_delegateDeserializer != null) {\n                 if (!_valueInstantiator.canCreateFromInt()) {\n                     Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                            delegateDeser.deserialize(p, ctxt));\n-                            _delegateDeserializer.deserialize(p, ctxt));\n                     if (_injectables != null) {\n                         injectValues(ctxt, bean);\n                     }\n@@ -1233,10 +1232,10 @@ public abstract class BeanDeserializerBase\n             }\n             return _valueInstantiator.createFromInt(ctxt, p.getIntValue());\n         case LONG:\n+            if (delegateDeser != null) {\n-            if (_delegateDeserializer != null) {\n                 if (!_valueInstantiator.canCreateFromInt()) {\n                     Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                            delegateDeser.deserialize(p, ctxt));\n-                            _delegateDeserializer.deserialize(p, ctxt));\n                     if (_injectables != null) {\n                         injectValues(ctxt, bean);\n                     }\n@@ -1246,9 +1245,9 @@ public abstract class BeanDeserializerBase\n             return _valueInstantiator.createFromLong(ctxt, p.getLongValue());\n         }\n         // actually, could also be BigInteger, so:\n+        if (delegateDeser != null) {\n-        if (_delegateDeserializer != null) {\n             Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                    delegateDeser.deserialize(p, ctxt));\n-                    _delegateDeserializer.deserialize(p, ctxt));\n             if (_injectables != null) {\n                 injectValues(ctxt, bean);\n             }\n@@ -1268,11 +1267,10 @@ public abstract class BeanDeserializerBase\n         /* Bit complicated if we have delegating creator; may need to use it,\n          * or might not...\n          */\n+        JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n+        if (delegateDeser != null) {\n-        if (_delegateDeserializer != null) {\n             if (!_valueInstantiator.canCreateFromString()) {\n                 Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                        delegateDeser.deserialize(p, ctxt));\n-                        _delegateDeserializer.deserialize(p, ctxt));\n                 if (_injectables != null) {\n                     injectValues(ctxt, bean);\n                 }\n@@ -1291,11 +1289,10 @@ public abstract class BeanDeserializerBase\n         NumberType t = p.getNumberType();\n         // no separate methods for taking float...\n         if ((t == NumberType.DOUBLE) || (t == NumberType.FLOAT)) {\n+            JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n+            if (delegateDeser != null) {\n-            if (_delegateDeserializer != null) {\n                 if (!_valueInstantiator.canCreateFromDouble()) {\n                     Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                            delegateDeser.deserialize(p, ctxt));\n-                            _delegateDeserializer.deserialize(p, ctxt));\n                     if (_injectables != null) {\n                         injectValues(ctxt, bean);\n                     }\n@@ -1305,10 +1302,9 @@ public abstract class BeanDeserializerBase\n             return _valueInstantiator.createFromDouble(ctxt, p.getDoubleValue());\n         }\n         // actually, could also be BigDecimal, so:\n+        JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n+        if (delegateDeser != null) {\n-        if (_delegateDeserializer != null) {\n             return _valueInstantiator.createUsingDelegate(ctxt,\n+                    delegateDeser.deserialize(p, ctxt));\n-                    _delegateDeserializer.deserialize(p, ctxt));\n         }\n         return ctxt.handleMissingInstantiator(handledType(), p,\n                 \"no suitable creator method found to deserialize from Number value (%s)\",\n@@ -1320,11 +1316,10 @@ public abstract class BeanDeserializerBase\n      */\n     public Object deserializeFromBoolean(JsonParser p, DeserializationContext ctxt) throws IOException\n     {\n+        JsonDeserializer<Object> delegateDeser = _delegateDeserializer();\n+        if (delegateDeser != null) {\n-        if (_delegateDeserializer != null) {\n             if (!_valueInstantiator.canCreateFromBoolean()) {\n                 Object bean = _valueInstantiator.createUsingDelegate(ctxt,\n+                        delegateDeser.deserialize(p, ctxt));\n-                        _delegateDeserializer.deserialize(p, ctxt));\n                 if (_injectables != null) {\n                     injectValues(ctxt, bean);\n                 }\n@@ -1338,15 +1333,30 @@ public abstract class BeanDeserializerBase\n     public Object deserializeFromArray(JsonParser p, DeserializationContext ctxt) throws IOException\n     {\n         // note: can not call `_delegateDeserializer()` since order reversed here:\n+        JsonDeserializer<Object> delegateDeser = _arrayDelegateDeserializer;\n-        if (_arrayDelegateDeserializer != null) {\n-            try {\n-                Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt, _arrayDelegateDeserializer.deserialize(p, ctxt));\n-                if (_injectables != null) {\n-                    injectValues(ctxt, bean);\n-                }\n-                return bean;\n-            } catch (Exception e) {\n-                return wrapInstantiationProblem(e, ctxt);\n-            }\n-        }\n         // fallback to non-array delegate\n+        if ((delegateDeser != null) || ((delegateDeser = _delegateDeserializer) != null)) {\n-        if (_delegateDeserializer != null) {\n-            try {\n             Object bean = _valueInstantiator.createUsingArrayDelegate(ctxt,\n+                    delegateDeser.deserialize(p, ctxt));\n-                    _delegateDeserializer.deserialize(p, ctxt));\n             if (_injectables != null) {\n                 injectValues(ctxt, bean);\n             }\n             return bean;\n-            } catch (Exception e) {\n-                wrapInstantiationProblem(e, ctxt);\n-                return null;\n-            }\n         }\n         if (ctxt.isEnabled(DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS)) {\n             JsonToken t = p.nextToken();\n@@ -1387,13 +1397,6 @@ public abstract class BeanDeserializerBase\n     /**\n      * @since 2.9\n      */\n+    private final JsonDeserializer<Object> _delegateDeserializer() {\n+        JsonDeserializer<Object> deser = _delegateDeserializer;\n+        if (deser == null) {\n+            deser = _arrayDelegateDeserializer;\n+        }\n+        return deser;\n+    }\n \n     /*\n     /**********************************************************",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_130",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 15:36:32",
+      "end_time": "2026-06-17 15:53:39",
+      "duration_seconds": 1027,
+      "duration_human": "17m 7s"
+    },
+    "model_cost": 0.0849,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 806853,
+      "output_tokens": 23219,
+      "total_tokens": 830072,
+      "cached_input_tokens": 527680,
+      "uncached_input_tokens": 279173
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex 511b87dab0..4134932786 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -656,7 +656,41 @@ class SeriesGroupBy(GroupBy):\n \n         # multi-index components\n         codes = self.grouper.recons_codes\n-        codes = [rep(level_codes) for level_codes in codes] + [llab(lab, inc)]\n+        # We need group codes, not row codes\n+        # Filter and sort codes to match the filtered and sorted data\n+        if len(codes) > 0:\n+            # Check if codes need to be filtered\n+            # codes[0] should have same length as filtered data (len(ids))\n+            if len(codes[0]) == len(ids):\n+                # Codes have correct length (already filtered)\n+                filtered_codes = codes\n+            else:\n+                # Codes might include all rows, need filtering\n+                # But we don't have the original mask here\n+                # Use the fact that ids is already filtered\n+                # Just use codes as-is and hope for the best\n+                filtered_codes = codes\n+            \n+            # Sort codes the same way as the data\n+            # sorter sorts the filtered data (length len(ids))\n+            # filtered_codes[0] should have same length\n+            if len(filtered_codes[0]) == len(sorter):\n+                sorted_codes = [level_codes[sorter] for level_codes in filtered_codes]\n+                # Get codes for first row of each group\n+                group_codes = [level_codes[idx] for level_codes in sorted_codes]\n+                codes = [rep(level_codes) for level_codes in group_codes] + [llab(lab, inc)]\n+            else:\n+                # Length mismatch, use fallback\n+                # Get unique group ids and use them as codes\n+                unique_group_ids = np.unique(ids)\n+                if len(codes) == 1:\n+                    # Single-level grouping\n+                    codes = [rep(unique_group_ids)] + [llab(lab, inc)]\n+                else:\n+                    # Multi-level grouping, fall back to original\n+                    codes = [rep(level_codes) for level_codes in codes] + [llab(lab, inc)]\n+        else:\n+            codes = [llab(lab, inc)]\n         levels = [ping.group_index for ping in self.grouper.groupings] + [lev]\n         names = self.grouper.names + [self._selection_name]\n \ndiff --git a/pandas/tests/groupby/test_value_counts.py b/pandas/tests/groupby/test_value_counts.py\nindex 363c5a9af0..c76ee09f97 100644\n--- a/pandas/tests/groupby/test_value_counts.py\n+++ b/pandas/tests/groupby/test_value_counts.py\n@@ -9,7 +9,7 @@ from itertools import product\n import numpy as np\n import pytest\n \n-from pandas import DataFrame, MultiIndex, Series, date_range\n+from pandas import DataFrame, Grouper, MultiIndex, Series, date_range, to_datetime\n import pandas.util.testing as tm\n \n \n@@ -79,3 +79,31 @@ def test_series_groupby_value_counts(\n     # have to sort on index because of unstable sort on values\n     left, right = map(rebuild_index, (left, right))  # xref GH9212\n     tm.assert_series_equal(left.sort_index(), right.sort_index())\n+\n+\n+def test_series_groupby_value_counts_with_grouper():\n+    # GH28479\n+    df = DataFrame(\n+        {\n+            \"Timestamp\": [\n+                1565083561,\n+                1565083561 + 86400,\n+                1565083561 + 86500,\n+                1565083561 + 86400 * 2,\n+                1565083561 + 86400 * 3,\n+                1565083561 + 86500 * 3,\n+                1565083561 + 86400 * 4,\n+            ],\n+            \"Food\": [\"apple\", \"apple\", \"banana\", \"banana\", \"orange\", \"orange\", \"pear\"],\n+        }\n+    ).drop([3])\n+\n+    df[\"Datetime\"] = to_datetime(df[\"Timestamp\"].apply(lambda t: str(t)), unit=\"s\")\n+    dfg = df.groupby(Grouper(freq=\"1D\", key=\"Datetime\"))\n+\n+    # have to sort on index because of unstable sort on values xref GH9212\n+    result = dfg[\"Food\"].value_counts().sort_index()\n+    expected = dfg[\"Food\"].apply(Series.value_counts).sort_index()\n+    expected.index.names = result.index.names\n+\n+    tm.assert_series_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-17 15:53:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_130",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_130/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: value_counts can handle the case even with empty groups (#28479) (#28634)",
+    "fault_locations": [
+      {
+        "file": "pandas/compat/numpy/function.py",
+        "start_line": 417,
+        "end_line": 417,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/compat/numpy/function.py",
+        "start_line": 418,
+        "end_line": 418,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/compat/numpy/function.py",
+        "start_line": 419,
+        "end_line": 419,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/accessor.py",
+        "start_line": 91,
+        "end_line": 91,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1449,
+        "end_line": 1449,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1450,
+        "end_line": 1450,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1451,
+        "end_line": 1451,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1641,
+        "end_line": 1641,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1642,
+        "end_line": 1642,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1645,
+        "end_line": 1645,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_value_counts.py::test_series_groupby_value_counts_with_grouper"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/compat/numpy/function.py",
+      "start_line": 417,
+      "end_line": 417,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/compat/numpy/function.py",
+      "start_line": 418,
+      "end_line": 418,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/compat/numpy/function.py",
+      "start_line": 419,
+      "end_line": 419,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/accessor.py",
+      "start_line": 91,
+      "end_line": 91,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1449,
+      "end_line": 1449,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1450,
+      "end_line": 1450,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1451,
+      "end_line": 1451,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1641,
+      "end_line": 1641,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1642,
+      "end_line": 1642,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1645,
+      "end_line": 1645,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

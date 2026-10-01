@@ -1,0 +1,55 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_17",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:46:00",
+      "end_time": "2026-06-27 22:47:08",
+      "duration_seconds": 68,
+      "duration_human": "1m 8s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 446885,
+      "output_tokens": 3368,
+      "total_tokens": 450253,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 446885
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/interface.py b/luigi/interface.py\nindex 2a4de9f9..69b65d21 100644\n--- a/luigi/interface.py\n+++ b/luigi/interface.py\n@@ -131,7 +131,7 @@ class core(task.Config):\n class _WorkerSchedulerFactory(object):\n \n     def create_local_scheduler(self):\n-        return scheduler.CentralPlannerScheduler(prune_on_get_work=True)\n+        return scheduler.CentralPlannerScheduler()\n \n     def create_remote_scheduler(self, url):\n         return rpc.RemoteScheduler(url)\ndiff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex 8f5beada..4244fe2e 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -511,116 +511,6 @@ class SimpleTaskState(object):\n \n \n class CentralPlannerScheduler(Scheduler):\n-    \"\"\"\n-    Async scheduler that can handle multiple workers, etc.\n-\n-    Can be run locally or on a server (using RemoteScheduler + server.Server).\n-    \"\"\"\n-\n-    def __init__(self, config=None, resources=None, task_history_impl=None, **kwargs):\n-        \"\"\"\n-        Keyword Arguments:\n-        :param config: an object of class \"scheduler\" or None (in which the global instance will be used)\n-        :param resources: a dict of str->int constraints\n-        :param task_history_override: ignore config and use this object as the task history\n-        \"\"\"\n-        self._config = config or scheduler(**kwargs)\n-        self._state = SimpleTaskState(self._config.state_path)\n-\n-        if task_history_impl:\n-            self._task_history = task_history_impl\n-        elif self._config.record_task_history:\n-            from luigi import db_task_history  # Needs sqlalchemy, thus imported here\n-            self._task_history = db_task_history.DbTaskHistory()\n-        else:\n-            self._task_history = history.NopHistory()\n-        self._resources = resources or configuration.get_config().getintdict('resources')  # TODO: Can we make this a Parameter?\n-        self._make_task = functools.partial(\n-            Task, disable_failures=self._config.disable_failures,\n-            disable_hard_timeout=self._config.disable_hard_timeout,\n-            disable_window=self._config.disable_window)\n-        self._worker_requests = {}\n-\n-    def load(self):\n-        self._state.load()\n-\n-    def dump(self):\n-        self._state.dump()\n-\n-    def prune(self):\n-        logger.info(\"Starting pruning of task graph\")\n-        remove_workers = []\n-        for worker in self._state.get_active_workers():\n-            if worker.prune(self._config):\n-                logger.info(\"Worker %s timed out (no contact for >=%ss)\", worker, self._config.worker_disconnect_delay)\n-                remove_workers.append(worker.id)\n-\n-        self._state.inactivate_workers(remove_workers)\n-\n-        assistant_ids = set(w.id for w in self._state.get_assistants())\n-        remove_tasks = []\n-\n-        if assistant_ids:\n-            necessary_tasks = self._state.get_necessary_tasks()\n-        else:\n-            necessary_tasks = ()\n-\n-        for task in self._state.get_active_tasks():\n-            self._state.fail_dead_worker_task(task, self._config, assistant_ids)\n-            if task.id not in necessary_tasks and self._state.prune(task, self._config):\n-                remove_tasks.append(task.id)\n-\n-        self._state.inactivate_tasks(remove_tasks)\n-\n-        logger.info(\"Done pruning task graph\")\n-\n-    def update(self, worker_id, worker_reference=None, get_work=False):\n-        \"\"\"\n-        Keep track of whenever the worker was last active.\n-        \"\"\"\n-        worker = self._state.get_worker(worker_id)\n-        worker.update(worker_reference, get_work=get_work)\n-\n-    def _update_priority(self, task, prio, worker):\n-        \"\"\"\n-        Update priority of the given task.\n-\n-        Priority can only be increased.\n-        If the task doesn't exist, a placeholder task is created to preserve priority when the task is later scheduled.\n-        \"\"\"\n-        task.priority = prio = max(prio, task.priority)\n-        for dep in task.deps or []:\n-            t = self._state.get_task(dep)\n-            if t is not None and prio > t.priority:\n-                self._update_priority(t, prio, worker)\n-\n-    def add_task(self, task_id=None, status=PENDING, runnable=True,\n-                 deps=None, new_deps=None, expl=None, resources=None,\n-                 priority=0, family='', module=None, params=None,\n-                 assistant=False, tracking_url=None, **kwargs):\n-        \"\"\"\n-        * add task identified by task_id if it doesn't exist\n-        * if deps is not None, update dependency list\n-        * update status of task\n-        * add additional workers/stakeholders\n-        * update priority when needed\n-        \"\"\"\n-        worker_id = kwargs['worker']\n-        self.update(worker_id)\n-\n-        task = self._state.get_task(task_id, setdefault=self._make_task(\n-            task_id=task_id, status=PENDING, deps=deps, resources=resources,\n-            priority=priority, family=family, module=module, params=params))\n-\n-        # for setting priority, we'll sometimes create tasks with unset family and params\n-        if not task.family:\n-            task.family = family\n-        if not getattr(task, 'module', None):\n-            task.module = module\n-        if not task.params:\n-            task.params = _get_default(params, {})\n-\n-        if tracking_url is not None or task.status != RUNNING:\n             task.tracking_url = tracking_url\n \n         if task.remove is not None:\ndiff --git a/test/scheduler_test.py b/test/scheduler_test.py\nindex 5b788850..35ee0f96 100644\n--- a/test/scheduler_test.py\n+++ b/test/scheduler_test.py\n@@ -25,7 +25,7 @@ import luigi.scheduler\n from helpers import with_config\n import logging\n \n-logging.config.fileConfig('test/testconfig/logging.cfg', disable_existing_loggers=False)\n+logging.config.fileConfig('luigi/test/testconfig/logging.cfg', disable_existing_loggers=False)\n luigi.notifications.DEBUG = True\n \n \n@@ -75,6 +75,12 @@ class SchedulerTest(unittest.TestCase):\n         cps = luigi.scheduler.CentralPlannerScheduler()\n         self.assertEqual({'a': 100, 'b': 200}, cps._resources)\n \n+    @with_config({'scheduler': {'record_task_history': 'True'},\n+                  'task_history': {'db_connection': 'sqlite:////none/existing/path/hist.db'}})\n+    def test_local_scheduler_task_history_status(self):\n+        ls = luigi.interface._WorkerSchedulerFactory().create_local_scheduler()\n+        self.assertEqual(False, ls._config.record_task_history)\n+\n     def test_load_recovers_tasks_index(self):\n         cps = luigi.scheduler.CentralPlannerScheduler()\n         cps.add_task(worker='A', task_id='1')\n"
+  },
+  "timestamp": "2026-06-27 22:47:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_17",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_17/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Merge pull request #1497 from riga/fixLocalSchedTaskHist",
+    "fault_locations": [
+      {
+        "file": "luigi/interface.py",
+        "start_line": 134,
+        "end_line": 134,
+        "function_name": "create_local_scheduler",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/scheduler_test.py::SchedulerTest::test_local_scheduler_task_history_status"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

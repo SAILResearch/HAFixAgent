@@ -1,0 +1,96 @@
+{
+  "project_name": "Lang",
+  "bug_id": "6",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 07:40:10",
+      "end_time": "2026-06-20 07:43:42",
+      "duration_seconds": 212,
+      "duration_human": "3m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 544881,
+      "output_tokens": 4807,
+      "total_tokens": 549688,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 544881
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 07:43:42 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_6",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_6",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringIndexOutOfBoundsException in CharSequenceTranslator\nI found that there is bad surrogate pair handling in the CharSequenceTranslator\n\nThis is a simple test case for this problem.\n\\uD83D\\uDE30 is a surrogate pair.\n\n{code:java}\n@Test\npublic void testEscapeSurrogatePairs() throws Exception {\n    assertEquals(\"\\uD83D\\uDE30\", StringEscapeUtils.escapeCsv(\"\\uD83D\\uDE30\"));\n}\n{code}\n\nYou'll get the exception as shown below.\n\n{code}\njava.lang.StringIndexOutOfBoundsException: String index out of range: 2\n\tat java.lang.String.charAt(String.java:658)\n\tat java.lang.Character.codePointAt(Character.java:4668)\n\tat org.apache.commons.lang3.text.translate.CharSequenceTranslator.translate(CharSequenceTranslator.java:95)\n\tat org.apache.commons.lang3.text.translate.CharSequenceTranslator.translate(CharSequenceTranslator.java:59)\n\tat org.apache.commons.lang3.StringEscapeUtils.escapeCsv(StringEscapeUtils.java:556)\n{code}\n\nPatch attached, the method affected:\n# public final void translate(CharSequence input, Writer out) throws IOException",
+    "commit_message": "[LANG-857] StringIndexOutOfBoundsException in CharSequenceTranslator.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java",
+        "start_line": 95,
+        "end_line": 95,
+        "line_numbers": [
+          95
+        ],
+        "function_name": "translate",
+        "class_name": "CharSequenceTranslator",
+        "filename": "CharSequenceTranslator.java",
+        "code_snippet": "    public final void translate(CharSequence input, Writer out) throws IOException {\n        if (out == null) {\n            throw new IllegalArgumentException(\"The Writer must not be null\");\n        }\n        if (input == null) {\n            return;\n        }\n        int pos = 0;\n        int len = input.length();\n        while (pos < len) {\n            int consumed = translate(input, pos, out);\n            if (consumed == 0) {\n                char[] c = Character.toChars(Character.codePointAt(input, pos));\n                out.write(c);\n                pos+= c.length;\n                continue;\n            }\n//          // contract with translators is that they have to understand codepoints \n//          // and they just took care of a surrogate pair\n            for (int pt = 0; pt < consumed; pt++) {\n                pos += Character.charCount(Character.codePointAt(input, pos));\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.StringUtilsTest::testEscapeSurrogatePairs"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java b/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\nindex 0500460..4d010ea 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\n@@ -92,7 +92,7 @@ public abstract class CharSequenceTranslator {\n //          // contract with translators is that they have to understand codepoints \n //          // and they just took care of a surrogate pair\n             for (int pt = 0; pt < consumed; pt++) {\n+                pos += Character.charCount(Character.codePointAt(input, pt));\n-                pos += Character.charCount(Character.codePointAt(input, pos));\n             }\n         }\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Matthew Jason Benson",
+        "commit_date": "2011-07-14 14:49:51",
+        "commit_message": "[LANG-720] StringEscapeUtils.escapeXml(input) outputs wrong results when an input contains characters in Supplementary Planes.  ALSO rewrite method to avoid modification of counter variable in for loop",
+        "commit_hash": "2c1b5be146585dc8b27aedebca959f92da19094e"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "hex",
+          "with",
+          "translate",
+          "CharSequenceTranslator"
+        ],
+        "functions_name_all_files": [
+          "hex",
+          "with",
+          "translate",
+          "CharSequenceTranslator"
+        ],
+        "function_code_before": "    /**\n     * Translate a set of codepoints, represented by an int index into a CharSequence, \n     * into another set of codepoints. The number of codepoints consumed must be returned, \n     * and the only IOExceptions thrown must be from interacting with the Writer so that \n     * the top level API may reliable ignore StringWriter IOExceptions. \n     *\n     * @param input CharSequence that is being translated\n     * @param index int representing the current point of translation\n     * @param out Writer to translate the text to\n     * @return int count of codepoints consumed\n     * @throws IOException if and only if the Writer produces an IOException\n     */\n    public abstract int translate(CharSequence input, int index, Writer out) throws IOException;\n\n    /**\n     * Helper for non-Writer usage. \n     * @param input CharSequence to be translated\n     * @return String output of translation\n     */\n    public final String translate(CharSequence input) {\n        if (input == null) {\n            return null;\n        }\n        try {\n            StringWriter writer = new StringWriter(input.length() * 2);\n            translate(input, writer);\n            return writer.toString();\n        } catch (IOException ioe) {\n            // this should never ever happen while writing to a StringWriter\n            throw new RuntimeException(ioe);\n        }\n    }",
+        "function_code_after": "    /**\n     * Translate a set of codepoints, represented by an int index into a CharSequence, \n     * into another set of codepoints. The number of codepoints consumed must be returned, \n     * and the only IOExceptions thrown must be from interacting with the Writer so that \n     * the top level API may reliable ignore StringWriter IOExceptions. \n     *\n     * @param input CharSequence that is being translated\n     * @param index int representing the current point of translation\n     * @param out Writer to translate the text to\n     * @return int count of codepoints consumed\n     * @throws IOException if and only if the Writer produces an IOException\n     */\n    public abstract int translate(CharSequence input, int index, Writer out) throws IOException;\n\n    /**\n     * Helper for non-Writer usage. \n     * @param input CharSequence to be translated\n     * @return String output of translation\n     */\n    public final String translate(CharSequence input) {\n        if (input == null) {\n            return null;\n        }\n        try {\n            StringWriter writer = new StringWriter(input.length() * 2);\n            translate(input, writer);\n            return writer.toString();\n        } catch (IOException ioe) {\n            // this should never ever happen while writing to a StringWriter\n            throw new RuntimeException(ioe);\n        }\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java b/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\nindex 0cb2ca813..4d010eafd 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/CharSequenceTranslator.java\n@@ -79,27 +79,20 @@ public abstract class CharSequenceTranslator {\n         if (input == null) {\n             return;\n         }\n-        int sz = Character.codePointCount(input, 0, input.length());\n-        for (int i = 0; i < sz; i++) {\n-\n-            // consumed is the number of codepoints consumed\n-            int consumed = translate(input, i, out);\n-\n+        int pos = 0;\n+        int len = input.length();\n+        while (pos < len) {\n+            int consumed = translate(input, pos, out);\n             if (consumed == 0) {\n-                out.write(Character.toChars(Character.codePointAt(input, i)));\n-            } else {\n-                // contract with translators is that they have to understand codepoints \n-                // and they just took care of a surrogate pair\n-                for (int j = 0; j < consumed; j++) {\n-                    if (i < sz - 2) {\n-                        i += Character.charCount(Character.codePointAt(input, i));\n-                    } else {\n-                        // If the String ends with a high surrogate, just add the 1 and don't worry about such things\n-                        i++;\n-                    }\n-                }\n-                // for loop will increment 1 anyway, so remove 1 to account for that\n-                i--;\n+                char[] c = Character.toChars(Character.codePointAt(input, pos));\n+                out.write(c);\n+                pos+= c.length;\n+                continue;\n+            }\n+//          // contract with translators is that they have to understand codepoints \n+//          // and they just took care of a surrogate pair\n+            for (int pt = 0; pt < consumed; pt++) {\n+                pos += Character.charCount(Character.codePointAt(input, pos));\n             }\n         }\n     }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

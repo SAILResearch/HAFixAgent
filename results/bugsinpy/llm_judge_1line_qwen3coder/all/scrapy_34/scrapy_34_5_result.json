@@ -1,0 +1,57 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_34",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:00:01",
+      "end_time": "2026-06-20 16:02:22",
+      "duration_seconds": 141,
+      "duration_human": "2m 21s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 658396,
+      "output_tokens": 2468,
+      "total_tokens": 660864,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 658396
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/item.py b/scrapy/item.py\nindex 8ac279642..f0b4746a1 100644\n--- a/scrapy/item.py\n+++ b/scrapy/item.py\n@@ -27,7 +27,7 @@ class ItemMeta(ABCMeta):\n         new_bases = tuple(base._class for base in bases if hasattr(base, '_class'))\n         _class = super(ItemMeta, mcs).__new__(mcs, 'x_' + class_name, new_bases, attrs)\n \n-        fields = {}\n+        fields = getattr(_class, 'fields', {})\n         new_attrs = {}\n         for n in dir(_class):\n             v = getattr(_class, n)\ndiff --git a/tests/test_item.py b/tests/test_item.py\nindex 76061bbd9..dcb169c3a 100644\n--- a/tests/test_item.py\n+++ b/tests/test_item.py\n@@ -120,6 +120,14 @@ class ItemTest(unittest.TestCase):\n         self.assertSortedEqual(list(i.keys()), ['keys', 'values', 'name'])\n         self.assertSortedEqual(list(i.values()), [u'Keys', u'Values', u'John'])\n \n+    def test_metaclass_with_fields_attribute(self):\n+        class TestItem(Item):\n+            fields = {'new': Field(default='X')}\n+\n+        item = TestItem(new=u'New')\n+        self.assertSortedEqual(list(item.keys()), ['new'])\n+        self.assertSortedEqual(list(item.values()), [u'New'])\n+\n     def test_metaclass_inheritance(self):\n         class BaseItem(Item):\n             name = Field()\n@@ -136,41 +144,51 @@ class ItemTest(unittest.TestCase):\n \n     def test_metaclass_multiple_inheritance_simple(self):\n         class A(Item):\n+            fields = {'load': Field(default='A')}\n             save = Field(default='A')\n \n         class B(A): pass\n \n         class C(Item):\n+            fields = {'load': Field(default='C')}\n             save = Field(default='C')\n \n         class D(B, C): pass\n \n-        self.assertEqual(D(save='X')['save'], 'X')\n-        self.assertEqual(D.fields, {'save': {'default': 'A'}})\n+        item = D(save='X', load='Y')\n+        self.assertEqual(item['save'], 'X')\n+        self.assertEqual(item['load'], 'Y')\n+        self.assertEqual(D.fields, {'load': {'default': 'A'},\n+            'save': {'default': 'A'}})\n \n         # D class inverted\n         class E(C, B): pass\n \n         self.assertEqual(E(save='X')['save'], 'X')\n-        self.assertEqual(E.fields, {'save': {'default': 'C'}})\n+        self.assertEqual(E(load='X')['load'], 'X')\n+        self.assertEqual(E.fields, {'load': {'default': 'C'},\n+            'save': {'default': 'C'}})\n \n     def test_metaclass_multiple_inheritance_diamond(self):\n         class A(Item):\n+            fields = {'update': Field(default='A')}\n             save = Field(default='A')\n             load = Field(default='A')\n \n         class B(A): pass\n \n         class C(A):\n+            fields = {'update': Field(default='C')}\n             save = Field(default='C')\n \n         class D(B, C):\n+            fields = {'update': Field(default='D')}\n             load = Field(default='D')\n \n         self.assertEqual(D(save='X')['save'], 'X')\n         self.assertEqual(D(load='X')['load'], 'X')\n         self.assertEqual(D.fields, {'save': {'default': 'C'},\n-            'load': {'default': 'D'}})\n+            'load': {'default': 'D'}, 'update': {'default': 'D'}})\n \n         # D class inverted\n         class E(C, B):\n@@ -179,15 +197,17 @@ class ItemTest(unittest.TestCase):\n         self.assertEqual(E(save='X')['save'], 'X')\n         self.assertEqual(E(load='X')['load'], 'X')\n         self.assertEqual(E.fields, {'save': {'default': 'C'},\n-            'load': {'default': 'E'}})\n+            'load': {'default': 'E'}, 'update': {'default': 'C'}})\n \n     def test_metaclass_multiple_inheritance_without_metaclass(self):\n         class A(Item):\n+            fields = {'load': Field(default='A')}\n             save = Field(default='A')\n \n         class B(A): pass\n \n         class C(object):\n+            fields = {'load': Field(default='C')}\n             not_allowed = Field(default='not_allowed')\n             save = Field(default='C')\n \n@@ -195,14 +215,16 @@ class ItemTest(unittest.TestCase):\n \n         self.assertRaises(KeyError, D, not_allowed='value')\n         self.assertEqual(D(save='X')['save'], 'X')\n-        self.assertEqual(D.fields, {'save': {'default': 'A'}})\n+        self.assertEqual(D.fields, {'save': {'default': 'A'},\n+            'load': {'default': 'A'}})\n \n         # D class inverted\n         class E(C, B): pass\n \n         self.assertRaises(KeyError, E, not_allowed='value')\n         self.assertEqual(E(save='X')['save'], 'X')\n-        self.assertEqual(E.fields, {'save': {'default': 'A'}})\n+        self.assertEqual(E.fields, {'save': {'default': 'A'},\n+            'load': {'default': 'A'}})\n \n     def test_to_dict(self):\n         class TestItem(Item):\n"
+  },
+  "timestamp": "2026-06-20 16:02:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_34",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_34/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "item fields defined on fields class attribute fix",
+    "fault_locations": [
+      {
+        "file": "scrapy/item.py",
+        "start_line": 30,
+        "end_line": 30,
+        "function_name": "__new__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_item.ItemTest.test_metaclass_with_fields_attribute",
+      "python -m unittest -q tests.test_item.ItemTest.test_metaclass_multiple_inheritance_simple",
+      "python -m unittest -q tests.test_item.ItemTest.test_metaclass_multiple_inheritance_diamond"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

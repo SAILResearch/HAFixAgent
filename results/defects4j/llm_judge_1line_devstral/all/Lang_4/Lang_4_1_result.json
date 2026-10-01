@@ -1,0 +1,101 @@
+{
+  "project_name": "Lang",
+  "bug_id": "4",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:23:03",
+      "end_time": "2026-06-26 21:23:32",
+      "duration_seconds": 30,
+      "duration_human": "30.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 16,
+    "token_usage": {
+      "input_tokens": 42184,
+      "output_tokens": 757,
+      "total_tokens": 42941,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 42184
+    },
+    "agent_steps": 16,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java b/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\nindex 8ed51bc3c..9cf45f8f4 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\n@@ -28,7 +28,7 @@ import java.util.HashMap;\n  */\n public class LookupTranslator extends CharSequenceTranslator {\n \n-    private final HashMap<CharSequence, CharSequence> lookupMap;\n+    private final HashMap<String, CharSequence> lookupMap;\n     private final int shortest;\n     private final int longest;\n \n@@ -43,12 +43,12 @@ public class LookupTranslator extends CharSequenceTranslator {\n      * @param lookup CharSequence[][] table of size [*][2]\n      */\n     public LookupTranslator(final CharSequence[]... lookup) {\n-        lookupMap = new HashMap<CharSequence, CharSequence>();\n+        lookupMap = new HashMap<String, CharSequence>();\n         int _shortest = Integer.MAX_VALUE;\n         int _longest = 0;\n         if (lookup != null) {\n             for (final CharSequence[] seq : lookup) {\n-                this.lookupMap.put(seq[0], seq[1]);\n+                this.lookupMap.put(seq[0].toString(), seq[1]);\n                 final int sz = seq[0].length();\n                 if (sz < _shortest) {\n                     _shortest = sz;\n@@ -74,7 +74,7 @@ public class LookupTranslator extends CharSequenceTranslator {\n         // descend so as to get a greedy algorithm\n         for (int i = max; i >= shortest; i--) {\n             final CharSequence subSeq = input.subSequence(index, index + i);\n-            final CharSequence result = lookupMap.get(subSeq);\n+            final CharSequence result = lookupMap.get(subSeq.toString());\n             if (result != null) {\n                 out.write(result.toString());\n                 return i;\n"
+  },
+  "timestamp": "2026-06-26 21:23:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_4",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_4",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "LookupTranslator accepts CharSequence as input, but fails to work with implementations other than String\nThe core of {{org.apache.commons.lang3.text.translate}} is a {{HashMap<CharSequence, CharSequence> lookupMap}}.\n\nFrom the Javadoc of {{CharSequence}} (emphasis mine):\n{quote}\nThis interface does not refine the general contracts of the equals and hashCode methods. The result of comparing two objects that implement CharSequence is therefore, in general, undefined. Each object may be implemented by a different class, and there is no guarantee that each class will be capable of testing its instances for equality with those of the other. *It is therefore inappropriate to use arbitrary CharSequence instances as elements in a set or as keys in a map.*\n{quote}\n\nThe current implementation causes code such as the following to not work as expected:\n\n{code}\nCharSequence cs1 = \"1 < 2\";\nCharSequence cs2 = CharBuffer.wrap(\"1 < 2\".toCharArray());\n\nSystem.out.println(StringEscapeUtils.ESCAPE_HTML4.translate(cs1));\nSystem.out.println(StringEscapeUtils.ESCAPE_HTML4.translate(cs2));\n{code}\n\n... which gives the following results (but should be identical):\n{noformat}\n1 &lt; 2\n1 < 2\n{noformat}\n\nThe problem, at a minimum, is that {{CharBuffer.equals}} is even documented in the Javadoc that:\n{quote}\nA char buffer is not equal to any other type of object.\n{quote}\n\n... so a lookup on a CharBuffer in the Map will always fail when compared against the String implementations that it contains.\n\nAn obvious work-around is to instead use something along the lines of either of the following:\n{code}\nSystem.out.println(StringEscapeUtils.ESCAPE_HTML4.translate(cs2.toString()));\nSystem.out.println(StringEscapeUtils.escapeHtml4(cs2.toString()));\n{code}\n\n... which forces everything back to a {{String}}.  However, this is not practical when working with large sets of data, which would require significant heap allocations and garbage collection concerns.  (As such, I was actually trying to use the {{translate}} method that outputs to a {{Writer}} - but simplified the above examples to omit this.)\n\nAnother option that I'm considering is to use a custom {{CharSequence}} wrapper around a {{char[]}} that implements {{hashCode()}} and {{equals()}} to work with those implemented on {{String}}.  (However, this will be interesting due to the symmetric assumption - which is further interesting that {{String.equals}} is currently implemented using {{instanceof}} - even though {{String}} is {{final}}...)",
+    "commit_message": "Allow LookupTranslator to support CharSequence properly; previously it was working only for CharSequence's that implemented hashCode and equals(Object). LANG-882",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java",
+        "start_line": 31,
+        "end_line": 31,
+        "line_numbers": [
+          31
+        ],
+        "function_name": "",
+        "class_name": "LookupTranslator",
+        "filename": "LookupTranslator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java",
+        "start_line": 46,
+        "end_line": 46,
+        "line_numbers": [
+          46
+        ],
+        "function_name": "",
+        "class_name": "LookupTranslator",
+        "filename": "LookupTranslator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java",
+        "start_line": 51,
+        "end_line": 51,
+        "line_numbers": [
+          51
+        ],
+        "function_name": "",
+        "class_name": "LookupTranslator",
+        "filename": "LookupTranslator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java",
+        "start_line": 77,
+        "end_line": 77,
+        "line_numbers": [
+          77
+        ],
+        "function_name": "translate",
+        "class_name": "LookupTranslator",
+        "filename": "LookupTranslator.java",
+        "code_snippet": "    public int translate(final CharSequence input, final int index, final Writer out) throws IOException {\n        int max = longest;\n        if (index + longest > input.length()) {\n            max = input.length() - index;\n        }\n        // descend so as to get a greedy algorithm\n        for (int i = max; i >= shortest; i--) {\n            final CharSequence subSeq = input.subSequence(index, index + i);\n            final CharSequence result = lookupMap.get(subSeq);\n            if (result != null) {\n                out.write(result.toString());\n                return i;\n            }\n        }\n        return 0;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.text.translate.LookupTranslatorTest::testLang882"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java b/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\nindex 9cf45f8..8ed51bc 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/LookupTranslator.java\n@@ -28,7 +28,7 @@ import java.util.HashMap;\n  */\n public class LookupTranslator extends CharSequenceTranslator {\n \n+    private final HashMap<String, CharSequence> lookupMap;\n-    private final HashMap<CharSequence, CharSequence> lookupMap;\n     private final int shortest;\n     private final int longest;\n \n@@ -43,12 +43,12 @@ public class LookupTranslator extends CharSequenceTranslator {\n      * @param lookup CharSequence[][] table of size [*][2]\n      */\n     public LookupTranslator(final CharSequence[]... lookup) {\n+        lookupMap = new HashMap<String, CharSequence>();\n-        lookupMap = new HashMap<CharSequence, CharSequence>();\n         int _shortest = Integer.MAX_VALUE;\n         int _longest = 0;\n         if (lookup != null) {\n             for (final CharSequence[] seq : lookup) {\n+                this.lookupMap.put(seq[0].toString(), seq[1]);\n-                this.lookupMap.put(seq[0], seq[1]);\n                 final int sz = seq[0].length();\n                 if (sz < _shortest) {\n                     _shortest = sz;\n@@ -74,7 +74,7 @@ public class LookupTranslator extends CharSequenceTranslator {\n         // descend so as to get a greedy algorithm\n         for (int i = max; i >= shortest; i--) {\n             final CharSequence subSeq = input.subSequence(index, index + i);\n+            final CharSequence result = lookupMap.get(subSeq.toString());\n-            final CharSequence result = lookupMap.get(subSeq);\n             if (result != null) {\n                 out.write(result.toString());\n                 return i;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

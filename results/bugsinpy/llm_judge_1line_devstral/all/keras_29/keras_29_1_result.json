@@ -1,0 +1,74 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_29",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 17:48:07",
+      "end_time": "2026-06-27 17:53:04",
+      "duration_seconds": 297,
+      "duration_human": "4m 57s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 718291,
+      "output_tokens": 14628,
+      "total_tokens": 732919,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 718291
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training.py b/keras/engine/training.py\nindex 78be752b0..894637210 100644\n--- a/keras/engine/training.py\n+++ b/keras/engine/training.py\n@@ -1920,6 +1920,10 @@ class Model(Container):\n             ins = x + y + sample_weights + [0.]\n         else:\n             ins = x + y + sample_weights\n+        # Reset stateful metrics\n+        if hasattr(self, \"metrics\"):\n+            for m in self.metrics:\n+                    m.reset_states()\n         self._make_test_function()\n         outputs = self.test_function(ins)\n         if len(outputs) == 1:\n@@ -1930,10 +1934,11 @@ class Model(Container):\n         \"\"\"Returns predictions for a single batch of samples.\n \n         # Arguments\n-            x: Input samples, as a Numpy array.\n-\n-        # Returns\n-            Numpy array(s) of predictions.\n+        # Reset stateful metrics\n+        if hasattr(self, \"metrics\"):\n+            for m in self.metrics:\n+                if isinstance(m, Layer) and m.stateful:\n+                    m.reset_states()\n         \"\"\"\n         x = _standardize_input_data(x, self._feed_input_names,\n                                     self._feed_input_shapes)\ndiff --git a/tests/keras/metrics_test.py b/tests/keras/metrics_test.py\nindex 2e40daeda..39ad1cdbc 100644\n--- a/tests/keras/metrics_test.py\n+++ b/tests/keras/metrics_test.py\n@@ -107,7 +107,8 @@ def test_sparse_top_k_categorical_accuracy():\n \n \n @keras_test\n-def test_stateful_metrics():\n+@pytest.mark.parametrize('metrics_mode', ['list', 'dict'])\n+def test_stateful_metrics(metrics_mode):\n     np.random.seed(1334)\n \n     class BinaryTruePositives(keras.layers.Layer):\n@@ -155,11 +156,17 @@ def test_stateful_metrics():\n \n     # Test on simple model\n     inputs = keras.Input(shape=(2,))\n-    outputs = keras.layers.Dense(1, activation='sigmoid')(inputs)\n+    outputs = keras.layers.Dense(1, activation='sigmoid', name='out')(inputs)\n     model = keras.Model(inputs, outputs)\n-    model.compile(optimizer='sgd',\n-                  loss='binary_crossentropy',\n-                  metrics=['acc', metric_fn])\n+\n+    if metrics_mode == 'list':\n+        model.compile(optimizer='sgd',\n+                      loss='binary_crossentropy',\n+                      metrics=['acc', metric_fn])\n+    elif metrics_mode == 'dict':\n+        model.compile(optimizer='sgd',\n+                      loss='binary_crossentropy',\n+                      metrics={'out': ['acc', metric_fn]})\n \n     samples = 1000\n     x = np.random.random((samples, 2))\n"
+  },
+  "timestamp": "2026-06-27 17:53:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_29",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_29/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix stateful metrics when passing dict to compile (#9894)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1177,
+        "end_line": 1179,
+        "function_name": "_fit_loop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1366,
+        "end_line": 1368,
+        "function_name": "_test_loop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2188,
+        "end_line": 2190,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2334,
+        "end_line": 2336,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/metrics_test.py::test_stateful_metrics[dict]"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

@@ -1,0 +1,81 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_57",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 09:17:21",
+      "end_time": "2026-03-23 09:48:59",
+      "duration_seconds": 1899,
+      "duration_human": "31m 39s"
+    },
+    "model_cost": 0.158,
+    "model_calls": 35,
+    "token_usage": {
+      "input_tokens": 781129,
+      "output_tokens": 65538,
+      "total_tokens": 846667,
+      "cached_input_tokens": 295424,
+      "uncached_input_tokens": 485705
+    },
+    "agent_steps": 35,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/_testing.py b/pandas/_testing.py\nindex b19905f1c3..a5c98574ed 100644\n--- a/pandas/_testing.py\n+++ b/pandas/_testing.py\n@@ -1074,6 +1074,7 @@ def assert_series_equal(\n     check_exact=False,\n     check_datetimelike_compat=False,\n     check_categorical=True,\n+    check_category_order=True,\n     obj=\"Series\",\n ):\n     \"\"\"\n@@ -1210,7 +1211,7 @@ def assert_series_equal(\n \n     if check_categorical:\n         if is_categorical_dtype(left) or is_categorical_dtype(right):\n-            assert_categorical_equal(left.values, right.values, obj=f\"{obj} category\")\n+            assert_categorical_equal(left.values, right.values, check_category_order=check_category_order, obj=f\"{obj} category\")\n \n \n # This could be refactored to use the NDFrame.equals method\ndiff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 19602010fd..f6c7173b86 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -2411,7 +2411,6 @@ class Categorical(ExtensionArray, PandasObject):\n         code_values = self.categories.get_indexer(values)\n         code_values = code_values[null_mask | (code_values >= 0)]\n         return algorithms.isin(self.codes, code_values)\n-\n     def replace(self, to_replace, value, inplace: bool = False):\n         \"\"\"\n         Replaces all instances of one value with another\n@@ -2439,25 +2438,55 @@ class Categorical(ExtensionArray, PandasObject):\n         [3, 3, 2, 3]\n         Categories (2, int64): [2, 3]\n         \"\"\"\n+        from pandas.api.types import is_list_like\n+        from pandas.core.dtypes.missing import isna\n+        \n         inplace = validate_bool_kwarg(inplace, \"inplace\")\n         cat = self if inplace else self.copy()\n-        if to_replace in cat.categories:\n-            if isna(value):\n-                cat.remove_categories(to_replace, inplace=True)\n+        \n+        if is_list_like(to_replace):\n+            # Handle list-like to_replace\n+            if is_list_like(value):\n+                if len(to_replace) != len(value):\n+                    raise ValueError(\"Replacement lists must match in length.\")\n             else:\n-                categories = cat.categories.tolist()\n-                index = categories.index(to_replace)\n-                if value in cat.categories:\n-                    value_index = categories.index(value)\n-                    cat._codes[cat._codes == index] = value_index\n+                value = [value] * len(to_replace)\n+            \n+            for t, v in zip(to_replace, value):\n+                if t in cat.categories:\n+                    if isna(v):\n+                        cat.remove_categories(t, inplace=True)\n+                    else:\n+                        categories = cat.categories.tolist()\n+                        index = categories.index(t)\n+                        if v in cat.categories:\n+                            value_index = categories.index(v)\n+                            cat._codes[cat._codes == index] = value_index\n+                            cat.remove_categories(t, inplace=True)\n+                        else:\n+                            categories[index] = v\n+                            cat.rename_categories(categories, inplace=True)\n+        else:\n+            # Original scalar logic\n+            if to_replace in cat.categories:\n+                if isna(value):\n                     cat.remove_categories(to_replace, inplace=True)\n                 else:\n-                    categories[index] = value\n-                    cat.rename_categories(categories, inplace=True)\n+                    categories = cat.categories.tolist()\n+                    index = categories.index(to_replace)\n+                    if value in cat.categories:\n+                        value_index = categories.index(value)\n+                        cat._codes[cat._codes == index] = value_index\n+                        cat.remove_categories(to_replace, inplace=True)\n+                    else:\n+                        categories[index] = value\n+                        cat.rename_categories(categories, inplace=True)\n+        \n         if not inplace:\n             return cat\n \n \n+\n # The Series.cat accessor\n \n \n"
+  },
+  "timestamp": "2026-03-23 05:48:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_57",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_57/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: list-like to_replace on Categorical.replace is ignored or crash (#31734)",
+    "fault_locations": [
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 1213,
+        "end_line": 1213,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2444,
+        "end_line": 2447,
+        "function_name": "replace",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2449,
+        "end_line": 2451,
+        "function_name": "replace",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2453,
+        "end_line": 2453,
+        "function_name": "replace",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2455,
+        "end_line": 2455,
+        "function_name": "replace",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_replace.py::test_replace"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

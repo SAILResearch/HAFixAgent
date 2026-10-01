@@ -1,0 +1,192 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_143",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:15:23",
+      "end_time": "2026-06-30 16:18:30",
+      "duration_seconds": 187,
+      "duration_human": "3m 7s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 544072,
+      "output_tokens": 6767,
+      "total_tokens": 550839,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 544072
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/range.py b/pandas/core/indexes/range.py\nindex 8783351cc7..2f8fc3e429 100644\n--- a/pandas/core/indexes/range.py\n+++ b/pandas/core/indexes/range.py\n@@ -403,18 +403,77 @@ class RangeIndex(Int64Index):\n             # We reversed this range: transform to original locs\n             locs[valid] = len(self) - 1 - locs[valid]\n         return ensure_platform_int(locs)\n-\n-    def tolist(self):\n-        return list(self._range)\n-\n-    @Appender(_index_shared_docs[\"_shallow_copy\"])\n-    def _shallow_copy(self, values=None, **kwargs):\n-        if values is None:\n-            name = kwargs.get(\"name\", self.name)\n-            return self._simple_new(self._range, name=name)\n+    \n+    def _get_fill_indexer(self, target, method, limit=None, tolerance=None):\n+        \"\"\"\n+        Custom implementation for RangeIndex that properly handles the limit parameter.\n+        \"\"\"\n+        from pandas.core.indexes.api import ensure_index\n+        \n+        target = ensure_index(target)\n+        if tolerance is not None:\n+            tolerance = self._convert_tolerance(tolerance, target)\n+        \n+        # Get exact matches\n+        indexer = self.get_indexer(target)\n+        \n+        # Find positions that need filling\n+        nonexact_mask = indexer == -1\n+        \n+        if not nonexact_mask.any():\n+            # All values found exactly\n+            return indexer\n+        \n+        # For monotonic increasing ranges, implement pad/backfill with limit\n+        if self.is_monotonic_increasing and target.is_monotonic_increasing:\n+            if method == \"pad\":\n+                # Forward fill with limit\n+                result = indexer.copy()\n+                last_valid = -1\n+                consecutive_fills = 0\n+                \n+                for i in range(len(result)):\n+                    if result[i] != -1:\n+                        last_valid = result[i]\n+                        consecutive_fills = 0\n+                    else:\n+                        if last_valid != -1 and (limit is None or consecutive_fills < limit):\n+                            result[i] = last_valid\n+                            consecutive_fills += 1\n+                        else:\n+                            result[i] = -1\n+                \n+                indexer = result\n+                \n+            elif method == \"backfill\":\n+                # Backward fill with limit\n+                result = indexer.copy()\n+                next_valid = -1\n+                consecutive_fills = 0\n+                \n+                for i in range(len(result)-1, -1, -1):\n+                    if result[i] != -1:\n+                        next_valid = result[i]\n+                        consecutive_fills = 0\n+                    else:\n+                        if next_valid != -1 and (limit is None or consecutive_fills < limit):\n+                            result[i] = next_valid\n+                            consecutive_fills += 1\n+                        else:\n+                            result[i] = -1\n+                \n+                indexer = result\n         else:\n-            kwargs.setdefault(\"name\", self.name)\n-            return self._int64index._shallow_copy(values, **kwargs)\n+            # Fall back to parent implementation for non-monotonic cases\n+            indexer = super()._get_fill_indexer(target, method, limit, tolerance)\n+        \n+        if tolerance is not None:\n+            indexer = self._filter_indexer_tolerance(\n+                target._ndarray_values, indexer, tolerance\n+            )\n+        \n+        return ensure_platform_int(indexer)\n+    \n \n     @Appender(ibase._index_shared_docs[\"copy\"])\n     def copy(self, name=None, deep=False, dtype=None, **kwargs):\ndiff --git a/pandas/tests/frame/test_indexing.py b/pandas/tests/frame/test_indexing.py\nindex 6b073c460e..6d239e96cd 100644\n--- a/pandas/tests/frame/test_indexing.py\n+++ b/pandas/tests/frame/test_indexing.py\n@@ -2217,6 +2217,22 @@ class TestDataFrameIndexing(TestData):\n         assert mask[-5:].all()\n         assert not mask[:-5].any()\n \n+    def test_reindex_limit(self):\n+        # GH 28631\n+        data = [[\"A\", \"A\", \"A\"], [\"B\", \"B\", \"B\"], [\"C\", \"C\", \"C\"], [\"D\", \"D\", \"D\"]]\n+        exp_data = [\n+            [\"A\", \"A\", \"A\"],\n+            [\"B\", \"B\", \"B\"],\n+            [\"C\", \"C\", \"C\"],\n+            [\"D\", \"D\", \"D\"],\n+            [\"D\", \"D\", \"D\"],\n+            [np.nan, np.nan, np.nan],\n+        ]\n+        df = DataFrame(data)\n+        result = df.reindex([0, 1, 2, 3, 4, 5], method=\"ffill\", limit=1)\n+        expected = DataFrame(exp_data)\n+        tm.assert_frame_equal(result, expected)\n+\n     def test_set_dataframe_column_ns_dtype(self):\n         x = DataFrame([datetime.now(), datetime.now()])\n         assert x[0].dtype == np.dtype(\"M8[ns]\")\ndiff --git a/pandas/tests/indexes/test_range.py b/pandas/tests/indexes/test_range.py\nindex 58b98297f0..7e08a5deaf 100644\n--- a/pandas/tests/indexes/test_range.py\n+++ b/pandas/tests/indexes/test_range.py\n@@ -416,6 +416,14 @@ class TestRangeIndex(Numeric):\n         expected = np.array([0, 1, 1, 2, 2, 3, 3, 4, 4, 5], dtype=np.intp)\n         tm.assert_numpy_array_equal(indexer, expected)\n \n+    def test_get_indexer_limit(self):\n+        # GH 28631\n+        idx = RangeIndex(4)\n+        target = RangeIndex(6)\n+        result = idx.get_indexer(target, method=\"pad\", limit=1)\n+        expected = np.array([0, 1, 2, 3, 3, -1], dtype=np.intp)\n+        tm.assert_numpy_array_equal(result, expected)\n+\n     def test_join_outer(self):\n         # join with Int64Index\n         other = Int64Index(np.arange(25, 14, -1))\n"
+  },
+  "timestamp": "2026-06-30 16:18:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_143",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_143/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: restore limit in RangeIndex.get_indexer (#28671)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 450,
+        "end_line": 450,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 100,
+        "end_line": 100,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 103,
+        "end_line": 103,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 109,
+        "end_line": 109,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 111,
+        "end_line": 111,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 113,
+        "end_line": 113,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 115,
+        "end_line": 115,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 118,
+        "end_line": 118,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_indexing.py::TestDataFrameIndexing::test_reindex_limit",
+      "pytest pandas/tests/indexes/test_range.py::TestRangeIndex::test_get_indexer_limit"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 450,
+      "end_line": 450,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 100,
+      "end_line": 100,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 103,
+      "end_line": 103,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 109,
+      "end_line": 109,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 111,
+      "end_line": 111,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 113,
+      "end_line": 113,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 115,
+      "end_line": 115,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 118,
+      "end_line": 118,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

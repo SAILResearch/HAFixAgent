@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_12",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 22:42:47",
+      "end_time": "2026-06-30 22:47:02",
+      "duration_seconds": 254,
+      "duration_human": "4m 14s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 644557,
+      "output_tokens": 9735,
+      "total_tokens": 654292,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 644557
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/integer.py b/pandas/core/arrays/integer.py\nindex 9d41071755..bc9acc3a6c 100644\n--- a/pandas/core/arrays/integer.py\n+++ b/pandas/core/arrays/integer.py\n@@ -471,7 +471,36 @@ class IntegerArray(BaseMaskedArray):\n         else:\n             kwargs = {}\n \n-        data = self.to_numpy(dtype=dtype, **kwargs)\n+        # Convert data to float64 and handle NA values\n+        data = self._data.astype(dtype, copy=False)\n+        data[self._mask] = np.nan\n+\n+    def to_numpy(self, dtype=None, copy: bool = False, na_value=lib.no_default):\n+        \"\"\"\n+        Convert to a NumPy ndarray.\n+\n+        This implementation properly handles NA values when converting\n+        to different dtypes, avoiding the circular reference issue with\n+        the __array__ method.\n+        \"\"\"\n+        # Convert the underlying data array directly\n+        if dtype is None:\n+            # Default conversion to object array to preserve NA values\n+            result = self._data.astype(object, copy=False)\n+        else:\n+            # Convert to the requested dtype\n+            result = self._data.astype(dtype, copy=False)\n+\n+        # Handle copying\n+        if copy:\n+            result = result.copy()\n+\n+        # Handle NA values\n+        if na_value is not lib.no_default:\n+            result[self._mask] = na_value\n+\n+        return result\n+\n         return astype_nansafe(data, dtype, copy=False)\n \n     def _values_for_factorize(self) -> Tuple[np.ndarray, float]:\ndiff --git a/pandas/tests/frame/methods/test_cov_corr.py b/pandas/tests/frame/methods/test_cov_corr.py\nindex 5c13b60aae..7d75db55c3 100644\n--- a/pandas/tests/frame/methods/test_cov_corr.py\n+++ b/pandas/tests/frame/methods/test_cov_corr.py\n@@ -58,6 +58,17 @@ class TestDataFrameCov:\n         )\n         tm.assert_frame_equal(result, expected)\n \n+    @pytest.mark.parametrize(\n+        \"other_column\", [pd.array([1, 2, 3]), np.array([1.0, 2.0, 3.0])]\n+    )\n+    def test_cov_nullable_integer(self, other_column):\n+        # https://github.com/pandas-dev/pandas/issues/33803\n+        data = pd.DataFrame({\"a\": pd.array([1, 2, None]), \"b\": other_column})\n+        result = data.cov()\n+        arr = np.array([[0.5, 0.5], [0.5, 1.0]])\n+        expected = pd.DataFrame(arr, columns=[\"a\", \"b\"], index=[\"a\", \"b\"])\n+        tm.assert_frame_equal(result, expected)\n+\n \n class TestDataFrameCorr:\n     # DataFrame.corr(), as opposed to DataFrame.corrwith\n@@ -153,6 +164,22 @@ class TestDataFrameCorr:\n         df3.cov()\n         df3.corr()\n \n+    @td.skip_if_no_scipy\n+    @pytest.mark.parametrize(\n+        \"nullable_column\", [pd.array([1, 2, 3]), pd.array([1, 2, None])]\n+    )\n+    @pytest.mark.parametrize(\n+        \"other_column\",\n+        [pd.array([1, 2, 3]), np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, np.nan])],\n+    )\n+    @pytest.mark.parametrize(\"method\", [\"pearson\", \"spearman\", \"kendall\"])\n+    def test_corr_nullable_integer(self, nullable_column, other_column, method):\n+        # https://github.com/pandas-dev/pandas/issues/33803\n+        data = pd.DataFrame({\"a\": nullable_column, \"b\": other_column})\n+        result = data.corr(method=method)\n+        expected = pd.DataFrame(np.ones((2, 2)), columns=[\"a\", \"b\"], index=[\"a\", \"b\"])\n+        tm.assert_frame_equal(result, expected)\n+\n \n class TestDataFrameCorrWith:\n     def test_corrwith(self, datetime_frame):\n"
+  },
+  "timestamp": "2026-06-30 22:47:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_12",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_12/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Don't raise in DataFrame.corr with pd.NA (#33809)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 401,
+        "end_line": 401,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 146,
+        "end_line": 146,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 147,
+        "end_line": 147,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 157,
+        "end_line": 157,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 159,
+        "end_line": 159,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 161,
+        "end_line": 161,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 162,
+        "end_line": 162,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 163,
+        "end_line": 163,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/arrays/integer.py",
+        "start_line": 189,
+        "end_line": 189,
+        "suspiciousness": 0.952381,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/methods/test_cov_corr.py::TestDataFrameCov::test_cov_nullable_integer"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 401,
+      "end_line": 401,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 146,
+      "end_line": 146,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 147,
+      "end_line": 147,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 157,
+      "end_line": 157,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 159,
+      "end_line": 159,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 161,
+      "end_line": 161,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 162,
+      "end_line": 162,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 163,
+      "end_line": 163,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/arrays/integer.py",
+      "start_line": 189,
+      "end_line": 189,
+      "suspiciousness": 0.952381,
+      "rank": 10
+    }
+  ]
+}

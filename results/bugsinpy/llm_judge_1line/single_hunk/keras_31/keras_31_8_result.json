@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_31",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 04:13:06",
+      "end_time": "2026-03-24 04:40:43",
+      "duration_seconds": 1657,
+      "duration_human": "27m 37s"
+    },
+    "model_cost": 0.3685,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 1815646,
+      "output_tokens": 43282,
+      "total_tokens": 1858928,
+      "cached_input_tokens": 516672,
+      "uncached_input_tokens": 1298974
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/backend/tensorflow_backend.py b/keras/backend/tensorflow_backend.py\nindex f145d43dd..16d152065 100644\n--- a/keras/backend/tensorflow_backend.py\n+++ b/keras/backend/tensorflow_backend.py\n@@ -3899,9 +3899,30 @@ def ctc_label_dense_to_sparse(labels, label_lengths):\n         A sparse tensor representation of the labels.\n     \"\"\"\n     label_shape = tf.shape(labels)\n-    num_batches_tns = tf.stack([label_shape[0]])\n-    max_num_labels_tns = tf.stack([label_shape[1]])\n-\n+    batch_size = label_shape[0]\n+    max_len = label_shape[1]\n+    \n+    # Create a mask using vectorized operations instead of scan\n+    # For each batch element i: mask[i, j] = j < label_lengths[i]\n+    range_tensor = tf.range(max_len)  # shape: (max_len,)\n+    range_expanded = tf.expand_dims(range_tensor, 0)  # shape: (1, max_len)\n+    label_lengths_expanded = tf.reshape(label_lengths, [-1, 1])  # shape: (batch_size, 1)\n+    dense_mask = range_expanded < label_lengths_expanded  # shape: (batch_size, max_len)\n+    \n+    # Get indices where mask is True\n+    label_array = tf.reshape(tf.tile(tf.range(max_len), [batch_size]),\n+                             [batch_size, max_len])\n+    label_ind = tf.boolean_mask(label_array, dense_mask)\n+    \n+    batch_array = tf.transpose(tf.reshape(tf.tile(tf.range(batch_size),\n+                                                  [max_len]),\n+                                          [max_len, batch_size]))\n+    batch_ind = tf.boolean_mask(batch_array, dense_mask)\n+    \n+    indices = tf.transpose(tf.stack([batch_ind, label_ind]))\n+    vals_sparse = tf.gather_nd(labels, indices)\n+    \n+    return tf.SparseTensor(tf.to_int64(indices), vals_sparse, tf.to_int64(label_shape))\n     def range_less_than(_, current_input):\n         return tf.expand_dims(tf.range(label_shape[1]), 0) < tf.fill(\n             max_num_labels_tns, current_input)\n@@ -3916,7 +3937,7 @@ def ctc_label_dense_to_sparse(labels, label_lengths):\n     label_ind = tf.boolean_mask(label_array, dense_mask)\n \n     batch_array = tf.transpose(tf.reshape(tf.tile(tf.range(label_shape[0]),\n-                                                  max_num_labels_tns), reverse(label_shape, 0)))\n+                                                  max_num_labels_tns), tf.stack([label_shape[1], label_shape[0]])))\n     batch_ind = tf.boolean_mask(batch_array, dense_mask)\n     indices = tf.transpose(tf.reshape(concatenate([batch_ind, label_ind], axis=0), [2, -1]))\n \n@@ -3942,8 +3963,8 @@ def ctc_batch_cost(y_true, y_pred, input_length, label_length):\n         Tensor with shape (samples,1) containing the\n             CTC loss of each element.\n     \"\"\"\n-    label_length = tf.to_int32(tf.squeeze(label_length))\n-    input_length = tf.to_int32(tf.squeeze(input_length))\n+    label_length = tf.reshape(tf.to_int32(label_length), [-1])\n+    input_length = tf.reshape(tf.to_int32(input_length), [-1])\n     sparse_labels = tf.to_int32(ctc_label_dense_to_sparse(y_true, label_length))\n \n     y_pred = tf.log(tf.transpose(y_pred, perm=[1, 0, 2]) + epsilon())\ndiff --git a/tests/keras/backend/backend_test.py b/tests/keras/backend/backend_test.py\nindex 25003d442..037628cff 100644\n--- a/tests/keras/backend/backend_test.py\n+++ b/tests/keras/backend/backend_test.py\n@@ -1475,6 +1475,32 @@ class TestBackend(object):\n         res = K.eval(K.ctc_batch_cost(k_labels, k_inputs, k_input_lens, k_label_lens))\n         assert_allclose(res[0, :] if K.backend() == 'theano' else res[:, 0], ref, atol=1e-05)\n \n+        # test when batch_size = 1, that is, one sample only\n+        # get only first sample from above test case\n+        if K.backend() == 'theano':\n+            ref = [1.73308]\n+        else:\n+            ref = [3.34211]\n+\n+        input_lens = np.expand_dims(np.asarray([5]), 1)\n+        label_lens = np.expand_dims(np.asarray([5]), 1)\n+\n+        labels = np.asarray([[0, 1, 2, 1, 0]])\n+        inputs = np.asarray(\n+            [[[0.633766, 0.221185, 0.0917319, 0.0129757, 0.0142857, 0.0260553],\n+              [0.111121, 0.588392, 0.278779, 0.0055756, 0.00569609, 0.010436],\n+              [0.0357786, 0.633813, 0.321418, 0.00249248, 0.00272882, 0.0037688],\n+              [0.0663296, 0.643849, 0.280111, 0.00283995, 0.0035545, 0.00331533],\n+              [0.458235, 0.396634, 0.123377, 0.00648837, 0.00903441, 0.00623107]]],\n+            dtype=np.float32)\n+\n+        k_labels = K.variable(labels, dtype=\"int32\")\n+        k_inputs = K.variable(inputs, dtype=\"float32\")\n+        k_input_lens = K.variable(input_lens, dtype=\"int32\")\n+        k_label_lens = K.variable(label_lens, dtype=\"int32\")\n+        res = K.eval(K.ctc_batch_cost(k_labels, k_inputs, k_input_lens, k_label_lens))\n+        assert_allclose(res[0, :] if K.backend() == 'theano' else res[:, 0], ref, atol=1e-05)\n+\n     '''only tensorflow tested, need special handle'''\n \n     def test_ctc_decode_greedy(self):\n"
+  },
+  "timestamp": "2026-03-24 00:40:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_31",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_31/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix ctc_batch_cost() error when batch_size = 1 (#9775)",
+    "fault_locations": [
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3945,
+        "end_line": 3946,
+        "function_name": "ctc_batch_cost",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/backend/backend_test.py::TestBackend::test_ctc"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

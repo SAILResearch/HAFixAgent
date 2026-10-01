@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "37",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:23:10",
+      "end_time": "2026-06-26 18:25:45",
+      "duration_seconds": 155,
+      "duration_human": "2m 35s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 275786,
+      "output_tokens": 4248,
+      "total_tokens": 280034,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 275786
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/NodeTraversal.java b/src/com/google/javascript/jscomp/NodeTraversal.java\nindex 8201b41a3..cf5ebb42d 100644\n--- a/src/com/google/javascript/jscomp/NodeTraversal.java\n+++ b/src/com/google/javascript/jscomp/NodeTraversal.java\n@@ -537,9 +537,9 @@ public class NodeTraversal {\n     traverseBranch(args, n);\n \n     // Body\n-    Preconditions.checkState(body.getNext() == null &&\n-            body.isBlock());\n-    traverseBranch(body, n);\n+    if (body.isBlock() && body.getNext() == null) {\n+      traverseBranch(body, n);\n+    }\n \n     popScope();\n   }\n"
+  },
+  "timestamp": "2026-06-26 18:25:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_37",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_37",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "incomplete function definition crashes the compiler when ideMode is enabled\nThe code:\r\n\r\nf f f ;\r\nfunction t\r\n\r\nThe cause:\r\n\r\nRhino is creating an incomplete FUNCTION node.  We could fix this in Rhino or the IRFactory.  If it is invalid in Rhino we should fix it there, I'm not sure how to determine this so maybe we should fix it in the IRFactory and be done with it.\r\n\r\nThe stack trace:\r\n\r\nCaused by: java.lang.RuntimeException: INTERNAL COMPILER ERROR.\r\nat com.google.common.base.Preconditions.checkState(Preconditions.java:135)\r\nat com.google.javascript.jscomp.NodeTraversal.traverseFunction(NodeTraversal.java:544)\r\nat com.google.javascript.jscomp.NodeTraversal.traverseBranch(NodeTraversal.java:493)\r\nat com.google.javascript.jscomp.NodeTraversal.traverseBranch(NodeTraversal.java:501)\r\nat com.google.javascript.jscomp.NodeTraversal.traverse(NodeTraversal.java:281)\r\nat com.google.javascript.jscomp.NodeTraversal.traverse(NodeTraversal.java:459)\r\nat com.google.javascript.jscomp.PrepareAst.process(PrepareAst.java:70)\r\nat com.google.javascript.jscomp.Compiler.prepareAst(Compiler.java:1836)\r\nat com.google.javascript.jscomp.JsAst.parse(JsAst.java:100)\r\nat com.google.javascript.jscomp.JsAst.getAstRoot(JsAst.java:53)\r\nat com.google.javascript.jscomp.CompilerInput.getAstRoot(CompilerInput.java:120)\r\nat com.google.javascript.jscomp.Compiler.parseInputs(Compiler.java:1303)\r\nat com.google.javascript.jscomp.Compiler.parse(Compiler.java:697)",
+    "commit_message": "Prevent unsupport JavaScript variants that Rhino can parse from crashing the compiler in \"ide mode\". Fixes issue 663",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/NodeTraversal.java",
+        "start_line": 541,
+        "end_line": 541,
+        "line_numbers": [
+          541
+        ],
+        "function_name": "traverseFunction",
+        "class_name": "AbstractNodeTypePruningCallback",
+        "filename": "NodeTraversal.java",
+        "code_snippet": "  private void traverseFunction(Node n, Node parent) {\n    Preconditions.checkState(n.getChildCount() == 3);\n    Preconditions.checkState(n.isFunction());\n\n    final Node fnName = n.getFirstChild();\n\n    boolean isFunctionExpression = (parent != null)\n        && NodeUtil.isFunctionExpression(n);\n\n    if (!isFunctionExpression) {\n      // Functions declarations are in the scope containing the declaration.\n      traverseBranch(fnName, n);\n    }\n\n    curNode = n;\n    pushScope(n);\n\n    if (isFunctionExpression) {\n      // Function expression names are only accessible within the function\n      // scope.\n      traverseBranch(fnName, n);\n    }\n\n    final Node args = fnName.getNext();\n    final Node body = args.getNext();\n\n    // Args\n    traverseBranch(args, n);\n\n    // Body\n    Preconditions.checkState(body.getNext() == null &&\n            body.isBlock());\n    traverseBranch(body, n);\n\n    popScope();\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.IntegrationTest::testIncompleteFunction"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/NodeTraversal.java b/src/com/google/javascript/jscomp/NodeTraversal.java\nindex 435b4a8..8201b41 100644\n--- a/src/com/google/javascript/jscomp/NodeTraversal.java\n+++ b/src/com/google/javascript/jscomp/NodeTraversal.java\n@@ -538,7 +538,7 @@ public class NodeTraversal {\n \n     // Body\n     Preconditions.checkState(body.getNext() == null &&\n+            body.isBlock(), body);\n-            body.isBlock());\n     traverseBranch(body, n);\n \n     popScope();\ndiff --git a/src/com/google/javascript/jscomp/parsing/IRFactory.java b/src/com/google/javascript/jscomp/parsing/IRFactory.java\nindex 26cbc19..4da4085 100644\n--- a/src/com/google/javascript/jscomp/parsing/IRFactory.java\n+++ b/src/com/google/javascript/jscomp/parsing/IRFactory.java\n@@ -664,13 +664,9 @@ class IRFactory {\n       node.addChildToBack(lp);\n \n       Node bodyNode = transform(functionNode.getBody());\n+      if (!bodyNode.isBlock()) {\n         // When in ideMode Rhino tries to parse some constructs the compiler\n         // doesn't support, repair it here. see Rhino's\n         // Parser#parseFunctionBodyExpr.\n+        Preconditions.checkState(config.isIdeMode);\n+        bodyNode = IR.block();\n+      }\n       parseDirectives(bodyNode);\n       node.addChildToBack(bodyNode);\n      return node;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

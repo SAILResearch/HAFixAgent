@@ -1,0 +1,62 @@
+{
+  "project_name": "Math",
+  "bug_id": "55",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 17:16:10",
+      "end_time": "2026-06-26 17:16:58",
+      "duration_seconds": 48,
+      "duration_human": "48.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 455715,
+      "output_tokens": 2598,
+      "total_tokens": 458313,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 455715
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 17:16:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_55",
+    "repo_path": "/defects4j/framework/bin/temp/Math_55",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "Vector3D.crossProduct is sensitive to numerical cancellation\nCross product implementation uses the naive formulas (y1 z2 - y2 z1, ...). These formulas fail when vectors are almost colinear, like in the following example:\n{code}\nVector3D v1 = new Vector3D(9070467121.0, 4535233560.0, 1);\nVector3D v2 = new Vector3D(9070467123.0, 4535233561.0, 1);\nSystem.out.println(Vector3D.crossProduct(v1, v2));\n{code}\n\nThe previous code displays { -1, 2, 0 } instead of the correct answer { -1, 2, 1 }",
+    "commit_message": "Reduced cancellation errors in Vector3D.crossProduct",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/geometry/Vector3D.java",
+        "start_line": 473,
+        "end_line": 473,
+        "line_numbers": [
+          473
+        ],
+        "function_name": "crossProduct",
+        "class_name": "Vector3D",
+        "filename": "Vector3D.java",
+        "code_snippet": "  public static Vector3D crossProduct(final Vector3D v1, final Vector3D v2) {\n\n\n      // rescale both vectors without losing precision,\n      // to ensure their norm are the same order of magnitude\n\n      // we reduce cancellation errors by preconditioning,\n      // we replace v1 by v3 = v1 - rho v2 with rho chosen in order to compute\n      // v3 without loss of precision. See Kahan lecture\n      // \"Computing Cross-Products and Rotations in 2- and 3-Dimensional Euclidean Spaces\"\n      // available at http://www.cs.berkeley.edu/~wkahan/MathH110/Cross.pdf\n\n      // compute rho as an 8 bits approximation of v1.v2 / v2.v2\n\n\n      // compute cross product from v3 and v2 instead of v1 and v2\n      return new Vector3D(v1.y * v2.z - v1.z * v2.y, v1.z * v2.x - v1.x * v2.z, v1.x * v2.y - v1.y * v2.x);\n\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.geometry.Vector3DTest::testCrossProductCancellation"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/geometry/Vector3D.java b/src/main/java/org/apache/commons/math/geometry/Vector3D.java\nindex 2d915e5..3c741e9 100644\n--- a/src/main/java/org/apache/commons/math/geometry/Vector3D.java\n+++ b/src/main/java/org/apache/commons/math/geometry/Vector3D.java\n@@ -456,21 +456,9 @@ public class Vector3D implements Serializable {\n    */\n   public static Vector3D crossProduct(final Vector3D v1, final Vector3D v2) {\n \n+      final double n1 = v1.getNormSq();\n+      final double n2 = v2.getNormSq();\n+      if ((n1 * n2) < MathUtils.SAFE_MIN) {\n+          return ZERO;\n+      }\n \n       // rescale both vectors without losing precision,\n       // to ensure their norm are the same order of magnitude\n+      final int deltaExp = (FastMath.getExponent(n1) - FastMath.getExponent(n2)) / 4;\n+      final double x1    = FastMath.scalb(v1.x, -deltaExp);\n+      final double y1    = FastMath.scalb(v1.y, -deltaExp);\n+      final double z1    = FastMath.scalb(v1.z, -deltaExp);\n+      final double x2    = FastMath.scalb(v2.x,  deltaExp);\n+      final double y2    = FastMath.scalb(v2.y,  deltaExp);\n+      final double z2    = FastMath.scalb(v2.z,  deltaExp);\n \n       // we reduce cancellation errors by preconditioning,\n       // we replace v1 by v3 = v1 - rho v2 with rho chosen in order to compute\n@@ -479,15 +467,10 @@ public class Vector3D implements Serializable {\n       // available at http://www.cs.berkeley.edu/~wkahan/MathH110/Cross.pdf\n \n       // compute rho as an 8 bits approximation of v1.v2 / v2.v2\n+      final double ratio = (x1 * x2 + y1 * y2 + z1 * z2) / FastMath.scalb(n2, 2 * deltaExp);\n+      final double rho   = FastMath.rint(256 * ratio) / 256;\n \n+      final double x3 = x1 - rho * x2;\n+      final double y3 = y1 - rho * y2;\n+      final double z3 = z1 - rho * z2;\n \n       // compute cross product from v3 and v2 instead of v1 and v2\n+      return new Vector3D(y3 * z2 - z3 * y2, z3 * x2 - x3 * z2, x3 * y2 - y3 * x2);\n-      return new Vector3D(v1.y * v2.z - v1.z * v2.y, v1.z * v2.x - v1.x * v2.z, v1.x * v2.y - v1.y * v2.x);\n \n   }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

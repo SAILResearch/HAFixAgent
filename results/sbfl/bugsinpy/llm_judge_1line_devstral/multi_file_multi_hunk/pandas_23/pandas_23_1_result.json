@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_23",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:25:27",
+      "end_time": "2026-06-30 16:27:44",
+      "duration_seconds": 137,
+      "duration_human": "2m 17s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 676718,
+      "output_tokens": 4200,
+      "total_tokens": 680918,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 676718
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/datetimelike.py b/pandas/core/indexes/datetimelike.py\nindex b83b64c144..3917cf2ed9 100644\n--- a/pandas/core/indexes/datetimelike.py\n+++ b/pandas/core/indexes/datetimelike.py\n@@ -72,8 +72,6 @@ def _join_i8_wrapper(joinf, with_indexers: bool = True):\n         return results\n \n     return wrapper\n-\n-\n @inherit_names(\n     [\"inferred_freq\", \"_isnan\", \"_resolution\", \"resolution\"],\n     DatetimeLikeArrayMixin,\ndiff --git a/pandas/core/indexes/datetimes.py b/pandas/core/indexes/datetimes.py\nindex 1ec6cf8fd7..4f3cccc526 100644\n--- a/pandas/core/indexes/datetimes.py\n+++ b/pandas/core/indexes/datetimes.py\n@@ -715,6 +715,24 @@ class DatetimeIndex(DatetimeTimedeltaMixin):\n \n     @property\n     def inferred_type(self) -> str:\n+    \n+        def _wrap_setop_result(self, other, result):\n+        # Preserve dtype and freq for DatetimeIndex intersection operations\n+        name = get_op_result_name(self, other)\n+        if isinstance(result, np.ndarray):\n+            # Create DatetimeArray with proper dtype to preserve timezone\n+            from pandas.core.arrays import DatetimeArray\n+            result = DatetimeArray._simple_new(result, dtype=self.dtype)\n+        return self._shallow_copy(result, name=name)\n+    \n+    def _wrap_setop_result(self, other, result):\n+        # Preserve dtype and freq for DatetimeIndex intersection operations\n+        name = get_op_result_name(self, other)\n+        if isinstance(result, np.ndarray):\n+            # Create DatetimeArray with proper dtype to preserve timezone\n+            from pandas.core.arrays import DatetimeArray\n+            result = DatetimeArray._simple_new(result, dtype=self.dtype)\n+        return self._shallow_copy(result, name=name)\n         # b/c datetime is represented as microseconds since the epoch, make\n         # sure we can't have ambiguous indexing\n         return \"datetime64\"\ndiff --git a/pandas/tests/indexes/datetimes/test_setops.py b/pandas/tests/indexes/datetimes/test_setops.py\nindex c088301097..7182d05b77 100644\n--- a/pandas/tests/indexes/datetimes/test_setops.py\n+++ b/pandas/tests/indexes/datetimes/test_setops.py\n@@ -269,14 +269,34 @@ class TestDatetimeIndexSetOps:\n             assert result.freq is None\n             assert result.tz == expected.tz\n \n-    def test_intersection_empty(self):\n+    # parametrize over both anchored and non-anchored freqs, as they\n+    #  have different code paths\n+    @pytest.mark.parametrize(\"freq\", [\"T\", \"B\"])\n+    def test_intersection_empty(self, tz_aware_fixture, freq):\n         # empty same freq GH2129\n-        rng = date_range(\"6/1/2000\", \"6/15/2000\", freq=\"T\")\n+        tz = tz_aware_fixture\n+        rng = date_range(\"6/1/2000\", \"6/15/2000\", freq=freq, tz=tz)\n         result = rng[0:0].intersection(rng)\n         assert len(result) == 0\n+        assert result.freq == rng.freq\n \n         result = rng.intersection(rng[0:0])\n         assert len(result) == 0\n+        assert result.freq == rng.freq\n+\n+        # no overlap GH#33604\n+        result = rng[:3].intersection(rng[-3:])\n+        tm.assert_index_equal(result, rng[:0])\n+        if freq != \"T\":\n+            # We don't preserve freq on non-anchored offsets\n+            assert result.freq == rng.freq\n+\n+        # swapped left and right\n+        result = rng[-3:].intersection(rng[:3])\n+        tm.assert_index_equal(result, rng[:0])\n+        if freq != \"T\":\n+            # We don't preserve freq on non-anchored offsets\n+            assert result.freq == rng.freq\n \n     def test_intersection_bug_1708(self):\n         from pandas import DateOffset\n@@ -450,6 +470,7 @@ class TestBusinessDatetimeIndex:\n         b = bdate_range(\"12/10/2011\", \"12/20/2011\")\n         result = a.intersection(b)\n         tm.assert_index_equal(result, b)\n+        assert result.freq == b.freq\n \n     def test_month_range_union_tz_pytz(self, sort):\n         from pytz import timezone\n@@ -527,3 +548,4 @@ class TestCustomDatetimeIndex:\n         b = bdate_range(\"12/10/2011\", \"12/20/2011\", freq=\"C\")\n         result = a.intersection(b)\n         tm.assert_index_equal(result, b)\n+        assert result.freq == b.freq\n"
+  },
+  "timestamp": "2026-06-30 16:27:44 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_23",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_23/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: DatetimeIndex.intersection losing freq and tz (#33604)",
+    "fault_locations": [
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.993377,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.993377,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 109,
+        "end_line": 109,
+        "suspiciousness": 0.993377,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 547,
+        "end_line": 547,
+        "suspiciousness": 0.993377,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 1031,
+        "end_line": 1031,
+        "suspiciousness": 0.993377,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 455,
+        "end_line": 455,
+        "suspiciousness": 0.993377,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 456,
+        "end_line": 456,
+        "suspiciousness": 0.993377,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 867,
+        "end_line": 867,
+        "suspiciousness": 0.993377,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 868,
+        "end_line": 868,
+        "suspiciousness": 0.993377,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 869,
+        "end_line": 869,
+        "suspiciousness": 0.993377,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestDatetimeIndexSetOps::test_intersection_empty",
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestBusinessDatetimeIndex::test_intersection_bug",
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestCustomDatetimeIndex::test_intersection_bug"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.993377,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.993377,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 109,
+      "end_line": 109,
+      "suspiciousness": 0.993377,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 547,
+      "end_line": 547,
+      "suspiciousness": 0.993377,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 1031,
+      "end_line": 1031,
+      "suspiciousness": 0.993377,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 455,
+      "end_line": 455,
+      "suspiciousness": 0.993377,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 456,
+      "end_line": 456,
+      "suspiciousness": 0.993377,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 867,
+      "end_line": 867,
+      "suspiciousness": 0.993377,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 868,
+      "end_line": 868,
+      "suspiciousness": 0.993377,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 869,
+      "end_line": 869,
+      "suspiciousness": 0.993377,
+      "rank": 10
+    }
+  ]
+}

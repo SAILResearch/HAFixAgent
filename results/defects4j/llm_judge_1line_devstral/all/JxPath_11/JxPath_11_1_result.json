@@ -1,0 +1,76 @@
+{
+  "project_name": "JxPath",
+  "bug_id": "11",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 16:45:06",
+      "end_time": "2026-06-26 16:47:06",
+      "duration_seconds": 121,
+      "duration_human": "2m 1s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 527665,
+      "output_tokens": 5756,
+      "total_tokens": 533421,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 527665
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 16:47:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JxPath",
+    "bug_id": "JxPath_11",
+    "repo_path": "/defects4j/framework/bin/temp/JxPath_11",
+    "github_url": "https://github.com/apache/commons-jxpath.git",
+    "description": "Incomplete handling of undefined namespaces\nMcduffey, Joe <jdmcduf@nsa.gov>\n\nCan someone tell me how to register namespaces so that attributes with namespaces does not cause the exception\n\norg.apache.common.ri.model.dom.DOMNodePointer.createAttribute\nunknown namespace prefix: xsi\n\nFor example the following\n<ElementA  A:myAttr=\"Mytype\">\n  <B:ElementB>MY VALUE</B:ElementB>\n</ElementA>\n\nWould result in the following exception:\norg.apache.common.ri.model.dom.DOMNodePointer.createAttribute\nunknown namespace prefix: A\n\nFYI: In this example there was a namespace decaration in the file and I also manually called the\nregisterNamespace(A,\"/http...\");\nregisterNamespace(B,\"/http...\");\n\nThere was no problem encountered for elements. Only attributes. Can someone help? Thanks.",
+    "commit_message": "[JXPATH-97] enable externally-registered namespaces on XML attributes",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/model/dom/DOMAttributeIterator.java",
+        "start_line": 111,
+        "end_line": 111,
+        "line_numbers": [
+          111
+        ],
+        "function_name": "getAttribute",
+        "class_name": "DOMAttributeIterator",
+        "filename": "DOMAttributeIterator.java",
+        "code_snippet": "    private Attr getAttribute(Element element, QName name) {\n        String testPrefix = name.getPrefix();\n        String testNS = null;\n\n        if (testPrefix != null) {\n            testNS = parent.getNamespaceURI(testPrefix);\n        }\n\n        if (testNS != null) {\n            Attr attr = element.getAttributeNodeNS(testNS, name.getName());\n            if (attr != null) {\n                return attr;\n            }\n\n            // This may mean that the parser does not support NS for\n            // attributes, example - the version of Crimson bundled\n            // with JDK 1.4.0\n            NamedNodeMap nnm = element.getAttributes();\n            for (int i = 0; i < nnm.getLength(); i++) {\n                attr = (Attr) nnm.item(i);\n                if (testAttr(attr, name)) {\n                    return attr;\n                }\n            }\n            return null;\n        }\n        return element.getAttributeNode(name.getName());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMAttributeIterator.java",
+        "start_line": 114,
+        "end_line": 114,
+        "line_numbers": [
+          114
+        ],
+        "function_name": "",
+        "class_name": "JDOMAttributeIterator",
+        "filename": "JDOMAttributeIterator.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.jxpath.ri.model.dom.DOMModelTest::testNamespaceMapping",
+      "org.apache.commons.jxpath.ri.model.jdom.JDOMModelTest::testNamespaceMapping"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/model/dom/DOMAttributeIterator.java b/src/java/org/apache/commons/jxpath/ri/model/dom/DOMAttributeIterator.java\nindex f9785f6..f4c2ac6 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/dom/DOMAttributeIterator.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/dom/DOMAttributeIterator.java\n@@ -19,7 +19,6 @@ package org.apache.commons.jxpath.ri.model.dom;\n import java.util.ArrayList;\n import java.util.List;\n \n+import org.apache.commons.jxpath.ri.NamespaceResolver;\n import org.apache.commons.jxpath.ri.QName;\n import org.apache.commons.jxpath.ri.model.NodeIterator;\n import org.apache.commons.jxpath.ri.model.NodePointer;\n@@ -109,9 +108,7 @@ public class DOMAttributeIterator implements NodeIterator {\n         String testNS = null;\n \n         if (testPrefix != null) {\n+            NamespaceResolver nsr = parent.getNamespaceResolver();\n+            testNS = nsr == null ? null : nsr.getNamespaceURI(testPrefix);\n+            testNS = testNS == null ? parent.getNamespaceURI(testPrefix) : testNS;\n-            testNS = parent.getNamespaceURI(testPrefix);\n         }\n \n         if (testNS != null) {\ndiff --git a/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMAttributeIterator.java b/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMAttributeIterator.java\nindex 84c0afd..cfa6da3 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMAttributeIterator.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMAttributeIterator.java\n@@ -20,7 +20,6 @@ import java.util.ArrayList;\n import java.util.Collections;\n import java.util.List;\n \n+import org.apache.commons.jxpath.ri.NamespaceResolver;\n import org.apache.commons.jxpath.ri.QName;\n import org.apache.commons.jxpath.ri.model.NodeIterator;\n import org.apache.commons.jxpath.ri.model.NodePointer;\n@@ -50,21 +49,12 @@ public class JDOMAttributeIterator implements NodeIterator {\n                     ns = Namespace.XML_NAMESPACE;\n                 }\n                 else {\n+                    NamespaceResolver nsr = parent.getNamespaceResolver();\n+                    if (nsr != null) {\n+                        String uri = nsr.getNamespaceURI(prefix);\n+                        if (uri != null) {\n+                            ns = Namespace.getNamespace(prefix, uri);\n+                        }\n+                    }\n+                    if (ns == null) {\n                         ns = element.getNamespace(prefix);\n                         if (ns == null) {\n                             // TBD: no attributes\n                             attributes = Collections.EMPTY_LIST;\n                             return;\n                         }\n+                    }\n                 }\n             }\n             else {\n@@ -121,4 +111,4 @@ public class JDOMAttributeIterator implements NodeIterator {\n         this.position = position;\n         return position >= 1 && position <= attributes.size();\n     }\n+}\n\\ No newline at end of file\n-}",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_160",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 16:49:25",
+      "end_time": "2026-06-29 16:50:57",
+      "duration_seconds": 92,
+      "duration_human": "1m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 778773,
+      "output_tokens": 4015,
+      "total_tokens": 782788,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 778773
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/computation/expressions.py b/pandas/core/computation/expressions.py\nindex 5b6d275001..5302f18e68 100644\n--- a/pandas/core/computation/expressions.py\n+++ b/pandas/core/computation/expressions.py\n@@ -14,7 +14,7 @@ from pandas._config import get_option\n \n from pandas._libs.lib import values_from_object\n \n-from pandas.core.dtypes.generic import ABCDataFrame\n+from pandas.core.dtypes.generic import ABCDataFrame, ABCSeries\n \n from pandas.core.computation.check import _NUMEXPR_INSTALLED\n \n@@ -81,10 +81,15 @@ def _can_use_numexpr(op, op_str, a, b, dtype_check):\n             dtypes = set()\n             for o in [a, b]:\n                 if hasattr(o, \"dtypes\"):\n-                    s = o.dtypes.value_counts()\n-                    if len(s) > 1:\n-                        return False\n-                    dtypes |= set(s.index.astype(str))\n+                    # Series.dtypes returns a single dtype, not a Series of dtypes\n+                    if isinstance(o, ABCSeries):\n+                        dtypes |= {o.dtypes.name}\n+                    else:\n+                        # DataFrame.dtypes returns a Series of dtypes\n+                        s = o.dtypes.value_counts()\n+                        if len(s) > 1:\n+                            return False\n+                        dtypes |= set(s.index.astype(str))\n                 elif isinstance(o, np.ndarray):\n                     dtypes |= {o.dtype.name}\n \ndiff --git a/pandas/tests/test_expressions.py b/pandas/tests/test_expressions.py\nindex 4070624985..ca514f62f4 100644\n--- a/pandas/tests/test_expressions.py\n+++ b/pandas/tests/test_expressions.py\n@@ -66,7 +66,7 @@ class TestExpressions:\n                 operator_name = \"truediv\"\n \n             if test_flex:\n-                op = lambda x, y: getattr(df, arith)(y)\n+                op = lambda x, y: getattr(x, arith)(y)\n                 op.__name__ = arith\n             else:\n                 op = getattr(operator, operator_name)\n@@ -318,7 +318,6 @@ class TestExpressions:\n             for f in [self.frame, self.frame2, self.mixed, self.mixed2]:\n \n                 for cond in [True, False]:\n-\n                     c = np.empty(f.shape, dtype=np.bool_)\n                     c.fill(cond)\n                     result = expr.where(c, f.values, f.values + 1)\n@@ -431,3 +430,29 @@ class TestExpressions:\n         # GH 22383 - .ne fails if columns containing column name 'dtype'\n         result = test_input.loc[:, [\"a\", \"dtype\"]].ne(test_input.loc[:, [\"a\", \"dtype\"]])\n         assert_frame_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"arith\", (\"add\", \"sub\", \"mul\", \"mod\", \"truediv\", \"floordiv\")\n+    )\n+    @pytest.mark.parametrize(\"axis\", (0, 1))\n+    def test_frame_series_axis(self, axis, arith):\n+        # GH#26736 Dataframe.floordiv(Series, axis=1) fails\n+        if axis == 1 and arith == \"floordiv\":\n+            pytest.xfail(\"'floordiv' does not succeed with axis=1 #27636\")\n+\n+        df = self.frame\n+        if axis == 1:\n+            other = self.frame.iloc[0, :]\n+        else:\n+            other = self.frame.iloc[:, 0]\n+\n+        expr._MIN_ELEMENTS = 0\n+\n+        op_func = getattr(df, arith)\n+\n+        expr.set_use_numexpr(False)\n+        expected = op_func(other, axis=axis)\n+        expr.set_use_numexpr(True)\n+\n+        result = op_func(other, axis=axis)\n+        assert_frame_equal(expected, result)\n"
+  },
+  "timestamp": "2026-06-29 16:50:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_160",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_160/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: _can_use_numexpr fails when passed large Series (#27773)",
+    "fault_locations": [
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 102,
+        "end_line": 102,
+        "suspiciousness": 0.97561,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.97561,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 106,
+        "end_line": 106,
+        "suspiciousness": 0.97561,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 543,
+        "end_line": 543,
+        "suspiciousness": 0.97561,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 172,
+        "end_line": 172,
+        "suspiciousness": 0.97561,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 65,
+        "end_line": 65,
+        "suspiciousness": 0.97561,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 66,
+        "end_line": 66,
+        "suspiciousness": 0.97561,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 67,
+        "end_line": 67,
+        "suspiciousness": 0.97561,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 68,
+        "end_line": 68,
+        "suspiciousness": 0.97561,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/common.py",
+        "start_line": 72,
+        "end_line": 72,
+        "suspiciousness": 0.97561,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/test_expressions.py::TestExpressions::test_frame_series_axis"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 102,
+      "end_line": 102,
+      "suspiciousness": 0.97561,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.97561,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 106,
+      "end_line": 106,
+      "suspiciousness": 0.97561,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 543,
+      "end_line": 543,
+      "suspiciousness": 0.97561,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 172,
+      "end_line": 172,
+      "suspiciousness": 0.97561,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 65,
+      "end_line": 65,
+      "suspiciousness": 0.97561,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 66,
+      "end_line": 66,
+      "suspiciousness": 0.97561,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 67,
+      "end_line": 67,
+      "suspiciousness": 0.97561,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 68,
+      "end_line": 68,
+      "suspiciousness": 0.97561,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/common.py",
+      "start_line": 72,
+      "end_line": 72,
+      "suspiciousness": 0.97561,
+      "rank": 10
+    }
+  ]
+}

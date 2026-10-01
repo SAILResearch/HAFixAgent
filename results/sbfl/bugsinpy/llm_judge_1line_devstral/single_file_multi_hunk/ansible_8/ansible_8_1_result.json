@@ -1,0 +1,191 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_8",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 15:13:49",
+      "end_time": "2026-06-30 15:21:21",
+      "duration_seconds": 452,
+      "duration_human": "7m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1190130,
+      "output_tokens": 24850,
+      "total_tokens": 1214980,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1190130
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py\nindex ee23147cc5..aa6dfafb31 100644\n--- a/lib/ansible/plugins/shell/powershell.py\n+++ b/lib/ansible/plugins/shell/powershell.py\n@@ -96,216 +96,11 @@ class ShellModule(ShellBase):\n         parts = []\n         for arg in args:\n             arg = self._unquote(arg).replace('/', '\\\\')\n-            parts.extend([a for a in arg.split('\\\\') if a])\n-        path = '\\\\'.join(parts)\n+            # Handle UNC paths (starting with \\\\) by preserving leading backslashes\n+            if arg.startswith('\\\\\\\\'):\n+                parts.append('')\n+            parts.extend([a for a in arg.split('\\\\\\\\') if a])\n+        path = '\\\\\\\\'.join(parts)\n         if path.startswith('~'):\n             return path\n         return path\n-\n-    def get_remote_filename(self, pathname):\n-        # powershell requires that script files end with .ps1\n-        base_name = os.path.basename(pathname.strip())\n-        name, ext = os.path.splitext(base_name.strip())\n-        if ext.lower() not in ['.ps1', '.exe']:\n-            return name + '.ps1'\n-\n-        return base_name.strip()\n-\n-    def path_has_trailing_slash(self, path):\n-        # Allow Windows paths to be specified using either slash.\n-        path = self._unquote(path)\n-        return path.endswith('/') or path.endswith('\\\\')\n-\n-    def chmod(self, paths, mode):\n-        raise NotImplementedError('chmod is not implemented for Powershell')\n-\n-    def chown(self, paths, user):\n-        raise NotImplementedError('chown is not implemented for Powershell')\n-\n-    def set_user_facl(self, paths, user, mode):\n-        raise NotImplementedError('set_user_facl is not implemented for Powershell')\n-\n-    def remove(self, path, recurse=False):\n-        path = self._escape(self._unquote(path))\n-        if recurse:\n-            return self._encode_script('''Remove-Item \"%s\" -Force -Recurse;''' % path)\n-        else:\n-            return self._encode_script('''Remove-Item \"%s\" -Force;''' % path)\n-\n-    def mkdtemp(self, basefile=None, system=False, mode=None, tmpdir=None):\n-        # Windows does not have an equivalent for the system temp files, so\n-        # the param is ignored\n-        basefile = self._escape(self._unquote(basefile))\n-        basetmpdir = tmpdir if tmpdir else self.get_option('remote_tmp')\n-\n-        script = '''\n-        $tmp_path = [System.Environment]::ExpandEnvironmentVariables('%s')\n-        $tmp = New-Item -Type Directory -Path $tmp_path -Name '%s'\n-        Write-Output -InputObject $tmp.FullName\n-        ''' % (basetmpdir, basefile)\n-        return self._encode_script(script.strip())\n-\n-    def expand_user(self, user_home_path, username=''):\n-        # PowerShell only supports \"~\" (not \"~username\").  Resolve-Path ~ does\n-        # not seem to work remotely, though by default we are always starting\n-        # in the user's home directory.\n-        user_home_path = self._unquote(user_home_path)\n-        if user_home_path == '~':\n-            script = 'Write-Output (Get-Location).Path'\n-        elif user_home_path.startswith('~\\\\'):\n-            script = 'Write-Output ((Get-Location).Path + \"%s\")' % self._escape(user_home_path[1:])\n-        else:\n-            script = 'Write-Output \"%s\"' % self._escape(user_home_path)\n-        return self._encode_script(script)\n-\n-    def exists(self, path):\n-        path = self._escape(self._unquote(path))\n-        script = '''\n-            If (Test-Path \"%s\")\n-            {\n-                $res = 0;\n-            }\n-            Else\n-            {\n-                $res = 1;\n-            }\n-            Write-Output \"$res\";\n-            Exit $res;\n-         ''' % path\n-        return self._encode_script(script)\n-\n-    def checksum(self, path, *args, **kwargs):\n-        path = self._escape(self._unquote(path))\n-        script = '''\n-            If (Test-Path -PathType Leaf \"%(path)s\")\n-            {\n-                $sp = new-object -TypeName System.Security.Cryptography.SHA1CryptoServiceProvider;\n-                $fp = [System.IO.File]::Open(\"%(path)s\", [System.IO.Filemode]::Open, [System.IO.FileAccess]::Read);\n-                [System.BitConverter]::ToString($sp.ComputeHash($fp)).Replace(\"-\", \"\").ToLower();\n-                $fp.Dispose();\n-            }\n-            ElseIf (Test-Path -PathType Container \"%(path)s\")\n-            {\n-                Write-Output \"3\";\n-            }\n-            Else\n-            {\n-                Write-Output \"1\";\n-            }\n-        ''' % dict(path=path)\n-        return self._encode_script(script)\n-\n-    def build_module_command(self, env_string, shebang, cmd, arg_path=None):\n-        bootstrap_wrapper = pkgutil.get_data(\"ansible.executor.powershell\", \"bootstrap_wrapper.ps1\")\n-\n-        # pipelining bypass\n-        if cmd == '':\n-            return self._encode_script(script=bootstrap_wrapper, strict_mode=False, preserve_rc=False)\n-\n-        # non-pipelining\n-\n-        cmd_parts = shlex.split(cmd, posix=False)\n-        cmd_parts = list(map(to_text, cmd_parts))\n-        if shebang and shebang.lower() == '#!powershell':\n-            if not self._unquote(cmd_parts[0]).lower().endswith('.ps1'):\n-                # we're running a module via the bootstrap wrapper\n-                cmd_parts[0] = '\"%s.ps1\"' % self._unquote(cmd_parts[0])\n-            wrapper_cmd = \"type \" + cmd_parts[0] + \" | \" + self._encode_script(script=bootstrap_wrapper, strict_mode=False, preserve_rc=False)\n-            return wrapper_cmd\n-        elif shebang and shebang.startswith('#!'):\n-            cmd_parts.insert(0, shebang[2:])\n-        elif not shebang:\n-            # The module is assumed to be a binary\n-            cmd_parts[0] = self._unquote(cmd_parts[0])\n-            cmd_parts.append(arg_path)\n-        script = '''\n-            Try\n-            {\n-                %s\n-                %s\n-            }\n-            Catch\n-            {\n-                $_obj = @{ failed = $true }\n-                If ($_.Exception.GetType)\n-                {\n-                    $_obj.Add('msg', $_.Exception.Message)\n-                }\n-                Else\n-                {\n-                    $_obj.Add('msg', $_.ToString())\n-                }\n-                If ($_.InvocationInfo.PositionMessage)\n-                {\n-                    $_obj.Add('exception', $_.InvocationInfo.PositionMessage)\n-                }\n-                ElseIf ($_.ScriptStackTrace)\n-                {\n-                    $_obj.Add('exception', $_.ScriptStackTrace)\n-                }\n-                Try\n-                {\n-                    $_obj.Add('error_record', ($_ | ConvertTo-Json | ConvertFrom-Json))\n-                }\n-                Catch\n-                {\n-                }\n-                Echo $_obj | ConvertTo-Json -Compress -Depth 99\n-                Exit 1\n-            }\n-        ''' % (env_string, ' '.join(cmd_parts))\n-        return self._encode_script(script, preserve_rc=False)\n-\n-    def wrap_for_exec(self, cmd):\n-        return '& %s; exit $LASTEXITCODE' % cmd\n-\n-    def _unquote(self, value):\n-        '''Remove any matching quotes that wrap the given value.'''\n-        value = to_text(value or '')\n-        m = re.match(r'^\\s*?\\'(.*?)\\'\\s*?$', value)\n-        if m:\n-            return m.group(1)\n-        m = re.match(r'^\\s*?\"(.*?)\"\\s*?$', value)\n-        if m:\n-            return m.group(1)\n-        return value\n-\n-    def _escape(self, value, include_vars=False):\n-        '''Return value escaped for use in PowerShell command.'''\n-        # http://www.techotopia.com/index.php/Windows_PowerShell_1.0_String_Quoting_and_Escape_Sequences\n-        # http://stackoverflow.com/questions/764360/a-list-of-string-replacements-in-python\n-        subs = [('\\n', '`n'), ('\\r', '`r'), ('\\t', '`t'), ('\\a', '`a'),\n-                ('\\b', '`b'), ('\\f', '`f'), ('\\v', '`v'), ('\"', '`\"'),\n-                ('\\'', '`\\''), ('`', '``'), ('\\x00', '`0')]\n-        if include_vars:\n-            subs.append(('$', '`$'))\n-        pattern = '|'.join('(%s)' % re.escape(p) for p, s in subs)\n-        substs = [s for p, s in subs]\n-\n-        def replace(m):\n-            return substs[m.lastindex - 1]\n-\n-        return re.sub(pattern, replace, value)\n-\n-    def _encode_script(self, script, as_list=False, strict_mode=True, preserve_rc=True):\n-        '''Convert a PowerShell script to a single base64-encoded command.'''\n-        script = to_text(script)\n-\n-        if script == u'-':\n-            cmd_parts = _common_args + ['-Command', '-']\n-\n-        else:\n-            if strict_mode:\n-                script = u'Set-StrictMode -Version Latest\\r\\n%s' % script\n-            # try to propagate exit code if present- won't work with begin/process/end-style scripts (ala put_file)\n-            # NB: the exit code returned may be incorrect in the case of a successful command followed by an invalid command\n-            if preserve_rc:\n-                script = u'%s\\r\\nIf (-not $?) { If (Get-Variable LASTEXITCODE -ErrorAction SilentlyContinue) { exit $LASTEXITCODE } Else { exit 1 } }\\r\\n'\\\n-                    % script\n-            script = '\\n'.join([x.strip() for x in script.splitlines() if x.strip()])\n-            encoded_script = to_text(base64.b64encode(script.encode('utf-16-le')), 'utf-8')\n-            cmd_parts = _common_args + ['-EncodedCommand', encoded_script]\n-\n-        if as_list:\n-            return cmd_parts\n-        return ' '.join(cmd_parts)\ndiff --git a/test/units/plugins/shell/test_powershell.py b/test/units/plugins/shell/test_powershell.py\nindex a73070c689..6da7ffd5e6 100644\n--- a/test/units/plugins/shell/test_powershell.py\n+++ b/test/units/plugins/shell/test_powershell.py\n@@ -1,4 +1,4 @@\n-from ansible.plugins.shell.powershell import _parse_clixml\n+from ansible.plugins.shell.powershell import _parse_clixml, ShellModule\n \n \n def test_parse_clixml_empty():\n@@ -51,3 +51,11 @@ def test_parse_clixml_multiple_streams():\n     expected = b\"hi info\"\n     actual = _parse_clixml(multiple_stream, stream=\"Info\")\n     assert actual == expected\n+\n+\n+def test_join_path_unc():\n+    pwsh = ShellModule()\n+    unc_path_parts = ['\\\\\\\\host\\\\share\\\\dir1\\\\\\\\dir2\\\\', '\\\\dir3/dir4', 'dir5', 'dir6\\\\']\n+    expected = '\\\\\\\\host\\\\share\\\\dir1\\\\dir2\\\\dir3\\\\dir4\\\\dir5\\\\dir6'\n+    actual = pwsh.join_path(*unc_path_parts)\n+    assert actual == expected\n"
+  },
+  "timestamp": "2026-06-30 15:21:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_8",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_8/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "Fix UNC path support in the powershell shell plugin (#66604)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 220,
+        "end_line": 220,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "lib/ansible/module_utils/_text.py",
+        "start_line": 221,
+        "end_line": 221,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "lib/ansible/plugins/__init__.py",
+        "start_line": 53,
+        "end_line": 53,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "lib/ansible/plugins/shell/__init__.py",
+        "start_line": 39,
+        "end_line": 39,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "lib/ansible/plugins/shell/__init__.py",
+        "start_line": 41,
+        "end_line": 41,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "lib/ansible/plugins/shell/__init__.py",
+        "start_line": 42,
+        "end_line": 42,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "lib/ansible/plugins/shell/__init__.py",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "lib/ansible/plugins/shell/powershell.py",
+        "start_line": 100,
+        "end_line": 100,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "lib/ansible/plugins/shell/powershell.py",
+        "start_line": 101,
+        "end_line": 101,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "lib/ansible/plugins/shell/powershell.py",
+        "start_line": 103,
+        "end_line": 103,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/plugins/shell/test_powershell.py::test_join_path_unc"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 220,
+      "end_line": 220,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "lib/ansible/module_utils/_text.py",
+      "start_line": 221,
+      "end_line": 221,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "lib/ansible/plugins/__init__.py",
+      "start_line": 53,
+      "end_line": 53,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "lib/ansible/plugins/shell/__init__.py",
+      "start_line": 39,
+      "end_line": 39,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "lib/ansible/plugins/shell/__init__.py",
+      "start_line": 41,
+      "end_line": 41,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "lib/ansible/plugins/shell/__init__.py",
+      "start_line": 42,
+      "end_line": 42,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "lib/ansible/plugins/shell/__init__.py",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "lib/ansible/plugins/shell/powershell.py",
+      "start_line": 100,
+      "end_line": 100,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "lib/ansible/plugins/shell/powershell.py",
+      "start_line": 101,
+      "end_line": 101,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "lib/ansible/plugins/shell/powershell.py",
+      "start_line": 103,
+      "end_line": 103,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

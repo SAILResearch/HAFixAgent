@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_83",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 06:12:13",
+      "end_time": "2026-06-26 06:39:45",
+      "duration_seconds": 1651,
+      "duration_human": "27m 31s"
+    },
+    "model_cost": 0.5133,
+    "model_calls": 35,
+    "token_usage": {
+      "input_tokens": 2336859,
+      "output_tokens": 72788,
+      "total_tokens": 2409647,
+      "cached_input_tokens": 546176,
+      "uncached_input_tokens": 1790683
+    },
+    "agent_steps": 35,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/_config/config.py b/pandas/_config/config.py\ndeleted file mode 100644\nindex cacd6f5454..0000000000\n--- a/pandas/_config/config.py\n+++ /dev/null\n@@ -1,889 +0,0 @@\n-\"\"\"\n-The config module holds package-wide configurables and provides\n-a uniform API for working with them.\n-\n-Overview\n-========\n-\n-This module supports the following requirements:\n-- options are referenced using keys in dot.notation, e.g. \"x.y.option - z\".\n-- keys are case-insensitive.\n-- functions should accept partial/regex keys, when unambiguous.\n-- options can be registered by modules at import time.\n-- options can be registered at init-time (via core.config_init)\n-- options have a default value, and (optionally) a description and\n-  validation function associated with them.\n-- options can be deprecated, in which case referencing them\n-  should produce a warning.\n-- deprecated options can optionally be rerouted to a replacement\n-  so that accessing a deprecated option reroutes to a differently\n-  named option.\n-- options can be reset to their default value.\n-- all option can be reset to their default value at once.\n-- all options in a certain sub - namespace can be reset at once.\n-- the user can set / get / reset or ask for the description of an option.\n-- a developer can register and mark an option as deprecated.\n-- you can register a callback to be invoked when the option value\n-  is set or reset. Changing the stored value is considered misuse, but\n-  is not verboten.\n-\n-Implementation\n-==============\n-\n-- Data is stored using nested dictionaries, and should be accessed\n-  through the provided API.\n-\n-- \"Registered options\" and \"Deprecated options\" have metadata associated\n-  with them, which are stored in auxiliary dictionaries keyed on the\n-  fully-qualified key, e.g. \"x.y.z.option\".\n-\n-- the config_init module is imported by the package's __init__.py file.\n-  placing any register_option() calls there will ensure those options\n-  are available as soon as pandas is loaded. If you use register_option\n-  in a module, it will only be available after that module is imported,\n-  which you should be aware of.\n-\n-- `config_prefix` is a context_manager (for use with the `with` keyword)\n-  which can save developers some typing, see the docstring.\n-\n-\"\"\"\n-\n-from collections import namedtuple\n-from contextlib import contextmanager\n-import re\n-from typing import (\n-    Any,\n-    Callable,\n-    Dict,\n-    Iterable,\n-    List,\n-    Optional,\n-    Tuple,\n-    Type,\n-    TypeVar,\n-    cast,\n-)\n-import warnings\n-\n-DeprecatedOption = namedtuple(\"DeprecatedOption\", \"key msg rkey removal_ver\")\n-RegisteredOption = namedtuple(\"RegisteredOption\", \"key defval doc validator cb\")\n-\n-# holds deprecated option metadata\n-_deprecated_options: Dict[str, DeprecatedOption] = {}\n-\n-# holds registered option metadata\n-_registered_options: Dict[str, RegisteredOption] = {}\n-\n-# holds the current values for registered options\n-_global_config: Dict[str, Any] = {}\n-\n-# keys which have a special meaning\n-_reserved_keys: List[str] = [\"all\"]\n-\n-\n-class OptionError(AttributeError, KeyError):\n-    \"\"\"Exception for pandas.options, backwards compatible with KeyError\n-    checks\n-    \"\"\"\n-\n-\n-#\n-# User API\n-\n-\n-def _get_single_key(pat: str, silent: bool) -> str:\n-    keys = _select_options(pat)\n-    if len(keys) == 0:\n-        if not silent:\n-            _warn_if_deprecated(pat)\n-        raise OptionError(f\"No such keys(s): {repr(pat)}\")\n-    if len(keys) > 1:\n-        raise OptionError(\"Pattern matched multiple keys\")\n-    key = keys[0]\n-\n-    if not silent:\n-        _warn_if_deprecated(key)\n-\n-    key = _translate_key(key)\n-\n-    return key\n-\n-\n-def _get_option(pat: str, silent: bool = False):\n-    key = _get_single_key(pat, silent)\n-\n-    # walk the nested dict\n-    root, k = _get_root(key)\n-    return root[k]\n-\n-\n-def _set_option(*args, **kwargs) -> None:\n-    # must at least 1 arg deal with constraints later\n-    nargs = len(args)\n-    if not nargs or nargs % 2 != 0:\n-        raise ValueError(\"Must provide an even number of non-keyword arguments\")\n-\n-    # default to false\n-    silent = kwargs.pop(\"silent\", False)\n-\n-    if kwargs:\n-        kwarg = list(kwargs.keys())[0]\n-        raise TypeError(f'_set_option() got an unexpected keyword argument \"{kwarg}\"')\n-\n-    for k, v in zip(args[::2], args[1::2]):\n-        key = _get_single_key(k, silent)\n-\n-        o = _get_registered_option(key)\n-        if o and o.validator:\n-            o.validator(v)\n-\n-        # walk the nested dict\n-        root, k = _get_root(key)\n-        root[k] = v\n-\n-        if o.cb:\n-            if silent:\n-                with warnings.catch_warnings(record=True):\n-                    o.cb(key)\n-            else:\n-                o.cb(key)\n-\n-\n-def _describe_option(pat: str = \"\", _print_desc: bool = True):\n-\n-    keys = _select_options(pat)\n-    if len(keys) == 0:\n-        raise OptionError(\"No such keys(s)\")\n-\n-    s = \"\"\n-    for k in keys:  # filter by pat\n-        s += _build_option_description(k)\n-\n-    if _print_desc:\n-        print(s)\n-    else:\n-        return s\n-\n-\n-def _reset_option(pat: str, silent: bool = False) -> None:\n-\n-    keys = _select_options(pat)\n-\n-    if len(keys) == 0:\n-        raise OptionError(\"No such keys(s)\")\n-\n-    if len(keys) > 1 and len(pat) < 4 and pat != \"all\":\n-        raise ValueError(\n-            \"You must specify at least 4 characters when \"\n-            \"resetting multiple keys, use the special keyword \"\n-            '\"all\" to reset all the options to their default value'\n-        )\n-\n-    for k in keys:\n-        _set_option(k, _registered_options[k].defval, silent=silent)\n-\n-\n-def get_default_val(pat: str):\n-    key = _get_single_key(pat, silent=True)\n-    return _get_registered_option(key).defval\n-\n-\n-class DictWrapper:\n-    \"\"\" provide attribute-style access to a nested dict\"\"\"\n-\n-    def __init__(self, d: Dict[str, Any], prefix: str = \"\"):\n-        object.__setattr__(self, \"d\", d)\n-        object.__setattr__(self, \"prefix\", prefix)\n-\n-    def __setattr__(self, key: str, val: Any) -> None:\n-        prefix = object.__getattribute__(self, \"prefix\")\n-        if prefix:\n-            prefix += \".\"\n-        prefix += key\n-        # you can't set new keys\n-        # can you can't overwrite subtrees\n-        if key in self.d and not isinstance(self.d[key], dict):\n-            _set_option(prefix, val)\n-        else:\n-            raise OptionError(\"You can only set the value of existing options\")\n-\n-    def __getattr__(self, key: str):\n-        prefix = object.__getattribute__(self, \"prefix\")\n-        if prefix:\n-            prefix += \".\"\n-        prefix += key\n-        try:\n-            v = object.__getattribute__(self, \"d\")[key]\n-        except KeyError:\n-            raise OptionError(\"No such option\")\n-        if isinstance(v, dict):\n-            return DictWrapper(v, prefix)\n-        else:\n-            return _get_option(prefix)\n-\n-    def __dir__(self) -> Iterable[str]:\n-        return list(self.d.keys())\n-\n-\n-# For user convenience,  we'd like to have the available options described\n-# in the docstring. For dev convenience we'd like to generate the docstrings\n-# dynamically instead of maintaining them by hand. To this, we use the\n-# class below which wraps functions inside a callable, and converts\n-# __doc__ into a property function. The doctsrings below are templates\n-# using the py2.6+ advanced formatting syntax to plug in a concise list\n-# of options, and option descriptions.\n-\n-\n-class CallableDynamicDoc:\n-    def __init__(self, func, doc_tmpl):\n-        self.__doc_tmpl__ = doc_tmpl\n-        self.__func__ = func\n-\n-    def __call__(self, *args, **kwds):\n-        return self.__func__(*args, **kwds)\n-\n-    @property\n-    def __doc__(self):\n-        opts_desc = _describe_option(\"all\", _print_desc=False)\n-        opts_list = pp_options_list(list(_registered_options.keys()))\n-        return self.__doc_tmpl__.format(opts_desc=opts_desc, opts_list=opts_list)\n-\n-\n-_get_option_tmpl = \"\"\"\n-get_option(pat)\n-\n-Retrieves the value of the specified option.\n-\n-Available options:\n-\n-{opts_list}\n-\n-Parameters\n-----------\n-pat : str\n-    Regexp which should match a single option.\n-    Note: partial matches are supported for convenience, but unless you use the\n-    full option name (e.g. x.y.z.option_name), your code may break in future\n-    versions if new options with similar names are introduced.\n-\n-Returns\n--------\n-result : the value of the option\n-\n-Raises\n-------\n-OptionError : if no such option exists\n-\n-Notes\n------\n-The available options with its descriptions:\n-\n-{opts_desc}\n-\"\"\"\n-\n-_set_option_tmpl = \"\"\"\n-set_option(pat, value)\n-\n-Sets the value of the specified option.\n-\n-Available options:\n-\n-{opts_list}\n-\n-Parameters\n-----------\n-pat : str\n-    Regexp which should match a single option.\n-    Note: partial matches are supported for convenience, but unless you use the\n-    full option name (e.g. x.y.z.option_name), your code may break in future\n-    versions if new options with similar names are introduced.\n-value : object\n-    New value of option.\n-\n-Returns\n--------\n-None\n-\n-Raises\n-------\n-OptionError if no such option exists\n-\n-Notes\n------\n-The available options with its descriptions:\n-\n-{opts_desc}\n-\"\"\"\n-\n-_describe_option_tmpl = \"\"\"\n-describe_option(pat, _print_desc=False)\n-\n-Prints the description for one or more registered options.\n-\n-Call with not arguments to get a listing for all registered options.\n-\n-Available options:\n-\n-{opts_list}\n-\n-Parameters\n-----------\n-pat : str\n-    Regexp pattern. All matching keys will have their description displayed.\n-_print_desc : bool, default True\n-    If True (default) the description(s) will be printed to stdout.\n-    Otherwise, the description(s) will be returned as a unicode string\n-    (for testing).\n-\n-Returns\n--------\n-None by default, the description(s) as a unicode string if _print_desc\n-is False\n-\n-Notes\n------\n-The available options with its descriptions:\n-\n-{opts_desc}\n-\"\"\"\n-\n-_reset_option_tmpl = \"\"\"\n-reset_option(pat)\n-\n-Reset one or more options to their default value.\n-\n-Pass \"all\" as argument to reset all options.\n-\n-Available options:\n-\n-{opts_list}\n-\n-Parameters\n-----------\n-pat : str/regex\n-    If specified only options matching `prefix*` will be reset.\n-    Note: partial matches are supported for convenience, but unless you\n-    use the full option name (e.g. x.y.z.option_name), your code may break\n-    in future versions if new options with similar names are introduced.\n-\n-Returns\n--------\n-None\n-\n-Notes\n------\n-The available options with its descriptions:\n-\n-{opts_desc}\n-\"\"\"\n-\n-# bind the functions with their docstrings into a Callable\n-# and use that as the functions exposed in pd.api\n-get_option = CallableDynamicDoc(_get_option, _get_option_tmpl)\n-set_option = CallableDynamicDoc(_set_option, _set_option_tmpl)\n-reset_option = CallableDynamicDoc(_reset_option, _reset_option_tmpl)\n-describe_option = CallableDynamicDoc(_describe_option, _describe_option_tmpl)\n-options = DictWrapper(_global_config)\n-\n-#\n-# Functions for use by pandas developers, in addition to User - api\n-\n-\n-class option_context:\n-    \"\"\"\n-    Context manager to temporarily set options in the `with` statement context.\n-\n-    You need to invoke as ``option_context(pat, val, [(pat, val), ...])``.\n-\n-    Examples\n-    --------\n-\n-    >>> with option_context('display.max_rows', 10, 'display.max_columns', 5):\n-    ...     ...\n-    \"\"\"\n-\n-    def __init__(self, *args):\n-        if not (len(args) % 2 == 0 and len(args) >= 2):\n-            raise ValueError(\n-                \"Need to invoke as option_context(pat, val, [(pat, val), ...]).\"\n-            )\n-\n-        self.ops = list(zip(args[::2], args[1::2]))\n-\n-    def __enter__(self):\n-        self.undo = [(pat, _get_option(pat, silent=True)) for pat, val in self.ops]\n-\n-        for pat, val in self.ops:\n-            _set_option(pat, val, silent=True)\n-\n-    def __exit__(self, *args):\n-        if self.undo:\n-            for pat, val in self.undo:\n-                _set_option(pat, val, silent=True)\n-\n-\n-def register_option(\n-    key: str,\n-    defval: object,\n-    doc: str = \"\",\n-    validator: Optional[Callable[[Any], Any]] = None,\n-    cb: Optional[Callable[[str], Any]] = None,\n-) -> None:\n-    \"\"\"\n-    Register an option in the package-wide pandas config object\n-\n-    Parameters\n-    ----------\n-    key : str\n-        Fully-qualified key, e.g. \"x.y.option - z\".\n-    defval : object\n-        Default value of the option.\n-    doc : str\n-        Description of the option.\n-    validator : Callable, optional\n-        Function of a single argument, should raise `ValueError` if\n-        called with a value which is not a legal value for the option.\n-    cb\n-        a function of a single argument \"key\", which is called\n-        immediately after an option value is set/reset. key is\n-        the full name of the option.\n-\n-    Raises\n-    ------\n-    ValueError if `validator` is specified and `defval` is not a valid value.\n-\n-    \"\"\"\n-    import tokenize\n-    import keyword\n-\n-    key = key.lower()\n-\n-    if key in _registered_options:\n-        raise OptionError(f\"Option '{key}' has already been registered\")\n-    if key in _reserved_keys:\n-        raise OptionError(f\"Option '{key}' is a reserved key\")\n-\n-    # the default value should be legal\n-    if validator:\n-        validator(defval)\n-\n-    # walk the nested dict, creating dicts as needed along the path\n-    path = key.split(\".\")\n-\n-    for k in path:\n-        # NOTE: tokenize.Name is not a public constant\n-        # error: Module has no attribute \"Name\"  [attr-defined]\n-        if not re.match(\"^\" + tokenize.Name + \"$\", k):  # type: ignore\n-            raise ValueError(f\"{k} is not a valid identifier\")\n-        if keyword.iskeyword(k):\n-            raise ValueError(f\"{k} is a python keyword\")\n-\n-    cursor = _global_config\n-    msg = \"Path prefix to option '{option}' is already an option\"\n-\n-    for i, p in enumerate(path[:-1]):\n-        if not isinstance(cursor, dict):\n-            raise OptionError(msg.format(option=\".\".join(path[:i])))\n-        if p not in cursor:\n-            cursor[p] = {}\n-        cursor = cursor[p]\n-\n-    if not isinstance(cursor, dict):\n-        raise OptionError(msg.format(option=\".\".join(path[:-1])))\n-\n-    cursor[path[-1]] = defval  # initialize\n-\n-    # save the option metadata\n-    _registered_options[key] = RegisteredOption(\n-        key=key, defval=defval, doc=doc, validator=validator, cb=cb\n-    )\n-\n-\n-def deprecate_option(\n-    key: str, msg: Optional[str] = None, rkey: Optional[str] = None, removal_ver=None\n-) -> None:\n-    \"\"\"\n-    Mark option `key` as deprecated, if code attempts to access this option,\n-    a warning will be produced, using `msg` if given, or a default message\n-    if not.\n-    if `rkey` is given, any access to the key will be re-routed to `rkey`.\n-\n-    Neither the existence of `key` nor that if `rkey` is checked. If they\n-    do not exist, any subsequence access will fail as usual, after the\n-    deprecation warning is given.\n-\n-    Parameters\n-    ----------\n-    key : str\n-        Name of the option to be deprecated.\n-        must be a fully-qualified option name (e.g \"x.y.z.rkey\").\n-    msg : str, optional\n-        Warning message to output when the key is referenced.\n-        if no message is given a default message will be emitted.\n-    rkey : str, optional\n-        Name of an option to reroute access to.\n-        If specified, any referenced `key` will be\n-        re-routed to `rkey` including set/get/reset.\n-        rkey must be a fully-qualified option name (e.g \"x.y.z.rkey\").\n-        used by the default message if no `msg` is specified.\n-    removal_ver : optional\n-        Specifies the version in which this option will\n-        be removed. used by the default message if no `msg` is specified.\n-\n-    Raises\n-    ------\n-    OptionError\n-        If the specified key has already been deprecated.\n-    \"\"\"\n-    key = key.lower()\n-\n-    if key in _deprecated_options:\n-        raise OptionError(f\"Option '{key}' has already been defined as deprecated.\")\n-\n-    _deprecated_options[key] = DeprecatedOption(key, msg, rkey, removal_ver)\n-\n-\n-#\n-# functions internal to the module\n-\n-\n-def _select_options(pat: str) -> List[str]:\n-    \"\"\"returns a list of keys matching `pat`\n-\n-    if pat==\"all\", returns all registered options\n-    \"\"\"\n-\n-    # short-circuit for exact key\n-    if pat in _registered_options:\n-        return [pat]\n-\n-    # else look through all of them\n-    keys = sorted(_registered_options.keys())\n-    if pat == \"all\":  # reserved key\n-        return keys\n-\n-    return [k for k in keys if re.search(pat, k, re.I)]\n-\n-\n-def _get_root(key: str) -> Tuple[Dict[str, Any], str]:\n-    path = key.split(\".\")\n-    cursor = _global_config\n-    for p in path[:-1]:\n-        cursor = cursor[p]\n-    return cursor, path[-1]\n-\n-\n-def _is_deprecated(key: str) -> bool:\n-    \"\"\" Returns True if the given option has been deprecated \"\"\"\n-\n-    key = key.lower()\n-    return key in _deprecated_options\n-\n-\n-def _get_deprecated_option(key: str):\n-    \"\"\"\n-    Retrieves the metadata for a deprecated option, if `key` is deprecated.\n-\n-    Returns\n-    -------\n-    DeprecatedOption (namedtuple) if key is deprecated, None otherwise\n-    \"\"\"\n-\n-    try:\n-        d = _deprecated_options[key]\n-    except KeyError:\n-        return None\n-    else:\n-        return d\n-\n-\n-def _get_registered_option(key: str):\n-    \"\"\"\n-    Retrieves the option metadata if `key` is a registered option.\n-\n-    Returns\n-    -------\n-    RegisteredOption (namedtuple) if key is deprecated, None otherwise\n-    \"\"\"\n-    return _registered_options.get(key)\n-\n-\n-def _translate_key(key: str) -> str:\n-    \"\"\"\n-    if key id deprecated and a replacement key defined, will return the\n-    replacement key, otherwise returns `key` as - is\n-    \"\"\"\n-\n-    d = _get_deprecated_option(key)\n-    if d:\n-        return d.rkey or key\n-    else:\n-        return key\n-\n-\n-def _warn_if_deprecated(key: str) -> bool:\n-    \"\"\"\n-    Checks if `key` is a deprecated option and if so, prints a warning.\n-\n-    Returns\n-    -------\n-    bool - True if `key` is deprecated, False otherwise.\n-    \"\"\"\n-\n-    d = _get_deprecated_option(key)\n-    if d:\n-        if d.msg:\n-            print(d.msg)\n-            warnings.warn(d.msg, FutureWarning)\n-        else:\n-            msg = f\"'{key}' is deprecated\"\n-            if d.removal_ver:\n-                msg += f\" and will be removed in {d.removal_ver}\"\n-            if d.rkey:\n-                msg += f\", please use '{d.rkey}' instead.\"\n-            else:\n-                msg += \", please refrain from using it.\"\n-\n-            warnings.warn(msg, FutureWarning)\n-        return True\n-    return False\n-\n-\n-def _build_option_description(k: str) -> str:\n-    \"\"\" Builds a formatted description of a registered option and prints it \"\"\"\n-\n-    o = _get_registered_option(k)\n-    d = _get_deprecated_option(k)\n-\n-    s = f\"{k} \"\n-\n-    if o.doc:\n-        s += \"\\n\".join(o.doc.strip().split(\"\\n\"))\n-    else:\n-        s += \"No description available.\"\n-\n-    if o:\n-        s += f\"\\n    [default: {o.defval}] [currently: {_get_option(k, True)}]\"\n-\n-    if d:\n-        rkey = d.rkey if d.rkey else \"\"\n-        s += \"\\n    (Deprecated\"\n-        s += f\", use `{rkey}` instead.\"\n-        s += \")\"\n-\n-    return s\n-\n-\n-def pp_options_list(keys: Iterable[str], width=80, _print: bool = False):\n-    \"\"\" Builds a concise listing of available options, grouped by prefix \"\"\"\n-\n-    from textwrap import wrap\n-    from itertools import groupby\n-\n-    def pp(name: str, ks: Iterable[str]) -> List[str]:\n-        pfx = \"- \" + name + \".[\" if name else \"\"\n-        ls = wrap(\n-            \", \".join(ks),\n-            width,\n-            initial_indent=pfx,\n-            subsequent_indent=\"  \",\n-            break_long_words=False,\n-        )\n-        if ls and ls[-1] and name:\n-            ls[-1] = ls[-1] + \"]\"\n-        return ls\n-\n-    ls: List[str] = []\n-    singles = [x for x in sorted(keys) if x.find(\".\") < 0]\n-    if singles:\n-        ls += pp(\"\", singles)\n-    keys = [x for x in keys if x.find(\".\") >= 0]\n-\n-    for k, g in groupby(sorted(keys), lambda x: x[: x.rfind(\".\")]):\n-        ks = [x[len(k) + 1 :] for x in list(g)]\n-        ls += pp(k, ks)\n-    s = \"\\n\".join(ls)\n-    if _print:\n-        print(s)\n-    else:\n-        return s\n-\n-\n-#\n-# helpers\n-\n-FuncType = Callable[..., Any]\n-F = TypeVar(\"F\", bound=FuncType)\n-\n-\n-@contextmanager\n-def config_prefix(prefix):\n-    \"\"\"contextmanager for multiple invocations of API with a common prefix\n-\n-    supported API functions: (register / get / set )__option\n-\n-    Warning: This is not thread - safe, and won't work properly if you import\n-    the API functions into your module using the \"from x import y\" construct.\n-\n-    Example:\n-\n-    import pandas._config.config as cf\n-    with cf.config_prefix(\"display.font\"):\n-        cf.register_option(\"color\", \"red\")\n-        cf.register_option(\"size\", \" 5 pt\")\n-        cf.set_option(size, \" 6 pt\")\n-        cf.get_option(size)\n-        ...\n-\n-        etc'\n-\n-    will register options \"display.font.color\", \"display.font.size\", set the\n-    value of \"display.font.size\"... and so on.\n-    \"\"\"\n-\n-    # Note: reset_option relies on set_option, and on key directly\n-    # it does not fit in to this monkey-patching scheme\n-\n-    global register_option, get_option, set_option, reset_option\n-\n-    def wrap(func: F) -> F:\n-        def inner(key: str, *args, **kwds):\n-            pkey = f\"{prefix}.{key}\"\n-            return func(pkey, *args, **kwds)\n-\n-        return cast(F, inner)\n-\n-    _register_option = register_option\n-    _get_option = get_option\n-    _set_option = set_option\n-    set_option = wrap(set_option)\n-    get_option = wrap(get_option)\n-    register_option = wrap(register_option)\n-    yield None\n-    set_option = _set_option\n-    get_option = _get_option\n-    register_option = _register_option\n-\n-\n-# These factories and methods are handy for use as the validator\n-# arg in register_option\n-\n-\n-def is_type_factory(_type: Type[Any]) -> Callable[[Any], None]:\n-    \"\"\"\n-\n-    Parameters\n-    ----------\n-    `_type` - a type to be compared against (e.g. type(x) == `_type`)\n-\n-    Returns\n-    -------\n-    validator - a function of a single argument x , which raises\n-                ValueError if type(x) is not equal to `_type`\n-\n-    \"\"\"\n-\n-    def inner(x) -> None:\n-        if type(x) != _type:\n-            raise ValueError(f\"Value must have type '{_type}'\")\n-\n-    return inner\n-\n-\n-def is_instance_factory(_type) -> Callable[[Any], None]:\n-    \"\"\"\n-\n-    Parameters\n-    ----------\n-    `_type` - the type to be checked against\n-\n-    Returns\n-    -------\n-    validator - a function of a single argument x , which raises\n-                ValueError if x is not an instance of `_type`\n-\n-    \"\"\"\n-\n-    if isinstance(_type, (tuple, list)):\n-        _type = tuple(_type)\n-        type_repr = \"|\".join(map(str, _type))\n-    else:\n-        type_repr = f\"'{_type}'\"\n-\n-    def inner(x) -> None:\n-        if not isinstance(x, _type):\n-            raise ValueError(f\"Value must be an instance of {type_repr}\")\n-\n-    return inner\n-\n-\n-def is_one_of_factory(legal_values) -> Callable[[Any], None]:\n-\n-    callables = [c for c in legal_values if callable(c)]\n-    legal_values = [c for c in legal_values if not callable(c)]\n-\n-    def inner(x) -> None:\n-        if x not in legal_values:\n-\n-            if not any(c(x) for c in callables):\n-                uvals = [str(lval) for lval in legal_values]\n-                pp_values = \"|\".join(uvals)\n-                msg = f\"Value must be one of {pp_values}\"\n-                if len(callables):\n-                    msg += \" or a callable\"\n-                raise ValueError(msg)\n-\n-    return inner\n-\n-\n-def is_nonnegative_int(value: Optional[int]) -> None:\n-    \"\"\"\n-    Verify that value is None or a positive int.\n-\n-    Parameters\n-    ----------\n-    value : None or int\n-            The `value` to be checked.\n-\n-    Raises\n-    ------\n-    ValueError\n-        When the value is not None or is a negative integer\n-    \"\"\"\n-\n-    if value is None:\n-        return\n-\n-    elif isinstance(value, int):\n-        if value >= 0:\n-            return\n-\n-    msg = \"Value must be a nonnegative integer or None\"\n-    raise ValueError(msg)\n-\n-\n-# common type validators, for convenience\n-# usage: register_option(... , validator = is_int)\n-is_int = is_type_factory(int)\n-is_bool = is_type_factory(bool)\n-is_float = is_type_factory(float)\n-is_str = is_type_factory(str)\n-is_text = is_instance_factory((str, bytes))\n-\n-\n-def is_callable(obj) -> bool:\n-    \"\"\"\n-\n-    Parameters\n-    ----------\n-    `obj` - the object to be checked\n-\n-    Returns\n-    -------\n-    validator - returns True if object is callable\n-        raises ValueError otherwise.\n-\n-    \"\"\"\n-    if not callable(obj):\n-        raise ValueError(\"Value must be a callable\")\n-    return True\ndiff --git a/pandas/tests/reshape/test_concat.py b/pandas/tests/reshape/test_concat.py\nindex b3b2c5a05c..5811f3bc19 100644\n--- a/pandas/tests/reshape/test_concat.py\n+++ b/pandas/tests/reshape/test_concat.py\n@@ -2750,3 +2750,17 @@ def test_concat_sparse():\n     )\n     result = pd.concat([a, a], axis=1)\n     tm.assert_frame_equal(result, expected)\n+\n+\n+@pytest.mark.parametrize(\"test_series\", [True, False])\n+def test_concat_copy_index(test_series, axis):\n+    # GH 29879\n+    if test_series:\n+        ser = Series([1, 2])\n+        comb = concat([ser, ser], axis=axis, copy=True)\n+        assert comb.index is not ser.index\n+    else:\n+        df = DataFrame([[1, 2], [3, 4]], columns=[\"a\", \"b\"])\n+        comb = concat([df, df], axis=axis, copy=True)\n+        assert comb.index is not df.index\n+        assert comb.columns is not df.columns\n"
+  },
+  "timestamp": "2026-06-26 06:39:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_83",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_83/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: concat not copying index and columns when copy=True (#31119)",
+    "fault_locations": [
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 406,
+        "end_line": 406,
+        "suspiciousness": 0.983607,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 411,
+        "end_line": 411,
+        "suspiciousness": 0.983607,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 414,
+        "end_line": 414,
+        "suspiciousness": 0.983607,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 416,
+        "end_line": 416,
+        "suspiciousness": 0.983607,
+        "rank": 4
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 417,
+        "end_line": 417,
+        "suspiciousness": 0.983607,
+        "rank": 5
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 420,
+        "end_line": 420,
+        "suspiciousness": 0.983607,
+        "rank": 6
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 421,
+        "end_line": 421,
+        "suspiciousness": 0.983607,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 422,
+        "end_line": 422,
+        "suspiciousness": 0.983607,
+        "rank": 8
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 854,
+        "end_line": 854,
+        "suspiciousness": 0.983607,
+        "rank": 9
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 857,
+        "end_line": 857,
+        "suspiciousness": 0.983607,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/test_concat.py::test_concat_copy_index"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 406,
+      "end_line": 406,
+      "suspiciousness": 0.983607,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 411,
+      "end_line": 411,
+      "suspiciousness": 0.983607,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 414,
+      "end_line": 414,
+      "suspiciousness": 0.983607,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 416,
+      "end_line": 416,
+      "suspiciousness": 0.983607,
+      "rank": 4
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 417,
+      "end_line": 417,
+      "suspiciousness": 0.983607,
+      "rank": 5
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 420,
+      "end_line": 420,
+      "suspiciousness": 0.983607,
+      "rank": 6
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 421,
+      "end_line": 421,
+      "suspiciousness": 0.983607,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 422,
+      "end_line": 422,
+      "suspiciousness": 0.983607,
+      "rank": 8
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 854,
+      "end_line": 854,
+      "suspiciousness": 0.983607,
+      "rank": 9
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 857,
+      "end_line": 857,
+      "suspiciousness": 0.983607,
+      "rank": 10
+    }
+  ]
+}

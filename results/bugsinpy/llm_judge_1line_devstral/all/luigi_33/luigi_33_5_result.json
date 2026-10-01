@@ -1,0 +1,58 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_33",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 20:44:17",
+      "end_time": "2026-06-27 20:45:13",
+      "duration_seconds": 56,
+      "duration_human": "56.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 446756,
+      "output_tokens": 2607,
+      "total_tokens": 449363,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 446756
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/test/parameter_test.py b/test/parameter_test.py\nindex b3d5f68b..66b2f105 100644\n--- a/test/parameter_test.py\n+++ b/test/parameter_test.py\n@@ -279,11 +279,32 @@ class ParameterTest(unittest.TestCase):\n         t1 = InsignificantParameterTask(foo='x', bar='y')\n         self.assertEqual(t1.task_id, 'InsignificantParameterTask(bar=y)')\n \n-        t2 = InsignificantParameterTask('z')\n-        self.assertEqual(t2.foo, 'foo_default')\n+        t2 = InsignificantParameterTask('u', 'z')\n+        self.assertEqual(t2.foo, 'u')\n         self.assertEqual(t2.bar, 'z')\n         self.assertEqual(t2.task_id, 'InsignificantParameterTask(bar=z)')\n \n+    def test_local_significant_param(self):\n+        \"\"\" Obviously, if anything should be positional, so should local\n+        significant parameters \"\"\"\n+        class MyTask(luigi.Task):\n+            # This could typically be \"--label-company=disney\"\n+            x = luigi.Parameter(significant=True)\n+\n+        MyTask('arg')\n+        self.assertRaises(luigi.parameter.MissingParameterException,\n+                          lambda: MyTask())\n+\n+    def test_local_insignificant_param(self):\n+        \"\"\" Ensure we have the same behavior as in before a78338c  \"\"\"\n+        class MyTask(luigi.Task):\n+            # This could typically be \"--num-threads=True\"\n+            x = luigi.Parameter(significant=False)\n+\n+        MyTask('arg')\n+        self.assertRaises(luigi.parameter.MissingParameterException,\n+                          lambda: MyTask())\n+\n \n class TestNewStyleGlobalParameters(unittest.TestCase):\n \n@@ -346,7 +367,6 @@ class TestRemoveGlobalParameters(unittest.TestCase):\n         self.assertTrue(run_exit_status)\n         return run_exit_status\n \n-\n     def test_use_config_class_1(self):\n         self.run_and_check(['--MyConfig-mc-p', '99', '--mc-r', '55', 'NoopTask'])\n         self.assertEqual(MyConfig().mc_p, 99)\n@@ -399,6 +419,56 @@ class TestRemoveGlobalParameters(unittest.TestCase):\n         self.assertEqual(Dogs().n_dogs, 654)\n         self.assertEqual(CatsWithoutSection().n_cats, 321)\n \n+    def test_global_significant_param(self):\n+        \"\"\" We don't want any kind of global param to be positional \"\"\"\n+        class MyTask(luigi.Task):\n+            # This could typically be called \"--test-dry-run\"\n+            x_g1 = luigi.Parameter(default='y', is_global=True, significant=True)\n+\n+        self.assertRaises(luigi.parameter.UnknownParameterException,\n+                          lambda: MyTask('arg'))\n+\n+    def test_global_insignificant_param(self):\n+        \"\"\" We don't want any kind of global param to be positional \"\"\"\n+        class MyTask(luigi.Task):\n+            # This could typically be \"--yarn-pool=development\"\n+            x_g2 = luigi.Parameter(default='y', is_global=True, significant=False)\n+\n+        self.assertRaises(luigi.parameter.UnknownParameterException,\n+                          lambda: MyTask('arg'))\n+\n+    def test_mixed_params(self):\n+        \"\"\" Essentially for what broke in a78338c and was reported in #738 \"\"\"\n+        class MyTask(luigi.Task):\n+            # This could typically be \"--num-threads=True\"\n+            x_g3 = luigi.Parameter(default='y', is_global=True)\n+            local_param = luigi.Parameter()\n+\n+        MyTask('setting_local_param')\n+\n+    def test_mixed_params_inheritence(self):\n+        \"\"\" A slightly more real-world like test case \"\"\"\n+        class TaskWithOneGlobalParam(luigi.Task):\n+            non_positional_param = luigi.Parameter(default='y', is_global=True)\n+\n+        class TaskWithOnePositionalParam(TaskWithOneGlobalParam):\n+            \"\"\" Try to mess with positional parameters by subclassing \"\"\"\n+            only_positional_param = luigi.Parameter()\n+\n+            def complete(self):\n+                return True\n+\n+        class PositionalParamsRequirer(luigi.Task):\n+\n+            def requires(self):\n+                return TaskWithOnePositionalParam('only_positional_value')\n+\n+            def run(self):\n+                pass\n+\n+        self.run_and_check(['PositionalParamsRequirer'])\n+        self.run_and_check(['PositionalParamsRequirer', '--non-positional-param', 'z'])\n+\n \n class TestParamWithDefaultFromConfig(unittest.TestCase):\n \n"
+  },
+  "timestamp": "2026-06-27 20:45:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_33",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_33/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Positional params: revert behavior to a78338c^",
+    "fault_locations": [
+      {
+        "file": "luigi/task.py",
+        "start_line": 334,
+        "end_line": 334,
+        "function_name": "get_param_values",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/parameter_test.py::ParameterTest::test_local_insignificant_param",
+      "pytest test/parameter_test.py::TestRemoveGlobalParameters::test_global_significant_param",
+      "pytest test/parameter_test.py::TestRemoveGlobalParameters::test_mixed_params",
+      "pytest test/parameter_test.py::TestRemoveGlobalParameters::test_mixed_params_inheritence"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

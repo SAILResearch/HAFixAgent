@@ -7,6 +7,24 @@ from datetime import datetime
 import pytz
 
 
+def resolve_model_tag(config: dict) -> str:
+    """Short directory tag for the active model, used to isolate output paths
+    across LLMs. Honors an explicit ``model_tag`` in the model config; otherwise
+    derives a tag from ``model.model_name``."""
+    explicit = config.get("model_tag")
+    if explicit:
+        return str(explicit)
+    model_name = config.get("model", {}).get("model_name", "")
+    tag = model_name.split("/")[-1].replace("-", "").replace(".", "").replace("turbo0125", "").lower()
+    tag_map = {
+        "gpt35turbo0125": "gpt35",
+        "o4mini": "o4mini",
+        "deepseekv32exp": "deepseek_openrouter",
+        "deepseekchat": "deepseek",
+    }
+    return tag_map.get(tag, tag)
+
+
 def get_timestamp(timestamp: float = None, timezone: str = None) -> str:
     """Get formatted timestamp in specified timezone or host local time."""
     if timestamp is None:

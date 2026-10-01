@@ -1,0 +1,172 @@
+{
+  "project_name": "Closure",
+  "bug_id": "110",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 20:52:13",
+      "end_time": "2025-10-01 21:01:48",
+      "duration_seconds": 575,
+      "duration_human": "9m 35s"
+    },
+    "model_cost": 0.0391,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 470581,
+      "output_tokens": 6992,
+      "total_tokens": 477573,
+      "cached_input_tokens": 455360,
+      "uncached_input_tokens": 15221
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex 7e9c8b89a..79f1029c6 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -363,6 +363,35 @@ class ScopedAliases implements HotSwapCompilerPass {\n         } else if (parent.getType() == Token.LP) {\n           // Parameters of the scope function also get a BAD_PARAMETERS\n           // error.\n+        } else if (NodeUtil.isFunctionDeclaration(n)) {\n+          // Handle function declarations by transforming them into assignments\n+          Node grandparent = parent.getParent();\n+          Node value = n.cloneTree();\n+          Node funcNode = n;\n+\n+          String name = n.getString();\n+          int nameCount = scopedAliasNames.count(name);\n+          scopedAliasNames.add(name);\n+          String globalName =\n+              \"$jscomp.scope.\" + name + (nameCount == 0 ? \"\" : (\"$\" + nameCount));\n+\n+          compiler.ensureLibraryInjected(\"base\");\n+\n+          // Add $jscomp.scope.name = function() { ... };\n+          Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(\n+              compiler.getCodingConvention(),\n+              globalName,\n+              value,\n+              v.getJSDocInfo())\n+              .useSourceInfoIfMissingFromForTree(n);\n+          NodeUtil.setDebugInformation(\n+              newDecl.getFirstChild().getFirstChild(), n, name);\n+\n+          // Replace the function declaration with the assignment\n+          grandparent.replaceChild(funcNode, newDecl);\n+\n+          // The function is now accessible via the global name\n+          recordAlias(v);\n         } else if (isVar) {\n           Node grandparent = parent.getParent();\n           Node value = n.hasChildren() ?\n"
+  },
+  "timestamp": "2025-10-01 17:01:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_110",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_110",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Allow @private top-level functions in goog.scope\n<b>What steps will reproduce the problem?</b>\n\r\n<b>1.</b>\ngoog.scope(function() {\r\n    /* @private */\r\n    function test() {}\r\n});\r\n\r\n<b>2.</b>\nThe code above gives an error &quot;The local variable test is in a goog.scope and is not an alias.&quot;\r\n\r\nWhat is the expected output?\r\n\r\nThe code above should compile, and function test() be referenceable only from inside the file in question. If I replace &quot;function test&quot; with &quot;var test = function&quot;, the code compiles.",
+    "commit_message": "Handle function declarations in ScopedAliases. Fixes issue 1111 R=johnlenz",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 366,
+        "end_line": 366,
+        "line_numbers": [
+          366
+        ],
+        "function_name": "findAliases",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void findAliases(NodeTraversal t) {\n      Scope scope = t.getScope();\n      for (Var v : scope.getVarIterable()) {\n        Node n = v.getNode();\n        Node parent = n.getParent();\n        boolean isVar = parent.isVar();\n        if (isVar && n.getFirstChild() != null && n.getFirstChild().isQualifiedName()) {\n          recordAlias(v);\n        } else if (v.isBleedingFunction()) {\n          // Bleeding functions already get a BAD_PARAMETERS error, so just\n          // do nothing.\n        } else if (parent.getType() == Token.LP) {\n          // Parameters of the scope function also get a BAD_PARAMETERS\n          // error.\n        } else if (isVar) {\n          Node grandparent = parent.getParent();\n          Node value = n.hasChildren() ?\n              v.getInitialValue().detachFromParent() :\n              null;\n          Node varNode = parent;\n\n          String name = n.getString();\n          int nameCount = scopedAliasNames.count(name);\n          scopedAliasNames.add(name);\n          String globalName =\n              \"$jscomp.scope.\" + name + (nameCount == 0 ? \"\" : (\"$\" + nameCount));\n\n          compiler.ensureLibraryInjected(\"base\");\n\n          // First, we need to free up the function expression (EXPR)\n          // to be used in another expression.\n            // Replace \"function NAME() { ... }\" with \"var NAME;\".\n\n            // We can't keep the local name on the function expression,\n            // because IE is buggy and will leak the name into the global\n            // scope. This is covered in more detail here:\n            // http://wiki.ecmascript.org/lib/exe/fetch.php?id=resources:resources&cache=cache&media=resources:jscriptdeviationsfromes3.pdf\n            //\n            // This will only cause problems if this is a hoisted, recursive\n            // function, and the programmer is using the hoisting.\n\n              // If this is a VAR, we can just detach the expression and\n              // the tree will still be valid.\n\n          // Add $jscomp.scope.name = EXPR;\n          // Make sure we copy over all the jsdoc and debug info.\n          if (value != null || v.getJSDocInfo() != null) {\n            Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(\n                compiler.getCodingConvention(),\n                globalName,\n                value,\n                v.getJSDocInfo())\n                .useSourceInfoIfMissingFromForTree(n);\n            NodeUtil.setDebugInformation(\n                newDecl.getFirstChild().getFirstChild(), n, name);\n\n              grandparent.addChildBefore(newDecl, varNode);\n          }\n\n          // Rewrite \"var name = EXPR;\" to \"var name = $jscomp.scope.name;\"\n          v.getNameNode().addChildToFront(\n              NodeUtil.newQualifiedNameNode(\n                  compiler.getCodingConvention(), globalName, n, name));\n\n          recordAlias(v);\n        } else {\n          // Do not other kinds of local symbols, like catch params.\n          report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 368,
+        "end_line": 369,
+        "line_numbers": [
+          368,
+          369
+        ],
+        "function_name": "findAliases",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void findAliases(NodeTraversal t) {\n      Scope scope = t.getScope();\n      for (Var v : scope.getVarIterable()) {\n        Node n = v.getNode();\n        Node parent = n.getParent();\n        boolean isVar = parent.isVar();\n        if (isVar && n.getFirstChild() != null && n.getFirstChild().isQualifiedName()) {\n          recordAlias(v);\n        } else if (v.isBleedingFunction()) {\n          // Bleeding functions already get a BAD_PARAMETERS error, so just\n          // do nothing.\n        } else if (parent.getType() == Token.LP) {\n          // Parameters of the scope function also get a BAD_PARAMETERS\n          // error.\n        } else if (isVar) {\n          Node grandparent = parent.getParent();\n          Node value = n.hasChildren() ?\n              v.getInitialValue().detachFromParent() :\n              null;\n          Node varNode = parent;\n\n          String name = n.getString();\n          int nameCount = scopedAliasNames.count(name);\n          scopedAliasNames.add(name);\n          String globalName =\n              \"$jscomp.scope.\" + name + (nameCount == 0 ? \"\" : (\"$\" + nameCount));\n\n          compiler.ensureLibraryInjected(\"base\");\n\n          // First, we need to free up the function expression (EXPR)\n          // to be used in another expression.\n            // Replace \"function NAME() { ... }\" with \"var NAME;\".\n\n            // We can't keep the local name on the function expression,\n            // because IE is buggy and will leak the name into the global\n            // scope. This is covered in more detail here:\n            // http://wiki.ecmascript.org/lib/exe/fetch.php?id=resources:resources&cache=cache&media=resources:jscriptdeviationsfromes3.pdf\n            //\n            // This will only cause problems if this is a hoisted, recursive\n            // function, and the programmer is using the hoisting.\n\n              // If this is a VAR, we can just detach the expression and\n              // the tree will still be valid.\n\n          // Add $jscomp.scope.name = EXPR;\n          // Make sure we copy over all the jsdoc and debug info.\n          if (value != null || v.getJSDocInfo() != null) {\n            Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(\n                compiler.getCodingConvention(),\n                globalName,\n                value,\n                v.getJSDocInfo())\n                .useSourceInfoIfMissingFromForTree(n);\n            NodeUtil.setDebugInformation(\n                newDecl.getFirstChild().getFirstChild(), n, name);\n\n              grandparent.addChildBefore(newDecl, varNode);\n          }\n\n          // Rewrite \"var name = EXPR;\" to \"var name = $jscomp.scope.name;\"\n          v.getNameNode().addChildToFront(\n              NodeUtil.newQualifiedNameNode(\n                  compiler.getCodingConvention(), globalName, n, name));\n\n          recordAlias(v);\n        } else {\n          // Do not other kinds of local symbols, like catch params.\n          report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 371,
+        "end_line": 371,
+        "line_numbers": [
+          371
+        ],
+        "function_name": "findAliases",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void findAliases(NodeTraversal t) {\n      Scope scope = t.getScope();\n      for (Var v : scope.getVarIterable()) {\n        Node n = v.getNode();\n        Node parent = n.getParent();\n        boolean isVar = parent.isVar();\n        if (isVar && n.getFirstChild() != null && n.getFirstChild().isQualifiedName()) {\n          recordAlias(v);\n        } else if (v.isBleedingFunction()) {\n          // Bleeding functions already get a BAD_PARAMETERS error, so just\n          // do nothing.\n        } else if (parent.getType() == Token.LP) {\n          // Parameters of the scope function also get a BAD_PARAMETERS\n          // error.\n        } else if (isVar) {\n          Node grandparent = parent.getParent();\n          Node value = n.hasChildren() ?\n              v.getInitialValue().detachFromParent() :\n              null;\n          Node varNode = parent;\n\n          String name = n.getString();\n          int nameCount = scopedAliasNames.count(name);\n          scopedAliasNames.add(name);\n          String globalName =\n              \"$jscomp.scope.\" + name + (nameCount == 0 ? \"\" : (\"$\" + nameCount));\n\n          compiler.ensureLibraryInjected(\"base\");\n\n          // First, we need to free up the function expression (EXPR)\n          // to be used in another expression.\n            // Replace \"function NAME() { ... }\" with \"var NAME;\".\n\n            // We can't keep the local name on the function expression,\n            // because IE is buggy and will leak the name into the global\n            // scope. This is covered in more detail here:\n            // http://wiki.ecmascript.org/lib/exe/fetch.php?id=resources:resources&cache=cache&media=resources:jscriptdeviationsfromes3.pdf\n            //\n            // This will only cause problems if this is a hoisted, recursive\n            // function, and the programmer is using the hoisting.\n\n              // If this is a VAR, we can just detach the expression and\n              // the tree will still be valid.\n\n          // Add $jscomp.scope.name = EXPR;\n          // Make sure we copy over all the jsdoc and debug info.\n          if (value != null || v.getJSDocInfo() != null) {\n            Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(\n                compiler.getCodingConvention(),\n                globalName,\n                value,\n                v.getJSDocInfo())\n                .useSourceInfoIfMissingFromForTree(n);\n            NodeUtil.setDebugInformation(\n                newDecl.getFirstChild().getFirstChild(), n, name);\n\n              grandparent.addChildBefore(newDecl, varNode);\n          }\n\n          // Rewrite \"var name = EXPR;\" to \"var name = $jscomp.scope.name;\"\n          v.getNameNode().addChildToFront(\n              NodeUtil.newQualifiedNameNode(\n                  compiler.getCodingConvention(), globalName, n, name));\n\n          recordAlias(v);\n        } else {\n          // Do not other kinds of local symbols, like catch params.\n          report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n        }\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.ScopedAliasesTest::testHoistedFunctionDeclaration",
+      "com.google.javascript.jscomp.ScopedAliasesTest::testFunctionDeclaration"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex fbd46d3..7e9c8b8 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -355,7 +355,6 @@ class ScopedAliases implements HotSwapCompilerPass {\n         Node n = v.getNode();\n         Node parent = n.getParent();\n         boolean isVar = parent.isVar();\n+        boolean isFunctionDecl = NodeUtil.isFunctionDeclaration(parent);\n         if (isVar && n.getFirstChild() != null && n.getFirstChild().isQualifiedName()) {\n           recordAlias(v);\n         } else if (v.isBleedingFunction()) {\n@@ -364,13 +363,12 @@ class ScopedAliases implements HotSwapCompilerPass {\n         } else if (parent.getType() == Token.LP) {\n           // Parameters of the scope function also get a BAD_PARAMETERS\n           // error.\n+        } else if (isVar || isFunctionDecl) {\n+          boolean isHoisted = NodeUtil.isHoistedFunctionDeclaration(parent);\n-        } else if (isVar) {\n           Node grandparent = parent.getParent();\n+          Node value = v.getInitialValue() != null ?\n+              v.getInitialValue() :\n-          Node value = n.hasChildren() ?\n-              v.getInitialValue().detachFromParent() :\n               null;\n+          Node varNode = null;\n-          Node varNode = parent;\n \n           String name = n.getString();\n           int nameCount = scopedAliasNames.count(name);\n@@ -382,9 +380,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n \n           // First, we need to free up the function expression (EXPR)\n           // to be used in another expression.\n+          if (isFunctionDecl) {\n             // Replace \"function NAME() { ... }\" with \"var NAME;\".\n+            Node existingName = v.getNameNode();\n \n             // We can't keep the local name on the function expression,\n             // because IE is buggy and will leak the name into the global\n@@ -393,19 +389,9 @@ class ScopedAliases implements HotSwapCompilerPass {\n             //\n             // This will only cause problems if this is a hoisted, recursive\n             // function, and the programmer is using the hoisting.\n+            Node newName = IR.name(\"\").useSourceInfoFrom(existingName);\n+            value.replaceChild(existingName, newName);\n \n+            varNode = IR.var(existingName).useSourceInfoFrom(existingName);\n+            grandparent.replaceChild(parent, varNode);\n+          } else {\n+            if (value != null) {\n               // If this is a VAR, we can just detach the expression and\n               // the tree will still be valid.\n+              value.detachFromParent();\n+            }\n+            varNode = parent;\n+          }\n \n           // Add $jscomp.scope.name = EXPR;\n           // Make sure we copy over all the jsdoc and debug info.\n@@ -419,11 +405,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n             NodeUtil.setDebugInformation(\n                 newDecl.getFirstChild().getFirstChild(), n, name);\n \n+            if (isHoisted) {\n+              grandparent.addChildToFront(newDecl);\n+            } else {\n               grandparent.addChildBefore(newDecl, varNode);\n+            }\n           }\n \n           // Rewrite \"var name = EXPR;\" to \"var name = $jscomp.scope.name;\"\ndiff --git a/src/com/google/javascript/rhino/Node.java b/src/com/google/javascript/rhino/Node.java\nindex 6a3e9e0..b645632 100644\n--- a/src/com/google/javascript/rhino/Node.java\n+++ b/src/com/google/javascript/rhino/Node.java\n@@ -551,9 +551,6 @@ public class Node implements Cloneable, Serializable {\n       return null;\n     }\n     Node n = first;\n+    if (n == null) {\n+      throw new RuntimeException(\"node is not a child\");\n+    }\n \n     while (n.next != child) {\n       n = n.next;",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Nick Santos",
+        "commit_date": "2013-06-07 01:35:40",
+        "commit_message": "Allow local variables in goog.scope",
+        "commit_hash": "9e421f5423a8538a9301ba24bc7182f9233d908c"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "recordAlias"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "recordAlias"
+        ],
+        "functions_name_modified_file": [
+          "ScopedAliases",
+          "shouldTraverse",
+          "Traversal",
+          "enterScope",
+          "findNamespaceShadows",
+          "getScopeCalls",
+          "report",
+          "visit",
+          "getAliasUsages",
+          "applyAlias",
+          "exitScope",
+          "findAliases",
+          "getSourceRegion",
+          "referencesOtherAlias",
+          "AliasedNode",
+          "process",
+          "recordAlias",
+          "AliasedTypeNode",
+          "hotSwapScript",
+          "renameNamespaceShadows",
+          "AliasUsage",
+          "fixTypeNode",
+          "isCallToScopeMethod",
+          "hasErrors",
+          "validateScopeCall",
+          "getAliasDefinitionsInOrder"
+        ],
+        "functions_name_all_files": [
+          "ScopedAliases",
+          "shouldTraverse",
+          "Traversal",
+          "enterScope",
+          "findNamespaceShadows",
+          "getScopeCalls",
+          "report",
+          "visit",
+          "getAliasUsages",
+          "applyAlias",
+          "exitScope",
+          "findAliases",
+          "getSourceRegion",
+          "referencesOtherAlias",
+          "AliasedNode",
+          "process",
+          "recordAlias",
+          "AliasedTypeNode",
+          "hotSwapScript",
+          "renameNamespaceShadows",
+          "AliasUsage",
+          "fixTypeNode",
+          "isCallToScopeMethod",
+          "hasErrors",
+          "validateScopeCall",
+          "getAliasDefinitionsInOrder"
+        ],
+        "function_code_before": "        findAliases(t);\n      }\n    }\n\n    @Override\n    public void exitScope(NodeTraversal t) {\n      if (t.getScopeDepth() > 2) {",
+        "function_code_after": "        findAliases(t);\n      }\n    }\n\n    @Override\n    public void exitScope(NodeTraversal t) {\n      if (t.getScopeDepth() > 2) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/com/google/javascript/jscomp/ScopedAliases.java"
+        ],
+        "file_patches": {
+          "src/com/google/javascript/jscomp/ScopedAliases.java": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex c17b5782b..7108f27f0 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -17,8 +17,10 @@\n package com.google.javascript.jscomp;\n \n import com.google.common.base.Preconditions;\n+import com.google.common.collect.HashMultiset;\n import com.google.common.collect.Lists;\n import com.google.common.collect.Maps;\n+import com.google.common.collect.Multiset;\n import com.google.common.collect.Sets;\n import com.google.javascript.jscomp.CompilerOptions.AliasTransformation;\n import com.google.javascript.jscomp.CompilerOptions.AliasTransformationHandler;\n@@ -110,6 +112,8 @@ class ScopedAliases implements HotSwapCompilerPass {\n       \"JSC_GOOG_SCOPE_NON_ALIAS_LOCAL\",\n       \"The local variable {0} is in a goog.scope and is not an alias.\");\n \n+  private Multiset<String> scopedAliasNames = HashMultiset.create();\n+\n   ScopedAliases(AbstractCompiler compiler,\n       @Nullable PreprocessorSymbolTable preprocessorSymbolTable,\n       AliasTransformationHandler transformationHandler) {\n@@ -257,7 +261,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n     // normalization (before optimizations). We run it here on a limited\n     // set of variables, but only as a last resort (because this will screw\n     // up warning messages downstream).\n-    private final Set<String> forbiddenLocals = Sets.newHashSet();\n+    private final Set<String> forbiddenLocals = Sets.newHashSet(\"$jscomp\");\n     private boolean hasNamespaceShadows = false;\n \n     private boolean hasErrors = false;\n@@ -349,36 +353,67 @@ class ScopedAliases implements HotSwapCompilerPass {\n       for (Var v : scope.getVarIterable()) {\n         Node n = v.getNode();\n         Node parent = n.getParent();\n-        if (parent.isVar() &&\n-            n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n-          String name = n.getString();\n-          Var aliasVar = scope.getVar(name);\n-          aliases.put(name, aliasVar);\n-\n-          String qualifiedName =\n-              aliasVar.getInitialValue().getQualifiedName();\n-          transformation.addAlias(name, qualifiedName);\n-\n-          int rootIndex = qualifiedName.indexOf(\".\");\n-          if (rootIndex != -1) {\n-            String qNameRoot = qualifiedName.substring(0, rootIndex);\n-            if (!aliases.containsKey(qNameRoot)) {\n-              forbiddenLocals.add(qNameRoot);\n-            }\n-          }\n+        boolean isVarAssign = parent.isVar() && n.hasChildren();\n+        if (isVarAssign && n.getFirstChild().isQualifiedName()) {\n+          recordAlias(v);\n         } else if (v.isBleedingFunction()) {\n           // Bleeding functions already get a BAD_PARAMETERS error, so just\n           // do nothing.\n         } else if (parent.getType() == Token.LP) {\n           // Parameters of the scope function also get a BAD_PARAMETERS\n           // error.\n+        } else if (isVarAssign) {\n+          Node value = v.getInitialValue().detachFromParent();\n+          String name = n.getString();\n+          int nameCount = scopedAliasNames.count(name);\n+          scopedAliasNames.add(name);\n+          String globalName =\n+              \"$jscomp.scope.\" + name + (nameCount == 0 ? \"\" : (\"$\" + nameCount));\n+\n+          compiler.ensureLibraryInjected(\"base\");\n+\n+          // Add $jscomp.scope.name = EXPR;\n+          // Make sure we copy over all the jsdoc and debug info.\n+          Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(\n+              compiler.getCodingConvention(),\n+              globalName,\n+              value,\n+              v.getJSDocInfo())\n+              .useSourceInfoIfMissingFromForTree(n);\n+          NodeUtil.setDebugInformation(\n+              newDecl.getFirstChild().getFirstChild(), n, name);\n+          parent.getParent().addChildBefore(newDecl, parent);\n+\n+          // Rewrite \"var name = EXPR;\" to \"var name = $jscomp.scope.name;\"\n+          v.getNameNode().addChildToFront(\n+              NodeUtil.newQualifiedNameNode(\n+                  compiler.getCodingConvention(), globalName, n, name));\n+\n+          recordAlias(v);\n         } else {\n-          // TODO(robbyw): Support using locals for private variables.\n+          // Do not allow hoisted functions or other kinds of local symbols.\n           report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n         }\n       }\n     }\n \n+    private void recordAlias(Var aliasVar) {\n+      String name = aliasVar.getName();\n+      aliases.put(name, aliasVar);\n+\n+      String qualifiedName =\n+        aliasVar.getInitialValue().getQualifiedName();\n+      transformation.addAlias(name, qualifiedName);\n+\n+      int rootIndex = qualifiedName.indexOf(\".\");\n+      if (rootIndex != -1) {\n+        String qNameRoot = qualifiedName.substring(0, rootIndex);\n+        if (!aliases.containsKey(qNameRoot)) {\n+          forbiddenLocals.add(qNameRoot);\n+        }\n+      }\n+    }\n+\n     /** Find out if there are any local shadows of namespaces. */\n     private void findNamespaceShadows(NodeTraversal t) {\n       if (hasNamespaceShadows) {"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "Math",
+  "bug_id": "Math_18",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 08:51:45",
+      "end_time": "2026-06-17 09:01:34",
+      "duration_seconds": 589,
+      "duration_human": "9m 49s"
+    },
+    "model_cost": 0.0701,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 585836,
+      "output_tokens": 9345,
+      "total_tokens": 595181,
+      "cached_input_tokens": 340416,
+      "uncached_input_tokens": 245420
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math3/analysis/interpolation/HermiteInterpolator.java b/src/main/java/org/apache/commons/math3/analysis/interpolation/HermiteInterpolator.java\nindex a248f40c1..d15e85131 100644\n--- a/src/main/java/org/apache/commons/math3/analysis/interpolation/HermiteInterpolator.java\n+++ b/src/main/java/org/apache/commons/math3/analysis/interpolation/HermiteInterpolator.java\n@@ -45,7 +45,7 @@ import org.apache.commons.math3.util.ArithmeticUtils;\n  * <p>\n  * This class has been imported from the Orekit space flight dynamics library\n  * also distributed under the terms of the Apache License V2. Original copyright\n- * is: Copyright 2002-2012 CS Syst\u00e8mes d'Information.\n+ * is: Copyright 2002-2012 CS Systemes d'Information.\n  * </p>\n  *\n  * @version $Id$\ndiff --git a/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\nindex bc754a592..da997b749 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\n@@ -929,7 +929,25 @@ public class CMAESOptimizer\n             double[] res = new double[x.length];\n             for (int i = 0; i < x.length; i++) {\n                 double diff = boundaries[1][i] - boundaries[0][i];\n-                res[i] = (x[i] - boundaries[0][i]) / diff;\n+                double distToLower = x[i] - boundaries[0][i];\n+                double distToUpper = boundaries[1][i] - x[i];\n+                if (distToLower <= distToUpper) {\n+                    // Closer to lower bound\n+                    double normalized = distToLower / diff;\n+                    if (normalized <= 1e-15) {\n+                        res[i] = 0.0;\n+                    } else {\n+                        res[i] = normalized;\n+                    }\n+                } else {\n+                    // Closer to upper bound\n+                    double normalized = distToUpper / diff;\n+                    if (normalized <= 1e-15) {\n+                        res[i] = 1.0;\n+                    } else {\n+                        res[i] = 1.0 - normalized;\n+                    }\n+                }\n             }\n             return res;\n         }\n@@ -938,446 +956,33 @@ public class CMAESOptimizer\n          * @param x Normalized objective variables.\n          * @return the original objective variables, possibly repaired.\n          */\n-        public double[] repairAndDecode(final double[] x) {\n-            return boundaries != null && isRepairMode ?\n-                decode(repair(x)) :\n-                decode(x);\n-        }\n-\n-        /**\n-         * @param x Normalized objective variables.\n-         * @return the original objective variables.\n-         */\n-        public double[] decode(final double[] x) {\n+        public double[] encode(final double[] x) {\n             if (boundaries == null) {\n                 return x;\n             }\n             double[] res = new double[x.length];\n             for (int i = 0; i < x.length; i++) {\n                 double diff = boundaries[1][i] - boundaries[0][i];\n-                res[i] = diff * x[i] + boundaries[0][i];\n-            }\n-            return res;\n-        }\n-\n-        /**\n-         * @param point Normalized objective variables.\n-         * @return the objective value + penalty for violated bounds.\n-         */\n-        public double value(final double[] point) {\n-            double value;\n-            if (boundaries != null && isRepairMode) {\n-                double[] repaired = repair(point);\n-                value = CMAESOptimizer.this\n-                        .computeObjectiveValue(decode(repaired)) +\n-                        penalty(point, repaired);\n-            } else {\n-                value = CMAESOptimizer.this\n-                        .computeObjectiveValue(decode(point));\n-            }\n-            return isMinimize ? value : -value;\n-        }\n-\n-        /**\n-         * @param x Normalized objective variables.\n-         * @return {@code true} if in bounds.\n-         */\n-        public boolean isFeasible(final double[] x) {\n-            if (boundaries == null) {\n-                return true;\n-            }\n-\n-\n-            for (int i = 0; i < x.length; i++) {\n-                if (x[i] < 0) {\n-                    return false;\n-                }\n-                if (x[i] > 1.0) {\n-                    return false;\n-                }\n-            }\n-            return true;\n-        }\n-\n-        /**\n-         * @param valueRange Adjusts the penalty computation.\n-         */\n-        public void setValueRange(double valueRange) {\n-            this.valueRange = valueRange;\n-        }\n-\n-        /**\n-         * @param x Normalized objective variables.\n-         * @return the repaired objective variables - all in bounds.\n-         */\n-        private double[] repair(final double[] x) {\n-            double[] repaired = new double[x.length];\n-            for (int i = 0; i < x.length; i++) {\n-                if (x[i] < 0) {\n-                    repaired[i] = 0;\n-                } else if (x[i] > 1.0) {\n-                    repaired[i] = 1.0;\n+                double distToLower = x[i] - boundaries[0][i];\n+                double distToUpper = boundaries[1][i] - x[i];\n+                if (distToLower <= distToUpper) {\n+                    // Closer to lower bound\n+                    double normalized = distToLower / diff;\n+                    if (normalized <= 1e-15) {\n+                        res[i] = 0.0;\n+                    } else {\n+                        res[i] = normalized;\n+                    }\n                 } else {\n-                    repaired[i] = x[i];\n-                }\n-            }\n-            return repaired;\n-        }\n-\n-        /**\n-         * @param x Normalized objective variables.\n-         * @param repaired Repaired objective variables.\n-         * @return Penalty value according to the violation of the bounds.\n-         */\n-        private double penalty(final double[] x, final double[] repaired) {\n-            double penalty = 0;\n-            for (int i = 0; i < x.length; i++) {\n-                double diff = Math.abs(x[i] - repaired[i]);\n-                penalty += diff * valueRange;\n-            }\n-            return isMinimize ? penalty : -penalty;\n-        }\n-    }\n-\n-    // -----Matrix utility functions similar to the Matlab build in functions------\n-\n-    /**\n-     * @param m Input matrix\n-     * @return Matrix representing the element-wise logarithm of m.\n-     */\n-    private static RealMatrix log(final RealMatrix m) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                d[r][c] = Math.log(m.getEntry(r, c));\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m\n-     *            Input matrix\n-     * @return Matrix representing the element-wise square root of m.\n-     */\n-    private static RealMatrix sqrt(final RealMatrix m) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                d[r][c] = Math.sqrt(m.getEntry(r, c));\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix\n-     * @return Matrix representing the element-wise square (^2) of m.\n-     */\n-    private static RealMatrix square(final RealMatrix m) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                double e = m.getEntry(r, c);\n-                d[r][c] = e * e;\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix 1.\n-     * @param n Input matrix 2.\n-     * @return the matrix where the elements of m and n are element-wise multiplied.\n-     */\n-    private static RealMatrix times(final RealMatrix m, final RealMatrix n) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                d[r][c] = m.getEntry(r, c) * n.getEntry(r, c);\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix 1.\n-     * @param n Input matrix 2.\n-     * @return Matrix where the elements of m and n are element-wise divided.\n-     */\n-    private static RealMatrix divide(final RealMatrix m, final RealMatrix n) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                d[r][c] = m.getEntry(r, c) / n.getEntry(r, c);\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @param cols Columns to select.\n-     * @return Matrix representing the selected columns.\n-     */\n-    private static RealMatrix selectColumns(final RealMatrix m, final int[] cols) {\n-        double[][] d = new double[m.getRowDimension()][cols.length];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < cols.length; c++) {\n-                d[r][c] = m.getEntry(r, cols[c]);\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @param k Diagonal position.\n-     * @return Upper triangular part of matrix.\n-     */\n-    private static RealMatrix triu(final RealMatrix m, int k) {\n-        double[][] d = new double[m.getRowDimension()][m.getColumnDimension()];\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                d[r][c] = r <= c - k ? m.getEntry(r, c) : 0;\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @return Row matrix representing the sums of the rows.\n-     */\n-    private static RealMatrix sumRows(final RealMatrix m) {\n-        double[][] d = new double[1][m.getColumnDimension()];\n-        for (int c = 0; c < m.getColumnDimension(); c++) {\n-            double sum = 0;\n-            for (int r = 0; r < m.getRowDimension(); r++) {\n-                sum += m.getEntry(r, c);\n-            }\n-            d[0][c] = sum;\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @return the diagonal n-by-n matrix if m is a column matrix or the column\n-     * matrix representing the diagonal if m is a n-by-n matrix.\n-     */\n-    private static RealMatrix diag(final RealMatrix m) {\n-        if (m.getColumnDimension() == 1) {\n-            double[][] d = new double[m.getRowDimension()][m.getRowDimension()];\n-            for (int i = 0; i < m.getRowDimension(); i++) {\n-                d[i][i] = m.getEntry(i, 0);\n-            }\n-            return new Array2DRowRealMatrix(d, false);\n-        } else {\n-            double[][] d = new double[m.getRowDimension()][1];\n-            for (int i = 0; i < m.getColumnDimension(); i++) {\n-                d[i][0] = m.getEntry(i, i);\n-            }\n-            return new Array2DRowRealMatrix(d, false);\n-        }\n-    }\n-\n-    /**\n-     * Copies a column from m1 to m2.\n-     *\n-     * @param m1 Source matrix 1.\n-     * @param col1 Source column.\n-     * @param m2 Target matrix.\n-     * @param col2 Target column.\n-     */\n-    private static void copyColumn(final RealMatrix m1, int col1, RealMatrix m2, int col2) {\n-        for (int i = 0; i < m1.getRowDimension(); i++) {\n-            m2.setEntry(i, col2, m1.getEntry(i, col1));\n-        }\n-    }\n-\n-    /**\n-     * @param n Number of rows.\n-     * @param m Number of columns.\n-     * @return n-by-m matrix filled with 1.\n-     */\n-    private static RealMatrix ones(int n, int m) {\n-        double[][] d = new double[n][m];\n-        for (int r = 0; r < n; r++) {\n-            Arrays.fill(d[r], 1.0);\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param n Number of rows.\n-     * @param m Number of columns.\n-     * @return n-by-m matrix of 0.0-values, diagonal has values 1.0.\n-     */\n-    private static RealMatrix eye(int n, int m) {\n-        double[][] d = new double[n][m];\n-        for (int r = 0; r < n; r++) {\n-            if (r < m) {\n-                d[r][r] = 1;\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param n Number of rows.\n-     * @param m Number of columns.\n-     * @return n-by-m matrix of 0.0-values.\n-     */\n-    private static RealMatrix zeros(int n, int m) {\n-        return new Array2DRowRealMatrix(n, m);\n-    }\n-\n-    /**\n-     * @param mat Input matrix.\n-     * @param n Number of row replicates.\n-     * @param m Number of column replicates.\n-     * @return a matrix which replicates the input matrix in both directions.\n-     */\n-    private static RealMatrix repmat(final RealMatrix mat, int n, int m) {\n-        int rd = mat.getRowDimension();\n-        int cd = mat.getColumnDimension();\n-        double[][] d = new double[n * rd][m * cd];\n-        for (int r = 0; r < n * rd; r++) {\n-            for (int c = 0; c < m * cd; c++) {\n-                d[r][c] = mat.getEntry(r % rd, c % cd);\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param start Start value.\n-     * @param end End value.\n-     * @param step Step size.\n-     * @return a sequence as column matrix.\n-     */\n-    private static RealMatrix sequence(double start, double end, double step) {\n-        int size = (int) ((end - start) / step + 1);\n-        double[][] d = new double[size][1];\n-        double value = start;\n-        for (int r = 0; r < size; r++) {\n-            d[r][0] = value;\n-            value += step;\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @return the maximum of the matrix element values.\n-     */\n-    private static double max(final RealMatrix m) {\n-        double max = -Double.MAX_VALUE;\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                double e = m.getEntry(r, c);\n-                if (max < e) {\n-                    max = e;\n-                }\n-            }\n-        }\n-        return max;\n-    }\n-\n-    /**\n-     * @param m Input matrix.\n-     * @return the minimum of the matrix element values.\n-     */\n-    private static double min(final RealMatrix m) {\n-        double min = Double.MAX_VALUE;\n-        for (int r = 0; r < m.getRowDimension(); r++) {\n-            for (int c = 0; c < m.getColumnDimension(); c++) {\n-                double e = m.getEntry(r, c);\n-                if (min > e) {\n-                    min = e;\n+                    // Closer to upper bound\n+                    double normalized = distToUpper / diff;\n+                    if (normalized <= 1e-15) {\n+                        res[i] = 1.0;\n+                    } else {\n+                        res[i] = 1.0 - normalized;\n+                    }\n                 }\n             }\n+            return res;\n         }\n-        return min;\n-    }\n-\n-    /**\n-     * @param m Input array.\n-     * @return the maximum of the array values.\n-     */\n-    private static double max(final double[] m) {\n-        double max = -Double.MAX_VALUE;\n-        for (int r = 0; r < m.length; r++) {\n-            if (max < m[r]) {\n-                max = m[r];\n-            }\n-        }\n-        return max;\n-    }\n-\n-    /**\n-     * @param m Input array.\n-     * @return the minimum of the array values.\n-     */\n-    private static double min(final double[] m) {\n-        double min = Double.MAX_VALUE;\n-        for (int r = 0; r < m.length; r++) {\n-            if (min > m[r]) {\n-                min = m[r];\n-            }\n-        }\n-        return min;\n-    }\n-\n-    /**\n-     * @param indices Input index array.\n-     * @return the inverse of the mapping defined by indices.\n-     */\n-    private static int[] inverse(final int[] indices) {\n-        int[] inverse = new int[indices.length];\n-        for (int i = 0; i < indices.length; i++) {\n-            inverse[indices[i]] = i;\n-        }\n-        return inverse;\n-    }\n-\n-    /**\n-     * @param indices Input index array.\n-     * @return the indices in inverse order (last is first).\n-     */\n-    private static int[] reverse(final int[] indices) {\n-        int[] reverse = new int[indices.length];\n-        for (int i = 0; i < indices.length; i++) {\n-            reverse[i] = indices[indices.length - i - 1];\n-        }\n-        return reverse;\n-    }\n-\n-    /**\n-     * @param size Length of random array.\n-     * @return an array of Gaussian random numbers.\n-     */\n-    private double[] randn(int size) {\n-        double[] randn = new double[size];\n-        for (int i = 0; i < size; i++) {\n-            randn[i] = random.nextGaussian();\n-        }\n-        return randn;\n-    }\n-\n-    /**\n-     * @param size Number of rows.\n-     * @param popSize Population size.\n-     * @return a 2-dimensional matrix of Gaussian random numbers.\n-     */\n-    private RealMatrix randn1(int size, int popSize) {\n-        double[][] d = new double[size][popSize];\n-        for (int r = 0; r < size; r++) {\n-            for (int c = 0; c < popSize; c++) {\n-                d[r][c] = random.nextGaussian();\n-            }\n-        }\n-        return new Array2DRowRealMatrix(d, false);\n-    }\n-}\n+EOF && tail -n +941 src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java.bak >> src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java\ndiff --git a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java\nindex 720531320..c9b883e6e 100644\n--- a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java\n+++ b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java\n@@ -23,7 +23,7 @@ import org.apache.commons.math3.exception.util.LocalizedFormats;\n  * Bivariate Covariance implementation that does not require input data to be\n  * stored in memory.\n  *\n- * <p>This class is based on a paper written by Philippe P\u00e9bay:\n+ * <p>This class is based on a paper written by Philippe Pebay:\n  * <a href=\"http://prod.sandia.gov/techlib/access-control.cgi/2008/086212.pdf\">\n  * Formulas for Robust, One-Pass Parallel Computation of Covariances and\n  * Arbitrary-Order Statistical Moments</a>, 2008, Technical Report SAND2008-6212,\ndiff --git a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessCovariance.java b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessCovariance.java\nindex 7218c76ae..e239d5367 100644\n--- a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessCovariance.java\n+++ b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessCovariance.java\n@@ -28,7 +28,7 @@ import org.apache.commons.math3.linear.RealMatrix;\n  * constructor. Specific elements of the matrix are incrementally updated with\n  * calls to incrementRow() or increment Covariance().\n  *\n- * <p>This class is based on a paper written by Philippe P\u00e9bay:\n+ * <p>This class is based on a paper written by Philippe Pebay:\n  * <a href=\"http://prod.sandia.gov/techlib/access-control.cgi/2008/086212.pdf\">\n  * Formulas for Robust, One-Pass Parallel Computation of Covariances and\n  * Arbitrary-Order Statistical Moments</a>, 2008, Technical Report SAND2008-6212,\ndiff --git a/src/test/java/org/apache/commons/math3/exception/util/LocalizedFormatsTest.java b/src/test/java/org/apache/commons/math3/exception/util/LocalizedFormatsTest.java\nindex 8f8928ebe..50f0b7c82 100644\n--- a/src/test/java/org/apache/commons/math3/exception/util/LocalizedFormatsTest.java\n+++ b/src/test/java/org/apache/commons/math3/exception/util/LocalizedFormatsTest.java\n@@ -18,7 +18,7 @@\n  * This file is an adapted version of OrekitMessagesTest test class\n  * for the <a href=\"https://www.orekit.org/forge/projects/orekit\">orekit</a> library.\n  * The original file is distributed under the terms of the Apache 2 license and is:\n- * Copyright 2010 CS Communication & Syst\u00e8mes\n+ * Copyright 2010 CS Communication & Systemes\n  */\n package org.apache.commons.math3.exception.util;\n \n"
+  },
+  "timestamp": "2026-06-17 09:01:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_18",
+    "repo_path": "/defects4j/framework/bin/temp/Math_18",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "CMAESOptimizer with bounds fits finely near lower bound and coarsely near upper bound. \nWhen fitting with bounds, the CMAESOptimizer fits finely near the lower bound and coarsely near the upper bound.  This is because it internally maps the fitted parameter range into the interval [0,1].  The unit of least precision (ulp) between floating point numbers is much smaller near zero than near one.  Thus, fits have much better resolution near the lower bound (which is mapped to zero) than the upper bound (which is mapped to one).  I will attach a example program to demonstrate.",
+    "commit_message": "MATH-867 Modified \"encode\" and \"decode\" methods. Unit test \"testFitAccuracyDependsOnBoundary\" now passes and is thus enabled. Unit test \"testConstrainedRosen\" had to be modified in order to not fail with the new code (starting point is set closer to the solution).",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/BaseAbstractMultivariateSimpleBoundsOptimizer.java",
+        "start_line": 87,
+        "end_line": 87,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 476,
+        "end_line": 476,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 482,
+        "end_line": 482,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 583,
+        "end_line": 583,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 751,
+        "end_line": 751,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 246,
+        "end_line": 246,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 247,
+        "end_line": 247,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 253,
+        "end_line": 253,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 256,
+        "end_line": 256,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+        "start_line": 459,
+        "end_line": 459,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math3.optimization.direct.CMAESOptimizerTest::testFitAccuracyDependsOnBoundary"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/BaseAbstractMultivariateSimpleBoundsOptimizer.java",
+      "start_line": 87,
+      "end_line": 87,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 476,
+      "end_line": 476,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 482,
+      "end_line": 482,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 583,
+      "end_line": 583,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 751,
+      "end_line": 751,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 246,
+      "end_line": 246,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 247,
+      "end_line": 247,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 253,
+      "end_line": 253,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 256,
+      "end_line": 256,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/math3/optimization/direct/CMAESOptimizer.java",
+      "start_line": 459,
+      "end_line": 459,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 10
+    }
+  ]
+}

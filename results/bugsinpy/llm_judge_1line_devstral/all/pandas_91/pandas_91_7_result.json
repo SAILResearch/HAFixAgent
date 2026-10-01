@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_91",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 23:10:53",
+      "end_time": "2026-06-27 23:13:59",
+      "duration_seconds": 185,
+      "duration_human": "3m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1290400,
+      "output_tokens": 7328,
+      "total_tokens": 1297728,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1290400
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/timedeltas.py b/pandas/core/indexes/timedeltas.py\nindex d1d8db0746..1d2cfcdf86 100644\n--- a/pandas/core/indexes/timedeltas.py\n+++ b/pandas/core/indexes/timedeltas.py\n@@ -359,7 +359,13 @@ class TimedeltaIndex(\n         if isinstance(value, (np.ndarray, Index)):\n             value = np.array(value, dtype=_TD_DTYPE, copy=False)\n         else:\n-            value = Timedelta(value).asm8.view(_TD_DTYPE)\n+            from pandas.core.dtypes.common import is_list_like\n+            if is_list_like(value):\n+                raise TypeError(\"searchsorted requires compatible dtype or scalar\")\n+            try:\n+                value = Timedelta(value).asm8.view(_TD_DTYPE)\n+            except (ValueError, TypeError):\n+                raise TypeError(\"searchsorted requires compatible dtype or scalar\")\n \n         return self.values.searchsorted(value, side=side, sorter=sorter)\n \ndiff --git a/pandas/tests/arrays/test_timedeltas.py b/pandas/tests/arrays/test_timedeltas.py\nindex 667fe36ddf..62cb476617 100644\n--- a/pandas/tests/arrays/test_timedeltas.py\n+++ b/pandas/tests/arrays/test_timedeltas.py\n@@ -140,6 +140,42 @@ class TestTimedeltaArray:\n         arr[0] = obj\n         assert arr[0] == pd.Timedelta(seconds=1)\n \n+    @pytest.mark.parametrize(\n+        \"other\",\n+        [\n+            1,\n+            np.int64(1),\n+            1.0,\n+            np.datetime64(\"NaT\"),\n+            pd.Timestamp.now(),\n+            \"invalid\",\n+            np.arange(10, dtype=\"i8\") * 24 * 3600 * 10 ** 9,\n+            (np.arange(10) * 24 * 3600 * 10 ** 9).view(\"datetime64[ns]\"),\n+            pd.Timestamp.now().to_period(\"D\"),\n+        ],\n+    )\n+    @pytest.mark.parametrize(\n+        \"index\",\n+        [\n+            True,\n+            pytest.param(\n+                False,\n+                marks=pytest.mark.xfail(\n+                    reason=\"Raises ValueError instead of TypeError\", raises=ValueError\n+                ),\n+            ),\n+        ],\n+    )\n+    def test_searchsorted_invalid_types(self, other, index):\n+        data = np.arange(10, dtype=\"i8\") * 24 * 3600 * 10 ** 9\n+        arr = TimedeltaArray(data, freq=\"D\")\n+        if index:\n+            arr = pd.Index(arr)\n+\n+        msg = \"searchsorted requires compatible dtype or scalar\"\n+        with pytest.raises(TypeError, match=msg):\n+            arr.searchsorted(other)\n+\n \n class TestReductions:\n     @pytest.mark.parametrize(\"name\", [\"sum\", \"std\", \"min\", \"max\", \"median\"])\n"
+  },
+  "timestamp": "2026-06-27 23:13:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_91",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_91/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TimedeltaIndex.searchsorted accepting invalid types/dtypes (#30831)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/timedeltas.py",
+        "start_line": 360,
+        "end_line": 362,
+        "function_name": "searchsorted",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/timedeltas.py",
+        "start_line": 364,
+        "end_line": 364,
+        "function_name": "searchsorted",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/test_timedeltas.py::TestTimedeltaArray::test_searchsorted_invalid_types"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

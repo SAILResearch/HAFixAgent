@@ -1,0 +1,200 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "JacksonCore_24",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 07:54:54",
+      "end_time": "2026-06-17 08:13:32",
+      "duration_seconds": 1118,
+      "duration_human": "18m 38s"
+    },
+    "model_cost": 0.0861,
+    "model_calls": 34,
+    "token_usage": {
+      "input_tokens": 548053,
+      "output_tokens": 31218,
+      "total_tokens": 579271,
+      "cached_input_tokens": 276544,
+      "uncached_input_tokens": 271509
+    },
+    "agent_steps": 34,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\nindex 1e52b9e0..a7664be3 100644\n--- a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n+++ b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n@@ -884,9 +884,7 @@ public abstract class ParserBase extends ParserMinimalBase\n             // Let's verify it's lossless conversion by simple roundtrip\n             int result = (int) _numberLong;\n             if (((long) result) != _numberLong) {\n-                _reportError(\"Numeric value (\"+getText()+\") out of range of int\");\n-            }\n-            _numberInt = result;\n+                reportOverflowInt();\n         } else if ((_numTypesValid & NR_BIGINT) != 0) {\n             if (BI_MIN_INT.compareTo(_numberBigInt) > 0 \n                     || BI_MAX_INT.compareTo(_numberBigInt) < 0) {\ndiff --git a/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java b/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\nindex c83ade9c..bbcb3c6b 100644\n--- a/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\n+++ b/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\n@@ -562,8 +562,9 @@ public abstract class ParserMinimalBase extends JsonParser\n \n     // @since 2.10\n     protected void reportOverflowInt(String numDesc) throws IOException {\n-        _reportError(String.format(\"Numeric value (%s) out of range of int (%d - %s)\",\n-                _longIntegerDesc(numDesc), Integer.MIN_VALUE, Integer.MAX_VALUE));\n+        _reportInputCoercion(String.format(\"Numeric value (%s) out of range of int (%d - %s)\",\n+                _longIntegerDesc(numDesc), Integer.MIN_VALUE, Integer.MAX_VALUE),\n+                JsonToken.VALUE_NUMBER_INT, Integer.TYPE);\n     }\n \n     // @since 2.10\n@@ -577,10 +578,11 @@ public abstract class ParserMinimalBase extends JsonParser\n         reportOverflowLong(getText());\n     }\n \n-    // @since 2.10\n     protected void reportOverflowLong(String numDesc) throws IOException {\n-        _reportError(String.format(\"Numeric value (%s) out of range of long (%d - %s)\",\n-                _longIntegerDesc(numDesc), Long.MIN_VALUE, Long.MAX_VALUE));\n+        _reportInputCoercion(String.format(\"Numeric value (%s) out of range of long (%d - %s)\",\n+                _longIntegerDesc(numDesc), Long.MIN_VALUE, Long.MAX_VALUE),\n+                JsonToken.VALUE_NUMBER_INT, Long.TYPE);\n+    }\n     }\n \n     // @since 2.10\ndiff --git a/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java b/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java\nindex 8d24bf41..78431266 100644\n--- a/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java\n+++ b/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java\n@@ -28,9 +28,9 @@ public class JsonReadContextTest{\n   @Test\n   public void testSetCurrentName() throws JsonProcessingException {\n       JsonReadContext jsonReadContext = JsonReadContext.createRootContext(0, 0, (DupDetector) null);\n-      jsonReadContext.setCurrentName(\"asd / \\\" \u20ac < - _\");\n+      jsonReadContext.setCurrentName(\"asd / \\\" EUR < - _\");\n \n-      assertEquals(\"asd / \\\" \u20ac < - _\", jsonReadContext.getCurrentName());\n+      assertEquals(\"asd / \\\" EUR < - _\", jsonReadContext.getCurrentName());\n \n       jsonReadContext.setCurrentName(null);\n \ndiff --git a/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java b/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java\nindex e94e4edb..ef0ca0b0 100644\n--- a/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java\n+++ b/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java\n@@ -12,37 +12,37 @@ public class RawValueWithSurrogatesTest\n         // This one fails:\n         String msg =\"{'xxxxxxx':{'xxxx':'xxxxxxxxx','xx':'xxxxxxxxxxxxxxxxxxx','xxxxxxxxx':'xxxx://xxxxxxx.xxx',\"\n +\"'xxxxxx':{'xxxx':'xxxxxxxxxxx','xxxxxxxx':{'xxxxxxxxxxx':'xx','xxxxxxxxxx':'xx-xx'}},\"\n-+\"'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'}]},\"\n++\"'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--'}]},\"\n +\"'xxxxxxxxxxx':[{'xxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'\"\n++\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--'\"\n +\",'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':\"\n-+\"[{'xxxxxx':3,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"[{'xxxxxx':3,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':24,'xxxxxx':4,'xxxx':'xxxxx'}},{'xxxxxx':0,'xxxxxx':123,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':123,'xxxxxx':1,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':1,'xxxxxx':123,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n++\"{'xxxxxx':x,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n++\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--',\"\n +\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]}]}\";\n         // This one works:\n-// String msg =\"{'xxx':{'xxxx':'xxxxxxxxx','xx':'xxxxxxxxxxxxxxxxxxx','xxxxxxxxx':'xxxx://xxxxxxx.xxx','xxxxxx':{'xxxx':'xxxxxxxxxxx','xxxxxxxx':{'xxxxxxxxxxx':'xx','xxxxxxxxxx':'xx-xx'}},'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'}]},'xxxxxxxxxxx':[{'xxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]}]}\";\n+// String msg =\"{'xxx':{'xxxx':'xxxxxxxxx','xx':'xxxxxxxxxxxxxxxxxxx','xxxxxxxxx':'xxxx://xxxxxxx.xxx','xxxxxx':{'xxxx':'xxxxxxxxxxx','xxxxxxxx':{'xxxxxxxxxxx':'xx','xxxxxxxxxx':'xx-xx'}},'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--'}]},'xxxxxxxxxxx':[{'xxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx--','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]}]}\";\n \n         SURROGATES_307 = aposToQuotes(msg);\n     }\ndiff --git a/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java b/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java\nindex 31b7f2f4..235c6496 100644\n--- a/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java\n+++ b/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java\n@@ -33,7 +33,7 @@ public class RequestPayloadTest {\n   @Test\n   public void testCreateTaking2ArgumentsAndCallsGetRawPayload() {\n     byte[] byteArray = new byte[5];\n-    RequestPayload requestPayload = new RequestPayload(byteArray, \"/ _ \\\" \u20ac\");\n+    RequestPayload requestPayload = new RequestPayload(byteArray, \"/ _ \\\" EUR\");\n \n     assertSame(byteArray, requestPayload.getRawPayload());\n   }\n"
+  },
+  "timestamp": "2026-06-17 08:13:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_24",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_24",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "Add new exception type `InputCoercionException` to be used for failed coercions like overflow for `int`\nCurrently problems like overflow for numeric type (when JSON number value exceeds range of requested target type like `int`) simply use `JsonParseException` to indicate the problem (both at streaming and databind level).\r\n\r\nBut it would be better if we could use more targeted exception, to let calling application potentially handle problems differently. We can also add some metadata about type of failure, such as initial token type and expected target type.\r\nIt is also true that coercion failures -- where we start from valid JSON value, but fail to convert into desired target type -- are not parse (decode) problems at all, but rather mismatch problems.\r\n\r\nSo let's add something like `InputCoercionException`, which extends `JsonProcessingException`, but not `JsonParseException`.\r\n\r\nWith 3.x we may want to tackle other problems: for example, lack of context for \"lower level\" `JsonProcessingException`s (compared to `JsonMappingException`)\r\n\r\n\r\n\n",
+    "commit_message": "Fix #508",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 165,
+        "end_line": 165,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 171,
+        "end_line": 171,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 177,
+        "end_line": 177,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 179,
+        "end_line": 179,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 7,
+        "end_line": 7,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 10,
+        "end_line": 10,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 11,
+        "end_line": 11,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 12,
+        "end_line": 12,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 13,
+        "end_line": 13,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 28,
+        "end_line": 28,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.async.AsyncNumberCoercionTest::testToLongFailing",
+      "com.fasterxml.jackson.core.json.async.AsyncNumberCoercionTest::testToIntFailing",
+      "com.fasterxml.jackson.core.read.NumberCoercionTest::testToLongFailing",
+      "com.fasterxml.jackson.core.read.NumberCoercionTest::testToIntFailing",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testMaliciousLongOverflow",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testSimpleLongOverflow",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testMaliciousIntOverflow",
+      "com.fasterxml.jackson.core.read.NumberParsingTest::testSimpleLong"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 165,
+      "end_line": 165,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 171,
+      "end_line": 171,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 177,
+      "end_line": 177,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 179,
+      "end_line": 179,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 7,
+      "end_line": 7,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 10,
+      "end_line": 10,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 11,
+      "end_line": 11,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 12,
+      "end_line": 12,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 13,
+      "end_line": 13,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 28,
+      "end_line": 28,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,184 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "83",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 03:19:12",
+      "end_time": "2026-06-20 03:21:26",
+      "duration_seconds": 134,
+      "duration_human": "2m 14s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 445502,
+      "output_tokens": 3839,
+      "total_tokens": 449341,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 445502
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/CharacterReader.java b/src/main/java/org/jsoup/parser/CharacterReader.java\nindex 80dffcd9..69935244 100644\n--- a/src/main/java/org/jsoup/parser/CharacterReader.java\n+++ b/src/main/java/org/jsoup/parser/CharacterReader.java\n@@ -251,7 +251,7 @@ public final class CharacterReader {\n \n         while (bufPos < remaining) {\n             final char c = val[bufPos];\n-            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c ==  TokeniserState.nullChar)\n+            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c == '<' || c ==  TokeniserState.nullChar)\n                 break;\n             bufPos++;\n         }\ndiff --git a/src/main/java/org/jsoup/parser/TokeniserState.java b/src/main/java/org/jsoup/parser/TokeniserState.java\nindex 4980f15e..cf3851d1 100644\n--- a/src/main/java/org/jsoup/parser/TokeniserState.java\n+++ b/src/main/java/org/jsoup/parser/TokeniserState.java\n@@ -159,6 +159,10 @@ enum TokeniserState {\n                     t.transition(SelfClosingStartTag);\n                     break;\n                     // intended fall through to next >\n+                case '<': // NOTE: out of spec, but clear author intent\n+                    t.error(this);\n+                    r.unconsume();\n+                    // intended fall through to next >\n                 case '>':\n                     t.emitTagPending();\n                     t.transition(Data);\n@@ -562,6 +566,10 @@ enum TokeniserState {\n                     t.transition(SelfClosingStartTag);\n                     break;\n                     // intended fall through as if >\n+                case '<': // NOTE: out of spec, but clear (spec has this as a part of the attribute name)\n+                    t.error(this);\n+                    r.unconsume();\n+                    // intended fall through as if >\n                 case '>':\n                     t.emitTagPending();\n                     t.transition(Data);\n@@ -627,9 +635,6 @@ enum TokeniserState {\n                     break;\n                 case '\"':\n                 case '\\'':\n-                case '<':\n-                    t.error(this);\n-                    t.tagPending.appendAttributeName(c);\n                     break;\n                 default: // buffer underrun\n                     t.tagPending.appendAttributeName(c);\n"
+  },
+  "timestamp": "2026-06-20 03:21:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_83",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_83",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Could handle missing tag ends (>) better\nWe are using Jsoup to parse HTML documents from some external websites, which are not under our control. A few days ago, one of these sites updated their website, and introduced a bug, causing our crawling to fail spectacularly. The HTML which was broken looked a bit like this:\r\n\r\n```\r\n<td class=\"my-cell\"\r\n   <div class=\"great-formatting\">100</div>\r\n</td>\r\n```\r\n\r\nAs you can see, the TD is missing a closing `>`, while we did a `document.select(\"div.great-formatting\")`. This failed, because Jsoup couldn't parse the document correctly anymore. \r\n\r\nI understand it's a very edge case, and maybe very hard to fix. However, for us it was a production issue, and caused us quite a few headaches. Right now, we have a sort of preprocessor running over the HTML to close all elements which should be closed, but it would be much nicer if Jsoup would handle this out of the box. \r\n\n",
+    "commit_message": "Treat < in a start tag as a new tag, not an attribute name",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/CharacterReader.java",
+        "start_line": 254,
+        "end_line": 254,
+        "line_numbers": [
+          254
+        ],
+        "function_name": "consumeTagName",
+        "class_name": "CharacterReader",
+        "filename": "CharacterReader.java",
+        "code_snippet": "    String consumeTagName() {\n        // '\\t', '\\n', '\\r', '\\f', ' ', '/', '>', nullChar\n        // NOTE: out of spec, added '<' to fix common author bugs\n        bufferUp();\n        final int start = bufPos;\n        final int remaining = bufLength;\n        final char[] val = charBuf;\n\n        while (bufPos < remaining) {\n            final char c = val[bufPos];\n            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c ==  TokeniserState.nullChar)\n                break;\n            bufPos++;\n        }\n\n        return bufPos > start ? cacheString(charBuf, stringCache, start, bufPos -start) : \"\";\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokeniserState.java",
+        "start_line": 581,
+        "end_line": 581,
+        "line_numbers": [
+          581
+        ],
+        "function_name": "read",
+        "class_name": "",
+        "filename": "TokeniserState.java",
+        "code_snippet": "        void read(Tokeniser t, CharacterReader r) {\n            char c = r.consume();\n            switch (c) {\n                case '\\t':\n                case '\\n':\n                case '\\r':\n                case '\\f':\n                case ' ':\n                    break; // ignore whitespace\n                case '/':\n                    t.transition(SelfClosingStartTag);\n                    break;\n                    // intended fall through as if >\n                case '>':\n                    t.emitTagPending();\n                    t.transition(Data);\n                    break;\n                case nullChar:\n                    t.error(this);\n                    t.tagPending.newAttribute();\n                    r.unconsume();\n                    t.transition(AttributeName);\n                    break;\n                case eof:\n                    t.eofError(this);\n                    t.transition(Data);\n                    break;\n                case '\"':\n                case '\\'':\n                case '<':\n                case '=':\n                    t.error(this);\n                    t.tagPending.newAttribute();\n                    t.tagPending.appendAttributeName(c);\n                    t.transition(AttributeName);\n                    break;\n                default: // A-Z, anything else\n                    t.tagPending.newAttribute();\n                    r.unconsume();\n                    t.transition(AttributeName);\n            }\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.HtmlParserTest::parsesQuiteRoughAttributes",
+      "org.jsoup.parser.TokeniserStateTest::handlesLessInTagThanAsNewTag"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/CharacterReader.java b/src/main/java/org/jsoup/parser/CharacterReader.java\nindex 6993524..80dffcd 100644\n--- a/src/main/java/org/jsoup/parser/CharacterReader.java\n+++ b/src/main/java/org/jsoup/parser/CharacterReader.java\n@@ -251,7 +251,7 @@ public final class CharacterReader {\n \n         while (bufPos < remaining) {\n             final char c = val[bufPos];\n+            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c == '<' || c ==  TokeniserState.nullChar)\n-            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c ==  TokeniserState.nullChar)\n                 break;\n             bufPos++;\n         }\ndiff --git a/src/main/java/org/jsoup/parser/TokeniserState.java b/src/main/java/org/jsoup/parser/TokeniserState.java\nindex 95b326c..4980f15 100644\n--- a/src/main/java/org/jsoup/parser/TokeniserState.java\n+++ b/src/main/java/org/jsoup/parser/TokeniserState.java\n@@ -158,9 +158,6 @@ enum TokeniserState {\n                 case '/':\n                     t.transition(SelfClosingStartTag);\n                     break;\n+                case '<': // NOTE: out of spec, but clear author intent\n+                    t.error(this);\n+                    r.unconsume();\n                     // intended fall through to next >\n                 case '>':\n                     t.emitTagPending();\n@@ -564,9 +561,6 @@ enum TokeniserState {\n                 case '/':\n                     t.transition(SelfClosingStartTag);\n                     break;\n+                case '<': // NOTE: out of spec, but clear (spec has this as a part of the attribute name)\n+                    t.error(this);\n+                    r.unconsume();\n                     // intended fall through as if >\n                 case '>':\n                     t.emitTagPending();\n@@ -584,6 +578,7 @@ enum TokeniserState {\n                     break;\n                 case '\"':\n                 case '\\'':\n-                case '<':\n                 case '=':\n                     t.error(this);\n                     t.tagPending.newAttribute();",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2014-10-26 18:50:18",
+        "commit_message": "Speed improvements",
+        "commit_hash": "d1b57703e1131ba316beb84e8d9f6fcfa9ba6510"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "consumeTagName",
+          "cacheString",
+          "consumeData",
+          "CharacterReader",
+          "consumeToAnySorted",
+          "matchesAnySorted",
+          "rangeEquals"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "consumeTagName",
+          "cacheString",
+          "consumeData",
+          "CharacterReader",
+          "consumeToAnySorted",
+          "matchesAnySorted",
+          "rangeEquals"
+        ],
+        "functions_name_modified_file": [
+          "pos",
+          "cacheString",
+          "consumeToEnd",
+          "matchesLetter",
+          "matchConsumeIgnoreCase",
+          "matchesAny",
+          "toString",
+          "rangeEquals",
+          "consumeLetterSequence",
+          "consumeDigitSequence",
+          "consumeToAnySorted",
+          "rewindToMark",
+          "isEmpty",
+          "containsIgnoreCase",
+          "matchesIgnoreCase",
+          "consumeData",
+          "matches",
+          "consumeHexSequence",
+          "consumeToAny",
+          "matchesAnySorted",
+          "consumeTagName",
+          "consume",
+          "unconsume",
+          "matchConsume",
+          "advance",
+          "mark",
+          "current",
+          "consumeLetterThenDigitSequence",
+          "consumeAsString",
+          "matchesDigit",
+          "consumeTo",
+          "CharacterReader",
+          "nextIndexOf"
+        ],
+        "functions_name_all_files": [
+          "pos",
+          "cacheString",
+          "consumeToEnd",
+          "matchesLetter",
+          "matchConsumeIgnoreCase",
+          "matchesAny",
+          "toString",
+          "rangeEquals",
+          "consumeLetterSequence",
+          "consumeDigitSequence",
+          "consumeToAnySorted",
+          "rewindToMark",
+          "isEmpty",
+          "containsIgnoreCase",
+          "matchesIgnoreCase",
+          "consumeData",
+          "matches",
+          "consumeHexSequence",
+          "consumeToAny",
+          "matchesAnySorted",
+          "consumeTagName",
+          "consume",
+          "unconsume",
+          "matchConsume",
+          "advance",
+          "mark",
+          "current",
+          "consumeLetterThenDigitSequence",
+          "consumeAsString",
+          "matchesDigit",
+          "consumeTo",
+          "CharacterReader",
+          "nextIndexOf"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    String consumeTagName() {\n        // '\\t', '\\n', '\\r', '\\f', ' ', '/', '>', nullChar\n        final int start = pos;\n        final int remaining = length;\n        final char[] val = input;\n\n        while (pos < remaining) {\n            final char c = val[pos];\n            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c ==  TokeniserState.nullChar)\n                break;\n            pos++;\n        }\n\n        return pos > start ? cacheString(start, pos-start) : \"\";\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/parser/CharacterReader.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/parser/CharacterReader.java": "diff --git a/src/main/java/org/jsoup/parser/CharacterReader.java b/src/main/java/org/jsoup/parser/CharacterReader.java\nindex 03a1ec9d..02b8c7b0 100644\n--- a/src/main/java/org/jsoup/parser/CharacterReader.java\n+++ b/src/main/java/org/jsoup/parser/CharacterReader.java\n@@ -2,18 +2,21 @@ package org.jsoup.parser;\n \n import org.jsoup.helper.Validate;\n \n+import java.util.Arrays;\n import java.util.Locale;\n \n /**\n  CharacterReader consumes tokens off a string. To replace the old TokenQueue.\n  */\n-class CharacterReader {\n+final class CharacterReader {\n     static final char EOF = (char) -1;\n+    private static final int maxCacheLen = 12;\n \n     private final char[] input;\n     private final int length;\n     private int pos = 0;\n     private int mark = 0;\n+    private final String[] stringCache = new String[512]; // holds reused strings in this doc, to lessen garbage\n \n     CharacterReader(String input) {\n         Validate.notNull(input);\n@@ -100,7 +103,7 @@ class CharacterReader {\n     String consumeTo(char c) {\n         int offset = nextIndexOf(c);\n         if (offset != -1) {\n-            String consumed = new String(input, pos, offset);\n+            String consumed = cacheString(pos, offset);\n             pos += offset;\n             return consumed;\n         } else {\n@@ -111,7 +114,7 @@ class CharacterReader {\n     String consumeTo(String seq) {\n         int offset = nextIndexOf(seq);\n         if (offset != -1) {\n-            String consumed = new String(input, pos, offset);\n+            String consumed = cacheString(pos, offset);\n             pos += offset;\n             return consumed;\n         } else {\n@@ -120,21 +123,68 @@ class CharacterReader {\n     }\n \n     String consumeToAny(final char... chars) {\n-        int start = pos;\n+        final int start = pos;\n+        final int remaining = length;\n \n-        OUTER: while (pos < length) {\n-            for (int i = 0; i < chars.length; i++) {\n-                if (input[pos] == chars[i])\n+        OUTER: while (pos < remaining) {\n+            for (char c : chars) {\n+                if (input[pos] == c)\n                     break OUTER;\n             }\n             pos++;\n         }\n \n-        return pos > start ? new String(input, start, pos-start) : \"\";\n+        return pos > start ? cacheString(start, pos-start) : \"\";\n+    }\n+\n+    String consumeToAnySorted(final char... chars) {\n+        final int start = pos;\n+        final int remaining = length;\n+        final char[] val = input;\n+\n+        while (pos < remaining) {\n+            if (Arrays.binarySearch(chars, val[pos]) >= 0)\n+                break;\n+            pos++;\n+        }\n+\n+        return pos > start ? cacheString(start, pos-start) : \"\";\n+    }\n+\n+    String consumeData() {\n+        // &, <, null\n+        final int start = pos;\n+        final int remaining = length;\n+        final char[] val = input;\n+\n+        while (pos < remaining) {\n+            final char c = val[pos];\n+            if (c == '&'|| c ==  '<' || c ==  TokeniserState.nullChar)\n+                break;\n+            pos++;\n+        }\n+\n+        return pos > start ? cacheString(start, pos-start) : \"\";\n+    }\n+\n+    String consumeTagName() {\n+        // '\\t', '\\n', '\\r', '\\f', ' ', '/', '>', nullChar\n+        final int start = pos;\n+        final int remaining = length;\n+        final char[] val = input;\n+\n+        while (pos < remaining) {\n+            final char c = val[pos];\n+            if (c == '\\t'|| c ==  '\\n'|| c ==  '\\r'|| c ==  '\\f'|| c ==  ' '|| c ==  '/'|| c ==  '>'|| c ==  TokeniserState.nullChar)\n+                break;\n+            pos++;\n+        }\n+\n+        return pos > start ? cacheString(start, pos-start) : \"\";\n     }\n \n     String consumeToEnd() {\n-        String data = new String(input, pos, length-pos);\n+        String data = cacheString(pos, length-pos);\n         pos = length;\n         return data;\n     }\n@@ -149,7 +199,7 @@ class CharacterReader {\n                 break;\n         }\n \n-        return new String(input, start, pos - start);\n+        return cacheString(start, pos - start);\n     }\n \n     String consumeLetterThenDigitSequence() {\n@@ -169,7 +219,7 @@ class CharacterReader {\n                 break;\n         }\n \n-        return new String(input, start, pos - start);\n+        return cacheString(start, pos - start);\n     }\n \n     String consumeHexSequence() {\n@@ -181,7 +231,7 @@ class CharacterReader {\n             else\n                 break;\n         }\n-        return new String(input, start, pos - start);\n+        return cacheString(start, pos - start);\n     }\n \n     String consumeDigitSequence() {\n@@ -193,7 +243,7 @@ class CharacterReader {\n             else\n                 break;\n         }\n-        return new String(input, start, pos - start);\n+        return cacheString(start, pos - start);\n     }\n \n     boolean matches(char c) {\n@@ -238,6 +288,10 @@ class CharacterReader {\n         return false;\n     }\n \n+    boolean matchesAnySorted(char[] seq) {\n+        return !isEmpty() && Arrays.binarySearch(seq, input[pos]) >= 0;\n+    }\n+\n     boolean matchesLetter() {\n         if (isEmpty())\n             return false;\n@@ -281,4 +335,62 @@ class CharacterReader {\n     public String toString() {\n         return new String(input, pos, length - pos);\n     }\n+\n+    /**\n+     * Caches short strings, as a flywheel pattern, to reduce GC load. Just for this doc, to prevent leaks.\n+     * <p />\n+     * Simplistic, and on hash collisions just falls back to creating a new string, vs a full HashMap with Entry list.\n+     * That saves both having to create objects as hash keys, and running through the entry list, at the expense of\n+     * some more duplicates.\n+     */\n+    private String cacheString(final int start, final int count) {\n+        final char[] val = input;\n+        final String[] cache = stringCache;\n+\n+        // limit (no cache):\n+        if (count > maxCacheLen)\n+            return new String(val, start, count);\n+\n+        // calculate hash:\n+        int hash = 0;\n+        int offset = start;\n+        for (int i = 0; i < count; i++) {\n+            hash = 31 * hash + val[offset++];\n+        }\n+\n+        // get from cache\n+        final int index = hash & cache.length - 1;\n+        String cached = cache[index];\n+\n+        if (cached == null) { // miss, add\n+            cached = new String(val, start, count);\n+            cache[index] = cached;\n+        } else { // hashcode hit, check equality\n+            if (rangeEquals(start, count, cached)) {\n+                // hit\n+                return cached;\n+            } else { // hashcode conflict\n+                cached = new String(val, start, count);\n+            }\n+        }\n+        return cached;\n+    }\n+\n+    /**\n+     * Check if the value of the provided range equals the string.\n+     */\n+    boolean rangeEquals(final int start, int count, final String cached) {\n+        if (count == cached.length()) {\n+            char one[] = input;\n+            char two[] = cached.toCharArray();\n+            int i = start;\n+            int j = 0;\n+            while (count-- != 0) {\n+                if (one[i++] != two[j++])\n+                    return false;\n+            }\n+            return true;\n+        }\n+        return false;\n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

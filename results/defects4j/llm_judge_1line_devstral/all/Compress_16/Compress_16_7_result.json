@@ -1,0 +1,94 @@
+{
+  "project_name": "Compress",
+  "bug_id": "16",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 08:22:04",
+      "end_time": "2026-06-27 08:24:03",
+      "duration_seconds": 119,
+      "duration_human": "1m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 504592,
+      "output_tokens": 5393,
+      "total_tokens": 509985,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 504592
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\nindex 37dfbe03..e7cc3246 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n@@ -31,6 +31,7 @@ import org.apache.commons.compress.archivers.dump.DumpArchiveInputStream;\n import org.apache.commons.compress.archivers.jar.JarArchiveInputStream;\n import org.apache.commons.compress.archivers.jar.JarArchiveOutputStream;\n import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;\n+import org.apache.commons.compress.archivers.ArchiveEntry;\n import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;\n import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;\n import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;\n@@ -194,6 +195,20 @@ public class ArchiveStreamFactory {\n      * @throws ArchiveException if the archiver name is not known\n      * @throws IllegalArgumentException if the stream is null or does not support mark\n      */\n+    \n+    private static boolean isValidTarEntryName(String name) {\n+        if (name == null || name.length() == 0) {\n+            return false;\n+        }\n+        // Tar entry names should not contain null bytes or control characters\n+        for (int i = 0; i < name.length(); i++) {\n+            char c = name.charAt(i);\n+            if (c == 0 || c < 32) {\n+                return false;\n+            }\n+        }\n+        return true;\n+    }\n     public ArchiveInputStream createArchiveInputStream(final InputStream in)\n             throws ArchiveException {\n         if (in == null) {\n@@ -226,10 +241,12 @@ public class ArchiveStreamFactory {\n             in.reset();\n             if (DumpArchiveInputStream.matches(dumpsig, signatureLength)) {\n                 return new DumpArchiveInputStream(in);\n-            }\n-\n-            // Tar needs an even bigger buffer to check the signature; read the first block\n-            final byte[] tarheader = new byte[512];\n+                    TarArchiveInputStream tais = new TarArchiveInputStream(new ByteArrayInputStream(tarheader));\n+                    // COMPRESS-191 - verify the header checksum\n+                    ArchiveEntry entry = tais.getNextEntry();\n+                    if (entry != null && isValidTarEntryName(entry.getName())) {\n+                        return new TarArchiveInputStream(in);\n+                    }\n             in.mark(tarheader.length);\n             signatureLength = in.read(tarheader);\n             in.reset();\n"
+  },
+  "timestamp": "2026-06-27 08:24:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_16",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_16",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Too relaxed tar detection in ArchiveStreamFactory\nThe relaxed tar detection logic added in COMPRESS-117 unfortunately matches also some non-tar files like a [test AIFF file|https://svn.apache.org/repos/asf/tika/trunk/tika-parsers/src/test/resources/test-documents/testAIFF.aif] that Apache Tika uses. It would be good to improve the detection heuristics to still match files like the one in COMPRESS-117 but avoid false positives like the AIFF file in Tika.",
+    "commit_message": "COMPRESS-191 ArchiveStreamFactory false positive for tar format.  Submitted by Jukka Zitting",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java",
+        "start_line": 244,
+        "end_line": 244,
+        "line_numbers": [
+          244
+        ],
+        "function_name": "createArchiveInputStream",
+        "class_name": "ArchiveStreamFactory",
+        "filename": "ArchiveStreamFactory.java",
+        "code_snippet": "    public ArchiveInputStream createArchiveInputStream(final InputStream in)\n            throws ArchiveException {\n        if (in == null) {\n            throw new IllegalArgumentException(\"Stream must not be null.\");\n        }\n\n        if (!in.markSupported()) {\n            throw new IllegalArgumentException(\"Mark is not supported.\");\n        }\n\n        final byte[] signature = new byte[12];\n        in.mark(signature.length);\n        try {\n            int signatureLength = in.read(signature);\n            in.reset();\n            if (ZipArchiveInputStream.matches(signature, signatureLength)) {\n                return new ZipArchiveInputStream(in);\n            } else if (JarArchiveInputStream.matches(signature, signatureLength)) {\n                return new JarArchiveInputStream(in);\n            } else if (ArArchiveInputStream.matches(signature, signatureLength)) {\n                return new ArArchiveInputStream(in);\n            } else if (CpioArchiveInputStream.matches(signature, signatureLength)) {\n                return new CpioArchiveInputStream(in);\n            }\n\n            // Dump needs a bigger buffer to check the signature;\n            final byte[] dumpsig = new byte[32];\n            in.mark(dumpsig.length);\n            signatureLength = in.read(dumpsig);\n            in.reset();\n            if (DumpArchiveInputStream.matches(dumpsig, signatureLength)) {\n                return new DumpArchiveInputStream(in);\n            }\n\n            // Tar needs an even bigger buffer to check the signature; read the first block\n            final byte[] tarheader = new byte[512];\n            in.mark(tarheader.length);\n            signatureLength = in.read(tarheader);\n            in.reset();\n            if (TarArchiveInputStream.matches(tarheader, signatureLength)) {\n                return new TarArchiveInputStream(in);\n            }\n            // COMPRESS-117 - improve auto-recognition\n            if (signatureLength >= 512) {\n                try {\n                    TarArchiveInputStream tais = new TarArchiveInputStream(new ByteArrayInputStream(tarheader));\n                    // COMPRESS-191 - verify the header checksum\n                    tais.getNextEntry();\n                        return new TarArchiveInputStream(in);\n                } catch (Exception e) { // NOPMD\n                    // can generate IllegalArgumentException as well\n                    // as IOException\n                    // autodetection, simply not a TAR\n                    // ignored\n                }\n            }\n        } catch (IOException e) {\n            throw new ArchiveException(\"Could not use reset and mark operations.\", e);\n        }\n\n        throw new ArchiveException(\"No Archiver found for the stream signature\");\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest::aiffFilesAreNoTARs"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\nindex 90820df8..37dfbe03 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n@@ -241,9 +241,8 @@ public class ArchiveStreamFactory {\n                 try {\n                     TarArchiveInputStream tais = new TarArchiveInputStream(new ByteArrayInputStream(tarheader));\n                     // COMPRESS-191 - verify the header checksum\n+                    if (tais.getNextTarEntry().isCheckSumOK()) {\n-                    tais.getNextEntry();\n                         return new TarArchiveInputStream(in);\n+                    }\n                 } catch (Exception e) { // NOPMD\n                     // can generate IllegalArgumentException as well\n                     // as IOException",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Stefan Bodewig",
+        "commit_date": "2012-01-29 15:58:41",
+        "commit_message": "whitespace",
+        "commit_hash": "b4108683e6d0c11a6cf2e8f59210906821264e03"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "createArchiveInputStream",
+          "ArchiveStreamFactory",
+          "createArchiveOutputStream"
+        ],
+        "functions_name_all_files": [
+          "createArchiveInputStream",
+          "ArchiveStreamFactory",
+          "createArchiveOutputStream"
+        ],
+        "function_code_before": "    /**\n     * Create an archive input stream from an archiver name and an input stream.\n     * \n     * @param archiverName the archive name, i.e. \"ar\", \"zip\", \"tar\", \"jar\", \"dump\" or \"cpio\"\n     * @param in the input stream\n     * @return the archive input stream\n     * @throws ArchiveException if the archiver name is not known\n     * @throws IllegalArgumentException if the archiver name or stream is null\n     */\n    public ArchiveInputStream createArchiveInputStream(\n            final String archiverName, final InputStream in)\n            throws ArchiveException {\n        \n        if (archiverName == null) {\n            throw new IllegalArgumentException(\"Archivername must not be null.\");\n        }\n        \n        if (in == null) {\n            throw new IllegalArgumentException(\"InputStream must not be null.\");\n        }\n\n        if (AR.equalsIgnoreCase(archiverName)) {\n            return new ArArchiveInputStream(in);\n        }\n        if (ZIP.equalsIgnoreCase(archiverName)) {\n            return new ZipArchiveInputStream(in);\n        }\n        if (TAR.equalsIgnoreCase(archiverName)) {\n            return new TarArchiveInputStream(in);\n        }\n        if (JAR.equalsIgnoreCase(archiverName)) {\n            return new JarArchiveInputStream(in);\n        }\n        if (CPIO.equalsIgnoreCase(archiverName)) {\n            return new CpioArchiveInputStream(in);\n        }\n        if (DUMP.equalsIgnoreCase(archiverName)) {\n            return new DumpArchiveInputStream(in);\n        }\n        \n        throw new ArchiveException(\"Archiver: \" + archiverName + \" not found.\");\n    }",
+        "function_code_after": "    /**\n     * Create an archive input stream from an archiver name and an input stream.\n     * \n     * @param archiverName the archive name, i.e. \"ar\", \"zip\", \"tar\", \"jar\", \"dump\" or \"cpio\"\n     * @param in the input stream\n     * @return the archive input stream\n     * @throws ArchiveException if the archiver name is not known\n     * @throws IllegalArgumentException if the archiver name or stream is null\n     */\n    public ArchiveInputStream createArchiveInputStream(\n            final String archiverName, final InputStream in)\n            throws ArchiveException {\n        \n        if (archiverName == null) {\n            throw new IllegalArgumentException(\"Archivername must not be null.\");\n        }\n        \n        if (in == null) {\n            throw new IllegalArgumentException(\"InputStream must not be null.\");\n        }\n\n        if (AR.equalsIgnoreCase(archiverName)) {\n            return new ArArchiveInputStream(in);\n        }\n        if (ZIP.equalsIgnoreCase(archiverName)) {\n            return new ZipArchiveInputStream(in);\n        }\n        if (TAR.equalsIgnoreCase(archiverName)) {\n            return new TarArchiveInputStream(in);\n        }\n        if (JAR.equalsIgnoreCase(archiverName)) {\n            return new JarArchiveInputStream(in);\n        }\n        if (CPIO.equalsIgnoreCase(archiverName)) {\n            return new CpioArchiveInputStream(in);\n        }\n        if (DUMP.equalsIgnoreCase(archiverName)) {\n            return new DumpArchiveInputStream(in);\n        }\n        \n        throw new ArchiveException(\"Archiver: \" + archiverName + \" not found.\");\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java": "diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\nindex c831b60b..7cfec8f0 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java\n@@ -238,15 +238,16 @@ public class ArchiveStreamFactory {\n             }\n             // COMPRESS-117 - improve auto-recognition\n             if (signatureLength >= 512) {\n-            try {\n-                TarArchiveInputStream tais = new TarArchiveInputStream(new ByteArrayInputStream(tarheader));\n-                tais.getNextEntry();\n-                return new TarArchiveInputStream(in);\n-            } catch (Exception e) { // NOPMD\n-                // can generate IllegalArgumentException as well as IOException\n-                // autodetection, simply not a TAR\n-                // ignored\n-            }\n+                try {\n+                    TarArchiveInputStream tais = new TarArchiveInputStream(new ByteArrayInputStream(tarheader));\n+                    tais.getNextEntry();\n+                    return new TarArchiveInputStream(in);\n+                } catch (Exception e) { // NOPMD\n+                    // can generate IllegalArgumentException as well\n+                    // as IOException\n+                    // autodetection, simply not a TAR\n+                    // ignored\n+                }\n             }\n         } catch (IOException e) {\n             throw new ArchiveException(\"Could not use reset and mark operations.\", e);"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_157",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 21:19:28",
+      "end_time": "2026-03-23 21:23:29",
+      "duration_seconds": 241,
+      "duration_human": "4m 1s"
+    },
+    "model_cost": 0.0347,
+    "model_calls": 26,
+    "token_usage": {
+      "input_tokens": 264233,
+      "output_tokens": 8001,
+      "total_tokens": 272234,
+      "cached_input_tokens": 147968,
+      "uncached_input_tokens": 116265
+    },
+    "agent_steps": 26,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/reshape/merge.py b/pandas/core/reshape/merge.py\nindex f45c7693bf..0f765149b4 100644\n--- a/pandas/core/reshape/merge.py\n+++ b/pandas/core/reshape/merge.py\n@@ -24,6 +24,7 @@ from pandas.core.dtypes.common import (\n     is_categorical_dtype,\n     is_datetime64_dtype,\n     is_datetime64tz_dtype,\n+    is_timedelta64_dtype,\n     is_datetimelike,\n     is_dtype_equal,\n     is_extension_array_dtype,\n@@ -1635,7 +1636,7 @@ class _AsOfMerge(_OrderedMerge):\n                 )\n             )\n \n-            if is_datetime64_dtype(lt) or is_datetime64tz_dtype(lt):\n+            if is_datetime64_dtype(lt) or is_datetime64tz_dtype(lt) or is_timedelta64_dtype(lt):\n                 if not isinstance(self.tolerance, Timedelta):\n                     raise MergeError(msg)\n                 if self.tolerance < Timedelta(0):\ndiff --git a/pandas/tests/reshape/merge/test_merge_asof.py b/pandas/tests/reshape/merge/test_merge_asof.py\nindex 6b66386baf..7412b1de64 100644\n--- a/pandas/tests/reshape/merge/test_merge_asof.py\n+++ b/pandas/tests/reshape/merge/test_merge_asof.py\n@@ -1,3 +1,5 @@\n+import datetime\n+\n import numpy as np\n import pytest\n import pytz\n@@ -588,14 +590,23 @@ class TestAsOfMerge:\n         # ok, though has dupes\n         merge_asof(trades, self.quotes, on=\"time\", by=\"ticker\")\n \n-    def test_tolerance(self):\n+    @pytest.mark.parametrize(\n+        \"tolerance\",\n+        [\n+            Timedelta(\"1day\"),\n+            pytest.param(\n+                datetime.timedelta(days=1),\n+                marks=pytest.mark.xfail(reason=\"not implemented\", strict=True),\n+            ),\n+        ],\n+        ids=[\"pd.Timedelta\", \"datetime.timedelta\"],\n+    )\n+    def test_tolerance(self, tolerance):\n \n         trades = self.trades\n         quotes = self.quotes\n \n-        result = merge_asof(\n-            trades, quotes, on=\"time\", by=\"ticker\", tolerance=Timedelta(\"1day\")\n-        )\n+        result = merge_asof(trades, quotes, on=\"time\", by=\"ticker\", tolerance=tolerance)\n         expected = self.tolerance\n         assert_frame_equal(result, expected)\n \n@@ -1246,3 +1257,39 @@ class TestAsOfMerge:\n         )\n         expected[\"value_y\"] = np.array([np.nan], dtype=object)\n         assert_frame_equal(result, expected)\n+\n+    def test_timedelta_tolerance_nearest(self):\n+        # GH 27642\n+\n+        left = pd.DataFrame(\n+            list(zip([0, 5, 10, 15, 20, 25], [0, 1, 2, 3, 4, 5])),\n+            columns=[\"time\", \"left\"],\n+        )\n+\n+        left[\"time\"] = pd.to_timedelta(left[\"time\"], \"ms\")\n+\n+        right = pd.DataFrame(\n+            list(zip([0, 3, 9, 12, 15, 18], [0, 1, 2, 3, 4, 5])),\n+            columns=[\"time\", \"right\"],\n+        )\n+\n+        right[\"time\"] = pd.to_timedelta(right[\"time\"], \"ms\")\n+\n+        expected = pd.DataFrame(\n+            list(\n+                zip(\n+                    [0, 5, 10, 15, 20, 25],\n+                    [0, 1, 2, 3, 4, 5],\n+                    [0, np.nan, 2, 4, np.nan, np.nan],\n+                )\n+            ),\n+            columns=[\"time\", \"left\", \"right\"],\n+        )\n+\n+        expected[\"time\"] = pd.to_timedelta(expected[\"time\"], \"ms\")\n+\n+        result = pd.merge_asof(\n+            left, right, on=\"time\", tolerance=Timedelta(\"1ms\"), direction=\"nearest\"\n+        )\n+\n+        assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-03-23 17:23:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_157",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_157/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: timedelta merge asof with tolerance (#27650)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/reshape/merge.py",
+        "start_line": 25,
+        "end_line": 25,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/reshape/merge.py",
+        "start_line": 1638,
+        "end_line": 1638,
+        "function_name": "_get_merge_keys",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/merge/test_merge_asof.py::TestAsOfMerge::test_timedelta_tolerance_nearest"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_25",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 17:09:26",
+      "end_time": "2026-06-17 17:32:52",
+      "duration_seconds": 1406,
+      "duration_human": "23m 26s"
+    },
+    "model_cost": 0.1926,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1833035,
+      "output_tokens": 39070,
+      "total_tokens": 1872105,
+      "cached_input_tokens": 1179008,
+      "uncached_input_tokens": 654027
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/rules/test_mkdir_p.py b/tests/rules/test_mkdir_p.py\nindex d1b91a7..b04a53a 100644\n--- a/tests/rules/test_mkdir_p.py\n+++ b/tests/rules/test_mkdir_p.py\n@@ -3,20 +3,29 @@ from thefuck.rules.mkdir_p import match, get_new_command\n from tests.utils import Command\n \n \n-def test_match():\n-    assert match(Command('mkdir foo/bar/baz',\n-                         stderr='mkdir: foo/bar: No such file or directory'),\n-                 None)\n+@pytest.mark.parametrize('command', [\n+    Command('mkdir foo/bar/baz', stderr='mkdir: foo/bar: No such file or directory'),\n+    Command('./bin/hdfs dfs -mkdir foo/bar/baz', stderr='mkdir: `foo/bar/baz\\': No such file or directory'),\n+    Command('hdfs dfs -mkdir foo/bar/baz', stderr='mkdir: `foo/bar/baz\\': No such file or directory')\n+    ])\n+def test_match(command):\n+    assert match(command, None)\n \n \n @pytest.mark.parametrize('command', [\n     Command('mkdir foo/bar/baz'),\n     Command('mkdir foo/bar/baz', stderr='foo bar baz'),\n+    Command('hdfs dfs -mkdir foo/bar/baz'),\n+    Command('./bin/hdfs dfs -mkdir foo/bar/baz'),\n     Command()])\n def test_not_match(command):\n     assert not match(command, None)\n \n \n-def test_get_new_command():\n-    assert get_new_command(Command('mkdir foo/bar/baz'), None)\\\n-           == 'mkdir -p foo/bar/baz'\n+@pytest.mark.parametrize('command, new_command', [\n+    (Command('mkdir foo/bar/baz'), 'mkdir -p foo/bar/baz'),\n+    (Command('hdfs dfs -mkdir foo/bar/baz'), 'hdfs dfs -mkdir -p foo/bar/baz'),\n+    (Command('./bin/hdfs dfs -mkdir foo/bar/baz'), './bin/hdfs dfs -mkdir -p foo/bar/baz')])\n+def test_get_new_command(command, new_command):\n+    assert get_new_command(command, None) == new_command\n+\ndiff --git a/thefuck/rules/mkdir_p.py b/thefuck/rules/mkdir_p.py\nindex 03b40ce..896aca2 100644\n--- a/thefuck/rules/mkdir_p.py\n+++ b/thefuck/rules/mkdir_p.py\n@@ -1,13 +1,20 @@\n import re\n from thefuck.utils import sudo_support\n+from thefuck.utils import replace_argument\n \n \n @sudo_support\n def match(command, settings):\n-    return ('mkdir' in command.script\n-            and 'No such file or directory' in command.stderr)\n+    return (\"mkdir\" in command.script\n+            and \"No such file or directory\" in command.stderr)\n \n \n @sudo_support\n def get_new_command(command, settings):\n-    return re.sub('^mkdir (.*)', 'mkdir -p \\\\1', command.script)\n+    # Check if -p is already in the command\n+    if \"-p\" in command.script:\n+        # Replace -p with --parents\n+        return replace_argument(command, \"-p\", \"--parents\")\n+    else:\n+        # Add -p after mkdir\n+        return re.sub(r\"^(.*?mkdir\\b)\", r\"\\1 -p\", command.script)\ndiff --git a/thefuck/utils.py b/thefuck/utils.py\nindex 0003e8b..9a0873f 100644\n--- a/thefuck/utils.py\n+++ b/thefuck/utils.py\n@@ -152,16 +152,27 @@ def get_all_executables():\n                 alias for alias in get_aliases() if alias != tf_alias]\n \n \n-def replace_argument(script, from_, to):\n-    \"\"\"Replaces command line argument.\"\"\"\n-    replaced_in_the_end = re.sub(u' {}$'.format(from_), u' {}'.format(to),\n-                                 script, count=1)\n-    if replaced_in_the_end != script:\n-        return replaced_in_the_end\n-    else:\n-        return script.replace(\n-            u' {} '.format(from_), u' {} '.format(to), 1)\n-\n+def replace_argument(command, from_, to):\n+    \"\"\"Replaces command argument from_ with to.\"\"\"\n+    script_parts = command.script.split()\n+    for index, arg in enumerate(script_parts):\n+        if arg == from_:\n+            script_parts[index] = to\n+        elif arg.startswith(\"-\") and not arg.startswith(\"--\") and from_ in arg:\n+            # Handle combined short flags like -pv where we want to replace -p with --parents\n+            # Remove the leading dash\n+            flags = arg[1:]\n+            # Remove the flag we're replacing\n+            flags = flags.replace(from_[1:], \"\", 1)\n+            # Reconstruct the argument\n+            if flags:\n+                # If there are remaining flags, insert to and the remaining flags\n+                script_parts[index] = to\n+                script_parts.insert(index + 1, \"-\" + flags)\n+            else:\n+                # If no flags remain, just replace with to\n+                script_parts[index] = to\n+    return \" \".join(script_parts)\n \n def eager(fn):\n     @wraps(fn)\n"
+  },
+  "timestamp": "2026-06-17 17:32:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_25",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_25/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Support for hdfs dfs -mkdir -p /directory/subdirectory",
+    "fault_locations": [
+      {
+        "file": "thefuck/rules/mkdir_p.py",
+        "start_line": 13,
+        "end_line": 13,
+        "suspiciousness": 0.784471,
+        "rank": 1
+      },
+      {
+        "file": "thefuck/utils.py",
+        "start_line": 62,
+        "end_line": 62,
+        "suspiciousness": 0.4175,
+        "rank": 2
+      },
+      {
+        "file": "thefuck/utils.py",
+        "start_line": 63,
+        "end_line": 63,
+        "suspiciousness": 0.4175,
+        "rank": 3
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/rules/test_mkdir_p.py::test_get_new_command"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "thefuck/rules/mkdir_p.py",
+      "start_line": 13,
+      "end_line": 13,
+      "suspiciousness": 0.784471,
+      "rank": 1
+    },
+    {
+      "file": "thefuck/utils.py",
+      "start_line": 62,
+      "end_line": 62,
+      "suspiciousness": 0.4175,
+      "rank": 2
+    },
+    {
+      "file": "thefuck/utils.py",
+      "start_line": 63,
+      "end_line": 63,
+      "suspiciousness": 0.4175,
+      "rank": 3
+    }
+  ]
+}

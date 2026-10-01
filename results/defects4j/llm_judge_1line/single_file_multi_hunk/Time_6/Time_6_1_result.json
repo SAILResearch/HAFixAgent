@@ -1,0 +1,92 @@
+{
+  "project_name": "Time",
+  "bug_id": "6",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 23:24:47",
+      "end_time": "2025-09-30 23:32:58",
+      "duration_seconds": 490,
+      "duration_human": "8m 10s"
+    },
+    "model_cost": 0.0692,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 865266,
+      "output_tokens": 7769,
+      "total_tokens": 873035,
+      "cached_input_tokens": 839680,
+      "uncached_input_tokens": 25586
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/joda/time/chrono/GJChronology.java b/src/main/java/org/joda/time/chrono/GJChronology.java\nindex b970403b..1579f97f 100644\n--- a/src/main/java/org/joda/time/chrono/GJChronology.java\n+++ b/src/main/java/org/joda/time/chrono/GJChronology.java\n@@ -80,7 +80,7 @@ public final class GJChronology extends AssembledChronology {\n     /**\n      * Convert a datetime from one chronology to another.\n      */\n-    private static long convertByYear(long instant, Chronology from, Chronology to) {\n+        private long convertByYear(long instant, Chronology from, Chronology to) {\n         return to.getDateTimeMillis\n             (from.year().get(instant),\n              from.monthOfYear().get(instant),\n"
+  },
+  "timestamp": "2025-09-30 23:32:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Time",
+    "bug_id": "Time_6",
+    "repo_path": "/defects4j/framework/bin/temp/Time_6",
+    "github_url": "https://github.com/JodaOrg/joda-time.git",
+    "description": "Questionable behaviour of GJChronology when dates pass 1BC\nI expect the following test to pass:\n\n```\nChronology chronology = GJChronology.getInstance();\n\nLocalDate start = new LocalDate(2013, 5, 31, chronology);\nLocalDate expectedEnd = new LocalDate(-1, 5, 31, chronology); // 1 BC\nassertThat(start.minusYears(2013), is(equalTo(expectedEnd)));\nassertThat(start.plus(Period.years(-2013)), is(equalTo(expectedEnd)));\n```\n\nThe error it gives is:\n\n```\norg.joda.time.IllegalFieldValueException: Value 0 for year is not supported\n```\n\nHowever, I never provided \"0\" for the year myself. I thought it was the job of the framework to skip over non-existent year 0 for me to return 1 BC?\n\n",
+    "commit_message": "Fix GJChronology.plus/minus across cutover and year zero",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/joda/time/chrono/GJChronology.java",
+        "start_line": 195,
+        "end_line": 195,
+        "line_numbers": [
+          195
+        ],
+        "function_name": "getInstance",
+        "class_name": "GJChronology",
+        "filename": "GJChronology.java",
+        "code_snippet": "    public static synchronized GJChronology getInstance(\n            DateTimeZone zone,\n            ReadableInstant gregorianCutover,\n            int minDaysInFirstWeek) {\n        \n        zone = DateTimeUtils.getZone(zone);\n        Instant cutoverInstant;\n        if (gregorianCutover == null) {\n            cutoverInstant = DEFAULT_CUTOVER;\n        } else {\n            cutoverInstant = gregorianCutover.toInstant();\n        }\n\n        GJChronology chrono;\n        synchronized (cCache) {\n            ArrayList<GJChronology> chronos = cCache.get(zone);\n            if (chronos == null) {\n                chronos = new ArrayList<GJChronology>(2);\n                cCache.put(zone, chronos);\n            } else {\n                for (int i = chronos.size(); --i >= 0;) {\n                    chrono = chronos.get(i);\n                    if (minDaysInFirstWeek == chrono.getMinimumDaysInFirstWeek() &&\n                        cutoverInstant.equals(chrono.getGregorianCutover())) {\n                        \n                        return chrono;\n                    }\n                }\n            }\n            if (zone == DateTimeZone.UTC) {\n                chrono = new GJChronology\n                    (JulianChronology.getInstance(zone, minDaysInFirstWeek),\n                     GregorianChronology.getInstance(zone, minDaysInFirstWeek),\n                     cutoverInstant);\n            } else {\n                chrono = getInstance(DateTimeZone.UTC, cutoverInstant, minDaysInFirstWeek);\n                chrono = new GJChronology\n                    (ZonedChronology.getInstance(chrono, zone),\n                     chrono.iJulianChronology,\n                     chrono.iGregorianChronology,\n                     chrono.iCutoverInstant);\n            }\n            chronos.add(chrono);\n        }\n        return chrono;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/joda/time/chrono/GJChronology.java",
+        "start_line": 982,
+        "end_line": 982,
+        "line_numbers": [
+          982
+        ],
+        "function_name": "add",
+        "class_name": "ImpreciseCutoverField",
+        "filename": "GJChronology.java",
+        "code_snippet": "        public long add(long instant, int value) {\n            if (instant >= iCutover) {\n                instant = iGregorianField.add(instant, value);\n                if (instant < iCutover) {\n                    // Only adjust if gap fully crossed.\n                    if (instant + iGapDuration < iCutover) {\n                        instant = gregorianToJulian(instant);\n                    }\n                }\n            } else {\n                instant = iJulianField.add(instant, value);\n                if (instant >= iCutover) {\n                    // Only adjust if gap fully crossed.\n                    if (instant - iGapDuration >= iCutover) {\n                        // no special handling for year zero as cutover always after year zero\n                        instant = julianToGregorian(instant);\n                    }\n                }\n            }\n            return instant;\n        }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/joda/time/chrono/GJChronology.java",
+        "start_line": 1015,
+        "end_line": 1015,
+        "line_numbers": [
+          1015
+        ],
+        "function_name": "add",
+        "class_name": "ImpreciseCutoverField",
+        "filename": "GJChronology.java",
+        "code_snippet": "        public long add(long instant, long value) {\n            if (instant >= iCutover) {\n                instant = iGregorianField.add(instant, value);\n                if (instant < iCutover) {\n                    // Only adjust if gap fully crossed.\n                    if (instant + iGapDuration < iCutover) {\n                        instant = gregorianToJulian(instant);\n                    }\n                }\n            } else {\n                instant = iJulianField.add(instant, value);\n                if (instant >= iCutover) {\n                    // Only adjust if gap fully crossed.\n                    if (instant - iGapDuration >= iCutover) {\n                        // no special handling for year zero as cutover always after year zero\n                        instant = julianToGregorian(instant);\n                    }\n                }\n            }\n            return instant;\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.joda.time.chrono.TestGJDate::test_cutoverPreZero",
+      "org.joda.time.chrono.TestGJDate::test_plusWeekyears_positiveToNegative_crossCutover",
+      "org.joda.time.chrono.TestGJDate::test_plusYears_positiveToZero_crossCutover",
+      "org.joda.time.chrono.TestGJDate::test_plusYears_positiveToNegative_crossCutover",
+      "org.joda.time.chrono.TestGJDate::test_plusWeekyears_positiveToZero_crossCutover"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/joda/time/chrono/GJChronology.java b/src/main/java/org/joda/time/chrono/GJChronology.java\nindex d1556f5..b970403 100644\n--- a/src/main/java/org/joda/time/chrono/GJChronology.java\n+++ b/src/main/java/org/joda/time/chrono/GJChronology.java\n@@ -193,10 +193,6 @@ public final class GJChronology extends AssembledChronology {\n             cutoverInstant = DEFAULT_CUTOVER;\n         } else {\n             cutoverInstant = gregorianCutover.toInstant();\n+            LocalDate cutoverDate = new LocalDate(cutoverInstant.getMillis(), GregorianChronology.getInstance(zone));\n+            if (cutoverDate.getYear() <= 0) {\n+                throw new IllegalArgumentException(\"Cutover too early. Must be on or after 0001-01-01.\");\n+            }\n         }\n \n         GJChronology chrono;\n@@ -980,17 +976,6 @@ public final class GJChronology extends AssembledChronology {\n                 if (instant < iCutover) {\n                     // Only adjust if gap fully crossed.\n                     if (instant + iGapDuration < iCutover) {\n+                        if (iConvertByWeekyear) {\n+                            int wyear = iGregorianChronology.weekyear().get(instant);\n+                            if (wyear <= 0) {\n+                                instant = iGregorianChronology.weekyear().add(instant, -1);\n+                            }\n+                        } else {\n+                            int year = iGregorianChronology.year().get(instant);\n+                            if (year <= 0) {\n+                                instant = iGregorianChronology.year().add(instant, -1);\n+                            }\n+                        }\n                         instant = gregorianToJulian(instant);\n                     }\n                 }\n@@ -1013,17 +998,6 @@ public final class GJChronology extends AssembledChronology {\n                 if (instant < iCutover) {\n                     // Only adjust if gap fully crossed.\n                     if (instant + iGapDuration < iCutover) {\n+                        if (iConvertByWeekyear) {\n+                            int wyear = iGregorianChronology.weekyear().get(instant);\n+                            if (wyear <= 0) {\n+                                instant = iGregorianChronology.weekyear().add(instant, -1);\n+                            }\n+                        } else {\n+                            int year = iGregorianChronology.year().get(instant);\n+                            if (year <= 0) {\n+                                instant = iGregorianChronology.year().add(instant, -1);\n+                            }\n+                        }\n                         instant = gregorianToJulian(instant);\n                     }\n                 }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

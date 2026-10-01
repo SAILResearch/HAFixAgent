@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_30",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 12:02:12",
+      "end_time": "2026-06-17 12:23:58",
+      "duration_seconds": 1306,
+      "duration_human": "21m 46s"
+    },
+    "model_cost": 0.1115,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 746879,
+      "output_tokens": 21916,
+      "total_tokens": 768795,
+      "cached_input_tokens": 367168,
+      "uncached_input_tokens": 379711
+    },
+    "agent_steps": 36,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 39d9e7186..a212cecaa 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -961,17 +961,9 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n                  *   access as number); or is still retained as text (in which case we\n                  *   should further defer decoding that may not need BigDecimal):\n                  */\n-                switch (p.getNumberType()) {\n-                case BIG_DECIMAL:\n-                    writeNumber(p.getDecimalValue());\n-                    break;\n-                case FLOAT:\n-                    writeNumber(p.getFloatValue());\n-                    break;\n-                default:\n-                    writeNumber(p.getDoubleValue());\n-            }\n-            break;\n+                /* Fix for databind#965: Always use getDecimalValue() to preserve precision for BigDecimal values */\n+                writeNumber(p.getDecimalValue());\n+                break;\n         case VALUE_TRUE:\n             writeBoolean(true);\n             break;\ndiff --git a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\ndeleted file mode 100644\nindex b6121bb30..000000000\n--- a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n+++ /dev/null\n@@ -1,181 +0,0 @@\n-package com.fasterxml.jackson.databind.introspect;\n-\n-import com.fasterxml.jackson.databind.*;\n-\n-/**\n- * Tests Scala-style JVM naming patterns for properties.\n- *\n- * Scala uses identifiers that are legal JVM names, but not legal Java names:\n- *\n- * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n- *     <li><code>prop</code> for getters</li>\n- *     <li><code>prop_=</code> for setters</li>\n- * </ul>\n- *\n- * Scala sources turn property accesses into method calls in most cases; the\n- * backing field and the particulars of the method names are implementation details.\n- *\n- * Since I can't reproduce them in Java, I've substituted legal but uncommonly\n- * used characters as placeholders.\n- */\n-public class TestScalaLikeImplicitProperties extends BaseMapTest\n-{\n-    static class NameMangler extends JacksonAnnotationIntrospector\n-    {\n-        private static final long serialVersionUID = 1L;\n-\n-        @Override\n-        public String findImplicitPropertyName(AnnotatedMember member) {\n-            String name = null;\n-            if (member instanceof AnnotatedField) {\n-                name = member.getName();\n-                if (name.endsWith(\"\u203f\")) {\n-                    return name.substring(0, name.length()-1);\n-                }\n-            } else if (member instanceof AnnotatedMethod) {\n-                name = member.getName();\n-                if (name.endsWith(\"_\u2040\")) {\n-                    return name.substring(0, name.length()-2);\n-                }\n-                if (!name.startsWith(\"get\") && !name.startsWith(\"set\")) {\n-                    return name;\n-                }\n-            } else if (member instanceof AnnotatedParameter) {\n-                // A placeholder for legitimate property name detection\n-                // such as what the JDK8 module provides\n-                return \"prop\";\n-            }\n-            return null;\n-        }\n-\n-        @Override\n-        public boolean hasCreatorAnnotation(Annotated a) {\n-            // A placeholder for legitmate creator detection.\n-            // In Scala, all primary constructors should be creators,\n-            // but I can't obtain a reference to the AnnotatedClass from the\n-            // AnnotatedConstructor, so it's simulated here.\n-            return (a instanceof AnnotatedConstructor);\n-        }\n-    }\n-\n-    static class ValProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-\n-        public ValProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class ValWithBeanProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n-\n-        public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-\n-        public VarProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarWithBeanProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n-\n-        public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class GetterSetterProperty\n-    {\n-        // Different name to represent an arbitrary implementation, not necessarily local to this class.\n-        private String _prop_impl = \"get/set\";\n-        public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n-\n-        // Getter/Setters are typically not in the constructor because they are implemented\n-        // by the end user, not the compiler. They should be detected similar to 'bean-style'\n-        // getProp/setProp pairs.\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Test methods\n-    /**********************************************************\n-     */\n-\n-    public void testValProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValProperty(\"val\")));\n-    }\n-\n-    public void testValWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValWithBeanProperty(\"val\")));\n-    }\n-\n-\n-    public void testVarProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarProperty(\"var\")));\n-        VarProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testVarWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarWithBeanProperty(\"var\")));\n-        VarWithBeanProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarWithBeanProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testGetterSetterProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"get/set\\\"}\", m.writeValueAsString(new GetterSetterProperty()));\n-        GetterSetterProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", GetterSetterProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Helper methods\n-    /**********************************************************\n-     */\n-    \n-    private ObjectMapper manglingMapper()\n-    {\n-        ObjectMapper m = new ObjectMapper();\n-        m.setAnnotationIntrospector(new NameMangler());\n-        return m;\n-    }\n-}\n"
+  },
+  "timestamp": "2026-06-17 12:23:58 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_30",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_30",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "BigDecimal values via @JsonTypeInfo/@JsonSubTypes get rounded\nWhen using an `ObjectMapper` to serialize/deserialize a class with an `Object` field annotated with a `@JsonSubTypes.Type` that indicate `BigDecimal`, it looks like the value is getting rounded to a double.\n\nI tried configuring `DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS`, but that didn't seem to help.\n\nWhat I think is a valid repro is below, but let me know if I'm actually doing something wrong here.\n\nThanks!\n\n``` java\nimport org.junit.Test;\nimport org.junit.Assert;\n\nimport java.math.BigDecimal;\n\nimport com.fasterxml.jackson.annotation.*;\nimport com.fasterxml.jackson.databind.DeserializationFeature;\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\npublic class JacksonTest {\n\n    enum Type { BIG_DECIMAL }\n\n    static class Wrapper {\n\n        @JsonIgnore\n        Type typeEnum;\n\n        @JsonIgnore\n        Object value;\n\n        Wrapper() { }\n\n        @JsonGetter(value = \"type\")\n        String getTypeString() {\n            return typeEnum.name();\n        }\n\n        @JsonSetter(value = \"type\")\n        void setTypeString(String type) {\n            this.typeEnum = Type.valueOf(type);\n        }\n\n        @JsonGetter(value = \"objectValue\") \n        Object getValue() {\n            return value;\n        }\n\n        @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXTERNAL_PROPERTY, property = \"type\")\n        @JsonSubTypes({ @JsonSubTypes.Type(name = \"BIG_DECIMAL\", value = BigDecimal.class) })\n        @JsonSetter(value = \"objectValue\") \n        private void setValue(Object value) {\n            this.value = value;\n        }\n    }\n\n    @Test\n    public void test() throws Exception {\n\n        ObjectMapper m = new ObjectMapper();\n        m.configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true);\n\n        Wrapper w = new Wrapper();\n        w.typeEnum = Type.BIG_DECIMAL;\n        w.value = new BigDecimal(\"-10000000000.0000000001\");\n\n        String json = m.writeValueAsString(w);\n        Wrapper w2 = m.readValue(json, Wrapper.class);\n\n        Assert.assertEquals(w.typeEnum, w2.typeEnum);\n        Assert.assertTrue(String.format(\"Expected %s = %s; got back %s = %s\",\n            w.value.getClass().getSimpleName(), w.value.toString(), w2.value.getClass().getSimpleName(), w2.value.toString()),\n            w.value.equals(w2.value));\n    }\n}\n```\n\n",
+    "commit_message": "Fix #965",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 737,
+        "end_line": 737,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 964,
+        "end_line": 964,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 972,
+        "end_line": 972,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 974,
+        "end_line": 974,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 1425,
+        "end_line": 1425,
+        "suspiciousness": 0.4216370213557839,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+        "start_line": 142,
+        "end_line": 142,
+        "suspiciousness": 0.3651483716701107,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 883,
+        "end_line": 883,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/PropertyName.java",
+        "start_line": 192,
+        "end_line": 192,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+        "start_line": 728,
+        "end_line": 728,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+        "start_line": 729,
+        "end_line": 729,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TestExternalId::testBigDecimal965"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+      "start_line": 737,
+      "end_line": 737,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+      "start_line": 964,
+      "end_line": 964,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+      "start_line": 972,
+      "end_line": 972,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+      "start_line": 974,
+      "end_line": 974,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 1425,
+      "end_line": 1425,
+      "suspiciousness": 0.4216370213557839,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+      "start_line": 142,
+      "end_line": 142,
+      "suspiciousness": 0.3651483716701107,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+      "start_line": 883,
+      "end_line": 883,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/PropertyName.java",
+      "start_line": 192,
+      "end_line": 192,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+      "start_line": 728,
+      "end_line": 728,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java",
+      "start_line": 729,
+      "end_line": 729,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "21",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 03:10:29",
+      "end_time": "2026-06-20 03:14:35",
+      "duration_seconds": 246,
+      "duration_human": "4m 6s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 651667,
+      "output_tokens": 7357,
+      "total_tokens": 659024,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 651667
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/select/QueryParser.java b/src/main/java/org/jsoup/select/QueryParser.java\nindex 9ff43bad..df30f466 100644\n--- a/src/main/java/org/jsoup/select/QueryParser.java\n+++ b/src/main/java/org/jsoup/select/QueryParser.java\n@@ -60,7 +60,7 @@ class QueryParser {\n                 evals.clear();\n                 evals.add(or);\n                 while (!tq.isEmpty()) {\n-                    String subQuery = tq.chompTo(\",\");\n+                    String subQuery = consumeSubQueryOr();\n                     or.add(parse(subQuery));\n                 }\n             } else if (tq.matchesAny(combinators)) {\n@@ -102,6 +102,36 @@ class QueryParser {\n             throw new Selector.SelectorParseException(\"Unknown combinator: \" + combinator);\n     }\n \n+    private String consumeSubQueryOr() {\n+        StringBuilder sq = new StringBuilder();\n+        int bracketDepth = 0;\n+        int parenDepth = 0;\n+        \n+        while (!tq.isEmpty()) {\n+            char c = tq.peek();\n+            \n+            if (c == '(') {\n+                parenDepth++;\n+                sq.append(tq.consume());\n+            } else if (c == ')') {\n+                parenDepth--;\n+                sq.append(tq.consume());\n+            } else if (c == '[') {\n+                bracketDepth++;\n+                sq.append(tq.consume());\n+            } else if (c == ']') {\n+                bracketDepth--;\n+                sq.append(tq.consume());\n+            } else if (c == ',' && bracketDepth == 0 && parenDepth == 0) {\n+                // found a comma at depth 0, stop here (don't consume it yet)\n+                break;\n+            } else {\n+                sq.append(tq.consume());\n+            }\n+        }\n+        return sq.toString();\n+    }\n+\n     private String consumeSubQuery() {\n         StringBuilder sq = new StringBuilder();\n         while (!tq.isEmpty()) {\n"
+  },
+  "timestamp": "2026-06-20 03:14:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_21",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_21",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Selector parsing gets confused by commata in regexes\nThe selector `div, li:matches([0-9,]+)` causes a java.util.regex.PatternSyntaxException because  [QueryParser (line 63)](https://github.com/jhy/jsoup/blob/master/src/main/java/org/jsoup/select/QueryParser.java#L63) thinks that the comma inside the regex is a combinator and thus extracts `, li:matches([0-9` as the second alternative.\n\nInstead of scanning ahead with `chompTo(\",\"), the parser needs to parse its way through the alternative until it reaches a comma or the end of a string. That way, commata in regular expressions will be correctly interpreted as part of the regex.\n\nNote that there may be many more variations of this bug in the parser. Wherever a construct allows embedding an arbitrary string one should expect this problem. `[attr=a,b]` for example is likely to cause the same issue. In a way, any invocation of chompTo() needs to examined.\n\n",
+    "commit_message": "Fixed parsing of group-or commas in CSS selectors.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/select/QueryParser.java",
+        "start_line": 58,
+        "end_line": 66,
+        "line_numbers": [
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66
+        ],
+        "function_name": "parse",
+        "class_name": "QueryParser",
+        "filename": "QueryParser.java",
+        "code_snippet": "    Evaluator parse() {\n        tq.consumeWhitespace();\n\n        if (tq.matchesAny(combinators)) { // if starts with a combinator, use root as elements\n            evals.add(new StructuralEvaluator.Root());\n            combinator(tq.consume());\n        } else {\n            findElements();\n        }\n\n        while (!tq.isEmpty()) {\n            // hierarchy and extras\n            boolean seenWhite = tq.consumeWhitespace();\n\n            if (tq.matchChomp(\",\")) {\n                CombiningEvaluator.Or or = new CombiningEvaluator.Or(evals);\n                evals.clear();\n                evals.add(or);\n                while (!tq.isEmpty()) {\n                    String subQuery = tq.chompTo(\",\");\n                    or.add(parse(subQuery));\n                }\n            } else if (tq.matchesAny(combinators)) {\n                combinator(tq.consume());\n            } else if (seenWhite) {\n                combinator(' ');\n            } else { // E.class, E#id, E[attr] etc. AND\n                findElements(); // take next el, #. etc off queue\n            }\n        }\n\n        if (evals.size() == 1)\n            return evals.get(0);\n\n        return new CombiningEvaluator.And(evals);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.select.SelectorTest::handlesCommasInSelector",
+      "org.jsoup.select.SelectorTest::mixCombinatorGroup"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/select/CombiningEvaluator.java b/src/main/java/org/jsoup/select/CombiningEvaluator.java\nindex 781acc6..bd8460a 100644\n--- a/src/main/java/org/jsoup/select/CombiningEvaluator.java\n+++ b/src/main/java/org/jsoup/select/CombiningEvaluator.java\n@@ -61,9 +61,6 @@ abstract class CombiningEvaluator extends Evaluator {\n                 this.evaluators.addAll(evaluators);\n         }\n \n+        Or() {\n+            super();\n+        }\n \n         public void add(Evaluator e) {\n             evaluators.add(e);\ndiff --git a/src/main/java/org/jsoup/select/QueryParser.java b/src/main/java/org/jsoup/select/QueryParser.java\nindex 417cb22..d0afaaf 100644\n--- a/src/main/java/org/jsoup/select/QueryParser.java\n+++ b/src/main/java/org/jsoup/select/QueryParser.java\n@@ -55,7 +55,15 @@ class QueryParser {\n             // hierarchy and extras\n             boolean seenWhite = tq.consumeWhitespace();\n \n+            if (tq.matchesAny(combinators)) {\n-            if (tq.matchChomp(\",\")) {\n-                CombiningEvaluator.Or or = new CombiningEvaluator.Or(evals);\n-                evals.clear();\n-                evals.add(or);\n-                while (!tq.isEmpty()) {\n-                    String subQuery = tq.chompTo(\",\");\n-                    or.add(parse(subQuery));\n-                }\n-            } else if (tq.matchesAny(combinators)) {\n                 combinator(tq.consume());\n             } else if (seenWhite) {\n                 combinator(' ');\n@@ -90,18 +98,6 @@ class QueryParser {\n             evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.ImmediatePreviousSibling(e)));\n         else if (combinator == '~')\n             evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.PreviousSibling(e)));\n+        else if (combinator == ',') { // group or\n+            CombiningEvaluator.Or or;\n+            if (e instanceof CombiningEvaluator.Or) {\n+                or = (CombiningEvaluator.Or) e;\n+                or.add(f);\n+            } else {\n+                or = new CombiningEvaluator.Or();\n+                or.add(e);\n+                or.add(f);\n+            }\n+            evals.add(or);\n+        }\n         else\n             throw new Selector.SelectorParseException(\"Unknown combinator: \" + combinator);\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2011-01-28 01:20:14",
+        "commit_message": "Cleanup of selector class files",
+        "commit_hash": "64ec9cfb151f26e85c0c206ce6aba063695e47cd"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "StructuralEvaluator",
+          "Has",
+          "matches",
+          "PreviousSibling",
+          "add",
+          "ImmediateParent",
+          "Not",
+          "Parent",
+          "ImmediatePreviousSibling",
+          "Evaluator",
+          "toString",
+          "CombiningEvaluator"
+        ],
+        "functions_name_modified_file": [
+          "findElements",
+          "indexGreaterThan",
+          "byId",
+          "matches",
+          "has",
+          "indexEquals",
+          "parse",
+          "QueryParser",
+          "byClass",
+          "byAttribute",
+          "consumeSubQuery",
+          "allElements",
+          "indexLessThan",
+          "not",
+          "contains",
+          "byTag",
+          "combinator",
+          "consumeIndex"
+        ],
+        "functions_name_all_files": [
+          "AttributeWithValueNot",
+          "ContainsOwnText",
+          "indexGreaterThan",
+          "Has",
+          "AttributeWithValueEnding",
+          "AttributeWithValueMatching",
+          "Matches",
+          "has",
+          "IndexEvaluator",
+          "add",
+          "not",
+          "Id",
+          "ImmediateParent",
+          "PreviousSibling",
+          "And",
+          "Class",
+          "Or",
+          "AttributeWithValue",
+          "Evaluator",
+          "toString",
+          "AttributeWithValueStarting",
+          "StructuralEvaluator",
+          "AttributeStarting",
+          "AttributeWithValueContaining",
+          "QueryParser",
+          "allElements",
+          "indexEquals",
+          "IndexGreaterThan",
+          "AttributeKeyPair",
+          "IndexLessThan",
+          "byTag",
+          "combinator",
+          "contains",
+          "Not",
+          "Tag",
+          "matches",
+          "MatchesOwn",
+          "IndexEquals",
+          "parse",
+          "indexLessThan",
+          "consumeSubQuery",
+          "Attribute",
+          "ContainsText",
+          "findElements",
+          "byId",
+          "byAttribute",
+          "byClass",
+          "Parent",
+          "ImmediatePreviousSibling",
+          "CombiningEvaluator",
+          "consumeIndex"
+        ],
+        "function_code_before": "    /**\n     * Parse a CSS query into an Evaluator.\n     * @param query CSS query\n     * @return Evaluator\n     */\n    public static Evaluator parse(String query) {\n        QueryParser p = new QueryParser(query);\n        return p.parse();\n    }",
+        "function_code_after": "    /**\n     * Parse a CSS query into an Evaluator.\n     * @param query CSS query\n     * @return Evaluator\n     */\n    public static Evaluator parse(String query) {\n        QueryParser p = new QueryParser(query);\n        return p.parse();\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/select/CombiningEvaluator.java",
+          "src/main/java/org/jsoup/select/Evaluator.java",
+          "src/main/java/org/jsoup/select/QueryParser.java",
+          "src/main/java/org/jsoup/select/StructuralEvaluator.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/select/QueryParser.java": "diff --git a/src/main/java/org/jsoup/select/QueryParser.java b/src/main/java/org/jsoup/select/QueryParser.java\nindex 51e2694c..d0afaaf4 100644\n--- a/src/main/java/org/jsoup/select/QueryParser.java\n+++ b/src/main/java/org/jsoup/select/QueryParser.java\n@@ -7,7 +7,6 @@ import java.util.regex.Pattern;\n import org.jsoup.helper.StringUtil;\n import org.jsoup.helper.Validate;\n import org.jsoup.parser.TokenQueue;\n-import org.jsoup.select.selectors.*;\n \n /**\n  * Parses a CSS selector into an Evaluator tree.\n@@ -46,7 +45,7 @@ class QueryParser {\n         tq.consumeWhitespace();\n \n         if (tq.matchesAny(combinators)) { // if starts with a combinator, use root as elements\n-            evals.add(new RootSelector());\n+            evals.add(new StructuralEvaluator.Root());\n             combinator(tq.consume());\n         } else {\n             findElements();\n@@ -57,7 +56,7 @@ class QueryParser {\n             boolean seenWhite = tq.consumeWhitespace();\n \n             if (tq.matchChomp(\",\")) { // group or\n-                OrSelector or = new OrSelector(evals);\n+                CombiningEvaluator.Or or = new CombiningEvaluator.Or(evals);\n                 evals.clear();\n                 evals.add(or);\n                 while (!tq.isEmpty()) {\n@@ -76,7 +75,7 @@ class QueryParser {\n         if (evals.size() == 1)\n             return evals.get(0);\n \n-        return new AndSelector(evals);\n+        return new CombiningEvaluator.And(evals);\n     }\n \n     private void combinator(char combinator) {\n@@ -87,18 +86,18 @@ class QueryParser {\n         if (evals.size() == 1)\n             e = evals.get(0);\n         else\n-            e = new AndSelector(evals);\n+            e = new CombiningEvaluator.And(evals);\n         evals.clear();\n         Evaluator f = parse(subQuery);\n \n         if (combinator == '>')\n-            evals.add(BasicSelector.and(f, new ImmediateParentSelector(e)));\n+            evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.ImmediateParent(e)));\n         else if (combinator == ' ')\n-            evals.add(BasicSelector.and(f, new ParentSelector(e)));\n+            evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.Parent(e)));\n         else if (combinator == '+')\n-            evals.add(BasicSelector.and(f, new ImmediatePreviousSiblingSelector(e)));\n+            evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.ImmediatePreviousSibling(e)));\n         else if (combinator == '~')\n-            evals.add(BasicSelector.and(f, new PreviousSiblingSelector(e)));\n+            evals.add(new CombiningEvaluator.And(f, new StructuralEvaluator.PreviousSibling(e)));\n         else\n             throw new Selector.SelectorParseException(\"Unknown combinator: \" + combinator);\n     }\n@@ -237,7 +236,7 @@ class QueryParser {\n         tq.consume(\":has\");\n         String subQuery = tq.chompBalanced('(', ')');\n         Validate.notEmpty(subQuery, \":has(el) subselect must not be empty\");\n-        evals.add(new HasSelector(parse(subQuery)));\n+        evals.add(new StructuralEvaluator.Has(parse(subQuery)));\n     }\n \n     // pseudo selector :contains(text), containsOwn(text)\n@@ -269,6 +268,6 @@ class QueryParser {\n         String subQuery = tq.chompBalanced('(', ')');\n         Validate.notEmpty(subQuery, \":not(selector) subselect must not be empty\");\n \n-        evals.add(new NotSelector(parse(subQuery)));\n+        evals.add(new StructuralEvaluator.Not(parse(subQuery)));\n     }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

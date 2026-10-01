@@ -1,0 +1,55 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_11",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:03:48",
+      "end_time": "2026-06-20 16:13:35",
+      "duration_seconds": 588,
+      "duration_human": "9m 48s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 727623,
+      "output_tokens": 19384,
+      "total_tokens": 747007,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 727623
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/rules/test_git_push.py b/tests/rules/test_git_push.py\nindex 7531472..d665496 100644\n--- a/tests/rules/test_git_push.py\n+++ b/tests/rules/test_git_push.py\n@@ -23,5 +23,9 @@ def test_match(stderr):\n def test_get_new_command(stderr):\n     assert get_new_command(Command('git push', stderr=stderr))\\\n         == \"git push --set-upstream origin master\"\n+    assert get_new_command(Command('git push -u origin', stderr=stderr))\\\n+        == \"git push --set-upstream origin master\"\n+    assert get_new_command(Command('git push --set-upstream origin', stderr=stderr))\\\n+        == \"git push --set-upstream origin master\"\n     assert get_new_command(Command('git push --quiet', stderr=stderr))\\\n         == \"git push --set-upstream origin master --quiet\"\ndiff --git a/thefuck/rules/git_push.py b/thefuck/rules/git_push.py\nindex 86a2ea5..8ded84a 100644\n--- a/thefuck/rules/git_push.py\n+++ b/thefuck/rules/git_push.py\n@@ -1,4 +1,4 @@\n-from thefuck.utils import replace_argument\n+import re\n from thefuck.specific.git import git_support\n \n \n@@ -10,5 +10,43 @@ def match(command):\n \n @git_support\n def get_new_command(command):\n-    push_upstream = command.stderr.split('\\n')[-3].strip().partition('git ')[2]\n-    return replace_argument(command.script, 'push', push_upstream)\n+    # Extract the suggested command from stderr\n+    suggested_full = command.stderr.split('\\n')[-3].strip()\n+    \n+    # Extract the args after 'push'\n+    parts = suggested_full.split('push ', 1)\n+    if len(parts) == 2:\n+        suggested_args = parts[1]\n+    else:\n+        # Fallback to the old behavior if 'push' is not found\n+        return command.stderr.split('\\n')[-3].strip()\n+    \n+    # Find 'push' in the script\n+    push_pos = command.script.find('push')\n+    if push_pos == -1:\n+        return command.script\n+    \n+    after_push = command.script[push_pos + len('push'):]\n+    \n+    # Parse the suggested args to get the flag names\n+    suggested_parts = suggested_args.split()\n+    suggested_flags = [part for part in suggested_parts if part.startswith('--')]\n+    \n+    # Find all '--' flags after 'push' in the script\n+    flags = re.findall(r'--\\S+', after_push)\n+    \n+    # Filter out flags that are in the suggested args\n+    flags_to_preserve = [f for f in flags if f not in suggested_flags]\n+    \n+    # The args to replace are everything before the first flag to preserve (or all of it if no flags to preserve)\n+    if flags_to_preserve:\n+        first_flag_pos = after_push.find(flags_to_preserve[0])\n+        args_to_replace = after_push[:first_flag_pos]\n+        flags_str = ' '.join(flags_to_preserve)\n+    else:\n+        args_to_replace = after_push\n+        flags_str = ''\n+    \n+    # Replace 'push' + args_to_replace with 'push <suggested_args>' + flags\n+    result = command.script[:push_pos] + 'push ' + suggested_args + ' ' + flags_str\n+    return result.strip()\n"
+  },
+  "timestamp": "2026-06-20 16:13:36 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_11",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_11/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Merge pull request #559 from josephfrazier/git-push-explicit-upstream",
+    "fault_locations": [
+      {
+        "file": "thefuck/rules/git_push.py",
+        "start_line": 14,
+        "end_line": 14,
+        "function_name": "get_new_command",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/rules/test_git_push.py::test_get_new_command"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

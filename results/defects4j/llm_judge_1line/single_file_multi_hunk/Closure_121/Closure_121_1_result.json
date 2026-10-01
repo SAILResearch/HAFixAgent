@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "121",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 15:39:36",
+      "end_time": "2025-09-30 15:45:49",
+      "duration_seconds": 373,
+      "duration_human": "6m 13s"
+    },
+    "model_cost": 0.04,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 495244,
+      "output_tokens": 5183,
+      "total_tokens": 500427,
+      "cached_input_tokens": 480256,
+      "uncached_input_tokens": 14988
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2025-09-30 15:45:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_121",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_121",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Overzealous optimization confuses variables\nThe following code:\r\n\r\n\t// ==ClosureCompiler==\r\n\t// @compilation_level ADVANCED_OPTIMIZATIONS\r\n\t// ==/ClosureCompiler==\r\n\tvar uid;\r\n\tfunction reset() {\r\n\t\tuid = Math.random();\r\n\t}\r\n\tfunction doStuff() {\r\n\t\treset();\r\n\t\tvar _uid = uid;\r\n\r\n\t\tif (uid &lt; 0.5) {\r\n\t\t\tdoStuff();\r\n\t\t}\r\n\r\n\t\tif (_uid !== uid) {\r\n\t\t\tthrow 'reset() was called';\r\n\t\t}\r\n\t}\r\n\tdoStuff();\r\n\r\n...gets optimized to:\r\n\r\n\tvar a;function b(){a=Math.random();0.5&gt;a&amp;&amp;b();if(a!==a)throw&quot;reset() was called&quot;;}b();\r\n\r\nNotice how _uid gets optimized away and (uid!==_uid) becomes (a!==a) even though doStuff() might have been called and uid's value may have changed and become different from _uid.\r\n\r\nAs an aside, replacing the declaration with &quot;var _uid = +uid;&quot; fixes it, as does adding an extra &quot;uid = _uid&quot; after &quot;var _uid = uid&quot;.",
+    "commit_message": "Fix inlining bug in https://code.google.com/p/closure-compiler/issues/detail?id=1053 ------------- Created by MOE: http://code.google.com/p/moe-java MOE_MIGRATED_REVID=50726739",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/InlineVariables.java",
+        "start_line": 304,
+        "end_line": 304,
+        "line_numbers": [
+          304
+        ],
+        "function_name": "inlineNonConstants",
+        "class_name": "InliningBehavior",
+        "filename": "InlineVariables.java",
+        "code_snippet": "    private void inlineNonConstants(\n        Var v, ReferenceCollection referenceInfo,\n        boolean maybeModifiedArguments) {\n      int refCount = referenceInfo.references.size();\n      Reference declaration = referenceInfo.references.get(0);\n      Reference init = referenceInfo.getInitializingReference();\n      int firstRefAfterInit = (declaration == init) ? 2 : 3;\n\n      if (refCount > 1 &&\n          isImmutableAndWellDefinedVariable(v, referenceInfo)) {\n        // if the variable is referenced more than once, we can only\n        // inline it if it's immutable and never defined before referenced.\n        Node value;\n        if (init != null) {\n          value = init.getAssignedValue();\n        } else {\n          // Create a new node for variable that is never initialized.\n          Node srcLocation = declaration.getNode();\n          value = NodeUtil.newUndefinedNode(srcLocation);\n        }\n        Preconditions.checkNotNull(value);\n        inlineWellDefinedVariable(v, value, referenceInfo.references);\n        staleVars.add(v);\n      } else if (refCount == firstRefAfterInit) {\n        // The variable likely only read once, try some more\n        // complex inlining heuristics.\n        Reference reference = referenceInfo.references.get(\n            firstRefAfterInit - 1);\n        if (canInline(declaration, init, reference)) {\n          inline(v, declaration, init, reference);\n          staleVars.add(v);\n        }\n      } else if (declaration != init && refCount == 2) {\n        if (isValidDeclaration(declaration) && isValidInitialization(init)) {\n          // The only reference is the initialization, remove the assignment and\n          // the variable declaration.\n          Node value = init.getAssignedValue();\n          Preconditions.checkNotNull(value);\n          inlineWellDefinedVariable(v, value, referenceInfo.references);\n          staleVars.add(v);\n        }\n      }\n\n      // If this variable was not inlined normally, check if we can\n      // inline an alias of it. (If the variable was inlined, then the\n      // reference data is out of sync. We're better off just waiting for\n      // the next pass.)\n      if (!maybeModifiedArguments &&\n          !staleVars.contains(v) &&\n          referenceInfo.isWellDefined() &&\n          referenceInfo.isAssignedOnceInLifetime()) {\n          // Inlining the variable based solely on well-defined and assigned\n          // once is *NOT* correct. We relax the correctness requirement if\n          // the variable is declared constant.\n        List<Reference> refs = referenceInfo.references;\n        for (int i = 1 /* start from a read */; i < refs.size(); i++) {\n          Node nameNode = refs.get(i).getNode();\n          if (aliasCandidates.containsKey(nameNode)) {\n            AliasCandidate candidate = aliasCandidates.get(nameNode);\n            if (!staleVars.contains(candidate.alias) &&\n                !isVarInlineForbidden(candidate.alias)) {\n              Reference aliasInit;\n              aliasInit = candidate.refInfo.getInitializingReference();\n              Node value = aliasInit.getAssignedValue();\n              Preconditions.checkNotNull(value);\n              inlineWellDefinedVariable(candidate.alias,\n                  value,\n                  candidate.refInfo.references);\n              staleVars.add(candidate.alias);\n            }\n          }\n        }\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.InlineVariablesTest::testExternalIssue1053"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/InlineVariables.java b/src/com/google/javascript/jscomp/InlineVariables.java\nindex 5c9df61..376abd4 100644\n--- a/src/com/google/javascript/jscomp/InlineVariables.java\n+++ b/src/com/google/javascript/jscomp/InlineVariables.java\n@@ -301,12 +301,10 @@ class InlineVariables implements CompilerPass {\n       if (!maybeModifiedArguments &&\n           !staleVars.contains(v) &&\n           referenceInfo.isWellDefined() &&\n+          referenceInfo.isAssignedOnceInLifetime() &&\n-          referenceInfo.isAssignedOnceInLifetime()) {\n           // Inlining the variable based solely on well-defined and assigned\n           // once is *NOT* correct. We relax the correctness requirement if\n           // the variable is declared constant.\n+          (isInlineableDeclaredConstant(v, referenceInfo) ||\n+           referenceInfo.isOnlyAssignmentSameScopeAsDeclaration())) {\n         List<Reference> refs = referenceInfo.references;\n         for (int i = 1 /* start from a read */; i < refs.size(); i++) {\n           Node nameNode = refs.get(i).getNode();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

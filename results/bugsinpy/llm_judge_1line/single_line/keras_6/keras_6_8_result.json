@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_6",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 03:36:50",
+      "end_time": "2026-03-24 03:51:39",
+      "duration_seconds": 889,
+      "duration_human": "14m 49s"
+    },
+    "model_cost": 0.0364,
+    "model_calls": 14,
+    "token_usage": {
+      "input_tokens": 166351,
+      "output_tokens": 26216,
+      "total_tokens": 192567,
+      "cached_input_tokens": 71296,
+      "uncached_input_tokens": 95055
+    },
+    "agent_steps": 14,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training_utils.py b/keras/engine/training_utils.py\nindex 68f14ac0c..3a67d4c25 100644\n--- a/keras/engine/training_utils.py\n+++ b/keras/engine/training_utils.py\n@@ -410,7 +410,7 @@ def weighted_masked_objective(fn):\n             score_array *= mask\n             #  the loss per batch should be proportional\n             #  to the number of unmasked samples.\n-            score_array /= K.mean(mask)\n+            score_array /= K.maximum(K.mean(mask), 1e-7)\n \n         # apply sample weighting\n         if weights is not None:\n@@ -420,7 +420,7 @@ def weighted_masked_objective(fn):\n             score_array = K.mean(score_array,\n                                  axis=list(range(weight_ndim, ndim)))\n             score_array *= weights\n-            score_array /= K.mean(K.cast(K.not_equal(weights, 0), K.floatx()))\n+            score_array /= K.maximum(K.mean(K.cast(K.not_equal(weights, 0), K.floatx())), 1e-7)\n         return K.mean(score_array)\n     return weighted\n \ndiff --git a/tests/test_loss_masking.py b/tests/test_loss_masking.py\nindex 45b23b1fb..323443997 100644\n--- a/tests/test_loss_masking.py\n+++ b/tests/test_loss_masking.py\n@@ -8,20 +8,32 @@ from keras import losses\n from keras import backend as K\n \n \n+def create_masking_model():\n+    model = Sequential()\n+    model.add(Masking(mask_value=0, input_shape=(None, 1)))\n+    model.add(TimeDistributed(Dense(1, kernel_initializer='one')))\n+    model.compile(loss='mse', optimizer='sgd')\n+    return model\n+\n+\n def test_masking():\n     np.random.seed(1337)\n     x = np.array([[[1], [1]],\n                   [[0], [0]]])\n-    model = Sequential()\n-    model.add(Masking(mask_value=0, input_shape=(2, 1)))\n-    model.add(TimeDistributed(Dense(1, kernel_initializer='one')))\n-    model.compile(loss='mse', optimizer='sgd')\n+    model = create_masking_model()\n     y = np.array([[[1], [1]],\n                   [[1], [1]]])\n     loss = model.train_on_batch(x, y)\n     assert loss == 0\n \n \n+def test_masking_is_all_zeros():\n+    x = y = np.array([[[0], [0]]])\n+    model = create_masking_model()\n+    loss = model.train_on_batch(x, y)\n+    assert loss == 0\n+\n+\n def test_loss_masking():\n     weighted_loss = weighted_masked_objective(losses.get('mae'))\n     shape = (3, 4, 2)\n"
+  },
+  "timestamp": "2026-03-23 23:51:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_6/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "[P] Fixed NaN loss when given a mask with all zeros (#11643)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training_utils.py",
+        "start_line": 413,
+        "end_line": 413,
+        "function_name": "weighted",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_loss_masking.py::test_masking_is_all_zeros"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

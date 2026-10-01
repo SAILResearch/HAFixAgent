@@ -1,0 +1,202 @@
+{
+  "project_name": "JacksonXml",
+  "bug_id": "1",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 05:33:42",
+      "end_time": "2026-06-27 05:35:19",
+      "duration_seconds": 97,
+      "duration_human": "1m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 632497,
+      "output_tokens": 3690,
+      "total_tokens": 636187,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 632497
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/maven-build.xml b/maven-build.xml\nindex 868979e2..908e05ff 100644\n--- a/maven-build.xml\n+++ b/maven-build.xml\n@@ -79,6 +79,7 @@\n   <target name=\"compile\" depends=\"get-deps\" description=\"Compile the code\">\n     <mkdir dir=\"${maven.build.outputDir}\"/>\n     <javac destdir=\"${maven.build.outputDir}\" \n+           encoding=\"UTF-8\"\n            nowarn=\"true\" \n            debug=\"true\" \n            optimize=\"true\" \ndiff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex 91b14ddc..a4a5f0b2 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -542,20 +542,8 @@ public class FromXmlParser\n                  */\n                 // Also: must skip following END_ELEMENT\n                 _xmlTokens.skipEndElement();\n-                if (_parsingContext.inArray()) {\n-                    if (_isEmpty(_currText)) {\n-                        // 06-Jan-2015, tatu: as per [dataformat-xml#180], need to\n-                        //    expose as empty Object, not null (or, worse, as used to\n-                        //    be done, by swallowing the token)\n-                        _currToken = JsonToken.END_ARRAY;\n-                        _parsingContext = _parsingContext.getParent();\n-                        _namesToWrap = _parsingContext.getNamesToWrap();\n-                        return _currToken;\n-                    }\n+                // Fixed: removed premature END_ARRAY handling for empty elements in arrays\n                 }\n-                return (_currToken = JsonToken.VALUE_STRING);\n-            } else {\n-                // [dataformat-xml#177]: empty text may also need to be skipped\n                 if (_parsingContext.inObject()\n                         && (_currToken != JsonToken.FIELD_NAME) && _isEmpty(_currText)) {\n                     _currToken = JsonToken.END_OBJECT;\n"
+  },
+  "timestamp": "2026-06-27 05:35:19 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonXml",
+    "bug_id": "JacksonXml_1",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonXml_1",
+    "github_url": "https://github.com/FasterXML/jackson-dataformat-xml.git",
+    "description": "Problem with deserialization of nested non-wrapped lists, with empty inner list\nLooks like there is a problem, wherein nested structures like say:\n- Definition POJO, with `records`, unwrapped List with `Record`\n- `Record` POJO having property `fields`, another unwrapped list of `Field` POJOs\n\nand case where inner `List` happens to be empty/missing, cause incorrectly \"split\" parts of outermost `List`s (here for property `records`).\n\nI will come up with a full reproduction later on, but observed this in the wild, and I think it occurs with latest 2.7.0-rc code, as well as `2.6.4-1`, so is not just something that has been fixed with a later version.\n\n",
+    "commit_message": "Fix #180",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java",
+        "start_line": 550,
+        "end_line": 553,
+        "line_numbers": [
+          550,
+          551,
+          552,
+          553
+        ],
+        "function_name": "nextToken",
+        "class_name": "FromXmlParser",
+        "filename": "FromXmlParser.java",
+        "code_snippet": "    public JsonToken nextToken() throws IOException\n    {\n        _binaryValue = null;\n        if (_nextToken != null) {\n            JsonToken t = _nextToken;\n            _currToken = t;\n            _nextToken = null;\n            switch (t) {\n            case START_OBJECT:\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                break;\n            case START_ARRAY:\n                _parsingContext = _parsingContext.createChildArrayContext(-1, -1);\n                break;\n            case END_OBJECT:\n            case END_ARRAY:\n                _parsingContext = _parsingContext.getParent();\n                _namesToWrap = _parsingContext.getNamesToWrap();\n                break;\n            case FIELD_NAME:\n                _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n                break;\n            default: // VALUE_STRING, VALUE_NULL\n                // should be fine as is?\n            }\n            return t;\n        }\n        int token = _xmlTokens.next();\n\n        // Need to have a loop just because we may have to eat/convert\n        // a start-element that indicates an array element.\n        while (token == XmlTokenStream.XML_START_ELEMENT) {\n            // If we thought we might get leaf, no such luck\n            if (_mayBeLeaf) {\n                // leave _mayBeLeaf set, as we start a new context\n                _nextToken = JsonToken.FIELD_NAME;\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                return (_currToken = JsonToken.START_OBJECT);\n            }\n            if (_parsingContext.inArray()) {\n                // Yup: in array, so this element could be verified; but it won't be\n                // reported anyway, and we need to process following event.\n                token = _xmlTokens.next();\n                _mayBeLeaf = true;\n                continue;\n            }\n            String name = _xmlTokens.getLocalName();\n            _parsingContext.setCurrentName(name);\n\n            // Ok: virtual wrapping can be done by simply repeating current START_ELEMENT.\n            // Couple of ways to do it; but start by making _xmlTokens replay the thing...\n            if (_namesToWrap != null && _namesToWrap.contains(name)) {\n                _xmlTokens.repeatStartElement();\n            }\n\n            _mayBeLeaf = true;\n            // Ok: in array context we need to skip reporting field names.\n            // But what's the best way to find next token?\n            return (_currToken = JsonToken.FIELD_NAME);\n        }\n\n        // Ok; beyond start element, what do we get?\n        switch (token) {\n        case XmlTokenStream.XML_END_ELEMENT:\n            // Simple, except that if this is a leaf, need to suppress end:\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                    // 06-Jan-2015, tatu: as per [dataformat-xml#180], need to\n                    //    expose as empty Object, not null\n                return (_currToken = JsonToken.VALUE_NULL);\n            }\n            _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n            _parsingContext = _parsingContext.getParent();\n            _namesToWrap = _parsingContext.getNamesToWrap();\n            return _currToken;\n            \n        case XmlTokenStream.XML_ATTRIBUTE_NAME:\n            // If there was a chance of leaf node, no more...\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                _nextToken = JsonToken.FIELD_NAME;\n                _currText = _xmlTokens.getText();\n                _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n                return (_currToken = JsonToken.START_OBJECT);\n            }\n            _parsingContext.setCurrentName(_xmlTokens.getLocalName());\n            return (_currToken = JsonToken.FIELD_NAME);\n        case XmlTokenStream.XML_ATTRIBUTE_VALUE:\n            _currText = _xmlTokens.getText();\n            return (_currToken = JsonToken.VALUE_STRING);\n        case XmlTokenStream.XML_TEXT:\n            _currText = _xmlTokens.getText();\n            if (_mayBeLeaf) {\n                _mayBeLeaf = false;\n                /* One more refinement (pronunced like \"hack\") is that if\n                 * we had an empty String (or all white space), and we are\n                 * deserializing an array, we better hide the empty text.\n                 */\n                // Also: must skip following END_ELEMENT\n                _xmlTokens.skipEndElement();\n                if (_parsingContext.inArray()) {\n                    if (_isEmpty(_currText)) {\n                        // 06-Jan-2015, tatu: as per [dataformat-xml#180], need to\n                        //    expose as empty Object, not null (or, worse, as used to\n                        //    be done, by swallowing the token)\n                        _currToken = JsonToken.END_ARRAY;\n                        _parsingContext = _parsingContext.getParent();\n                        _namesToWrap = _parsingContext.getNamesToWrap();\n                        return _currToken;\n                    }\n                }\n                return (_currToken = JsonToken.VALUE_STRING);\n            } else {\n                // [dataformat-xml#177]: empty text may also need to be skipped\n                if (_parsingContext.inObject()\n                        && (_currToken != JsonToken.FIELD_NAME) && _isEmpty(_currText)) {\n                    _currToken = JsonToken.END_OBJECT;\n                    _parsingContext = _parsingContext.getParent();\n                    _namesToWrap = _parsingContext.getNamesToWrap();\n                    return _currToken;\n                }\n            }\n            // If not a leaf (or otherwise ignorable), need to transform into property...\n            _parsingContext.setCurrentName(_cfgNameForTextElement);\n            _nextToken = JsonToken.VALUE_STRING;\n            return (_currToken = JsonToken.FIELD_NAME);\n        case XmlTokenStream.XML_END:\n            return (_currToken = null);\n        }\n        \n        // should never get here\n        _throwInternal();\n        return null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.dataformat.xml.lists.NestedUnwrappedLists180Test::testNestedUnwrappedLists180",
+      "com.fasterxml.jackson.dataformat.xml.lists.NestedUnwrappedListsTest::testNestedWithEmpty2",
+      "com.fasterxml.jackson.dataformat.xml.lists.NestedUnwrappedListsTest::testNestedWithEmpty"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex 58618b4..91b14dd 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -509,13 +509,8 @@ public class FromXmlParser\n             // Simple, except that if this is a leaf, need to suppress end:\n             if (_mayBeLeaf) {\n                 _mayBeLeaf = false;\n+                if (_parsingContext.inArray()) {\n                     // 06-Jan-2015, tatu: as per [dataformat-xml#180], need to\n                     //    expose as empty Object, not null\n+                    _nextToken = JsonToken.END_OBJECT;\n+                    _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n+                    return (_currToken = JsonToken.START_OBJECT);\n+                }\n                 return (_currToken = JsonToken.VALUE_NULL);\n             }\n             _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n@@ -552,9 +547,10 @@ public class FromXmlParser\n                         // 06-Jan-2015, tatu: as per [dataformat-xml#180], need to\n                         //    expose as empty Object, not null (or, worse, as used to\n                         //    be done, by swallowing the token)\n+                        _nextToken = JsonToken.END_OBJECT;\n+                        _parsingContext = _parsingContext.createChildObjectContext(-1, -1);\n+                        return (_currToken = JsonToken.START_OBJECT);\n-                        _currToken = JsonToken.END_ARRAY;\n-                        _parsingContext = _parsingContext.getParent();\n-                        _namesToWrap = _parsingContext.getNamesToWrap();\n-                        return _currToken;\n                     }\n                 }\n                 return (_currToken = JsonToken.VALUE_STRING);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2012-09-20 01:55:32",
+        "commit_message": "Improve handling of empty unwrapped lists",
+        "commit_hash": "9d3997cb5b4ba817707191ce57eb5812105c146d"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "_isEmpty"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "_isEmpty"
+        ],
+        "functions_name_modified_file": [
+          "getMask",
+          "collectDefaults",
+          "getStaxReader",
+          "_isEmpty",
+          "overrideCurrentName",
+          "disable",
+          "configure",
+          "isEnabled",
+          "getCurrentLocation",
+          "getNumberType",
+          "_handleEOF",
+          "setCodec",
+          "getCurrentName",
+          "getText",
+          "nextToken",
+          "getDoubleValue",
+          "_getByteArrayBuilder",
+          "getCodec",
+          "getTextOffset",
+          "close",
+          "getBigIntegerValue",
+          "_reportInvalidBase64",
+          "getLongValue",
+          "getIntValue",
+          "getTokenLocation",
+          "FromXmlParser",
+          "isExpectedStartArrayToken",
+          "_reportBase64EOF",
+          "isClosed",
+          "Feature",
+          "getDecimalValue",
+          "getEmbeddedObject",
+          "getParsingContext",
+          "enabledByDefault",
+          "getTextLength",
+          "addVirtualWrapping",
+          "DUMMY_PLACEHOLDER",
+          "getFloatValue",
+          "hasTextCharacters",
+          "enable",
+          "_releaseBuffers",
+          "getNumberValue",
+          "requiresCustomCodec"
+        ],
+        "functions_name_all_files": [
+          "getMask",
+          "collectDefaults",
+          "getStaxReader",
+          "_isEmpty",
+          "overrideCurrentName",
+          "hasAttributes",
+          "disable",
+          "configure",
+          "isEnabled",
+          "getCurrentLocation",
+          "XmlTokenStream",
+          "getNumberType",
+          "_handleEOF",
+          "_handleEndElement",
+          "getXmlReader",
+          "skipEndElement",
+          "setCodec",
+          "getCurrentName",
+          "getText",
+          "getNamespaceURI",
+          "_skipUntilTag",
+          "nextToken",
+          "getLocalName",
+          "getDoubleValue",
+          "_getByteArrayBuilder",
+          "getCodec",
+          "getTextOffset",
+          "close",
+          "getBigIntegerValue",
+          "_reportInvalidBase64",
+          "getLongValue",
+          "getIntValue",
+          "closeCompletely",
+          "_collectUntilTag",
+          "getCurrentToken",
+          "_next",
+          "skipAttributes",
+          "getTokenLocation",
+          "_initStartElement",
+          "FromXmlParser",
+          "isExpectedStartArrayToken",
+          "_reportBase64EOF",
+          "isClosed",
+          "Feature",
+          "getDecimalValue",
+          "getEmbeddedObject",
+          "getParsingContext",
+          "next",
+          "enabledByDefault",
+          "getTextLength",
+          "addVirtualWrapping",
+          "_extractLocation",
+          "repeatStartElement",
+          "DUMMY_PLACEHOLDER",
+          "getFloatValue",
+          "hasTextCharacters",
+          "_handleRepeatElement",
+          "enable",
+          "_releaseBuffers",
+          "getNumberValue",
+          "requiresCustomCodec"
+        ],
+        "function_code_before": "    public JsonToken nextToken() throws IOException, JsonParseException\n    {\n        JsonToken t = nextToken0();\n        if (t != null) {\n            switch (t) {\n            case FIELD_NAME:\n                System.out.println(\"JsonToken: FIELD_NAME '\"+_parsingContext.getCurrentName()+\"'\");\n                break;\n            case VALUE_STRING:\n                System.out.println(\"JsonToken: VALUE_STRING '\"+getText()+\"'\");\n                break;\n            default:\n                System.out.println(\"JsonToken: \"+t);\n            }\n        }\n        return t;\n    } ",
+        "function_code_after": "    public JsonToken nextToken() throws IOException, JsonParseException\n    {\n        JsonToken t = nextToken0();\n        if (t != null) {\n            switch (t) {\n            case FIELD_NAME:\n                System.out.println(\"JsonToken: FIELD_NAME '\"+_parsingContext.getCurrentName()+\"'\");\n                break;\n            case VALUE_STRING:\n                System.out.println(\"JsonToken: VALUE_STRING '\"+getText()+\"'\");\n                break;\n            default:\n                System.out.println(\"JsonToken: \"+t);\n            }\n        }\n        return t;\n    } "
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java",
+          "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\nindex 9457530f..e6d43357 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/FromXmlParser.java\n@@ -382,7 +382,7 @@ public class FromXmlParser\n     }\n \n     // DEBUGGING\n-    /*\n+/*\n     @Override\n     public JsonToken nextToken() throws IOException, JsonParseException\n     {\n@@ -480,6 +480,7 @@ public class FromXmlParser\n             }\n             _currToken = _parsingContext.inArray() ? JsonToken.END_ARRAY : JsonToken.END_OBJECT;\n             _parsingContext = _parsingContext.getParent();\n+            _namesToWrap = _parsingContext.getNamesToWrap();\n             return _currToken;\n             \n         case XmlTokenStream.XML_ATTRIBUTE_NAME:\n@@ -502,6 +503,19 @@ public class FromXmlParser\n                 _mayBeLeaf = false;\n                 // Also: must skip following END_ELEMENT\n                 _xmlTokens.skipEndElement();\n+                /* One more refinement (pronunced like \"hack\") is that if\n+                 * we had an empty String (or all white space), and we are\n+                 * deserializing an array, we better just hide the text\n+                 * altogether.\n+                 */\n+                if (_parsingContext.inArray()) {\n+                    if (_isEmpty(_currText)) {\n+                        _currToken = JsonToken.END_ARRAY;\n+                        _parsingContext = _parsingContext.getParent();\n+                        _namesToWrap = _parsingContext.getNamesToWrap();\n+                        return _currToken;\n+                    }\n+                }\n                 return (_currToken = JsonToken.VALUE_STRING);\n             }\n             // If not a leaf, need to transform into property...\n@@ -818,4 +832,17 @@ public class FromXmlParser\n         }\n         return _byteArrayBuilder;\n     }\n+\n+    protected boolean _isEmpty(String str)\n+    {\n+        int len = (str == null) ? 0 : str.length();\n+        if (len > 0) {\n+            for (int i = 0; i < len; ++i) {\n+                if (str.charAt(i) > ' ') {\n+                    return false;\n+                }\n+            }\n+        }\n+        return true;\n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

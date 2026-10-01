@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonXml",
+  "bug_id": "2",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 12:02:28",
+      "end_time": "2025-09-30 12:08:26",
+      "duration_seconds": 357,
+      "duration_human": "5m 57s"
+    },
+    "model_cost": 0.0405,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 498389,
+      "output_tokens": 5473,
+      "total_tokens": 503862,
+      "cached_input_tokens": 482624,
+      "uncached_input_tokens": 15765
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\nindex fe37ee90..c3dfd644 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\n@@ -321,6 +321,11 @@ public class XmlTokenStream\n             }\n             // otherwise need to find START/END_ELEMENT or text\n             String text = _collectUntilTag();\n+            // For mixed content (text followed by START_ELEMENT), return text first\n+            if (text != null && _xmlReader.getEventType() == XMLStreamReader.START_ELEMENT) {\n+                _textValue = text;\n+                return (_currentState = XML_TEXT);\n+            }\n             // If we have no/all-whitespace text followed by START_ELEMENT, ignore text\n             if (_xmlReader.getEventType() == XMLStreamReader.START_ELEMENT) {\n                     return _initStartElement();\ndiff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\nindex d6cf7041..59438939 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/UnwrappingXmlBeanSerializer.java\n@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.util.NameTransformer;\n  * Copy of {@link UnwrappingBeanSerializer} required to extend\n  * {@link XmlBeanSerializerBase} for XML-specific handling.\n  * \n- * @author Pascal G\u00e9linas\n+ * @author Pascal Gelinass\n  * \n  */\n public class UnwrappingXmlBeanSerializer extends XmlBeanSerializerBase\ndiff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\nindex 5d630999..733b080c 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/ser/XmlBeanSerializer.java\n@@ -16,7 +16,7 @@ import com.fasterxml.jackson.databind.util.NameTransformer;\n /**\n  * Variant of {@link BeanSerializer} for XML handling.\n  * \n- * @author Pascal G\u00e9linas\n+ * @author Pascal Gelinass\n  */\n public class XmlBeanSerializer extends XmlBeanSerializerBase\n {\n"
+  },
+  "timestamp": "2025-09-30 12:08:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonXml",
+    "bug_id": "JacksonXml_2",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonXml_2",
+    "github_url": "https://github.com/FasterXML/jackson-dataformat-xml.git",
+    "description": "Mixed content not supported if there are child elements.\n@XmlText is only supported if there are no child elements, support could be improved with some changes in XmlTokenStream.\nI successfully made some changes in XmlTokenStream, it's working in my personal case, but it needs more tests.\nIf agreed, I could provide a patch.\n\nExample:\nInput string : `\"<windSpeed units=\\\"kt\\\">27<radius>20</radius></windSpeed>\"`\n \"CxmlWindSpeed\" class :\n\n```\npublic class WindSpeed {\n\n    public static class Radius {\n        @JacksonXmlProperty(isAttribute = true)\n        private String sector;\n        @JacksonXmlProperty(isAttribute = true)\n        private String units;\n        @JacksonXmlText\n        private int value;\n        ..../ Getters and Setters code/....\n    }\n    @JacksonXmlProperty(isAttribute = true)\n    private String units;\n    @JacksonXmlProperty(isAttribute = true)\n    private String source;\n    @JacksonXmlText\n    private int value;\n    @JacksonXmlElementWrapper(useWrapping = false)\n    private List<Radius> radius;\n    ..../ Getters and Setters code/....\n}\n```\n\n",
+    "commit_message": "Fix #196",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java",
+        "start_line": 325,
+        "end_line": 325,
+        "line_numbers": [
+          325
+        ],
+        "function_name": "_next",
+        "class_name": "XmlTokenStream",
+        "filename": "XmlTokenStream.java",
+        "code_snippet": "    private final int _next() throws XMLStreamException\n    {\n        switch (_currentState) {\n        case XML_ATTRIBUTE_VALUE:\n            ++_nextAttributeIndex;\n            // fall through\n        case XML_START_ELEMENT: // attributes to return?\n            if (_nextAttributeIndex < _attributeCount) {\n                _localName = _xmlReader.getAttributeLocalName(_nextAttributeIndex);\n                _namespaceURI = _xmlReader.getAttributeNamespace(_nextAttributeIndex);\n                _textValue = _xmlReader.getAttributeValue(_nextAttributeIndex);\n                return (_currentState = XML_ATTRIBUTE_NAME);\n            }\n            // otherwise need to find START/END_ELEMENT or text\n            String text = _collectUntilTag();\n            // If we have no/all-whitespace text followed by START_ELEMENT, ignore text\n            if (_xmlReader.getEventType() == XMLStreamReader.START_ELEMENT) {\n                    return _initStartElement();\n            }\n            // For END_ELEMENT we will return text, if any\n            if (text != null) {\n                _textValue = text;\n                return (_currentState = XML_TEXT);\n            }\n            return _handleEndElement();\n\n        case XML_ATTRIBUTE_NAME:\n            // if we just returned name, will need to just send value next\n            return (_currentState = XML_ATTRIBUTE_VALUE);\n        case XML_TEXT:\n            // mixed text with other elements\n            // text followed by END_ELEMENT\n            return _handleEndElement();\n        case XML_END:\n            return XML_END;\n//            throw new IllegalStateException(\"No more XML tokens available (end of input)\");\n        }\n\n        // Ok: must be END_ELEMENT; see what tag we get (or end)\n        switch (_skipUntilTag()) {\n        case XMLStreamConstants.END_DOCUMENT:\n            return (_currentState = XML_END);\n        case XMLStreamConstants.END_ELEMENT:\n            return _handleEndElement();\n        }\n        // START_ELEMENT...\n        return _initStartElement();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.dataformat.xml.misc.XmlTextTest::testMixedContent"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\nindex 5e03896..fe37ee9 100644\n--- a/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\n+++ b/src/main/java/com/fasterxml/jackson/dataformat/xml/deser/XmlTokenStream.java\n@@ -59,7 +59,6 @@ public class XmlTokenStream\n      *\n      * @since 2.8\n      */\n+    protected boolean _mixedText;\n \n     /**\n      * Index of the next attribute of the current START_ELEMENT\n@@ -322,24 +321,15 @@ public class XmlTokenStream\n             }\n             // otherwise need to find START/END_ELEMENT or text\n             String text = _collectUntilTag();\n+            final boolean startElementNext = _xmlReader.getEventType() == XMLStreamReader.START_ELEMENT;\n             // If we have no/all-whitespace text followed by START_ELEMENT, ignore text\n+            if (startElementNext) {\n+                if (text == null || _allWs(text)) {\n+                    _mixedText = false;\n-            if (_xmlReader.getEventType() == XMLStreamReader.START_ELEMENT) {\n                     return _initStartElement();\n+                }\n+                _mixedText = true;\n+                _textValue = text;\n+                return (_currentState = XML_TEXT);\n             }\n             // For END_ELEMENT we will return text, if any\n             if (text != null) {\n+                _mixedText = false;\n                 _textValue = text;\n                 return (_currentState = XML_TEXT);\n             }\n+            _mixedText = false;\n             return _handleEndElement();\n \n         case XML_ATTRIBUTE_NAME:\n@@ -347,10 +337,6 @@ public class XmlTokenStream\n             return (_currentState = XML_ATTRIBUTE_VALUE);\n         case XML_TEXT:\n             // mixed text with other elements\n+            if (_mixedText){\n+                _mixedText = false;\n+                return _initStartElement();\n+            }\n             // text followed by END_ELEMENT\n             return _handleEndElement();\n         case XML_END:\n@@ -517,18 +503,6 @@ public class XmlTokenStream\n     }\n \n \n+    protected boolean _allWs(String str)\n+    {\n+        final int len = (str == null) ? 0 : str.length();\n+        if (len > 0) {\n+            for (int i = 0; i < len; ++i) {\n+                if (str.charAt(i) > ' ') {\n+                    return false;\n+                }\n+            }\n+        }\n+        return true;\n+    }\n     \n     // for DEBUGGING\n     @Override",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

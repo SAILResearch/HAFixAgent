@@ -1,0 +1,105 @@
+{
+  "project_name": "Lang",
+  "bug_id": "63",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:38:28",
+      "end_time": "2026-06-20 00:41:02",
+      "duration_seconds": 154,
+      "duration_human": "2m 34s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 983507,
+      "output_tokens": 4106,
+      "total_tokens": 987613,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 983507
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex fb5112c6f..a4d774fdb 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -62,7 +62,7 @@\n \t\t</copy>\n \t</target>\n \t<target name=\"compile\" depends=\"static\" description=\"Compile shareable components\">\n-\t\t<javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n+\t\t<javac srcdir=\"${source.home}\" encoding=\"UTF-8\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n \t\t\t<classpath refid=\"compile.classpath\"/>\n \t\t</javac>\n \t\t<copy todir=\"${build.home}/classes\" filtering=\"on\">\n"
+  },
+  "timestamp": "2026-06-20 00:41:02 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_63",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_63",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "DurationFormatUtils returns wrong result\nDurationFormatUtils returns wrong result.  oddly, it is only when Date is set to Dec 31, 2005\n\nThe following code will result in a String of -2 which is way off.\n\nI've tested against 2.1 and 2.2.\n\n        Calendar cal = Calendar.getInstance();\n        cal.set(Calendar.MONTH, Calendar.DECEMBER);\n        cal.set(Calendar.DAY_OF_MONTH, 31);\n        cal.set(Calendar.YEAR, 2005);\n        cal.set(Calendar.HOUR_OF_DAY, 0);\n        cal.set(Calendar.MINUTE, 0);\n        cal.set(Calendar.SECOND, 0);\n        cal.set(Calendar.MILLISECOND, 0);\n\n        String result = DurationFormatUtils.formatPeriod(cal.getTimeInMillis(), System.currentTimeMillis(), \"MM\");\n        System.out.println(result);\n",
+    "commit_message": "Adding a unit test for #LANG-281 and a fix. The fix involves removing the reduceAndCorrect method. It appears that this method was doing sod all - which is worrying as it used to be important. I'm guessing that it was a bad fix for a bug that was then subsequently fixed with other code. I'll create a JIRA issue to create more tests to test out the +31 block of code.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/lang/time/DurationFormatUtils.java",
+        "start_line": 306,
+        "end_line": 306,
+        "line_numbers": [
+          306
+        ],
+        "function_name": "formatPeriod",
+        "class_name": "DurationFormatUtils",
+        "filename": "DurationFormatUtils.java",
+        "code_snippet": "    public static String formatPeriod(long startMillis, long endMillis, String format, boolean padWithZeros, \n            TimeZone timezone) {\n\n        long millis = endMillis - startMillis;\n        if (millis < 28 * DateUtils.MILLIS_PER_DAY) {\n            return formatDuration(millis, format, padWithZeros);\n        }\n\n        Token[] tokens = lexx(format);\n\n        // timezones get funky around 0, so normalizing everything to GMT \n        // stops the hours being off\n        Calendar start = Calendar.getInstance(timezone);\n        start.setTime(new Date(startMillis));\n        Calendar end = Calendar.getInstance(timezone);\n        end.setTime(new Date(endMillis));\n\n        // initial estimates\n        int milliseconds = end.get(Calendar.MILLISECOND) - start.get(Calendar.MILLISECOND);\n        int seconds = end.get(Calendar.SECOND) - start.get(Calendar.SECOND);\n        int minutes = end.get(Calendar.MINUTE) - start.get(Calendar.MINUTE);\n        int hours = end.get(Calendar.HOUR_OF_DAY) - start.get(Calendar.HOUR_OF_DAY);\n        int days = end.get(Calendar.DAY_OF_MONTH) - start.get(Calendar.DAY_OF_MONTH);\n        int months = end.get(Calendar.MONTH) - start.get(Calendar.MONTH);\n        int years = end.get(Calendar.YEAR) - start.get(Calendar.YEAR);\n\n        // each initial estimate is adjusted in case it is under 0\n        while (milliseconds < 0) {\n            milliseconds += 1000;\n            seconds -= 1;\n        }\n        while (seconds < 0) {\n            seconds += 60;\n            minutes -= 1;\n        }\n        while (minutes < 0) {\n            minutes += 60;\n            hours -= 1;\n        }\n        while (hours < 0) {\n            hours += 24;\n            days -= 1;\n        }\n        while (days < 0) {\n            days += 31;\n//days += 31; // TODO: Need tests to show this is bad and the new code is good.\n// HEN: It's a tricky subject. Jan 15th to March 10th. If I count days-first it is \n// 1 month and 26 days, but if I count month-first then it is 1 month and 23 days.\n// Also it's contextual - if asked for no M in the format then I should probably \n// be doing no calculating here.\n            months -= 1;\n        }\n        while (months < 0) {\n            months += 12;\n            years -= 1;\n        }\n        milliseconds -= reduceAndCorrect(start, end, Calendar.MILLISECOND, milliseconds);\n        seconds -= reduceAndCorrect(start, end, Calendar.SECOND, seconds);\n        minutes -= reduceAndCorrect(start, end, Calendar.MINUTE, minutes);\n        hours -= reduceAndCorrect(start, end, Calendar.HOUR_OF_DAY, hours);\n        days -= reduceAndCorrect(start, end, Calendar.DAY_OF_MONTH, days);\n        months -= reduceAndCorrect(start, end, Calendar.MONTH, months);\n        years -= reduceAndCorrect(start, end, Calendar.YEAR, years);\n\n        // This next block of code adds in values that \n        // aren't requested. This allows the user to ask for the \n        // number of months and get the real count and not just 0->11.\n        if (!Token.containsTokenWithValue(tokens, y)) {\n            if (Token.containsTokenWithValue(tokens, M)) {\n                months += 12 * years;\n                years = 0;\n            } else {\n                // TODO: this is a bit weak, needs work to know about leap years\n                days += 365 * years;\n                years = 0;\n            }\n        }\n        if (!Token.containsTokenWithValue(tokens, M)) {\n            days += end.get(Calendar.DAY_OF_YEAR) - start.get(Calendar.DAY_OF_YEAR);\n            months = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, d)) {\n            hours += 24 * days;\n            days = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, H)) {\n            minutes += 60 * hours;\n            hours = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, m)) {\n            seconds += 60 * minutes;\n            minutes = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, s)) {\n            milliseconds += 1000 * seconds;\n            seconds = 0;\n        }\n\n        return format(tokens, years, months, days, hours, minutes, seconds, milliseconds, padWithZeros);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/time/DurationFormatUtils.java",
+        "start_line": 318,
+        "end_line": 324,
+        "line_numbers": [
+          318,
+          319,
+          320,
+          321,
+          322,
+          323,
+          324
+        ],
+        "function_name": "formatPeriod",
+        "class_name": "DurationFormatUtils",
+        "filename": "DurationFormatUtils.java",
+        "code_snippet": "    public static String formatPeriod(long startMillis, long endMillis, String format, boolean padWithZeros, \n            TimeZone timezone) {\n\n        long millis = endMillis - startMillis;\n        if (millis < 28 * DateUtils.MILLIS_PER_DAY) {\n            return formatDuration(millis, format, padWithZeros);\n        }\n\n        Token[] tokens = lexx(format);\n\n        // timezones get funky around 0, so normalizing everything to GMT \n        // stops the hours being off\n        Calendar start = Calendar.getInstance(timezone);\n        start.setTime(new Date(startMillis));\n        Calendar end = Calendar.getInstance(timezone);\n        end.setTime(new Date(endMillis));\n\n        // initial estimates\n        int milliseconds = end.get(Calendar.MILLISECOND) - start.get(Calendar.MILLISECOND);\n        int seconds = end.get(Calendar.SECOND) - start.get(Calendar.SECOND);\n        int minutes = end.get(Calendar.MINUTE) - start.get(Calendar.MINUTE);\n        int hours = end.get(Calendar.HOUR_OF_DAY) - start.get(Calendar.HOUR_OF_DAY);\n        int days = end.get(Calendar.DAY_OF_MONTH) - start.get(Calendar.DAY_OF_MONTH);\n        int months = end.get(Calendar.MONTH) - start.get(Calendar.MONTH);\n        int years = end.get(Calendar.YEAR) - start.get(Calendar.YEAR);\n\n        // each initial estimate is adjusted in case it is under 0\n        while (milliseconds < 0) {\n            milliseconds += 1000;\n            seconds -= 1;\n        }\n        while (seconds < 0) {\n            seconds += 60;\n            minutes -= 1;\n        }\n        while (minutes < 0) {\n            minutes += 60;\n            hours -= 1;\n        }\n        while (hours < 0) {\n            hours += 24;\n            days -= 1;\n        }\n        while (days < 0) {\n            days += 31;\n//days += 31; // TODO: Need tests to show this is bad and the new code is good.\n// HEN: It's a tricky subject. Jan 15th to March 10th. If I count days-first it is \n// 1 month and 26 days, but if I count month-first then it is 1 month and 23 days.\n// Also it's contextual - if asked for no M in the format then I should probably \n// be doing no calculating here.\n            months -= 1;\n        }\n        while (months < 0) {\n            months += 12;\n            years -= 1;\n        }\n        milliseconds -= reduceAndCorrect(start, end, Calendar.MILLISECOND, milliseconds);\n        seconds -= reduceAndCorrect(start, end, Calendar.SECOND, seconds);\n        minutes -= reduceAndCorrect(start, end, Calendar.MINUTE, minutes);\n        hours -= reduceAndCorrect(start, end, Calendar.HOUR_OF_DAY, hours);\n        days -= reduceAndCorrect(start, end, Calendar.DAY_OF_MONTH, days);\n        months -= reduceAndCorrect(start, end, Calendar.MONTH, months);\n        years -= reduceAndCorrect(start, end, Calendar.YEAR, years);\n\n        // This next block of code adds in values that \n        // aren't requested. This allows the user to ask for the \n        // number of months and get the real count and not just 0->11.\n        if (!Token.containsTokenWithValue(tokens, y)) {\n            if (Token.containsTokenWithValue(tokens, M)) {\n                months += 12 * years;\n                years = 0;\n            } else {\n                // TODO: this is a bit weak, needs work to know about leap years\n                days += 365 * years;\n                years = 0;\n            }\n        }\n        if (!Token.containsTokenWithValue(tokens, M)) {\n            days += end.get(Calendar.DAY_OF_YEAR) - start.get(Calendar.DAY_OF_YEAR);\n            months = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, d)) {\n            hours += 24 * days;\n            days = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, H)) {\n            minutes += 60 * hours;\n            hours = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, m)) {\n            seconds += 60 * minutes;\n            minutes = 0;\n        }\n        if (!Token.containsTokenWithValue(tokens, s)) {\n            milliseconds += 1000 * seconds;\n            seconds = 0;\n        }\n\n        return format(tokens, years, months, days, hours, minutes, seconds, milliseconds, padWithZeros);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/lang/time/DurationFormatUtils.java",
+        "start_line": 432,
+        "end_line": 443,
+        "line_numbers": [
+          432,
+          433,
+          434,
+          435,
+          436,
+          437,
+          438,
+          439,
+          440,
+          441,
+          442,
+          443
+        ],
+        "function_name": "reduceAndCorrect",
+        "class_name": "DurationFormatUtils",
+        "filename": "DurationFormatUtils.java",
+        "code_snippet": "    static int reduceAndCorrect(Calendar start, Calendar end, int field, int difference) {\n        end.add( field, -1 * difference );\n        int endValue = end.get(field);\n        int startValue = start.get(field);\n        if (endValue < startValue) {\n            int newdiff = startValue - endValue;\n            end.add( field, newdiff );\n            return newdiff;\n        } else {\n            return 0;\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang.time.DurationFormatUtilsTest::testJiraLang281"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/lang/time/DurationFormatUtils.java b/src/java/org/apache/commons/lang/time/DurationFormatUtils.java\nindex 3a9d9f6..127b927 100644\n--- a/src/java/org/apache/commons/lang/time/DurationFormatUtils.java\n+++ b/src/java/org/apache/commons/lang/time/DurationFormatUtils.java\n@@ -303,20 +303,25 @@ public class DurationFormatUtils {\n             days -= 1;\n         }\n         while (days < 0) {\n+            end.add(Calendar.MONTH, -1);\n+            days += end.getActualMaximum(Calendar.DAY_OF_MONTH);\n-            days += 31;\n //days += 31; // TODO: Need tests to show this is bad and the new code is good.\n // HEN: It's a tricky subject. Jan 15th to March 10th. If I count days-first it is \n // 1 month and 26 days, but if I count month-first then it is 1 month and 23 days.\n // Also it's contextual - if asked for no M in the format then I should probably \n // be doing no calculating here.\n             months -= 1;\n+            end.add(Calendar.MONTH, 1);\n         }\n         while (months < 0) {\n             months += 12;\n             years -= 1;\n         }\n-        milliseconds -= reduceAndCorrect(start, end, Calendar.MILLISECOND, milliseconds);\n-        seconds -= reduceAndCorrect(start, end, Calendar.SECOND, seconds);\n-        minutes -= reduceAndCorrect(start, end, Calendar.MINUTE, minutes);\n-        hours -= reduceAndCorrect(start, end, Calendar.HOUR_OF_DAY, hours);\n-        days -= reduceAndCorrect(start, end, Calendar.DAY_OF_MONTH, days);\n-        months -= reduceAndCorrect(start, end, Calendar.MONTH, months);\n-        years -= reduceAndCorrect(start, end, Calendar.YEAR, years);\n \n         // This next block of code adds in values that \n         // aren't requested. This allows the user to ask for the \n@@ -424,6 +429,18 @@ public class DurationFormatUtils {\n         }\n         return buffer.toString();\n     }\n-    static int reduceAndCorrect(Calendar start, Calendar end, int field, int difference) {\n-        end.add( field, -1 * difference );\n-        int endValue = end.get(field);\n-        int startValue = start.get(field);\n-        if (endValue < startValue) {\n-            int newdiff = startValue - endValue;\n-            end.add( field, newdiff );\n-            return newdiff;\n-        } else {\n-            return 0;\n-        }\n-    }\n \n     static final Object y = \"y\";\n     static final Object M = \"M\";",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

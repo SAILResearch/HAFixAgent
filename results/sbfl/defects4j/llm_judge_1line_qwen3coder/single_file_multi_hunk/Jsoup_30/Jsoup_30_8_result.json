@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_30",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 08:40:51",
+      "end_time": "2026-06-29 08:42:29",
+      "duration_seconds": 97,
+      "duration_human": "1m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 752309,
+      "output_tokens": 4107,
+      "total_tokens": 756416,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 752309
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/safety/Cleaner.java b/src/main/java/org/jsoup/safety/Cleaner.java\nindex e4d45bd2..649823bf 100644\n--- a/src/main/java/org/jsoup/safety/Cleaner.java\n+++ b/src/main/java/org/jsoup/safety/Cleaner.java\n@@ -3,6 +3,8 @@ package org.jsoup.safety;\n import org.jsoup.helper.Validate;\n import org.jsoup.nodes.*;\n import org.jsoup.parser.Tag;\n+import org.jsoup.select.NodeTraversor;\n+import org.jsoup.select.NodeVisitor;\n \n import java.util.List;\n \n@@ -64,14 +66,21 @@ public class Cleaner {\n         return numDiscarded == 0;\n     }\n \n+\n     /**\n      Iterates the input and copies trusted nodes (tags, attributes, text) into the destination.\n      */\n-    private int copySafeNodes(Element root, Element destination) {\n-        List<Node> sourceChildren = root.childNodes();\n-        int numDiscarded = 0;\n+    private final class CleaningVisitor implements NodeVisitor {\n+        private int numDiscarded = 0;\n+        private final Element root;\n+        private Element destination; // current element to append nodes to\n+\n+        private CleaningVisitor(Element root, Element destination) {\n+            this.root = root;\n+            this.destination = destination;\n+        }\n \n-        for (Node source : sourceChildren) {\n+        public void head(Node source, int depth) {\n             if (source instanceof Element) {\n                 Element sourceEl = (Element) source;\n \n@@ -81,22 +90,32 @@ public class Cleaner {\n                     destination.appendChild(destChild);\n \n                     numDiscarded += meta.numAttribsDiscarded;\n-                    numDiscarded += copySafeNodes(sourceEl, destChild);\n-                } else {\n+                    destination = destChild;\n+                } else if (source != root) { // not a safe tag, so don't add. don't count root against discarded.\n                     numDiscarded++;\n-                    numDiscarded += copySafeNodes(sourceEl, destination);\n                 }\n             } else if (source instanceof TextNode) {\n                 TextNode sourceText = (TextNode) source;\n                 TextNode destText = new TextNode(sourceText.getWholeText(), source.baseUri());\n                 destination.appendChild(destText);\n+            } else { // else, we don't care about comments, xml proc instructions, etc\n+                numDiscarded++;\n             }\n         }\n-        return numDiscarded;\n-\n \n+        public void tail(Node source, int depth) {\n+            if (source instanceof Element && whitelist.isSafeTag(source.tagName())) {\n+                destination = destination.parent(); // would have descended, so pop destination stack\n+            }\n+        }\n     }\n \n+    private int copySafeNodes(Element source, Element dest) {\n+        CleaningVisitor cleaningVisitor = new CleaningVisitor(source, dest);\n+        NodeTraversor traversor = new NodeTraversor(cleaningVisitor);\n+        traversor.traverse(source);\n+        return cleaningVisitor.numDiscarded;\n+    }\n     private ElementMeta createSafeElement(Element sourceEl) {\n         String sourceTag = sourceEl.tagName();\n         Attributes destAttrs = new Attributes();\n"
+  },
+  "timestamp": "2026-06-29 08:42:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_30",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_30",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Jsoup.clean sometimes will throw execution exception:java.lang.StackOverflowError\n [ ERROR ]  throw execution exception:java.lang.StackOverflowError\njava.util.concurrent.ExecutionException: java.lang.StackOverflowError\nCaused by: java.lang.StackOverflowError\n    at org.jsoup.safety.Whitelist.isSafeTag(Whitelist.java:323)\n    at org.jsoup.safety.Cleaner.copySafeNodes(Cleaner.java:115)\n    at org.jsoup.safety.Cleaner.copySafeNodes(Cleaner.java:127)\n    at org.jsoup.safety.Cleaner.copySafeNodes(Cleaner.java:127)\n    at org.jsoup.safety.Cleaner.copySafeNodes(Cleaner.java:127)\n    at org.jsoup.safety.Cleaner.copySafeNodes(Cleaner.java:127)\n\nclean the url:http://blog.sina.com.cn/s/blog_501a5b1f0102dx6z.html\n\nIt's have to much **wbr** tags,when i search the page source ,found 24205.\n\ni look at  org.jsoup.safety.Cleaner source code and add code like this \n\n``` java\nprivate int num = 1;\n    /**\n     * Iterates the input and copies trusted nodes (tags, attributes, text) into\n     * the destination.\n     * \n     * @param source\n     *            source of HTML\n     * @param dest\n     *            destination element to copy into\n     * @return number of discarded elements (that were considered unsafe)\n     */\n    private int copySafeNodes(Element source, Element dest) {\n        List<Node> sourceChildren = source.childNodes();\n        int numDiscarded = 0;\n\n        for (Node sourceChild : sourceChildren) {\n            num++;\n            logger.info(num);\n            if (num > 2000) {\n                //break this tag.\n                break;\n            }\n            if (sourceChild instanceof Element) {\n                Element sourceEl = (Element) sourceChild;\n\n                if (whitelist.isSafeTag(sourceEl.tagName())) { // safe, clone\n                                                                // and copy safe\n                                                                // attrs\n                    ElementMeta meta = createSafeElement(sourceEl);\n                    Element destChild = meta.el;\n                    dest.appendChild(destChild);\n                    numDiscarded += meta.numAttribsDiscarded;\n                    numDiscarded += copySafeNodes(sourceEl, destChild); // recurs\n                } else { // not a safe tag, but it may have children (els or\n                            // text) that are, so recurse\n                    numDiscarded++;\n                    numDiscarded += copySafeNodes(sourceEl, dest);\n                }\n            } else if (sourceChild instanceof TextNode) {\n                TextNode sourceText = (TextNode) sourceChild;\n                TextNode destText = new TextNode(sourceText.getWholeText(),\n                        sourceChild.baseUri());\n                dest.appendChild(destText);\n            } // else, we don't care about comments, xml proc instructions, etc\n        }\n        return numDiscarded;\n    }\n```\n\nbut the clean result will be wrong and The layout will be chaos.\n\nHow can I solve this problem?\n\n",
+    "commit_message": "Refactored the Cleaner to traverse rather than recurse child nodes",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 247,
+        "end_line": 247,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 248,
+        "end_line": 248,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 249,
+        "end_line": 249,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 630,
+        "end_line": 630,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 60,
+        "end_line": 60,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 62,
+        "end_line": 62,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 63,
+        "end_line": 63,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 64,
+        "end_line": 64,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 537,
+        "end_line": 537,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 538,
+        "end_line": 538,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.safety.CleanerTest::testIsValid"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 247,
+      "end_line": 247,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 248,
+      "end_line": 248,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 249,
+      "end_line": 249,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 630,
+      "end_line": 630,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 60,
+      "end_line": 60,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 62,
+      "end_line": 62,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 63,
+      "end_line": 63,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 64,
+      "end_line": 64,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 537,
+      "end_line": 537,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 538,
+      "end_line": 538,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 10
+    }
+  ]
+}

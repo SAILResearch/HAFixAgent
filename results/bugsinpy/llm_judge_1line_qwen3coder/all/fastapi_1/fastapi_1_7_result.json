@@ -1,0 +1,160 @@
+{
+  "project_name": "fastapi",
+  "bug_id": "fastapi_1",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:32:02",
+      "end_time": "2026-06-20 16:34:54",
+      "duration_seconds": 172,
+      "duration_human": "2m 52s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 657995,
+      "output_tokens": 5242,
+      "total_tokens": 663237,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 657995
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/fastapi/encoders.py b/fastapi/encoders.py\nindex ae4794ba..f291d4c8 100644\n--- a/fastapi/encoders.py\n+++ b/fastapi/encoders.py\n@@ -34,7 +34,8 @@ def jsonable_encoder(\n     by_alias: bool = True,\n     skip_defaults: bool = None,\n     exclude_unset: bool = False,\n-    include_none: bool = True,\n+    exclude_defaults: bool = False,\n+    exclude_none: bool = False,\n     custom_encoder: dict = {},\n     sqlalchemy_safe: bool = True,\n ) -> Any:\n@@ -58,8 +59,12 @@ def jsonable_encoder(\n                 exclude=exclude,\n                 by_alias=by_alias,\n                 exclude_unset=bool(exclude_unset or skip_defaults),\n+                exclude_none=exclude_none,\n+                exclude_defaults=exclude_defaults,\n             )\n         else:  # pragma: nocover\n+            if exclude_defaults:\n+                raise ValueError(\"Cannot use exclude_defaults\")\n             obj_dict = obj.dict(\n                 include=include,\n                 exclude=exclude,\n@@ -68,7 +73,8 @@ def jsonable_encoder(\n             )\n         return jsonable_encoder(\n             obj_dict,\n-            include_none=include_none,\n+            exclude_none=exclude_none,\n+            exclude_defaults=exclude_defaults,\n             custom_encoder=encoder,\n             sqlalchemy_safe=sqlalchemy_safe,\n         )\n@@ -87,14 +93,14 @@ def jsonable_encoder(\n                     or (not isinstance(key, str))\n                     or (not key.startswith(\"_sa\"))\n                 )\n-                and (value is not None or include_none)\n+                and (value is not None or not exclude_none)\n                 and ((include and key in include) or key not in exclude)\n             ):\n                 encoded_key = jsonable_encoder(\n                     key,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n-                    include_none=include_none,\n+                    exclude_none=exclude_none,\n                     custom_encoder=custom_encoder,\n                     sqlalchemy_safe=sqlalchemy_safe,\n                 )\n@@ -102,7 +108,7 @@ def jsonable_encoder(\n                     value,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n-                    include_none=include_none,\n+                    exclude_none=exclude_none,\n                     custom_encoder=custom_encoder,\n                     sqlalchemy_safe=sqlalchemy_safe,\n                 )\n@@ -118,7 +124,7 @@ def jsonable_encoder(\n                     exclude=exclude,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n-                    include_none=include_none,\n+                    exclude_none=exclude_none,\n                     custom_encoder=custom_encoder,\n                     sqlalchemy_safe=sqlalchemy_safe,\n                 )\n@@ -153,7 +159,7 @@ def jsonable_encoder(\n         data,\n         by_alias=by_alias,\n         exclude_unset=exclude_unset,\n-        include_none=include_none,\n+        exclude_none=exclude_none,\n         custom_encoder=custom_encoder,\n         sqlalchemy_safe=sqlalchemy_safe,\n     )\ndiff --git a/fastapi/routing.py b/fastapi/routing.py\nindex 1ec0b693..5152c67e 100644\n--- a/fastapi/routing.py\n+++ b/fastapi/routing.py\n@@ -49,22 +49,43 @@ except ImportError:  # pragma: nocover\n \n \n def _prepare_response_content(\n-    res: Any, *, by_alias: bool = True, exclude_unset: bool\n+    res: Any,\n+    *,\n+    by_alias: bool = True,\n+    exclude_unset: bool,\n+    exclude_defaults: bool = False,\n+    exclude_none: bool = False,\n ) -> Any:\n     if isinstance(res, BaseModel):\n         if PYDANTIC_1:\n-            return res.dict(by_alias=by_alias, exclude_unset=exclude_unset)\n+            return res.dict(\n+                by_alias=by_alias,\n+                exclude_unset=exclude_unset,\n+                exclude_defaults=exclude_defaults,\n+                exclude_none=exclude_none,\n+            )\n         else:\n             return res.dict(\n                 by_alias=by_alias, skip_defaults=exclude_unset\n             )  # pragma: nocover\n     elif isinstance(res, list):\n         return [\n-            _prepare_response_content(item, exclude_unset=exclude_unset) for item in res\n+            _prepare_response_content(\n+                item,\n+                exclude_unset=exclude_unset,\n+                exclude_defaults=exclude_defaults,\n+                exclude_none=exclude_none,\n+            )\n+            for item in res\n         ]\n     elif isinstance(res, dict):\n         return {\n-            k: _prepare_response_content(v, exclude_unset=exclude_unset)\n+            k: _prepare_response_content(\n+                v,\n+                exclude_unset=exclude_unset,\n+                exclude_defaults=exclude_defaults,\n+                exclude_none=exclude_none,\n+            )\n             for k, v in res.items()\n         }\n     return res\n@@ -78,12 +99,18 @@ async def serialize_response(\n     exclude: Union[SetIntStr, DictIntStrAny] = set(),\n     by_alias: bool = True,\n     exclude_unset: bool = False,\n+    exclude_defaults: bool = False,\n+    exclude_none: bool = False,\n     is_coroutine: bool = True,\n ) -> Any:\n     if field:\n         errors = []\n         response_content = _prepare_response_content(\n-            response_content, by_alias=by_alias, exclude_unset=exclude_unset\n+            response_content,\n+            by_alias=by_alias,\n+            exclude_unset=exclude_unset,\n+            exclude_defaults=exclude_defaults,\n+            exclude_none=exclude_none,\n         )\n         if is_coroutine:\n             value, errors_ = field.validate(response_content, {}, loc=(\"response\",))\ndiff --git a/tests/test_jsonable_encoder.py b/tests/test_jsonable_encoder.py\nindex f94771aa..adee443a 100644\n--- a/tests/test_jsonable_encoder.py\n+++ b/tests/test_jsonable_encoder.py\n@@ -70,6 +70,12 @@ class ModelWithAlias(BaseModel):\n     foo: str = Field(..., alias=\"Foo\")\n \n \n+class ModelWithDefault(BaseModel):\n+    foo: str = ...\n+    bar: str = \"bar\"\n+    bla: str = \"bla\"\n+\n+\n @pytest.fixture(\n     name=\"model_with_path\", params=[PurePath, PurePosixPath, PureWindowsPath]\n )\n@@ -121,6 +127,16 @@ def test_encode_model_with_alias():\n     assert jsonable_encoder(model) == {\"Foo\": \"Bar\"}\n \n \n+def test_encode_model_with_default():\n+    model = ModelWithDefault(foo=\"foo\", bar=\"bar\")\n+    assert jsonable_encoder(model) == {\"foo\": \"foo\", \"bar\": \"bar\", \"bla\": \"bla\"}\n+    assert jsonable_encoder(model, exclude_unset=True) == {\"foo\": \"foo\", \"bar\": \"bar\"}\n+    assert jsonable_encoder(model, exclude_defaults=True) == {\"foo\": \"foo\"}\n+    assert jsonable_encoder(model, exclude_unset=True, exclude_defaults=True) == {\n+        \"foo\": \"foo\"\n+    }\n+\n+\n def test_custom_encoders():\n     class safe_datetime(datetime):\n         pass\n"
+  },
+  "timestamp": "2026-06-20 16:34:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "fastapi",
+    "bug_id": "fastapi_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/fastapi_1/fastapi",
+    "github_url": "https://github.com/tiangolo/fastapi",
+    "description": "",
+    "commit_message": ":sparkles: Implement response_model_exclude_defaults and response_model_exclude_none (#1166)",
+    "fault_locations": [
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 37,
+        "end_line": 37,
+        "function_name": "jsonable_encoder",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 71,
+        "end_line": 71,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 90,
+        "end_line": 90,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 97,
+        "end_line": 97,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 105,
+        "end_line": 105,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 121,
+        "end_line": 121,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/encoders.py",
+        "start_line": 156,
+        "end_line": 156,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/openapi/utils.py",
+        "start_line": 84,
+        "end_line": 84,
+        "function_name": "get_openapi_security_definitions",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/openapi/utils.py",
+        "start_line": 313,
+        "end_line": 313,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 52,
+        "end_line": 52,
+        "function_name": "_prepare_response_content",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 56,
+        "end_line": 56,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 59,
+        "end_line": 59,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 63,
+        "end_line": 63,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 67,
+        "end_line": 67,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "fastapi/routing.py",
+        "start_line": 86,
+        "end_line": 86,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_skip_defaults.py",
+        "start_line": 25,
+        "end_line": 25,
+        "function_name": "get",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_jsonable_encoder.py::test_encode_model_with_default"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

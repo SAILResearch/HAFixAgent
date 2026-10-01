@@ -1,0 +1,167 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_11",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 14:52:29",
+      "end_time": "2026-06-20 14:57:56",
+      "duration_seconds": 327,
+      "duration_human": "5m 27s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 625602,
+      "output_tokens": 2720,
+      "total_tokens": 628322,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 625602
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training_generator.py b/keras/engine/training_generator.py\nindex 55e817a13..a287704d4 100644\n--- a/keras/engine/training_generator.py\n+++ b/keras/engine/training_generator.py\n@@ -8,6 +8,7 @@ import warnings\n import numpy as np\n \n from .training_utils import iter_sequence_infinite\n+from .training_utils import is_sequence\n from .. import backend as K\n from ..utils.data_utils import Sequence\n from ..utils.data_utils import GeneratorEnqueuer\n@@ -40,8 +41,8 @@ def fit_generator(model,\n     if do_validation:\n         model._make_test_function()\n \n-    is_sequence = isinstance(generator, Sequence)\n-    if not is_sequence and use_multiprocessing and workers > 1:\n+    use_sequence_api = is_sequence(generator)\n+    if not use_sequence_api and use_multiprocessing and workers > 1:\n         warnings.warn(\n             UserWarning('Using a generator with `use_multiprocessing=True`'\n                         ' and multiple workers may duplicate your data.'\ndiff --git a/keras/engine/training_utils.py b/keras/engine/training_utils.py\nindex ea22fc5a2..71da4e0ff 100644\n--- a/keras/engine/training_utils.py\n+++ b/keras/engine/training_utils.py\n@@ -11,6 +11,7 @@ import warnings\n from .. import backend as K\n from .. import losses\n from ..utils.generic_utils import to_list\n+from ..utils import Sequence\n \n \n def standardize_single_array(x):\n@@ -589,3 +590,17 @@ def iter_sequence_infinite(seq):\n     while True:\n         for item in seq:\n             yield item\n+\n+\n+def is_sequence(seq):\n+    \"\"\"Determine if an object follows the Sequence API.\n+\n+    # Arguments\n+        seq: a possible Sequence object\n+\n+    # Returns\n+        boolean, whether the object follows the Sequence API.\n+    \"\"\"\n+    # TODO Dref360: Decide which pattern to follow. First needs a new TF Version.\n+    return (getattr(seq, 'use_sequence_api', False)\n+            or set(dir(Sequence())).issubset(set(dir(seq) + ['use_sequence_api'])))\ndiff --git a/keras/utils/data_utils.py b/keras/utils/data_utils.py\nindex 51088192b..1d6f5e74b 100644\n--- a/keras/utils/data_utils.py\n+++ b/keras/utils/data_utils.py\n@@ -341,6 +341,7 @@ class Sequence(object):\n     ```\n     \"\"\"\n \n+    use_sequence_api = True\n     @abstractmethod\n     def __getitem__(self, index):\n         \"\"\"Gets batch at position `index`.\ndiff --git a/tests/integration_tests/test_image_data_tasks.py b/tests/integration_tests/test_image_data_tasks.py\nindex 4ba81028c..f0294d6c8 100644\n--- a/tests/integration_tests/test_image_data_tasks.py\n+++ b/tests/integration_tests/test_image_data_tasks.py\n@@ -2,6 +2,7 @@ from __future__ import print_function\n import numpy as np\n import pytest\n \n+from keras.preprocessing.image import ImageDataGenerator\n from keras.utils.test_utils import get_test_data\n from keras.models import Sequential\n from keras import layers\n@@ -41,5 +42,39 @@ def test_image_classification():\n     model = Sequential.from_config(config)\n \n \n+def test_image_data_generator_training():\n+    np.random.seed(1337)\n+    img_gen = ImageDataGenerator(rescale=1.)  # Dummy ImageDataGenerator\n+    input_shape = (16, 16, 3)\n+    (x_train, y_train), (x_test, y_test) = get_test_data(num_train=500,\n+                                                         num_test=200,\n+                                                         input_shape=input_shape,\n+                                                         classification=True,\n+                                                         num_classes=4)\n+    y_train = to_categorical(y_train)\n+    y_test = to_categorical(y_test)\n+\n+    model = Sequential([\n+        layers.Conv2D(filters=8, kernel_size=3,\n+                      activation='relu',\n+                      input_shape=input_shape),\n+        layers.MaxPooling2D(pool_size=2),\n+        layers.Conv2D(filters=4, kernel_size=(3, 3),\n+                      activation='relu', padding='same'),\n+        layers.GlobalAveragePooling2D(),\n+        layers.Dense(y_test.shape[-1], activation='softmax')\n+    ])\n+    model.compile(loss='categorical_crossentropy',\n+                  optimizer='rmsprop',\n+                  metrics=['accuracy'])\n+    history = model.fit_generator(img_gen.flow(x_train, y_train, batch_size=16),\n+                                  epochs=10,\n+                                  validation_data=img_gen.flow(x_test, y_test,\n+                                                               batch_size=16),\n+                                  verbose=0)\n+    assert history.history['val_acc'][-1] > 0.75\n+    model.evaluate_generator(img_gen.flow(x_train, y_train, batch_size=16))\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-20 14:57:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_11",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_11/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Improve type-check for Sequence (#11468)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 43,
+        "end_line": 44,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 51,
+        "end_line": 51,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 64,
+        "end_line": 65,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 111,
+        "end_line": 111,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 125,
+        "end_line": 125,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 152,
+        "end_line": 152,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 164,
+        "end_line": 164,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 287,
+        "end_line": 288,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 295,
+        "end_line": 295,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 306,
+        "end_line": 306,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 317,
+        "end_line": 317,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 390,
+        "end_line": 391,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 398,
+        "end_line": 398,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 409,
+        "end_line": 409,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training_generator.py",
+        "start_line": 420,
+        "end_line": 420,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/utils/data_utils_test.py",
+        "start_line": 25,
+        "end_line": 25,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 12,
+        "end_line": 12,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/integration_tests/test_image_data_tasks.py::test_image_data_generator_training"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "119",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:07:06",
+      "end_time": "2026-06-20 01:09:10",
+      "duration_seconds": 124,
+      "duration_human": "2m 4s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 593103,
+      "output_tokens": 3959,
+      "total_tokens": 597062,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 593103
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 01:09:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_119",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_119",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "catch(e) yields JSC_UNDEFINED_NAME warning when e is used in catch in advanced mode\n<b>What steps will reproduce the problem?</b>\n1. set closure for advanced compilation\r\n2. compile this:\r\n// ==ClosureCompiler==\r\n// @compilation_level ADVANCED_OPTIMIZATIONS\r\n// @output_file_name default.js\r\n// ==/ClosureCompiler==\r\n\r\ntry {\r\nvar x = 5;\r\n}\r\ncatch(e) {\r\nvar s = &quot;FAIL&quot; + e.name + &quot;: &quot;+ e.message;\r\n}\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nI expect no warning or error for this.  Instead I see this:\r\n\r\nJSC_UNREACHABLE_CODE: unreachable code at line 4 character 0\r\ncatch(e) {\r\n^\r\nJSC_UNDEFINED_NAME: e is never defined at line 5 character 17\r\nvar s = &quot;FAIL&quot; + e.name + &quot;: &quot;+ e.message;\r\n                 ^\r\nJSC_UNDEFINED_NAME: e is never defined at line 5 character 32\r\nvar s = &quot;FAIL&quot; + e.name + &quot;: &quot;+ e.message;\r\n                                ^\r\nIn my case I'm especially complaining about the JSC_UNDEFINED_NAME warning...  Also it seems the unreachable complaint isn't right, but i'm not sure.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nI'm using this url: http://closure-compiler.appspot.com/home\r\nusing chrome browser on windows: Version 28.0.1500.95 m \r\n... but this is a server side error from what I see...\r\n\r\n<b>Please provide any additional information below.</b>",
+    "commit_message": "Fix for errors wrt exceptions in the global scope. Fixes issue 1070 R=blickly",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/GlobalNamespace.java",
+        "start_line": 365,
+        "end_line": 365,
+        "line_numbers": [
+          365
+        ],
+        "function_name": "collect",
+        "class_name": "BuildGlobalNamespace",
+        "filename": "GlobalNamespace.java",
+        "code_snippet": "    public void collect(JSModule module, Scope scope, Node n) {\n      Node parent = n.getParent();\n\n      String name;\n      boolean isSet = false;\n      Name.Type type = Name.Type.OTHER;\n      boolean isPropAssign = false;\n\n      switch (n.getType()) {\n        case Token.GETTER_DEF:\n        case Token.SETTER_DEF:\n        case Token.STRING_KEY:\n          // This may be a key in an object literal declaration.\n          name = null;\n          if (parent != null && parent.isObjectLit()) {\n            name = getNameForObjLitKey(n);\n          }\n          if (name == null) {\n            return;\n          }\n          isSet = true;\n          switch (n.getType()) {\n            case Token.STRING_KEY:\n              type = getValueType(n.getFirstChild());\n              break;\n            case Token.GETTER_DEF:\n              type = Name.Type.GET;\n              break;\n            case Token.SETTER_DEF:\n              type = Name.Type.SET;\n              break;\n            default:\n              throw new IllegalStateException(\"unexpected:\" + n);\n          }\n          break;\n        case Token.NAME:\n          // This may be a variable get or set.\n          if (parent != null) {\n            switch (parent.getType()) {\n              case Token.VAR:\n                isSet = true;\n                Node rvalue = n.getFirstChild();\n                type = rvalue == null ? Name.Type.OTHER : getValueType(rvalue);\n                break;\n              case Token.ASSIGN:\n                if (parent.getFirstChild() == n) {\n                  isSet = true;\n                  type = getValueType(n.getNext());\n                }\n                break;\n              case Token.GETPROP:\n                return;\n              case Token.FUNCTION:\n                Node gramps = parent.getParent();\n                if (gramps == null || NodeUtil.isFunctionExpression(parent)) {\n                  return;\n                }\n                isSet = true;\n                type = Name.Type.FUNCTION;\n                break;\n              case Token.INC:\n              case Token.DEC:\n                isSet = true;\n                type = Name.Type.OTHER;\n                break;\n              default:\n                if (NodeUtil.isAssignmentOp(parent) &&\n                    parent.getFirstChild() == n) {\n                  isSet = true;\n                  type = Name.Type.OTHER;\n                }\n            }\n          }\n          name = n.getString();\n          break;\n        case Token.GETPROP:\n          // This may be a namespaced name get or set.\n          if (parent != null) {\n            switch (parent.getType()) {\n              case Token.ASSIGN:\n                if (parent.getFirstChild() == n) {\n                  isSet = true;\n                  type = getValueType(n.getNext());\n                  isPropAssign = true;\n                }\n                break;\n              case Token.INC:\n              case Token.DEC:\n                isSet = true;\n                type = Name.Type.OTHER;\n                break;\n              case Token.GETPROP:\n                return;\n              default:\n                if (NodeUtil.isAssignmentOp(parent) &&\n                    parent.getFirstChild() == n) {\n                  isSet = true;\n                  type = Name.Type.OTHER;\n                }\n            }\n          }\n          name = n.getQualifiedName();\n          if (name == null) {\n            return;\n          }\n          break;\n        default:\n          return;\n      }\n\n      // We are only interested in global names.\n      if (!isGlobalNameReference(name, scope)) {\n        return;\n      }\n\n      if (isSet) {\n        if (isGlobalScope(scope)) {\n          handleSetFromGlobal(module, scope, n, parent, name, isPropAssign, type);\n        } else {\n          handleSetFromLocal(module, scope, n, parent, name);\n        }\n      } else {\n        handleGet(module, scope, n, parent, name);\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CheckGlobalNamesTest::testGlobalCatch"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/GlobalNamespace.java b/src/com/google/javascript/jscomp/GlobalNamespace.java\nindex 0e9c4d3..639318d 100644\n--- a/src/com/google/javascript/jscomp/GlobalNamespace.java\n+++ b/src/com/google/javascript/jscomp/GlobalNamespace.java\n@@ -363,7 +363,6 @@ class GlobalNamespace\n                 isSet = true;\n                 type = Name.Type.FUNCTION;\n                 break;\n+              case Token.CATCH:\n               case Token.INC:\n               case Token.DEC:\n                 isSet = true;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

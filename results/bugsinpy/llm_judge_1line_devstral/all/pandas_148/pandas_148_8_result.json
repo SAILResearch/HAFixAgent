@@ -1,0 +1,70 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_148",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 02:00:44",
+      "end_time": "2026-06-28 02:02:44",
+      "duration_seconds": 119,
+      "duration_human": "1m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 509461,
+      "output_tokens": 5422,
+      "total_tokens": 514883,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 509461
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/apply.py b/pandas/core/apply.py\nindex e6766a33a6..3b58d25f9a 100644\n--- a/pandas/core/apply.py\n+++ b/pandas/core/apply.py\n@@ -200,6 +200,7 @@ class FrameApply:\n \n         # we may need to infer\n         should_reduce = self.result_type == \"reduce\"\n+        result = None\n \n         from pandas import Series\n \n@@ -207,149 +208,17 @@ class FrameApply:\n \n             EMPTY_SERIES = Series([])\n             try:\n-                r = self.f(EMPTY_SERIES, *self.args, **self.kwds)\n+                result = self.f(EMPTY_SERIES, *self.args, **self.kwds)\n             except Exception:\n                 pass\n             else:\n-                should_reduce = not isinstance(r, Series)\n+                should_reduce = not isinstance(result, Series)\n \n         if should_reduce:\n-            return self.obj._constructor_sliced(np.nan, index=self.agg_axis)\n+            return self.obj._constructor_sliced(result if result is not None else np.nan, index=self.agg_axis)\n         else:\n             return self.obj.copy()\n \n-    def apply_raw(self):\n-        \"\"\" apply to the values as a numpy array \"\"\"\n-\n-        try:\n-            result = libreduction.compute_reduction(self.values, self.f, axis=self.axis)\n-        except Exception:\n-            result = np.apply_along_axis(self.f, self.axis, self.values)\n-\n-        # TODO: mixed type case\n-        if result.ndim == 2:\n-            return self.obj._constructor(result, index=self.index, columns=self.columns)\n-        else:\n-            return self.obj._constructor_sliced(result, index=self.agg_axis)\n-\n-    def apply_broadcast(self, target):\n-        result_values = np.empty_like(target.values)\n-\n-        # axis which we want to compare compliance\n-        result_compare = target.shape[0]\n-\n-        for i, col in enumerate(target.columns):\n-            res = self.f(target[col])\n-            ares = np.asarray(res).ndim\n-\n-            # must be a scalar or 1d\n-            if ares > 1:\n-                raise ValueError(\"too many dims to broadcast\")\n-            elif ares == 1:\n-\n-                # must match return dim\n-                if result_compare != len(res):\n-                    raise ValueError(\"cannot broadcast result\")\n-\n-            result_values[:, i] = res\n-\n-        # we *always* preserve the original index / columns\n-        result = self.obj._constructor(\n-            result_values, index=target.index, columns=target.columns\n-        )\n-        return result\n-\n-    def apply_standard(self):\n-\n-        # try to reduce first (by default)\n-        # this only matters if the reduction in values is of different dtype\n-        # e.g. if we want to apply to a SparseFrame, then can't directly reduce\n-\n-        # we cannot reduce using non-numpy dtypes,\n-        # as demonstrated in gh-12244\n-        if (\n-            self.result_type in [\"reduce\", None]\n-            and not self.dtypes.apply(is_extension_type).any()\n-        ):\n-\n-            # Create a dummy Series from an empty array\n-            from pandas import Series\n-\n-            values = self.values\n-            index = self.obj._get_axis(self.axis)\n-            labels = self.agg_axis\n-            empty_arr = np.empty(len(index), dtype=values.dtype)\n-            dummy = Series(empty_arr, index=index, dtype=values.dtype)\n-\n-            try:\n-                result = libreduction.compute_reduction(\n-                    values, self.f, axis=self.axis, dummy=dummy, labels=labels\n-                )\n-                return self.obj._constructor_sliced(result, index=labels)\n-            except Exception:\n-                pass\n-\n-        # compute the result using the series generator\n-        self.apply_series_generator()\n-\n-        # wrap results\n-        return self.wrap_results()\n-\n-    def apply_series_generator(self):\n-        series_gen = self.series_generator\n-        res_index = self.result_index\n-\n-        i = None\n-        keys = []\n-        results = {}\n-        if self.ignore_failures:\n-            successes = []\n-            for i, v in enumerate(series_gen):\n-                try:\n-                    results[i] = self.f(v)\n-                except Exception:\n-                    pass\n-                else:\n-                    keys.append(v.name)\n-                    successes.append(i)\n-\n-            # so will work with MultiIndex\n-            if len(successes) < len(res_index):\n-                res_index = res_index.take(successes)\n-\n-        else:\n-            try:\n-                for i, v in enumerate(series_gen):\n-                    results[i] = self.f(v)\n-                    keys.append(v.name)\n-            except Exception as e:\n-                if hasattr(e, \"args\"):\n-\n-                    # make sure i is defined\n-                    if i is not None:\n-                        k = res_index[i]\n-                        e.args = e.args + (\"occurred at index %s\" % pprint_thing(k),)\n-                raise\n-\n-        self.results = results\n-        self.res_index = res_index\n-        self.res_columns = self.result_columns\n-\n-    def wrap_results(self):\n-        results = self.results\n-\n-        # see if we can infer the results\n-        if len(results) > 0 and is_sequence(results[0]):\n-\n-            return self.wrap_results_for_axis()\n-\n-        # dict of scalars\n-        result = self.obj._constructor_sliced(results)\n-        result.index = self.res_index\n-\n-        return result\n-\n-\n class FrameRowApply(FrameApply):\n     axis = 0\n \ndiff --git a/pandas/tests/frame/test_apply.py b/pandas/tests/frame/test_apply.py\nindex 92912ff9ec..0328232213 100644\n--- a/pandas/tests/frame/test_apply.py\n+++ b/pandas/tests/frame/test_apply.py\n@@ -116,6 +116,27 @@ class TestDataFrameApply:\n         # Ensure that x.append hasn't been called\n         assert x == []\n \n+    @pytest.mark.parametrize(\"func\", [\"sum\", \"prod\", \"any\", \"all\"])\n+    def test_apply_funcs_over_empty(self, func):\n+        # GH 28213\n+        df = DataFrame(columns=[\"a\", \"b\", \"c\"])\n+\n+        result = df.apply(getattr(np, func))\n+        expected = getattr(df, func)()\n+        assert_series_equal(result, expected)\n+\n+    def test_nunique_empty(self):\n+        # GH 28213\n+        df = DataFrame(columns=[\"a\", \"b\", \"c\"])\n+\n+        result = df.nunique()\n+        expected = Series(0, index=df.columns)\n+        assert_series_equal(result, expected)\n+\n+        result = df.T.nunique()\n+        expected = Series([], index=pd.Index([]))\n+        assert_series_equal(result, expected)\n+\n     def test_apply_deprecate_reduce(self):\n         empty_frame = DataFrame()\n \n"
+  },
+  "timestamp": "2026-06-28 02:02:44 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_148",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_148/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix issue with apply on empty DataFrame (#28213)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/apply.py",
+        "start_line": 207,
+        "end_line": 208,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/apply.py",
+        "start_line": 210,
+        "end_line": 210,
+        "function_name": "apply_empty_result",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/apply.py",
+        "start_line": 217,
+        "end_line": 217,
+        "function_name": "apply_empty_result",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_apply.py::TestDataFrameApply::test_apply_funcs_over_empty",
+      "pytest pandas/tests/frame/test_apply.py::TestDataFrameApply::test_nunique_empty"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

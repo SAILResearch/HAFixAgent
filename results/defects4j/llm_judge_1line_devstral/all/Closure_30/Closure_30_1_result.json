@@ -1,0 +1,77 @@
+{
+  "project_name": "Closure",
+  "bug_id": "30",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:20:29",
+      "end_time": "2026-06-26 18:23:01",
+      "duration_seconds": 152,
+      "duration_human": "2m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 558546,
+      "output_tokens": 4843,
+      "total_tokens": 563389,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 558546
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\nindex d53a8f8a1..c84486c7c 100644\n--- a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n+++ b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n@@ -205,6 +205,9 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n             }\n \n             Node defNode = reachingDef.getDef(name, cfgNode);\n+            if (!t.getScope().isDeclared(name, false)) {\n+              return;\n+            }\n             // TODO(nicksantos): We need to add some notion of @const outer\n             // scope vars. We can inline those just fine.\n             if (defNode != null &&\n"
+  },
+  "timestamp": "2026-06-26 18:23:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_30",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_30",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Combining temporary strings are over-optimized in advanced build\n<b>What steps will reproduce the problem?</b>\n1. This bug only manifests itself in large code bases. How large, and what the specifics are, I haven't yet worked out, since the output differs. But the principle code is:\r\n\r\nsgxColorRGBA.prototype.asHex = function() {\r\n\tvar hexString = &quot;&quot;;\r\n\t\r\n\tstr = (sgxFloor(this.r*255)).toString(16);\r\n\tif (str.length &lt; 2) { str = &quot;0&quot;+str; }\r\n\thexString += str;\r\n\r\n\tstr = (sgxFloor(this.g*255)).toString(16);\r\n\tif (str.length &lt; 2) { str = &quot;0&quot;+str; }\r\n\thexString += str;\r\n\r\n\tstr = (sgxFloor(this.b*255)).toString(16);\r\n\tif (str.length &lt; 2) { str = &quot;0&quot;+str; }\r\n\thexString += str;\r\n\r\n\tstr = (sgxFloor(this.a*255)).toString(16);\r\n\tif (str.length &lt; 2) { str = &quot;0&quot;+str; }\r\n\thexString += str;\r\n\r\n\treturn hexString;\r\n}\r\n\r\nNote that 'str' is not declared as var.\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nI see this:\r\nsgxColorRGBA.prototype.pb = function() {\r\n  str = A(255 * this.A).toString(16);\r\n  2 &gt; str.length &amp;&amp; (str = &quot;0&quot; + str);\r\n  str = A(255 * this.w).toString(16);\r\n  2 &gt; str.length &amp;&amp; (str = &quot;0&quot; + str);\r\n  str = A(255 * this.s).toString(16);\r\n  2 &gt; str.length &amp;&amp; (str = &quot;0&quot; + str);\r\n  str = A(255 * this.r).toString(16);\r\n  2 &gt; str.length &amp;&amp; (str = &quot;0&quot; + str);\r\n  return&quot;&quot; + str + str + str + str\r\n};\r\n\r\nObviously, repeatedly adding 'str' is broken in the final line, compared to the original. So whatever is aggregating the result is seeing a temporary 'str' reference and combining it, I guess. If 'str' is declared as var, the problem goes away.\r\n\r\nI'd expect a warning, at least.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n\r\nLive at http://closure-compiler.appspot.com\r\n\r\n<b>Please provide any additional information below.</b>\n\r\nAs a stand-alone method, both 'var str' and 'str' works. It's only when the project hits a certain (undetermined) size that it fails.",
+    "commit_message": "fixes issue 698",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java",
+        "start_line": 157,
+        "end_line": 157,
+        "line_numbers": [
+          157
+        ],
+        "function_name": "process",
+        "class_name": "FlowSensitiveInlineVariables",
+        "filename": "FlowSensitiveInlineVariables.java",
+        "code_snippet": "  public void process(Node externs, Node root) {\n    (new NodeTraversal(compiler, this)).traverse(root);\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/MustBeReachingVariableDef.java",
+        "start_line": 396,
+        "end_line": 396,
+        "line_numbers": [
+          396
+        ],
+        "function_name": "computeDependence",
+        "class_name": "MustDefJoin",
+        "filename": "MustBeReachingVariableDef.java",
+        "code_snippet": "  private void computeDependence(final Definition def, Node rValue) {\n    NodeTraversal.traverse(compiler, rValue,\n        new AbstractCfgNodeTraversalCallback() {\n      @Override\n      public void visit(NodeTraversal t, Node n, Node parent) {\n        if (n.isName() && jsScope.isDeclared(n.getString(), true)) {\n          Var dep = jsScope.getVar(n.getString());\n            def.depends.add(dep);\n        }\n      }\n    });\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testInlineAcrossSideEffect1",
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testCanInlineAcrossNoSideEffect",
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue698"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\nindex 3f39c07..d53a8f8 100644\n--- a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n+++ b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n@@ -154,7 +154,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n \n   @Override\n   public void process(Node externs, Node root) {\n+    (new NodeTraversal(compiler, this)).traverseRoots(externs, root);\n-    (new NodeTraversal(compiler, this)).traverse(root);\n   }\n \n   @Override\ndiff --git a/src/com/google/javascript/jscomp/MustBeReachingVariableDef.java b/src/com/google/javascript/jscomp/MustBeReachingVariableDef.java\nindex 589f673..1487af3 100644\n--- a/src/com/google/javascript/jscomp/MustBeReachingVariableDef.java\n+++ b/src/com/google/javascript/jscomp/MustBeReachingVariableDef.java\n@@ -68,7 +68,6 @@ final class MustBeReachingVariableDef extends\n   private static class Definition {\n     final Node node;\n     final Set<Var> depends = Sets.newHashSet();\n+    private boolean unknownDependencies = false;\n \n     Definition(Node node) {\n       this.node = node;\n@@ -394,13 +393,9 @@ final class MustBeReachingVariableDef extends\n         new AbstractCfgNodeTraversalCallback() {\n       @Override\n       public void visit(NodeTraversal t, Node n, Node parent) {\n+        if (n.isName()) {\n-        if (n.isName() && jsScope.isDeclared(n.getString(), true)) {\n           Var dep = jsScope.getVar(n.getString());\n+          if (dep == null) {\n+            def.unknownDependencies = true;\n+          } else {\n             def.depends.add(dep);\n+          }\n         }\n       }\n     });\n@@ -432,9 +427,6 @@ final class MustBeReachingVariableDef extends\n     GraphNode<Node, Branch> n = getCfg().getNode(useNode);\n     FlowState<MustDef> state = n.getAnnotation();\n     Definition def = state.getIn().reachingDef.get(jsScope.getVar(name));\n+    if (def.unknownDependencies) {\n+      return true;\n+    }\n \n     for (Var s : def.depends) {\n       if (s.scope != jsScope) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

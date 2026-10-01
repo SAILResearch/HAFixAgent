@@ -1,0 +1,117 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "21",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 01:23:37",
+      "end_time": "2025-10-01 01:34:38",
+      "duration_seconds": 662,
+      "duration_human": "11m 2s"
+    },
+    "model_cost": 0.0364,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 433192,
+      "output_tokens": 6698,
+      "total_tokens": 439890,
+      "cached_input_tokens": 417664,
+      "uncached_input_tokens": 15528
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\nindex 0cc8226d8..a9d93d85f 100644\n--- a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n+++ b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n@@ -19,10 +19,25 @@ public class ConstructorInstantiator implements Instantiator {\n \n     private <T> T withOuterClass(Class<T> cls) {\n         try {\n-            //this is kind of overengineered because we don't need to support more params\n-            //however, I know we will be needing it :)\n+            // First try the exact type\n             Constructor<T> c = cls.getDeclaredConstructor(outerClassInstance.getClass());\n             return c.newInstance(outerClassInstance);\n+        } catch (NoSuchMethodException e) {\n+            // If exact type fails, try to find a constructor that accepts a compatible type\n+            for (Constructor<?> constructor : cls.getDeclaredConstructors()) {\n+                Class<?>[] paramTypes = constructor.getParameterTypes();\n+                if (paramTypes.length == 1 && paramTypes[0].isInstance(outerClassInstance)) {\n+                    try {\n+                        @SuppressWarnings(\"unchecked\")\n+                        Constructor<T> compatibleConstructor = (Constructor<T>) constructor;\n+                        return compatibleConstructor.newInstance(outerClassInstance);\n+                    } catch (Exception e2) {\n+                        // Continue to next constructor\n+                    }\n+                }\n+            }\n+            // If no compatible constructor found, throw the exception\n+            throw paramsException(cls, e);\n         } catch (Exception e) {\n             throw paramsException(cls, e);\n         }\n"
+  },
+  "timestamp": "2025-09-30 21:34:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_21",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_21",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "Allow convenient spying on abstract classes\nI posted this in GoogleCode and was asked to submit in github.\n\nMockito is easy to use when the test needs to provide canned values for a certain method.\n\nBut it gets harder when a canned value isn't sufficient.\n##### Example 1: Fake with trivial Logic\n\n```\ninterface UserAccount {\n  List<String> getEmails();\n  void addEmail(String email);\n  // 12 other methods ...\n}\n```\n\nWhen mocking such domain entity object, it's tedious to manually program getEmails()/addEmail() with when().thenReturn() and to make sure the two methods are logically consistent, that is, getEmails() returns all emails added.\n##### Example 2: callback-style API\n\n```\ninterface AccountService {\n  void getAccount(String id, AsyncCallback<UserAccount> callback);\n}\n```\n\nStubbing AccountService isn't easy. It'd require use of Answer, and the Answer API isn't statically type safe:\n\n```\nwhen(service.getAccount(eq(id), any(AsyncCallback.class)).thenAnswer(new Answer<Void>() {\n  AsyncCallback<UserAccount> callback = (AsyncCallback<UserAccount>) getArguments()[1];\n  ...\n});\n```\n##### Example 3: Uninteresting parameters\n\n```\ninterface AccountRpcService {\n  FutureAccount getAccount(RpcContext context, String id);\n}\n```\n\nNone of the tests care about the context object. It's an uninteresting parameter imposed by the framework.\n\nIf AccountRpcService were directly mocked, all tests would have to use isA() to repetitively mention this uninteresting parameter, like this:\n\n`when(service.getAccount(isA(RpcContext.class), eq(\"id\")).thenReturn(...);`\n\nAnd all other parameters are required to be wrapped in eq().\n#### Proposal\n\nI propose adding support for abstract classes to mockito to make it easier to deal with tests like above:\n##### For example 1\n\n```\nabstract class FakeUserAccount implements UserAccount {\n  private final List<String> emails = new ArrayList<>();\n\n  @Override public void addEmail(String email) {\n    emails.add(email);\n  }\n  @Override List<String> getEmails() {\n    return ImmutableList.copyOf(emails);\n  }\n}\n\n@Fake private FakeUserAccount userAccount; // Mockito instantiates abstract class.\n```\n##### For example 2\n\n```\nabstract class MockAccountService implements AccountService {\n  @Override public void getAccount(String id, AsyncCallback<UserAccount> callback) {\n    callback.onSuccess(getAccount(id));\n  }\n  abstract UserAccount getAccount(String id);\n}\n\n@Fake private MockAccountService service;\n\n...\n\nwhen(service.getAccount(\"id\")).thenReturn(account);\n```\n##### For example 3\n\n```\nabstract class MockAccountRpcService implements AccountRpcService {\n  @Override Future<Account> getAccount(RpcContext context, String id) {\n    checkNotNull(context);  // Common sanity test. Don't have to repeat it in tests.\n    return getAccount(id);\n  }\n\n  abstract Future<Account> getAccount(String id);\n}\n\n@Fake private MockAccountRpcService service;\n\nwhen(service.getAccount(\"id\")).thenReturn(...);\n```\n\nMy work place internally implemented a default Answer to support abstract classes. We found that the support of abstract classes helps us to avoid overusing mocks when we should be using fakes. And in situations like above we get cleaner test code.\n\nBut because it's not integrated in the core Mockito, there are gotchas with our implementation (like, you can't have private/final methods in your fake).\n\nIf the idea sounds okay to give a try, I'll volunteer to submit a patch.\n\nThanks!\n\n",
+    "commit_message": "Fixed problem with type testing of outer classes",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/creation/instance/ConstructorInstantiator.java",
+        "start_line": 17,
+        "end_line": 17,
+        "line_numbers": [
+          17
+        ],
+        "function_name": "newInstance",
+        "class_name": "ConstructorInstantiator",
+        "filename": "ConstructorInstantiator.java",
+        "code_snippet": "    public <T> T newInstance(Class<T> cls) {\n        if (outerClassInstance == null) {\n            return noArgConstructor(cls);\n        }\n        return withOuterClass(cls);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/creation/instance/ConstructorInstantiator.java",
+        "start_line": 20,
+        "end_line": 20,
+        "line_numbers": [
+          20
+        ],
+        "function_name": "withOuterClass",
+        "class_name": "ConstructorInstantiator",
+        "filename": "ConstructorInstantiator.java",
+        "code_snippet": "    private <T> T withOuterClass(Class<T> cls) {\n        try {\n            //this is kind of overengineered because we don't need to support more params\n            //however, I know we will be needing it :)\n            Constructor<T> c = cls.getDeclaredConstructor(outerClassInstance.getClass());\n            return c.newInstance(outerClassInstance);\n        } catch (Exception e) {\n            throw paramsException(cls, e);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/creation/instance/ConstructorInstantiator.java",
+        "start_line": 24,
+        "end_line": 25,
+        "line_numbers": [
+          24,
+          25
+        ],
+        "function_name": "withOuterClass",
+        "class_name": "ConstructorInstantiator",
+        "filename": "ConstructorInstantiator.java",
+        "code_snippet": "    private <T> T withOuterClass(Class<T> cls) {\n        try {\n            //this is kind of overengineered because we don't need to support more params\n            //however, I know we will be needing it :)\n            Constructor<T> c = cls.getDeclaredConstructor(outerClassInstance.getClass());\n            return c.newInstance(outerClassInstance);\n        } catch (Exception e) {\n            throw paramsException(cls, e);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockito.internal.creation.instance.ConstructorInstantiatorTest::creates_instances_of_inner_classes"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\nindex 9f0201a..0cc8226 100644\n--- a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n+++ b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n@@ -14,23 +14,18 @@ public class ConstructorInstantiator implements Instantiator {\n         if (outerClassInstance == null) {\n             return noArgConstructor(cls);\n         }\n+        return withParams(cls, outerClassInstance);\n-        return withOuterClass(cls);\n     }\n \n+    private static <T> T withParams(Class<T> cls, Object... params) {\n-    private <T> T withOuterClass(Class<T> cls) {\n         try {\n             //this is kind of overengineered because we don't need to support more params\n             //however, I know we will be needing it :)\n+            for (Constructor<?> constructor : cls.getDeclaredConstructors()) {\n+                Class<?>[] types = constructor.getParameterTypes();\n+                if (paramsMatch(types, params)) {\n+                    return (T) constructor.newInstance(params);\n+                }\n+            }\n-            Constructor<T> c = cls.getDeclaredConstructor(outerClassInstance.getClass());\n-            return c.newInstance(outerClassInstance);\n         } catch (Exception e) {\n             throw paramsException(cls, e);\n         }\n+        throw paramsException(cls, null);\n     }\n \n     private static <T> InstantationException paramsException(Class<T> cls, Exception e) {\n@@ -38,17 +33,6 @@ public class ConstructorInstantiator implements Instantiator {\n                 + cls.getSimpleName() + \"'.\\nPlease ensure that the outer instance has correct type and that the target class has parameter-less constructor.\", e);\n     }\n \n+    private static boolean paramsMatch(Class<?>[] types, Object[] params) {\n+        if (params.length != types.length) {\n+            return false;\n+        }\n+        for (int i = 0; i < params.length; i++) {\n+            if (!types[i].isInstance(params[i])) {\n+                return false;\n+            }\n+        }\n+        return true;\n+    }\n \n     private static <T> T noArgConstructor(Class<T> cls) {\n         try {",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Szczepan Faber",
+        "commit_date": "2014-11-16 17:45:30",
+        "commit_message": "Improved exception messages.",
+        "commit_hash": "24bdec918dddef8e7eae4b1c68533c04327ff104"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "ConstructorInstantiator"
+        ],
+        "functions_name_all_files": [
+          "ConstructorInstantiator"
+        ],
+        "function_code_before": "",
+        "function_code_after": "        return withOuterClass(cls);\n    }\n\n    private <T> T withOuterClass(Class<T> cls) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/org/mockito/internal/creation/instance/ConstructorInstantiator.java"
+        ],
+        "file_patches": {
+          "src/org/mockito/internal/creation/instance/ConstructorInstantiator.java": "diff --git a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\nindex a293b2393..f8c0d12d3 100644\n--- a/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n+++ b/src/org/mockito/internal/creation/instance/ConstructorInstantiator.java\n@@ -11,12 +11,25 @@ public class ConstructorInstantiator implements Instantiator {\n     }\n \n     public <T> T newInstance(Class<T> cls) {\n+        if (outerClassInstance == null) {\n+            return noArgConstructor(cls);\n+        }\n+        return withOuterClass(cls);\n+    }\n+\n+    private <T> T withOuterClass(Class<T> cls) {\n         try {\n-            if (outerClassInstance == null) {\n-                return cls.newInstance();\n-            }\n             Constructor<T> c = cls.getDeclaredConstructor(outerClassInstance.getClass());\n             return c.newInstance(outerClassInstance);\n+        } catch (Exception e) {\n+            throw new InstantationException(\"Unable to create mock instance of '\"\n+                    + cls.getSimpleName() + \"'.\\nPlease ensure that the outer instance has correct type and that the target class has parameter-less constructor.\", e);\n+        }\n+    }\n+\n+    private <T> T noArgConstructor(Class<T> cls) {\n+        try {\n+            return cls.newInstance();\n         } catch (Exception e) {\n             throw new InstantationException(\"Unable to create mock instance of '\"\n                     + cls.getSimpleName() + \"'.\\nPlease ensure it has parameter-less constructor.\", e);"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

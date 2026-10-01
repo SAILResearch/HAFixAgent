@@ -19,7 +19,8 @@ from .token_tracking import (
 # Common utilities
 from .common import (
     get_timestamp,
-    format_duration_human
+    format_duration_human,
+    resolve_model_tag
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
 
     # Common utilities
     'get_timestamp',
-    'format_duration_human'
+    'format_duration_human',
+    'resolve_model_tag'
 ]

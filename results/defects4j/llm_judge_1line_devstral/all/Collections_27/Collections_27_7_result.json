@@ -1,0 +1,62 @@
+{
+  "project_name": "Collections",
+  "bug_id": "27",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 11:15:52",
+      "end_time": "2026-06-27 11:17:18",
+      "duration_seconds": 87,
+      "duration_human": "1m 27s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 352944,
+      "output_tokens": 3878,
+      "total_tokens": 356822,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 352944
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java b/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\nindex d131af27..35aec2e5 100644\n--- a/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\n+++ b/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\n@@ -73,6 +73,7 @@ public class MultiValueMap<K, V> extends AbstractMapDecorator<K, Object> impleme\n     private final Factory<? extends Collection<V>> collectionFactory;\n     /** The cached values. */\n     private transient Collection<V> valuesView;\n+    private Class<? extends Collection<V>> collectionClass;\n \n     /**\n      * Creates a map which wraps the given map and\n@@ -103,6 +104,7 @@ public class MultiValueMap<K, V> extends AbstractMapDecorator<K, Object> impleme\n      */\n     public static <K, V, C extends Collection<V>> MultiValueMap<K, V> multiValueMap(final Map<K, ? super C> map,\n                                                                                     final Class<C> collectionClass) {\n+        this.collectionClass = collectionClass;\n         return new MultiValueMap<K, V>(map, new ReflectionFactory<C>(collectionClass));\n     }\n \n@@ -175,6 +177,9 @@ public class MultiValueMap<K, V> extends AbstractMapDecorator<K, Object> impleme\n     @SuppressWarnings(\"unchecked\") // (1) should only fail if input stream is incorrect\n     private void readObject(final ObjectInputStream in) throws IOException, ClassNotFoundException {\n         in.defaultReadObject();\n+        if (collectionFactory == null && collectionClass != null) {\n+            collectionFactory = new ReflectionFactory<Collection<V>>(collectionClass);\n+        }\n         map = (Map<K, Object>) in.readObject(); // (1)\n     }\n \n@@ -545,10 +550,8 @@ public class MultiValueMap<K, V> extends AbstractMapDecorator<K, Object> impleme\n     /**\n      * Inner class that provides a simple reflection factory.\n      */\n-    private static class ReflectionFactory<T extends Collection<?>> implements Factory<T>, Serializable {\n+    private static class ReflectionFactory<T extends Collection<?>> implements Factory<T> {\n \n-        /** Serialization version */\n-        private static final long serialVersionUID = 2986114157496788874L;\n \n         private final Class<T> clazz;\n \n"
+  },
+  "timestamp": "2026-06-27 11:17:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Collections",
+    "bug_id": "Collections_27",
+    "repo_path": "/defects4j/framework/bin/temp/Collections_27",
+    "github_url": "https://github.com/apache/commons-collections.git",
+    "description": "Arbitrary remote code execution with InvokerTransformer\nWith {{InvokerTransformer}} serializable collections can be build that execute arbitrary Java code. {{sun.reflect.annotation.AnnotationInvocationHandler#readObject}} invokes {{#entrySet}} and {{#get}} on a deserialized collection. If you have an endpoint that accepts serialized Java objects (JMX, RMI, remote EJB, ...) you can combine the two to create arbitrary remote code execution vulnerability.\n\nI don't know of a good fix short of removing {{InvokerTransformer}} or making it not Serializable. Both probably break existing applications.\n\nThis is not my research, but has been discovered by other people.\n\nhttps://github.com/frohoff/ysoserial\n\nhttp://foxglovesecurity.com/2015/11/06/what-do-weblogic-websphere-jboss-jenkins-opennms-and-your-application-have-in-common-this-vulnerability/\n",
+    "commit_message": "[COLLECTIONS-580] Add validation to MultiValueMap#ReflectionFactory: only Collection classes are support.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/collections4/map/MultiValueMap.java",
+        "start_line": 567,
+        "end_line": 567,
+        "line_numbers": [
+          567
+        ],
+        "function_name": "",
+        "class_name": "ReflectionFactory",
+        "filename": "MultiValueMap.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.collections4.map.MultiValueMapTest::testUnsafeDeSerialization"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java b/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\nindex 3c690ab0..d131af27 100644\n--- a/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\n+++ b/src/main/java/org/apache/commons/collections4/map/MultiValueMap.java\n@@ -565,13 +565,6 @@ public class MultiValueMap<K, V> extends AbstractMapDecorator<K, Object> impleme\n             }\n         }\n \n+        private void readObject(ObjectInputStream is) throws IOException, ClassNotFoundException {\n+            is.defaultReadObject();\n+            // ensure that the de-serialized class is a Collection, COLLECTIONS-580\n+            if (clazz != null && !Collection.class.isAssignableFrom(clazz)) {\n+                throw new UnsupportedOperationException();\n+            }\n+        }\n     }\n \n }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

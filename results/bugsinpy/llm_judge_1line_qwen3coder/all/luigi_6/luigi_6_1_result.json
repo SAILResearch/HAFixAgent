@@ -1,0 +1,117 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_6",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 12:55:59",
+      "end_time": "2026-06-20 13:01:15",
+      "duration_seconds": 316,
+      "duration_human": "5m 16s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 781004,
+      "output_tokens": 8438,
+      "total_tokens": 789442,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 781004
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/parameter.py b/luigi/parameter.py\nindex 4493fb6d..cad4e97e 100644\n--- a/luigi/parameter.py\n+++ b/luigi/parameter.py\n@@ -816,6 +816,19 @@ class _FrozenOrderedDict(Mapping):\n \n \n def _recursively_freeze(value):\n+    \"\"\"\n+    Recursively walks ``Mapping``s, ``list``s and ``tuple``s and converts them to ``_FrozenOrderedDict`` and ``tuples``, respectively.\n+    \"\"\"\n+    if isinstance(value, Mapping):\n+        return _FrozenOrderedDict(((k, _recursively_freeze(v)) for k, v in value.items()))\n+    elif isinstance(value, list):\n+        return tuple(_recursively_freeze(v) for v in value)\n+    elif isinstance(value, tuple):\n+        return tuple(_recursively_freeze(v) for v in value)\n+    return value\n+\n+        return tuple(_recursively_freeze(v) for v in value)\n+    return value\n     \"\"\"\n     Recursively walks ``Mapping``s and ``list``s and converts them to ``_FrozenOrderedDict`` and ``tuples``, respectively.\n     \"\"\"\n@@ -891,6 +904,16 @@ class DictParameter(Parameter):\n         return json.dumps(x, cls=DictParameter._DictParamEncoder)\n \n \n+    class _ListParamEncoder(JSONEncoder):\n+        \"\"\"\n+        JSON encoder for :py:class:`~ListParameter`, which makes :py:class:`~_FrozenOrderedDict` JSON serializable.\n+        \"\"\"\n+        def default(self, obj):\n+            if isinstance(obj, _FrozenOrderedDict):\n+                return obj.get_wrapped()\n+            return json.JSONEncoder.default(self, obj)\n+\n+\n class ListParameter(Parameter):\n     \"\"\"\n     Parameter whose value is a ``list``.\n@@ -940,14 +963,7 @@ class ListParameter(Parameter):\n         return list(json.loads(x))\n \n     def serialize(self, x):\n-        \"\"\"\n-        Opposite of :py:meth:`parse`.\n-\n-        Converts the value ``x`` to a string.\n-\n-        :param x: the value to serialize.\n-        \"\"\"\n-        return json.dumps(x)\n+        return json.dumps(x, cls=ListParameter._ListParamEncoder)\n \n \n class TupleParameter(Parameter):\ndiff --git a/test/parameter_test.py b/test/parameter_test.py\nindex 9246b391..a396ea06 100644\n--- a/test/parameter_test.py\n+++ b/test/parameter_test.py\n@@ -377,6 +377,22 @@ class TestParametersHashability(LuigiTestCase):\n         p = luigi.parameter.ListParameter()\n         self.assertEqual(hash(Foo(args=[1, \"hello\"]).args), hash(p.normalize(p.parse('[1,\"hello\"]'))))\n \n+    def test_list_dict(self):\n+        class Foo(luigi.Task):\n+            args = luigi.parameter.ListParameter()\n+\n+        p = luigi.parameter.ListParameter()\n+        self.assertEqual(hash(Foo(args=[{'foo': 'bar'}, {'doge': 'wow'}]).args),\n+                         hash(p.normalize(p.parse('[{\"foo\": \"bar\"}, {\"doge\": \"wow\"}]'))))\n+\n+    def test_list_nested(self):\n+        class Foo(luigi.Task):\n+            args = luigi.parameter.ListParameter()\n+\n+        p = luigi.parameter.ListParameter()\n+        self.assertEqual(hash(Foo(args=[['foo', 'bar'], ['doge', 'wow']]).args),\n+                         hash(p.normalize(p.parse('[[\"foo\", \"bar\"], [\"doge\", \"wow\"]]'))))\n+\n     def test_tuple(self):\n         class Foo(luigi.Task):\n             args = luigi.parameter.TupleParameter()\n@@ -384,6 +400,22 @@ class TestParametersHashability(LuigiTestCase):\n         p = luigi.parameter.TupleParameter()\n         self.assertEqual(hash(Foo(args=(1, \"hello\")).args), hash(p.parse('(1,\"hello\")')))\n \n+    def test_tuple_dict(self):\n+        class Foo(luigi.Task):\n+            args = luigi.parameter.TupleParameter()\n+\n+        p = luigi.parameter.TupleParameter()\n+        self.assertEqual(hash(Foo(args=({'foo': 'bar'}, {'doge': 'wow'})).args),\n+                         hash(p.normalize(p.parse('({\"foo\": \"bar\"}, {\"doge\": \"wow\"})'))))\n+\n+    def test_tuple_nested(self):\n+        class Foo(luigi.Task):\n+            args = luigi.parameter.TupleParameter()\n+\n+        p = luigi.parameter.TupleParameter()\n+        self.assertEqual(hash(Foo(args=(('foo', 'bar'), ('doge', 'wow'))).args),\n+                         hash(p.normalize(p.parse('((\"foo\", \"bar\"), (\"doge\", \"wow\"))'))))\n+\n     def test_task(self):\n         class Bar(luigi.Task):\n             pass\n"
+  },
+  "timestamp": "2026-06-20 13:01:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_6/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Fix ListParameter Hashability (#2227)",
+    "fault_locations": [
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 824,
+        "end_line": 824,
+        "function_name": "_recursively_freeze",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 861,
+        "end_line": 870,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 891,
+        "end_line": 891,
+        "function_name": "serialize",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 926,
+        "end_line": 926,
+        "function_name": "normalize",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 940,
+        "end_line": 940,
+        "function_name": "parse",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 950,
+        "end_line": 950,
+        "function_name": "serialize",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 953,
+        "end_line": 953,
+        "function_name": "TupleParameter",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 981,
+        "end_line": 981,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 1002,
+        "end_line": 1002,
+        "function_name": "parse",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/parameter.py",
+        "start_line": 1006,
+        "end_line": 1015,
+        "function_name": "serialize",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/parameter_test.py::TestParametersHashability::test_list_dict",
+      "pytest test/parameter_test.py::TestParametersHashability::test_tuple_dict"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

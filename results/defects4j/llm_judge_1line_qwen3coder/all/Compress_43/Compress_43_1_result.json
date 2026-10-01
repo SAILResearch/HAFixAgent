@@ -1,0 +1,102 @@
+{
+  "project_name": "Compress",
+  "bug_id": "43",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:58:46",
+      "end_time": "2026-06-20 00:01:31",
+      "duration_seconds": 164,
+      "duration_human": "2m 44s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 832870,
+      "output_tokens": 5176,
+      "total_tokens": 838046,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 832870
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:01:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_43",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_43",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "[Zip] Local `Version Needed To Extract` does not match Central Directory\nHi,\n\nThis is followup on an issue reported on Plexus Archiver - https://github.com/codehaus-plexus/plexus-archiver/issues/57\n\nPlexus Archiver uses {{ZipArchiveOutputStream}} to create zip archives. It constructs the {{ZipArchiveOutputStream}} using {{BufferedOutputStream}}. As a result the output do not provide random access and additional data descriptor records are added. Unfortunately this leads to different values being set for {{version needed to extract}} field in the local file header and in the central directory. It looks like that the root cause is the way the local header {{version needed to extract}} field value is calculated:\n{code:java}\n        if (phased &&  !isZip64Required(entry.entry, zip64Mode)){\n            putShort(INITIAL_VERSION, buf, LFH_VERSION_NEEDED_OFFSET);\n        } else {\n            putShort(versionNeededToExtract(zipMethod, hasZip64Extra(ze)), buf, LFH_VERSION_NEEDED_OFFSET);\n        }\n{code}\n\nAs you can see the need for data descriptors is not taken into account. On other hand when the central directory is created the following is used to determine the minimum required version\n\n{code:java}\n    private int versionNeededToExtract(final int zipMethod, final boolean zip64) {\n        if (zip64) {\n            return ZIP64_MIN_VERSION;\n        }\n        // requires version 2 as we are going to store length info\n        // in the data descriptor\n        return (isDeflatedToOutputStream(zipMethod)) ?\n                DATA_DESCRIPTOR_MIN_VERSION :\n                INITIAL_VERSION;\n    }\n{code}\n\nAs a side note: I'm not a zip expert by any means so I could be wrong, but my understanding is that if Deflate compression is used then the minimum required version should be 2.0 regardless if data descriptors are used or not.",
+    "commit_message": "COMPRESS-394/395 use same \"version needed to extract\" in LFH and CDH",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1034,
+        "end_line": 1034,
+        "line_numbers": [
+          1034
+        ],
+        "function_name": "writeLocalFileHeader",
+        "class_name": "ZipArchiveOutputStream",
+        "filename": "ZipArchiveOutputStream.java",
+        "code_snippet": "    private void writeLocalFileHeader(final ZipArchiveEntry ze, final boolean phased) throws IOException {\n        final boolean encodable = zipEncoding.canEncode(ze.getName());\n        final ByteBuffer name = getName(ze);\n\n        if (createUnicodeExtraFields != UnicodeExtraFieldPolicy.NEVER) {\n            addUnicodeExtraFields(ze, encodable, name);\n        }\n\n        final long localHeaderStart = streamCompressor.getTotalBytesWritten();\n        final byte[] localHeader = createLocalFileHeader(ze, name, encodable, phased, localHeaderStart);\n        metaData.put(ze, new EntryMetaData(localHeaderStart, usesDataDescriptor(ze.getMethod())));\n        entry.localDataStart = localHeaderStart + LFH_CRC_OFFSET; // At crc offset\n        writeCounted(localHeader);\n        entry.dataStart = streamCompressor.getTotalBytesWritten();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1075,
+        "end_line": 1075,
+        "line_numbers": [
+          1075
+        ],
+        "function_name": "createLocalFileHeader",
+        "class_name": "ZipArchiveOutputStream",
+        "filename": "ZipArchiveOutputStream.java",
+        "code_snippet": "    private byte[] createLocalFileHeader(final ZipArchiveEntry ze, final ByteBuffer name, final boolean encodable,\n                                         final boolean phased, long archiveOffset) throws IOException {\n        ResourceAlignmentExtraField oldAlignmentEx =\n            (ResourceAlignmentExtraField) ze.getExtraField(ResourceAlignmentExtraField.ID);\n        if (oldAlignmentEx != null) {\n            ze.removeExtraField(ResourceAlignmentExtraField.ID);\n        }\n\n        int alignment = ze.getAlignment();\n        if (alignment <= 0 && oldAlignmentEx != null) {\n            alignment = oldAlignmentEx.getAlignment();\n        }\n\n        if (alignment > 1 || (oldAlignmentEx != null && !oldAlignmentEx.allowMethodChange())) {\n            int oldLength = LFH_FILENAME_OFFSET +\n                            name.limit() - name.position() +\n                            ze.getLocalFileDataExtra().length;\n\n            int padding = (int) ((-archiveOffset - oldLength - ZipExtraField.EXTRAFIELD_HEADER_SIZE\n                            - ResourceAlignmentExtraField.BASE_SIZE) &\n                            (alignment - 1));\n            ze.addExtraField(new ResourceAlignmentExtraField(alignment,\n                            oldAlignmentEx != null && oldAlignmentEx.allowMethodChange(), padding));\n        }\n\n        final byte[] extra = ze.getLocalFileDataExtra();\n        final int nameLen = name.limit() - name.position();\n        final int len = LFH_FILENAME_OFFSET + nameLen + extra.length;\n        final byte[] buf = new byte[len];\n\n        System.arraycopy(LFH_SIG,  0, buf, LFH_SIG_OFFSET, WORD);\n\n        //store method in local variable to prevent multiple method calls\n        final int zipMethod = ze.getMethod();\n        final boolean dataDescriptor = usesDataDescriptor(zipMethod);\n\n        putShort(versionNeededToExtract(zipMethod, hasZip64Extra(ze), dataDescriptor), buf, LFH_VERSION_NEEDED_OFFSET);\n\n        final GeneralPurposeBit generalPurposeBit = getGeneralPurposeBits(!encodable && fallbackToUTF8, dataDescriptor);\n        generalPurposeBit.encode(buf, LFH_GPB_OFFSET);\n\n        // compression method\n        putShort(zipMethod, buf, LFH_METHOD_OFFSET);\n\n        ZipUtil.toDosTime(calendarInstance, ze.getTime(), buf, LFH_TIME_OFFSET);\n\n        // CRC\n        if (phased){\n            putLong(ze.getCrc(), buf, LFH_CRC_OFFSET);\n        } else if (zipMethod == DEFLATED || channel != null) {\n            System.arraycopy(LZERO, 0, buf, LFH_CRC_OFFSET, WORD);\n        } else {\n            putLong(ze.getCrc(), buf, LFH_CRC_OFFSET);\n        }\n\n        // compressed length\n        // uncompressed length\n        if (hasZip64Extra(entry.entry)){\n            // point to ZIP64 extended information extra field for\n            // sizes, may get rewritten once sizes are known if\n            // stream is seekable\n            ZipLong.ZIP64_MAGIC.putLong(buf, LFH_COMPRESSED_SIZE_OFFSET);\n            ZipLong.ZIP64_MAGIC.putLong(buf, LFH_ORIGINAL_SIZE_OFFSET);\n        } else if (phased) {\n            putLong(ze.getCompressedSize(), buf, LFH_COMPRESSED_SIZE_OFFSET);\n            putLong(ze.getSize(), buf, LFH_ORIGINAL_SIZE_OFFSET);\n        } else if (zipMethod == DEFLATED || channel != null) {\n            System.arraycopy(LZERO, 0, buf, LFH_COMPRESSED_SIZE_OFFSET, WORD);\n            System.arraycopy(LZERO, 0, buf, LFH_ORIGINAL_SIZE_OFFSET, WORD);\n        } else { // Stored\n            putLong(ze.getSize(), buf, LFH_COMPRESSED_SIZE_OFFSET);\n            putLong(ze.getSize(), buf, LFH_ORIGINAL_SIZE_OFFSET);\n        }\n        // file name length\n        putShort(nameLen, buf, LFH_FILENAME_LENGTH_OFFSET);\n\n        // extra field length\n        putShort(extra.length, buf, LFH_EXTRA_LENGTH_OFFSET);\n\n        // file name\n        System.arraycopy( name.array(), name.arrayOffset(), buf, LFH_FILENAME_OFFSET, nameLen);\n\n        // extra fields\n        System.arraycopy(extra, 0, buf, LFH_FILENAME_OFFSET + nameLen, extra.length);\n\n        return buf;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1171,
+        "end_line": 1171,
+        "line_numbers": [
+          1171
+        ],
+        "function_name": "writeDataDescriptor",
+        "class_name": "ZipArchiveOutputStream",
+        "filename": "ZipArchiveOutputStream.java",
+        "code_snippet": "    protected void writeDataDescriptor(final ZipArchiveEntry ze) throws IOException {\n        if (ze.getMethod() != DEFLATED || channel != null) {\n            return;\n        }\n        writeCounted(DD_SIG);\n        writeCounted(ZipLong.getBytes(ze.getCrc()));\n        if (!hasZip64Extra(ze)) {\n            writeCounted(ZipLong.getBytes(ze.getCompressedSize()));\n            writeCounted(ZipLong.getBytes(ze.getSize()));\n        } else {\n            writeCounted(ZipEightByteInteger.getBytes(ze.getCompressedSize()));\n            writeCounted(ZipEightByteInteger.getBytes(ze.getSize()));\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+        "start_line": 1492,
+        "end_line": 1493,
+        "line_numbers": [
+          1492,
+          1493
+        ],
+        "function_name": "usesDataDescriptor",
+        "class_name": "ZipArchiveOutputStream",
+        "filename": "ZipArchiveOutputStream.java",
+        "code_snippet": "    private boolean usesDataDescriptor(final int zipMethod) {\n        return zipMethod == DEFLATED && channel == null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.DataDescriptorTest::doesntWriteDataDescriptorWhenAddingRawEntries"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\nindex 63aeba72..df1f63ce 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java\n@@ -1031,7 +1031,7 @@ private void writeLocalFileHeader(final ZipArchiveEntry ze, final boolean phased\n \n         final long localHeaderStart = streamCompressor.getTotalBytesWritten();\n         final byte[] localHeader = createLocalFileHeader(ze, name, encodable, phased, localHeaderStart);\n+        metaData.put(ze, new EntryMetaData(localHeaderStart, usesDataDescriptor(ze.getMethod(), phased)));\n-        metaData.put(ze, new EntryMetaData(localHeaderStart, usesDataDescriptor(ze.getMethod())));\n         entry.localDataStart = localHeaderStart + LFH_CRC_OFFSET; // At crc offset\n         writeCounted(localHeader);\n         entry.dataStart = streamCompressor.getTotalBytesWritten();\n@@ -1072,7 +1072,7 @@ private void writeLocalFileHeader(final ZipArchiveEntry ze, final boolean phased\n \n         //store method in local variable to prevent multiple method calls\n         final int zipMethod = ze.getMethod();\n+        final boolean dataDescriptor = usesDataDescriptor(zipMethod, phased);\n-        final boolean dataDescriptor = usesDataDescriptor(zipMethod);\n \n         putShort(versionNeededToExtract(zipMethod, hasZip64Extra(ze), dataDescriptor), buf, LFH_VERSION_NEEDED_OFFSET);\n \n@@ -1168,7 +1168,7 @@ private void addUnicodeExtraFields(final ZipArchiveEntry ze, final boolean encod\n      * @throws IOException on error\n      */\n     protected void writeDataDescriptor(final ZipArchiveEntry ze) throws IOException {\n+        if (!usesDataDescriptor(ze.getMethod(), false)) {\n-        if (ze.getMethod() != DEFLATED || channel != null) {\n             return;\n         }\n         writeCounted(DD_SIG);\n@@ -1489,8 +1489,8 @@ private int versionNeededToExtract(final int zipMethod, final boolean zip64, fin\n         return versionNeededToExtractMethod(zipMethod);\n     }\n \n+    private boolean usesDataDescriptor(final int zipMethod, boolean phased) {\n+        return !phased && zipMethod == DEFLATED && channel == null;\n-    private boolean usesDataDescriptor(final int zipMethod) {\n-        return zipMethod == DEFLATED && channel == null;\n     }\n \n     private int versionNeededToExtractMethod(int zipMethod) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

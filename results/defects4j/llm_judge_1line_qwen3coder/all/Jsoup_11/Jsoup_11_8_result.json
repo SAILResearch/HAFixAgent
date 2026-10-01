@@ -1,0 +1,204 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "11",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 11:54:54",
+      "end_time": "2026-06-20 11:57:07",
+      "duration_seconds": 133,
+      "duration_human": "2m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 786518,
+      "output_tokens": 4530,
+      "total_tokens": 791048,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 786518
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/select/Selector.java b/src/main/java/org/jsoup/select/Selector.java\nindex 13341ce4..6755ba54 100644\n--- a/src/main/java/org/jsoup/select/Selector.java\n+++ b/src/main/java/org/jsoup/select/Selector.java\n@@ -107,6 +107,8 @@ public class Selector {\n         if (tq.matchesAny(combinators)) { // if starts with a combinator, use root as elements\n             elements.add(root);\n             combinator(tq.consume().toString());\n+        } else if (tq.matches(\":has(\")) {\n+            elements.addAll(root.getAllElements());\n         } else {\n             addElements(findElements()); // chomp first element matcher off queue \n         }            \n@@ -178,6 +180,8 @@ public class Selector {\n             return matches(false);\n         } else if (tq.matches(\":matchesOwn(\")) {\n             return matches(true);\n+        } else if (tq.matches(\":not(\")) {\n+            return not();\n         } else { // unhandled\n             throw new SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n         }\n@@ -301,6 +305,15 @@ public class Selector {\n         return own ? root.getElementsMatchingOwnText(regex) : root.getElementsMatchingText(regex);\n     }\n \n+    // :not(selector)\n+    private Elements not() {\n+        tq.consume(\":not\");\n+        String subQuery = tq.chompBalanced('(', ')');\n+        Validate.notEmpty(subQuery, \":not(selector) subselect must not be empty\");\n+\n+        return filterOut(root.getAllElements(), select(subQuery, root));\n+    }\n+\n     // :not(selector)\n \n \n@@ -397,6 +410,22 @@ public class Selector {\n \n     // exclude set. package open so that Elements can implement .not() selector.\n \n+    static Elements filterOut(Collection<Element> elements, Collection<Element> outs) {\n+        Elements output = new Elements();\n+        for (Element el: elements) {\n+            boolean found = false;\n+            for (Element out: outs) {\n+                if (el.equals(out)) {\n+                    found = true;\n+                    break;\n+                }\n+            }\n+            if (!found)\n+                output.add(el);\n+        }\n+        return output;\n+    }\n+\n     public static class SelectorParseException extends IllegalStateException {\n         public SelectorParseException(String msg, Object... params) {\n             super(String.format(msg, params));\n"
+  },
+  "timestamp": "2026-06-20 11:57:07 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_11",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_11",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Implement :not pseudo-selector\nIn version 1.3.3, the pseudo selector :not is not implemented.\n\n",
+    "commit_message": "Added :not() selector, to find elements that do not match the selector. E.g. div:not(.logo) finds divs that do not have the \"logo\" class name.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/select/Selector.java",
+        "start_line": 109,
+        "end_line": 109,
+        "line_numbers": [
+          109
+        ],
+        "function_name": "select",
+        "class_name": "Selector",
+        "filename": "Selector.java",
+        "code_snippet": "    private Elements select() {\n        tq.consumeWhitespace();\n        \n        if (tq.matchesAny(combinators)) { // if starts with a combinator, use root as elements\n            elements.add(root);\n            combinator(tq.consume().toString());\n        } else {\n            addElements(findElements()); // chomp first element matcher off queue \n        }            \n               \n        while (!tq.isEmpty()) {\n            // hierarchy and extras\n            boolean seenWhite = tq.consumeWhitespace();\n            \n            if (tq.matchChomp(\",\")) { // group or\n                while (!tq.isEmpty()) {\n                    String subQuery = tq.chompTo(\",\");\n                    elements.addAll(select(subQuery, root));\n                }\n            } else if (tq.matchesAny(combinators)) {\n                combinator(tq.consume().toString());\n            } else if (seenWhite) {\n                combinator(\" \");\n            } else { // E.class, E#id, E[attr] etc. AND\n                Elements candidates = findElements(); // take next el, #. etc off queue\n                intersectElements(filterForSelf(elements, candidates));\n            }\n        }\n        return new Elements(elements);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/select/Selector.java",
+        "start_line": 182,
+        "end_line": 182,
+        "line_numbers": [
+          182
+        ],
+        "function_name": "findElements",
+        "class_name": "Selector",
+        "filename": "Selector.java",
+        "code_snippet": "    private Elements findElements() {\n        if (tq.matchChomp(\"#\")) {\n            return byId();\n        } else if (tq.matchChomp(\".\")) {\n            return byClass();\n        } else if (tq.matchesWord()) {\n            return byTag();\n        } else if (tq.matches(\"[\")) {\n            return byAttribute();\n        } else if (tq.matchChomp(\"*\")) {\n            return allElements();\n        } else if (tq.matchChomp(\":lt(\")) {\n            return indexLessThan();\n        } else if (tq.matchChomp(\":gt(\")) {\n            return indexGreaterThan();\n        } else if (tq.matchChomp(\":eq(\")) {\n            return indexEquals();\n        } else if (tq.matches(\":has(\")) {\n            return has();\n        } else if (tq.matches(\":contains(\")) {\n            return contains(false);\n        } else if (tq.matches(\":containsOwn(\")) {\n            return contains(true);\n        } else if (tq.matches(\":matches(\")) {\n            return matches(false);\n        } else if (tq.matches(\":matchesOwn(\")) {\n            return matches(true);\n        } else { // unhandled\n            throw new SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/select/Selector.java",
+        "start_line": 308,
+        "end_line": 308,
+        "line_numbers": [
+          308
+        ],
+        "function_name": "filterForChildren",
+        "class_name": "Selector",
+        "filename": "Selector.java",
+        "code_snippet": "    private static Elements filterForChildren(Collection<Element> parents, Collection<Element> candidates) {\n        Elements children = new Elements();\n        CHILD: for (Element c : candidates) {\n            for (Element p : parents) {\n                if (c.parent() != null && c.parent().equals(p)) {\n                    children.add(c);\n                    continue CHILD;\n                }\n            }\n        }\n        return children;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/select/Selector.java",
+        "start_line": 313,
+        "end_line": 313,
+        "line_numbers": [
+          313
+        ],
+        "function_name": "filterForChildren",
+        "class_name": "Selector",
+        "filename": "Selector.java",
+        "code_snippet": "    private static Elements filterForChildren(Collection<Element> parents, Collection<Element> candidates) {\n        Elements children = new Elements();\n        CHILD: for (Element c : candidates) {\n            for (Element p : parents) {\n                if (c.parent() != null && c.parent().equals(p)) {\n                    children.add(c);\n                    continue CHILD;\n                }\n            }\n        }\n        return children;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.select.SelectorTest::notAll",
+      "org.jsoup.select.SelectorTest::testPseudoHas",
+      "org.jsoup.select.SelectorTest::notClass",
+      "org.jsoup.select.SelectorTest::notParas"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/select/Selector.java b/src/main/java/org/jsoup/select/Selector.java\nindex e370de8..13341ce 100644\n--- a/src/main/java/org/jsoup/select/Selector.java\n+++ b/src/main/java/org/jsoup/select/Selector.java\n@@ -107,8 +107,6 @@ public class Selector {\n         if (tq.matchesAny(combinators)) { // if starts with a combinator, use root as elements\n             elements.add(root);\n             combinator(tq.consume().toString());\n+        } else if (tq.matches(\":has(\")) {\n+            elements.addAll(root.getAllElements());\n         } else {\n             addElements(findElements()); // chomp first element matcher off queue \n         }            \n@@ -180,8 +178,6 @@ public class Selector {\n             return matches(false);\n         } else if (tq.matches(\":matchesOwn(\")) {\n             return matches(true);\n+        } else if (tq.matches(\":not(\")) {\n+            return not();\n         } else { // unhandled\n             throw new SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n         }\n@@ -306,13 +302,7 @@ public class Selector {\n     }\n \n     // :not(selector)\n+    private Elements not() {\n+        tq.consume(\":not\");\n+        String subQuery = tq.chompBalanced('(', ')');\n+        Validate.notEmpty(subQuery, \":not(selector) subselect must not be empty\");\n \n+        return filterOut(root.getAllElements(), select(subQuery, root));\n+    }\n \n     // direct child descendants\n     private static Elements filterForChildren(Collection<Element> parents, Collection<Element> candidates) {\n@@ -406,21 +396,6 @@ public class Selector {\n     }\n \n     // exclude set. package open so that Elements can implement .not() selector.\n+    static Elements filterOut(Collection<Element> elements, Collection<Element> outs) {\n+        Elements output = new Elements();\n+        for (Element el: elements) {\n+            boolean found = false;\n+            for (Element out: outs) {\n+                if (el.equals(out)) {\n+                    found = true;\n+                    break;\n+                }\n+            }\n+            if (!found)\n+                output.add(el);\n+        }\n+        return output;\n+    }\n \n     public static class SelectorParseException extends IllegalStateException {\n         public SelectorParseException(String msg, Object... params) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2010-06-22 07:57:26",
+        "commit_message": "Upgraded the selector query parser to allow nested selectors like 'div:has(p:has(span))'",
+        "commit_hash": "cf3676c534e92052acf870c71e2fa8fb9c060fe6"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "SelectorParseException"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "SelectorParseException",
+          "chompBalanced"
+        ],
+        "functions_name_modified_file": [
+          "allElements",
+          "contains",
+          "intersectElements",
+          "byTag",
+          "combinator",
+          "filterForAdjacentSiblings",
+          "indexGreaterThan",
+          "findElements",
+          "consumeIndex",
+          "byId",
+          "has",
+          "addElements",
+          "SelectorParseException",
+          "indexEquals",
+          "filterForDescendants",
+          "byClass",
+          "filterForChildren",
+          "indexLessThan",
+          "filterForSelf",
+          "filterForParentsOfDescendants",
+          "select",
+          "filterForGeneralSiblings",
+          "byAttribute",
+          "Selector"
+        ],
+        "functions_name_all_files": [
+          "consumeWord",
+          "allElements",
+          "consumeAttributeKey",
+          "chompBalanced",
+          "contains",
+          "intersectElements",
+          "consume",
+          "consumeTo",
+          "byTag",
+          "remainder",
+          "combinator",
+          "filterForAdjacentSiblings",
+          "indexGreaterThan",
+          "addFirst",
+          "matchesWord",
+          "peek",
+          "matches",
+          "findElements",
+          "consumeIndex",
+          "toString",
+          "byId",
+          "has",
+          "matchesWhitespace",
+          "addElements",
+          "SelectorParseException",
+          "chompTo",
+          "indexEquals",
+          "consumeToAny",
+          "matchChomp",
+          "byClass",
+          "filterForDescendants",
+          "TokenQueue",
+          "indexLessThan",
+          "consumeCssIdentifier",
+          "filterForChildren",
+          "filterForSelf",
+          "consumeWhitespace",
+          "filterForParentsOfDescendants",
+          "matchesAny",
+          "select",
+          "filterForGeneralSiblings",
+          "isEmpty",
+          "byAttribute",
+          "Selector"
+        ],
+        "function_code_before": "                Elements candidates = findElements(); // take next el, #. etc off queue\n                intersectElements(filterForSelf(elements, candidates));\n            }\n        }\n        return new Elements(elements);\n    }\n    \n    private void combinator(String combinator) {\n        tq.consumeWhitespace();\n        String subQuery = tq.consumeToAny(combinators); // support multi > childs\n        \n        Elements output;\n        if (combinator.equals(\">\"))\n            output = filterForChildren(elements, select(subQuery, elements));\n        else if (combinator.equals(\" \"))\n            output = filterForDescendants(elements, select(subQuery, elements));\n        else if (combinator.equals(\"+\"))\n            output = filterForAdjacentSiblings(elements, select(subQuery, root));\n        else if (combinator.equals(\"~\"))\n            output = filterForGeneralSiblings(elements, select(subQuery, root));\n        else\n            throw new IllegalStateException(\"Unknown combinator: \" + combinator);\n        \n        elements.clear(); elements.addAll(output);\n    }\n    \n    private Elements findElements() {\n        if (tq.matchChomp(\"#\")) {\n            return byId();\n        } else if (tq.matchChomp(\".\")) {\n            return byClass();\n        } else if (tq.matchesWord()) {\n            return byTag();\n        } else if (tq.matchChomp(\"[\")) {\n            return byAttribute();\n        } else if (tq.matchChomp(\"*\")) {\n            return allElements();\n        } else if (tq.matchChomp(\":lt(\")) {\n            return indexLessThan();\n        } else if (tq.matchChomp(\":gt(\")) {\n            return indexGreaterThan();\n        } else if (tq.matchChomp(\":eq(\")) {\n            return indexEquals();\n        } else if (tq.matchChomp(\":has(\")) {\n            return has();\n        } else if (tq.matchChomp(\":contains(\")) {\n            return contains();\n        } else { // unhandled\n            throw new SelectorParseException(\"Could not parse query \" + query);\n        }\n    }\n    \n    private void addElements(Collection<Element> add) {\n        elements.addAll(add);\n    }\n    \n    private void intersectElements(Collection<Element> intersect) {\n        elements.retainAll(intersect);\n    }\n\n    private Elements byId() {\n        String id = tq.consumeCssIdentifier();\n        Validate.notEmpty(id);\n\n        Element found = root.getElementById(id);\n        Elements byId = new Elements();\n        if(found != null)\n            byId.add(found);\n        return byId;\n    }\n\n    private Elements byClass() {\n        String className = tq.consumeCssIdentifier();\n        Validate.notEmpty(className);\n\n        return root.getElementsByClass(className);\n    }\n\n    private Elements byTag() {\n        String tagName = tq.consumeWord();\n        Validate.notEmpty(tagName);\n\n        return root.getElementsByTag(tagName);\n    }\n\n    private Elements byAttribute() {\n        String key = tq.consumeToAny(\"=\", \"!=\", \"^=\", \"$=\", \"*=\", \"]\"); // eq, not, start, end, contain, (no val)\n        Validate.notEmpty(key);\n\n        if (tq.matchChomp(\"]\")) {\n            return root.getElementsByAttribute(key);\n        } else {\n            if (tq.matchChomp(\"=\"))\n                return root.getElementsByAttributeValue(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"!=\"))\n                return root.getElementsByAttributeValueNot(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"^=\"))\n                return root.getElementsByAttributeValueStarting(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"$=\"))\n                return root.getElementsByAttributeValueEnding(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"*=\"))\n                return root.getElementsByAttributeValueContaining(key, tq.chompTo(\"]\"));\n            \n            else\n                throw new SelectorParseException(\"Could not parse attribute query \" + query);\n        }\n    }\n\n    private Elements allElements() {\n        return root.getAllElements();\n    }\n    \n    // pseudo selectors :lt, :gt, :eq\n    private Elements indexLessThan() {\n        return root.getElementsByIndexLessThan(consumeIndex());\n    }\n    \n    private Elements indexGreaterThan() {\n        return root.getElementsByIndexGreaterThan(consumeIndex());\n    }\n    \n    private Elements indexEquals() {\n        return root.getElementsByIndexEquals(consumeIndex());\n    }\n\n    private int consumeIndex() {\n        String indexS = tq.chompTo(\")\").trim();\n        Validate.isTrue(StringUtils.isNumeric(indexS), \"Index must be numeric\");\n        return Integer.parseInt(indexS);\n    }\n\n    // pseudo selector :has(el)\n    private Elements has() {\n        String subQuery = tq.chompTo(\")\");\n        Validate.notEmpty(subQuery, \":has(el) subselect must not be empty\");\n\n        return filterForParentsOfDescendants(elements, select(subQuery, elements));\n    }\n    \n    // pseudo selector :contains(text)\n    private Elements contains() {\n        String searchText = tq.chompTo(\")\");\n        Validate.notEmpty(searchText, \":contains(text) query must not be empty\");\n        \n        return root.getElementsContainingText(searchText);\n    }\n\n    // direct child descendants\n    private static Elements filterForChildren(Collection<Element> parents, Collection<Element> candidates) {\n        Elements children = new Elements();\n        CHILD: for (Element c : candidates) {\n            for (Element p : parents) {",
+        "function_code_after": "                Elements candidates = findElements(); // take next el, #. etc off queue\n                intersectElements(filterForSelf(elements, candidates));\n            }\n        }\n        return new Elements(elements);\n    }\n    \n    private void combinator(String combinator) {\n        tq.consumeWhitespace();\n        String subQuery = tq.consumeToAny(combinators); // support multi > childs\n        \n        Elements output;\n        if (combinator.equals(\">\"))\n            output = filterForChildren(elements, select(subQuery, elements));\n        else if (combinator.equals(\" \"))\n            output = filterForDescendants(elements, select(subQuery, elements));\n        else if (combinator.equals(\"+\"))\n            output = filterForAdjacentSiblings(elements, select(subQuery, root));\n        else if (combinator.equals(\"~\"))\n            output = filterForGeneralSiblings(elements, select(subQuery, root));\n        else\n            throw new IllegalStateException(\"Unknown combinator: \" + combinator);\n        \n        elements.clear(); elements.addAll(output);\n    }\n    \n    private Elements findElements() {\n        if (tq.matchChomp(\"#\")) {\n            return byId();\n        } else if (tq.matchChomp(\".\")) {\n            return byClass();\n        } else if (tq.matchesWord()) {\n            return byTag();\n        } else if (tq.matchChomp(\"[\")) {\n            return byAttribute();\n        } else if (tq.matchChomp(\"*\")) {\n            return allElements();\n        } else if (tq.matchChomp(\":lt(\")) {\n            return indexLessThan();\n        } else if (tq.matchChomp(\":gt(\")) {\n            return indexGreaterThan();\n        } else if (tq.matchChomp(\":eq(\")) {\n            return indexEquals();\n        } else if (tq.matches(\":has(\")) {\n            return has();\n        } else if (tq.matchChomp(\":contains(\")) {\n            return contains();\n        } else { // unhandled\n            throw new SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n        }\n    }\n    \n    private void addElements(Collection<Element> add) {\n        elements.addAll(add);\n    }\n    \n    private void intersectElements(Collection<Element> intersect) {\n        elements.retainAll(intersect);\n    }\n\n    private Elements byId() {\n        String id = tq.consumeCssIdentifier();\n        Validate.notEmpty(id);\n\n        Element found = root.getElementById(id);\n        Elements byId = new Elements();\n        if(found != null)\n            byId.add(found);\n        return byId;\n    }\n\n    private Elements byClass() {\n        String className = tq.consumeCssIdentifier();\n        Validate.notEmpty(className);\n\n        return root.getElementsByClass(className);\n    }\n\n    private Elements byTag() {\n        String tagName = tq.consumeWord();\n        Validate.notEmpty(tagName);\n\n        return root.getElementsByTag(tagName);\n    }\n\n    private Elements byAttribute() {\n        String key = tq.consumeToAny(\"=\", \"!=\", \"^=\", \"$=\", \"*=\", \"]\"); // eq, not, start, end, contain, (no val)\n        Validate.notEmpty(key);\n\n        if (tq.matchChomp(\"]\")) {\n            return root.getElementsByAttribute(key);\n        } else {\n            if (tq.matchChomp(\"=\"))\n                return root.getElementsByAttributeValue(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"!=\"))\n                return root.getElementsByAttributeValueNot(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"^=\"))\n                return root.getElementsByAttributeValueStarting(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"$=\"))\n                return root.getElementsByAttributeValueEnding(key, tq.chompTo(\"]\"));\n\n            else if (tq.matchChomp(\"*=\"))\n                return root.getElementsByAttributeValueContaining(key, tq.chompTo(\"]\"));\n            \n            else\n                throw new SelectorParseException(\"Could not parse attribute query '%s': unexpected token at '%s'\", query, tq.remainder());\n        }\n    }\n\n    private Elements allElements() {\n        return root.getAllElements();\n    }\n    \n    // pseudo selectors :lt, :gt, :eq\n    private Elements indexLessThan() {\n        return root.getElementsByIndexLessThan(consumeIndex());\n    }\n    \n    private Elements indexGreaterThan() {\n        return root.getElementsByIndexGreaterThan(consumeIndex());\n    }\n    \n    private Elements indexEquals() {\n        return root.getElementsByIndexEquals(consumeIndex());\n    }\n\n    private int consumeIndex() {\n        String indexS = tq.chompTo(\")\").trim();\n        Validate.isTrue(StringUtils.isNumeric(indexS), \"Index must be numeric\");\n        return Integer.parseInt(indexS);\n    }\n\n    // pseudo selector :has(el)\n    private Elements has() {\n        tq.consume(\":has\");\n        String subQuery = tq.chompBalanced('(',')');\n        Validate.notEmpty(subQuery, \":has(el) subselect must not be empty\");\n\n        return filterForParentsOfDescendants(elements, select(subQuery, elements));\n    }\n    \n    // pseudo selector :contains(text)\n    // todo: allow escaped ) in there. probably do a balanced match, for convenience of caller\n    private Elements contains() {\n        String searchText = tq.chompTo(\")\");\n        Validate.notEmpty(searchText, \":contains(text) query must not be empty\");\n        \n        return root.getElementsContainingText(searchText);\n    }\n\n    // direct child descendants\n    private static Elements filterForChildren(Collection<Element> parents, Collection<Element> candidates) {\n        Elements children = new Elements();\n        CHILD: for (Element c : candidates) {\n            for (Element p : parents) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/parser/TokenQueue.java",
+          "src/main/java/org/jsoup/select/Selector.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/select/Selector.java": "diff --git a/src/main/java/org/jsoup/select/Selector.java b/src/main/java/org/jsoup/select/Selector.java\nindex 898f5d5e..6eda35a2 100644\n--- a/src/main/java/org/jsoup/select/Selector.java\n+++ b/src/main/java/org/jsoup/select/Selector.java\n@@ -159,12 +159,12 @@ public class Selector {\n             return indexGreaterThan();\n         } else if (tq.matchChomp(\":eq(\")) {\n             return indexEquals();\n-        } else if (tq.matchChomp(\":has(\")) {\n+        } else if (tq.matches(\":has(\")) {\n             return has();\n         } else if (tq.matchChomp(\":contains(\")) {\n             return contains();\n         } else { // unhandled\n-            throw new SelectorParseException(\"Could not parse query \" + query);\n+            throw new SelectorParseException(\"Could not parse query '%s': unexpected token at '%s'\", query, tq.remainder());\n         }\n     }\n     \n@@ -224,7 +224,7 @@ public class Selector {\n                 return root.getElementsByAttributeValueContaining(key, tq.chompTo(\"]\"));\n             \n             else\n-                throw new SelectorParseException(\"Could not parse attribute query \" + query);\n+                throw new SelectorParseException(\"Could not parse attribute query '%s': unexpected token at '%s'\", query, tq.remainder());\n         }\n     }\n \n@@ -253,13 +253,15 @@ public class Selector {\n \n     // pseudo selector :has(el)\n     private Elements has() {\n-        String subQuery = tq.chompTo(\")\");\n+        tq.consume(\":has\");\n+        String subQuery = tq.chompBalanced('(',')');\n         Validate.notEmpty(subQuery, \":has(el) subselect must not be empty\");\n \n         return filterForParentsOfDescendants(elements, select(subQuery, elements));\n     }\n     \n     // pseudo selector :contains(text)\n+    // todo: allow escaped ) in there. probably do a balanced match, for convenience of caller\n     private Elements contains() {\n         String searchText = tq.chompTo(\")\");\n         Validate.notEmpty(searchText, \":contains(text) query must not be empty\");\n@@ -359,8 +361,8 @@ public class Selector {\n     }\n \n     public static class SelectorParseException extends IllegalStateException {\n-        public SelectorParseException(String s) {\n-            super(s);\n+        public SelectorParseException(String msg, Object... params) {\n+            super(String.format(msg, params));\n         }\n     }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

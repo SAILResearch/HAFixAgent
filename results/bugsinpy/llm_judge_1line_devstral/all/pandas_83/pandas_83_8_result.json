@@ -1,0 +1,76 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_83",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 01:43:27",
+      "end_time": "2026-06-28 01:44:55",
+      "duration_seconds": 88,
+      "duration_human": "1m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 492032,
+      "output_tokens": 4032,
+      "total_tokens": 496064,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 492032
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/api.py b/pandas/core/indexes/api.py\nindex 4072d06b94..692acfee07 100644\n--- a/pandas/core/indexes/api.py\n+++ b/pandas/core/indexes/api.py\n@@ -63,7 +63,7 @@ __all__ = [\n \n \n def get_objs_combined_axis(\n-    objs, intersect: bool = False, axis=0, sort: bool = True\n+    objs, intersect: bool = False, axis=0, sort: bool = True, copy: bool = False\n ) -> Index:\n     \"\"\"\n     Extract combined index: return intersection or union (depending on the\n@@ -105,7 +105,7 @@ def _get_distinct_objs(objs: List[Index]) -> List[Index]:\n \n \n def _get_combined_index(\n-    indexes: List[Index], intersect: bool = False, sort: bool = False\n+    indexes: List[Index], intersect: bool = False, sort: bool = False, copy: bool = False\n ) -> Index:\n     \"\"\"\n     Return the union or intersection of indexes.\n@@ -119,6 +119,8 @@ def _get_combined_index(\n         calculate the union.\n     sort : bool, default False\n         Whether the result index should come out sorted or not.\n+    copy : bool, default False\n+        Whether to copy the resulting index.\n \n     Returns\n     -------\n@@ -129,14 +131,18 @@ def _get_combined_index(\n     if len(indexes) == 0:\n         index = Index([])\n     elif len(indexes) == 1:\n-        index = indexes[0]\n+        index = indexes[0].copy() if copy else indexes[0]\n     elif intersect:\n         index = indexes[0]\n         for other in indexes[1:]:\n             index = index.intersection(other)\n+            if copy:\n+                index = index.copy()\n     else:\n         index = union_indexes(indexes, sort=sort)\n         index = ensure_index(index)\n+        if copy:\n+            index = index.copy()\n \n     if sort:\n         try:\n@@ -144,8 +150,6 @@ def _get_combined_index(\n         except TypeError:\n             pass\n     return index\n-\n-\n def union_indexes(indexes, sort=True) -> Index:\n     \"\"\"\n     Return the union of indexes.\ndiff --git a/pandas/core/reshape/concat.py b/pandas/core/reshape/concat.py\nindex 9528de36a3..7e8720cbaa 100644\n--- a/pandas/core/reshape/concat.py\n+++ b/pandas/core/reshape/concat.py\n@@ -517,7 +517,7 @@ class _Concatenator:\n     def _get_comb_axis(self, i: int) -> Index:\n         data_axis = self.objs[0]._get_block_manager_axis(i)\n         return get_objs_combined_axis(\n-            self.objs, axis=data_axis, intersect=self.intersect, sort=self.sort\n+            self.objs, axis=data_axis, intersect=self.intersect, sort=self.sort, copy=self.copy\n         )\n \n     def _get_concat_axis(self) -> Index:\n@@ -560,7 +560,7 @@ class _Concatenator:\n             return idx\n \n         if self.keys is None:\n-            concat_axis = _concat_indexes(indexes)\n+            concat_axis = _concat_indexes(indexes, copy=self.copy)\n         else:\n             concat_axis = _make_concat_multiindex(\n                 indexes, self.keys, self.levels, self.names\n@@ -577,8 +577,8 @@ class _Concatenator:\n                 raise ValueError(f\"Indexes have overlapping values: {overlap}\")\n \n \n-def _concat_indexes(indexes) -> Index:\n-    return indexes[0].append(indexes[1:])\n+def _concat_indexes(indexes, copy: bool = False) -> Index:\n+    return indexes[0].append(indexes[1:], copy=copy)\n \n \n def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiIndex:\n@@ -625,7 +625,7 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiInde\n                 to_concat.append(np.repeat(i, len(index)))\n             codes_list.append(np.concatenate(to_concat))\n \n-        concat_index = _concat_indexes(indexes)\n+        concat_index = _concat_indexes(indexes, copy=self.copy)\n \n         # these go at the end\n         if isinstance(concat_index, MultiIndex):\ndiff --git a/pandas/tests/reshape/test_concat.py b/pandas/tests/reshape/test_concat.py\nindex b3b2c5a05c..5811f3bc19 100644\n--- a/pandas/tests/reshape/test_concat.py\n+++ b/pandas/tests/reshape/test_concat.py\n@@ -2750,3 +2750,17 @@ def test_concat_sparse():\n     )\n     result = pd.concat([a, a], axis=1)\n     tm.assert_frame_equal(result, expected)\n+\n+\n+@pytest.mark.parametrize(\"test_series\", [True, False])\n+def test_concat_copy_index(test_series, axis):\n+    # GH 29879\n+    if test_series:\n+        ser = Series([1, 2])\n+        comb = concat([ser, ser], axis=axis, copy=True)\n+        assert comb.index is not ser.index\n+    else:\n+        df = DataFrame([[1, 2], [3, 4]], columns=[\"a\", \"b\"])\n+        comb = concat([df, df], axis=axis, copy=True)\n+        assert comb.index is not df.index\n+        assert comb.columns is not df.columns\n"
+  },
+  "timestamp": "2026-06-28 01:44:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_83",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_83/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: concat not copying index and columns when copy=True (#31119)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 66,
+        "end_line": 66,
+        "function_name": "get_objs_combined_axis",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 90,
+        "end_line": 90,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 108,
+        "end_line": 108,
+        "function_name": "_get_combined_index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/reshape/concat.py",
+        "start_line": 520,
+        "end_line": 520,
+        "function_name": "_get_comb_axis",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/test_concat.py::test_concat_copy_index"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

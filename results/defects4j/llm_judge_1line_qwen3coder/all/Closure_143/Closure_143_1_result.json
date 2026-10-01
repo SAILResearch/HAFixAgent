@@ -1,0 +1,77 @@
+{
+  "project_name": "Closure",
+  "bug_id": "143",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:24:11",
+      "end_time": "2026-06-19 23:27:18",
+      "duration_seconds": 187,
+      "duration_human": "3m 7s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 470046,
+      "output_tokens": 4278,
+      "total_tokens": 474324,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 470046
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:27:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_143",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_143",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "@define does not support strings\n$ java -jar compiler.jar --compilation_level ADVANCED_OPTIMIZATIONS --define='test.VERSION=1.0.0' --js_output_file \r\ntest-min.js --js test.js\r\njava.lang.RuntimeException: --define flag syntax invalid: test.VERSION=1.0.0\r\n\tat com.google.javascript.jscomp.AbstractCommandLineRunner.createDefineReplacements(Unknown Source)\r\n\tat com.google.javascript.jscomp.AbstractCommandLineRunner.initOptionsFromFlags(Unknown Source)\r\n\tat com.google.javascript.jscomp.CommandLineRunner.createOptions(Unknown Source)\r\n\tat com.google.javascript.jscomp.AbstractCommandLineRunner.doRun(Unknown Source)\r\n\tat com.google.javascript.jscomp.AbstractCommandLineRunner.run(Unknown Source)\r\n\tat com.google.javascript.jscomp.CommandLineRunner.main(Unknown Source)\r\n\r\ntest.js:\r\n/** @define {string} */\r\ntest.VERSION = &quot;&quot;;\r\n\r\n\r\nI have tried both of these:\r\n--define='test.VERSION=1.0.0'\r\n--define='test.VERSION=&quot;1.0.0&quot;'\r\n\r\nBoth generate the same error.",
+    "commit_message": "Change on 2010/04/06 by john",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/AbstractCommandLineRunner.java",
+        "start_line": 871,
+        "end_line": 871,
+        "line_numbers": [
+          871
+        ],
+        "function_name": "createDefineReplacements",
+        "class_name": "FlagUsageException",
+        "filename": "AbstractCommandLineRunner.java",
+        "code_snippet": "  static void createDefineReplacements(List<String> definitions,\n      CompilerOptions options) {\n    // Parse the definitions\n    for (String override : definitions) {\n      String[] assignment = override.split(\"=\", 2);\n      String defName = assignment[0];\n\n      if (defName.length() > 0) {\n        if (assignment.length == 1) {\n          options.setDefineToBooleanLiteral(defName, true);\n          continue;\n        } else {\n          String defValue = assignment[1];\n\n          if (defValue.equals(\"true\")) {\n            options.setDefineToBooleanLiteral(defName, true);\n            continue;\n          } else if (defValue.equals(\"false\")) {\n            options.setDefineToBooleanLiteral(defName, false);\n            continue;\n          } else if (defValue.length() > 1\n              && ((defValue.charAt(0) == '\\'' &&\n                  defValue.charAt(defValue.length() - 1) == '\\'')\n            )) {\n            // If the value starts and ends with a single quote,\n            // we assume that it's a string.\n            String maybeStringVal =\n                defValue.substring(1, defValue.length() - 1);\n            if (maybeStringVal.indexOf(defValue.charAt(0)) == -1) {\n              options.setDefineToStringLiteral(defName, maybeStringVal);\n              continue;\n            }\n          } else {\n            try {\n              options.setDefineToDoubleLiteral(defName,\n                  Double.parseDouble(defValue));\n              continue;\n            } catch (NumberFormatException e) {\n              // do nothing, it will be caught at the end\n            }\n          }\n        }\n      }\n\n      throw new RuntimeException(\n          \"--define flag syntax invalid: \" + override);\n    }\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/RemoveConstantExpressions.java",
+        "start_line": 91,
+        "end_line": 91,
+        "line_numbers": [
+          91
+        ],
+        "function_name": "trySimplify",
+        "class_name": "RemoveConstantRValuesCallback",
+        "filename": "RemoveConstantExpressions.java",
+        "code_snippet": "    private void trySimplify(Node parent, Node node) {\n      if (node.getType() != Token.EXPR_RESULT) {\n        return;\n      }\n\n      Node exprBody = node.getFirstChild();\n      if (!NodeUtil.nodeTypeMayHaveSideEffects(exprBody)\n      ) {\n        changeProxy.replaceWith(parent, node, getSideEffectNodes(exprBody));\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CommandLineRunnerTest::testDefineFlag3",
+      "com.google.javascript.jscomp.RemoveConstantExpressionsTest::testCall1",
+      "com.google.javascript.jscomp.RemoveConstantExpressionsTest::testNew1"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java b/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\nindex aa29e5f0..13cb6268 100644\n--- a/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\n+++ b/src/com/google/javascript/jscomp/AbstractCommandLineRunner.java\n@@ -868,8 +868,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,\n           } else if (defValue.length() > 1\n               && ((defValue.charAt(0) == '\\'' &&\n                   defValue.charAt(defValue.length() - 1) == '\\'')\n+                  || (defValue.charAt(0) == '\\\"' &&\n+                      defValue.charAt(defValue.length() - 1) == '\\\"'))) {\n-            )) {\n             // If the value starts and ends with a single quote,\n             // we assume that it's a string.\n             String maybeStringVal =\ndiff --git a/src/com/google/javascript/jscomp/RemoveConstantExpressions.java b/src/com/google/javascript/jscomp/RemoveConstantExpressions.java\nindex 17d55c9f..fee9c287 100644\n--- a/src/com/google/javascript/jscomp/RemoveConstantExpressions.java\n+++ b/src/com/google/javascript/jscomp/RemoveConstantExpressions.java\n@@ -88,8 +88,7 @@ final class RemoveConstantExpressions implements CompilerPass {\n \n       Node exprBody = node.getFirstChild();\n       if (!NodeUtil.nodeTypeMayHaveSideEffects(exprBody)\n+          || exprBody.getType() == Token.NEW\n+          || exprBody.getType() == Token.CALL) {\n-      ) {\n         changeProxy.replaceWith(parent, node, getSideEffectNodes(exprBody));\n       }\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "project_name": "Csv",
+  "bug_id": "9",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:05:39",
+      "end_time": "2026-06-26 22:06:59",
+      "duration_seconds": 80,
+      "duration_human": "1m 20s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 318745,
+      "output_tokens": 3870,
+      "total_tokens": 322615,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 318745
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/csv/CSVRecord.java b/src/main/java/org/apache/commons/csv/CSVRecord.java\nindex 3abb4682..218a9e8a 100644\n--- a/src/main/java/org/apache/commons/csv/CSVRecord.java\n+++ b/src/main/java/org/apache/commons/csv/CSVRecord.java\n@@ -210,18 +210,209 @@ public final class CSVRecord implements Serializable, Iterable<String> {\n      *\n      * @return A new Map. The map is empty if the record has no headers.\n      */\n-    public Map<String, String> toMap() {\n-        return putIn(new HashMap<String, String>(values.length));\n+    public Map<String, String> toMap() {\\n        if (mapping == null) {\\n            return new HashMap<String, String>();\\n        }\\n        return putIn(new HashMap<String, String>(values.length));\\n    }\n+ * limitations under the License.\n+ */\n+\n+package org.apache.commons.csv;\n+\n+import java.io.Serializable;\n+import java.util.Arrays;\n+import java.util.HashMap;\n+import java.util.Iterator;\n+import java.util.List;\n+import java.util.Map;\n+import java.util.Map.Entry;\n+\n+/**\n+ * A CSV record parsed from a CSV file.\n+ *\n+ * @version $Id$\n+ */\n+public final class CSVRecord implements Serializable, Iterable<String> {\n+\n+    private static final String[] EMPTY_STRING_ARRAY = new String[0];\n+\n+    private static final long serialVersionUID = 1L;\n+\n+    /** The accumulated comments (if any) */\n+    private final String comment;\n+\n+    /** The column name to index mapping. */\n+    private final Map<String, Integer> mapping;\n+\n+    /** The record number. */\n+    private final long recordNumber;\n+\n+    /** The values of the record */\n+    private final String[] values;\n+\n+    CSVRecord(final String[] values, final Map<String, Integer> mapping,\n+            final String comment, final long recordNumber) {\n+        this.recordNumber = recordNumber;\n+        this.values = values != null ? values : EMPTY_STRING_ARRAY;\n+        this.mapping = mapping;\n+        this.comment = comment;\n+    }\n+\n+    /**\n+     * Returns a value by {@link Enum}.\n+     *\n+     * @param e\n+     *            an enum\n+     * @return the String at the given enum String\n+     */\n+    public String get(final Enum<?> e) {\n+        return get(e.toString());\n+    }\n+\n+    /**\n+     * Returns a value by index.\n+     *\n+     * @param i\n+     *            a column index (0-based)\n+     * @return the String at the given index\n+     */\n+    public String get(final int i) {\n+        return values[i];\n+    }\n+\n+    /**\n+     * Returns a value by name.\n+     *\n+     * @param name\n+     *            the name of the column to be retrieved.\n+     * @return the column value, maybe null depending on {@link CSVFormat#getNullString()}.\n+     * @throws IllegalStateException\n+     *             if no header mapping was provided\n+     * @throws IllegalArgumentException\n+     *             if {@code name} is not mapped or if the record is inconsistent\n+     * @see #isConsistent()\n+     * @see CSVFormat#withNullString(String)\n+     */\n+    public String get(final String name) {\n+        if (mapping == null) {\n+            throw new IllegalStateException(\n+                    \"No header mapping was specified, the record values can't be accessed by name\");\n+        }\n+        final Integer index = mapping.get(name);\n+        if (index == null) {\n+            throw new IllegalArgumentException(String.format(\"Mapping for %s not found, expected one of %s\", name,\n+                    mapping.keySet()));\n+        }\n+        try {\n+            return values[index.intValue()];\n+        } catch (final ArrayIndexOutOfBoundsException e) {\n+            throw new IllegalArgumentException(String.format(\n+                    \"Index for header '%s' is %d but CSVRecord only has %d values!\", name, index,\n+                    Integer.valueOf(values.length)));\n+        }\n+    }\n+\n+    /**\n+     * Returns the comment for this record, if any.\n+     *\n+     * @return the comment for this record, or null if no comment for this\n+     *         record is available.\n+     */\n+    public String getComment() {\n+        return comment;\n     }\n \n-    @Override\n-    public String toString() {\n-        return Arrays.toString(values);\n+    /**\n+     * Returns the number of this record in the parsed CSV file.\n+     *\n+     * @return the number of this record.\n+     */\n+    public long getRecordNumber() {\n+        return recordNumber;\n+    }\n+\n+    /**\n+     * Returns true if this record is consistent, false if not. Currently, the only check is matching the record size to\n+     * the header size. Some programs can export files that fails this test but still produce parsable files.\n+     *\n+     * @return true of this record is valid, false if not\n+     */\n+    public boolean isConsistent() {\n+        return mapping == null || mapping.size() == values.length;\n     }\n \n-    String[] values() {\n-        return values;\n+    /**\n+     * Checks whether a given column is mapped, i.e. its name has been defined to the parser.\n+     *\n+     * @param name\n+     *            the name of the column to be retrieved.\n+     * @return whether a given column is mapped.\n+     */\n+    public boolean isMapped(final String name) {\n+        return mapping != null && mapping.containsKey(name);\n     }\n \n+    /**\n+     * Checks whether a given columns is mapped and has a value.\n+     *\n+     * @param name\n+     *            the name of the column to be retrieved.\n+     * @return whether a given columns is mapped and has a value\n+     */\n+    public boolean isSet(final String name) {\n+        return isMapped(name) && mapping.get(name).intValue() < values.length;\n+    }\n \n-}\n+    /**\n+     * Returns an iterator over the values of this record.\n+     *\n+     * @return an iterator over the values of this record.\n+     */\n+    public Iterator<String> iterator() {\n+        return toList().iterator();\n+    }\n+\n+    /**\n+     * Puts all values of this record into the given Map.\n+     *\n+     * @param map The Map to populate.\n+     * @return the given map.\n+     */\n+    <M extends Map<String, String>> M putIn(final M map) {\n+        for (final Entry<String, Integer> entry : mapping.entrySet()) {\n+            final int col = entry.getValue().intValue();\n+            if (col < values.length) {\n+                map.put(entry.getKey(), values[col]);\n+            }\n+        }\n+        return map;\n+    }\n+\n+    /**\n+     * Returns the number of values in this record.\n+     *\n+     * @return the number of values.\n+     */\n+    public int size() {\n+        return values.length;\n+    }\n+\n+    /**\n+     * Converts the values to a List.\n+     *\n+     * TODO: Maybe make this public?\n+     * @return a new List\n+     */\n+    private List<String> toList() {\n+        return Arrays.asList(values);\n+    }\n+\n+    /**\n+     * Copies this record into a new Map. The new map is not connect\n+     *\n+     * @return A new Map. The map is empty if the record has no headers.\n+     */\n+    public Map<String, String> toMap() {\n+        if (mapping == null) {\n+            return new HashMap<String, String>();\n+        }\n+        return putIn(new HashMap<String, String>(values.length));\n+            return null;\n+        }\n"
+  },
+  "timestamp": "2026-06-26 22:06:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Csv",
+    "bug_id": "Csv_9",
+    "repo_path": "/defects4j/framework/bin/temp/Csv_9",
+    "github_url": "https://github.com/apache/commons-csv.git",
+    "description": "CSVRecord.toMap() throws NPE on formats with no headers.\nThe method toMap() on CSVRecord throws a NullPointerExcpetion when called on records derived using a format with no headers.\n\nThe method documentation states a null map should be returned instead.\n",
+    "commit_message": "<action issue=\"CSV-118\" type=\"fix\" dev=\"ggregory\" due-to=\"Enrique Lara\">CSVRecord.toMap() throws NPE on formats with no headers.</action>",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/csv/CSVRecord.java",
+        "start_line": 179,
+        "end_line": 179,
+        "line_numbers": [
+          179
+        ],
+        "function_name": "putIn",
+        "class_name": "CSVRecord",
+        "filename": "CSVRecord.java",
+        "code_snippet": "    <M extends Map<String, String>> M putIn(final M map) {\n        for (final Entry<String, Integer> entry : mapping.entrySet()) {\n            final int col = entry.getValue().intValue();\n            if (col < values.length) {\n                map.put(entry.getKey(), values[col]);\n            }\n        }\n        return map;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.csv.CSVRecordTest::testToMapWithNoHeader"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/csv/CSVRecord.java b/src/main/java/org/apache/commons/csv/CSVRecord.java\nindex e814b70..3abb468 100644\n--- a/src/main/java/org/apache/commons/csv/CSVRecord.java\n+++ b/src/main/java/org/apache/commons/csv/CSVRecord.java\n@@ -177,9 +177,6 @@ public final class CSVRecord implements Serializable, Iterable<String> {\n      * @return the given map.\n      */\n     <M extends Map<String, String>> M putIn(final M map) {\n+        if (mapping == null) {\n+            return map;\n+        }\n         for (final Entry<String, Integer> entry : mapping.entrySet()) {\n             final int col = entry.getValue().intValue();\n             if (col < values.length) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

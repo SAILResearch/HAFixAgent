@@ -1,0 +1,62 @@
+{
+  "project_name": "JxPath",
+  "bug_id": "10",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 18:37:43",
+      "end_time": "2025-10-10 18:43:07",
+      "duration_seconds": 324,
+      "duration_human": "5m 24s"
+    },
+    "model_cost": 0.043,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 535958,
+      "output_tokens": 5396,
+      "total_tokens": 541354,
+      "cached_input_tokens": 520704,
+      "uncached_input_tokens": 15254
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\nindex e083ab3..5163a09 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationCompare.java\n@@ -105,6 +105,9 @@ public abstract class CoreOperationCompare extends CoreOperation {\n     }\n \n     protected boolean contains(Iterator it, Object value) {\n+        if (!it.hasNext()) {\n+            return false;\n+        }\n         while (it.hasNext()) {\n             Object element = it.next();\n             if (equal(element, value)) {\n@@ -115,6 +118,9 @@ public abstract class CoreOperationCompare extends CoreOperation {\n     }\n \n     protected boolean findMatch(Iterator lit, Iterator rit) {\n+        if (!lit.hasNext() || !rit.hasNext()) {\n+            return false;\n+        }\n         HashSet left = new HashSet();\n         while (lit.hasNext()) {\n             left.add(lit.next());\ndiff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\nindex b968cd5..b4fc40b 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\n@@ -94,6 +94,9 @@ public abstract class CoreOperationRelationalExpression extends CoreOperation {\n     }\n \n     private boolean containsMatch(Iterator it, Object value) {\n+        if (!it.hasNext()) {\n+            return false;\n+        }\n         while (it.hasNext()) {\n             Object element = it.next();\n             if (compute(element, value)) {\n@@ -104,6 +107,9 @@ public abstract class CoreOperationRelationalExpression extends CoreOperation {\n     }\n \n     private boolean findMatch(Iterator lit, Iterator rit) {\n+        if (!lit.hasNext() || !rit.hasNext()) {\n+            return false;\n+        }\n         HashSet left = new HashSet();\n         while (lit.hasNext()) {\n             left.add(lit.next());\n"
+  },
+  "timestamp": "2025-10-10 18:43:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JxPath",
+    "bug_id": "JxPath_10",
+    "repo_path": "/defects4j/framework/bin/temp/JxPath_10",
+    "github_url": "https://github.com/apache/commons-jxpath.git",
+    "description": "Binary operators behaviour involving node-sets is incorrect\nAccording to XPath specification:\n\"If both objects to be compared are node-sets, then the comparison will be true if and only if there is a node in the first node-set and a node in the second node-set such that the result of performing the comparison on the string-values of the two nodes is true. If one object to be compared is a node-set and the other is a number, then the comparison will be true if and only if there is a node in the node-set such that the result of performing the comparison on the number to be compared and on the result of converting the string-value of that node to a number using the number function is true.\"\n\nBut following example illustrates, that this is not a JXPath behaviour:\n\n\n        JXPathContext pathContext = JXPathContext\n                .newContext(DocumentBuilderFactory.newInstance()\n                        .newDocumentBuilder().parse(\n                                new InputSource(new StringReader(\n                                        \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?>\\r\\n\"\n                                                + \"<doc/>\"))));\n        Boolean result = (Boolean) pathContext.getValue(\"2.0 > child1\",\n                Boolean.class);\n        assertFalse(result.booleanValue());\n\n\"child1\" is not found - right operand node set is empty, but result is TRUE, instead of FALSE.\n\nPlease, check greaterThan(), lesserThan(), etc methods of org.apache.xpath.objects.XObject for possible solution :)",
+    "commit_message": "[JXPATH-93] fix nodeset handling for <,>,<=,>=",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java",
+        "start_line": 42,
+        "end_line": 42,
+        "line_numbers": [
+          42
+        ],
+        "function_name": "computeValue",
+        "class_name": "CoreOperationRelationalExpression",
+        "filename": "CoreOperationRelationalExpression.java",
+        "code_snippet": "    public final Object computeValue(EvalContext context) {\n        return compute(args[0].computeValue(context), args[1].computeValue(context)) \n                ? Boolean.TRUE : Boolean.FALSE;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.jxpath.ri.compiler.CoreOperationTest::testEmptyNodeSetOperations"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\nindex a09afa8..b968cd5 100644\n--- a/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\n+++ b/src/java/org/apache/commons/jxpath/ri/compiler/CoreOperationRelationalExpression.java\n@@ -39,7 +39,7 @@ public abstract class CoreOperationRelationalExpression extends CoreOperation {\n     }\n \n     public final Object computeValue(EvalContext context) {\n+        return compute(args[0].compute(context), args[1].compute(context))\n-        return compute(args[0].computeValue(context), args[1].computeValue(context)) \n                 ? Boolean.TRUE : Boolean.FALSE;\n     }",
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

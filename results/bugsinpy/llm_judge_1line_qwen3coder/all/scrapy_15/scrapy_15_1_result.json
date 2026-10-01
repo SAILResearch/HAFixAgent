@@ -1,0 +1,53 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_15",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 13:47:14",
+      "end_time": "2026-06-20 13:50:29",
+      "duration_seconds": 196,
+      "duration_human": "3m 16s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 608228,
+      "output_tokens": 4284,
+      "total_tokens": 612512,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 608228
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/utils/url.py b/scrapy/utils/url.py\nindex c80fc6e70..1d7d71e93 100644\n--- a/scrapy/utils/url.py\n+++ b/scrapy/utils/url.py\n@@ -41,9 +41,15 @@ def url_has_any_extension(url, extensions):\n \n \n def _safe_ParseResult(parts, encoding='utf8', path_encoding='utf8'):\n+    try:\n+        netloc = parts.netloc.encode('idna')\n+    except UnicodeError:\n+        # IDNA encoding can fail for certain domains (e.g., empty labels, labels too long)\n+        # In such cases, fall back to UTF-8 encoding\n+        netloc = parts.netloc.encode('utf8')\n     return (\n         to_native_str(parts.scheme),\n-        to_native_str(parts.netloc.encode('idna')),\n+        to_native_str(netloc),\n \n         # default encoding for path component SHOULD be UTF-8\n         quote(to_bytes(parts.path, path_encoding), _safe_chars),\n@@ -83,7 +89,7 @@ def canonicalize_url(url, keep_blank_values=True, keep_fragments=False,\n     try:\n         scheme, netloc, path, params, query, fragment = _safe_ParseResult(\n             parse_url(url), encoding=encoding)\n-    except UnicodeEncodeError as e:\n+    except (UnicodeEncodeError, UnicodeError) as e:\n         scheme, netloc, path, params, query, fragment = _safe_ParseResult(\n             parse_url(url), encoding='utf8')\n \ndiff --git a/tests/test_utils_url.py b/tests/test_utils_url.py\nindex 1fc3a3510..b4819874d 100644\n--- a/tests/test_utils_url.py\n+++ b/tests/test_utils_url.py\n@@ -265,6 +265,20 @@ class CanonicalizeUrlTest(unittest.TestCase):\n             # without encoding, already canonicalized URL is canonicalized identically\n             self.assertEqual(canonicalize_url(canonicalized), canonicalized)\n \n+    def test_canonicalize_url_idna_exceptions(self):\n+        # missing DNS label\n+        self.assertEqual(\n+            canonicalize_url(u\"http://.example.com/r\u00e9sum\u00e9?q=r\u00e9sum\u00e9\"),\n+            \"http://.example.com/r%C3%A9sum%C3%A9?q=r%C3%A9sum%C3%A9\")\n+\n+        # DNS label too long\n+        self.assertEqual(\n+            canonicalize_url(\n+                u\"http://www.{label}.com/r\u00e9sum\u00e9?q=r\u00e9sum\u00e9\".format(\n+                    label=u\"example\"*11)),\n+            \"http://www.{label}.com/r%C3%A9sum%C3%A9?q=r%C3%A9sum%C3%A9\".format(\n+                    label=u\"example\"*11))\n+\n \n class AddHttpIfNoScheme(unittest.TestCase):\n \n"
+  },
+  "timestamp": "2026-06-20 13:50:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_15/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "Do not fail on canonicalizing URLs with wrong netlocs",
+    "fault_locations": [
+      {
+        "file": "scrapy/utils/url.py",
+        "start_line": 46,
+        "end_line": 46,
+        "function_name": "_safe_ParseResult",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_utils_url.CanonicalizeUrlTest.test_canonicalize_url_idna_exceptions"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

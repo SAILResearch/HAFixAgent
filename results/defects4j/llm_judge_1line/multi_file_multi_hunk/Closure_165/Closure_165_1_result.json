@@ -1,0 +1,75 @@
+{
+  "project_name": "Closure",
+  "bug_id": "165",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:51:36",
+      "end_time": "2025-09-30 14:59:42",
+      "duration_seconds": 486,
+      "duration_human": "8m 6s"
+    },
+    "model_cost": 0.0608,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 754111,
+      "output_tokens": 5209,
+      "total_tokens": 759320,
+      "cached_input_tokens": 726144,
+      "uncached_input_tokens": 27967
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/rhino/jstype/RecordType.java b/src/com/google/javascript/rhino/jstype/RecordType.java\nold mode 100755\nnew mode 100644\nindex 7cc48901c..3fd7a45aa\n--- a/src/com/google/javascript/rhino/jstype/RecordType.java\n+++ b/src/com/google/javascript/rhino/jstype/RecordType.java\n@@ -131,6 +131,19 @@ class RecordType extends PrototypeObjectType {\n   }\n \n   @Override\n+  public boolean hasProperty(String propertyName) {\n+    return properties.containsKey(propertyName);\n+  }\n+\n+  @Override\n+  public JSType getPropertyType(String property) {\n+    JSType type = properties.get(property);\n+    if (type == null) {\n+      return getNativeType(JSTypeNative.UNKNOWN_TYPE);\n+    }\n+    return type;\n+  }\n+\n   boolean defineProperty(String propertyName, JSType type,\n       boolean inferred, Node propertyNode) {\n     if (isFrozen) {\n"
+  },
+  "timestamp": "2025-09-30 14:59:42 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_165",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_165",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Properties defined on any record type applying to unrelated record types\nConsider the following code:\r\n\r\n/** @typedef {{name: string, id: number}} */\r\nvar RecordType1;\r\n\r\n/**\r\n* @param {RecordType1} rec\r\n*/\r\nvar func = function(rec) {\r\n  alert(rec.name2);\r\n};\r\nfunc({name: 'jim', id: 0});\r\n\r\nCompiled with: \r\njava -jar build/compiler.jar --compilation_level=ADVANCED_OPTIMIZATIONS --jscomp_error=accessControls --jscomp_error=checkTypes --jscomp_error=checkVars --js ~/Desktop/test.js\r\n\r\nProperly errors:\r\n/Users/dolapo/Desktop/test.js:9: ERROR - Property name2 never defined on rec\r\n  alert(rec.name2);\r\n\r\n\r\nHowever, add another recordtype with name2 defined:\r\n\r\n/** @typedef {{name: string, id: number}} */\r\nvar RecordType1;\r\n\r\n/** @typedef {{name2: string}} */\r\nvar RecordType2;\r\n\r\n/**\r\n* @param {RecordType1} rec\r\n*/\r\nvar func = function(rec) {\r\n  alert(rec.name2);\r\n};\r\nfunc({name: 'jim', id: 0});\r\n\r\n\r\n\r\nand this compiles with no errors.",
+    "commit_message": "Better property checks, by creating a notion of \"synthetic\" types that we use for internal bookkeeping, and not using those for property checks. fixes issue 725",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/jstype/RecordType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "line_numbers": [
+          83
+        ],
+        "function_name": "",
+        "class_name": "RecordType",
+        "filename": "RecordType.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java",
+        "start_line": 92,
+        "end_line": 92,
+        "line_numbers": [
+          92
+        ],
+        "function_name": "build",
+        "class_name": "RecordTypeBuilder",
+        "filename": "RecordTypeBuilder.java",
+        "code_snippet": "  public JSType build() {\n     // If we have an empty record, simply return the object type.\n    if (isEmpty) {\n       return registry.getNativeObjectType(JSTypeNative.OBJECT_TYPE);\n    }\n\n    return new RecordType(\n        registry, Collections.unmodifiableMap(properties));\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue725"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java\nindex edce9bfd0..6c6fcd45e 100644\n--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java\n+++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java\n@@ -695,10 +695,6 @@ public class JSTypeRegistry implements Serializable {\n         if (!greatestSubtype.isEmptyType()) {\n           // We've found a type with this property. Now we just have to make\n           // sure it's not a type used for internal bookkeeping.\n+          RecordType maybeRecordType = greatestSubtype.toMaybeRecordType();\n+          if (maybeRecordType != null && maybeRecordType.isSynthetic()) {\n+            continue;\n+          }\n \n           return true;\n         }\ndiff --git a/src/com/google/javascript/rhino/jstype/ObjectType.java b/src/com/google/javascript/rhino/jstype/ObjectType.java\nindex 37bd48701..82d229de5 100644\n--- a/src/com/google/javascript/rhino/jstype/ObjectType.java\n+++ b/src/com/google/javascript/rhino/jstype/ObjectType.java\n@@ -287,10 +287,6 @@ public abstract class ObjectType extends JSType implements StaticScope<JSType> {\n    * don't actually exist in the user's program. They're just used for\n    * bookkeeping in the type system.\n    */\n+  public final boolean defineSynthesizedProperty(String propertyName,\n+      JSType type, Node propertyNode) {\n+    return defineProperty(propertyName, type, false, propertyNode);\n+  }\n \n   /**\n    * Defines a property whose type is inferred.\ndiff --git a/src/com/google/javascript/rhino/jstype/RecordType.java b/src/com/google/javascript/rhino/jstype/RecordType.java\nindex 8ff279cbd..7cc48901c 100755\n--- a/src/com/google/javascript/rhino/jstype/RecordType.java\n+++ b/src/com/google/javascript/rhino/jstype/RecordType.java\n@@ -65,12 +65,8 @@ class RecordType extends PrototypeObjectType {\n   private static final long serialVersionUID = 1L;\n \n   private final SortedMap<String, JSType> properties = Maps.newTreeMap();\n+  private final boolean declared;\n   private boolean isFrozen = false;\n \n+  RecordType(JSTypeRegistry registry, Map<String, RecordProperty> properties) {\n+    this(registry, properties, true);\n+  }\n \n   /**\n    * Creates a record type.\n@@ -84,11 +80,9 @@ class RecordType extends PrototypeObjectType {\n    * @throws IllegalStateException if the {@code RecordProperty} associated\n    *         with a property is null.\n    */\n+  RecordType(JSTypeRegistry registry, Map<String, RecordProperty> properties,\n+      boolean declared) {\n-  RecordType(JSTypeRegistry registry, Map<String, RecordProperty> properties) {\n     super(registry, null, null);\n     setPrettyPrint(true);\n+    this.declared = declared;\n \n     for (String property : properties.keySet()) {\n       RecordProperty prop = properties.get(property);\n@@ -96,13 +90,8 @@ class RecordType extends PrototypeObjectType {\n         throw new IllegalStateException(\n             \"RecordProperty associated with a property should not be null!\");\n       }\n+      if (declared) {\n         defineDeclaredProperty(\n             property, prop.getType(), prop.getPropertyNode());\n+      } else {\n+        defineSynthesizedProperty(\n+            property, prop.getType(), prop.getPropertyNode());\n+      }\n     }\n \n     // Freeze the record type.\n@@ -110,9 +99,6 @@ class RecordType extends PrototypeObjectType {\n   }\n \n   /** @return Is this synthesized for internal bookkeeping? */\n+  boolean isSynthetic() {\n+    return !declared;\n+  }\n \n   @Override\n   public boolean isEquivalentTo(JSType other) {\n@@ -163,7 +149,6 @@ class RecordType extends PrototypeObjectType {\n     if (that.isRecordType()) {\n       RecordType thatRecord = that.toMaybeRecordType();\n       RecordTypeBuilder builder = new RecordTypeBuilder(registry);\n+      builder.setSynthesized(true);\n \n       // The greatest subtype consists of those *unique* properties of both\n       // record types. If any property conflicts, then the NO_TYPE type\ndiff --git a/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java b/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java\nindex 60d1e103d..345795b55 100755\n--- a/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java\n+++ b/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java\n@@ -51,7 +51,6 @@ import java.util.HashMap;\n  */\n public class RecordTypeBuilder {\n   private boolean isEmpty = true;\n+  private boolean isDeclared = true;\n   private final JSTypeRegistry registry;\n   private final HashMap<String, RecordProperty> properties = Maps.newHashMap();\n \n@@ -60,9 +59,6 @@ public class RecordTypeBuilder {\n   }\n \n   /** See the comments on RecordType about synthetic types. */\n+  void setSynthesized(boolean synthesized) {\n+    isDeclared = !synthesized;\n+  }\n \n   /**\n    * Adds a property with the given name and type to the record type.\n@@ -93,7 +89,7 @@ public class RecordTypeBuilder {\n     }\n \n     return new RecordType(\n+        registry, Collections.unmodifiableMap(properties), isDeclared);\n-        registry, Collections.unmodifiableMap(properties));\n   }\n \n   static class RecordProperty {",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

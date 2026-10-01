@@ -1,0 +1,76 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_94",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 23:11:16",
+      "end_time": "2026-06-27 23:21:13",
+      "duration_seconds": 597,
+      "duration_human": "9m 57s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1231659,
+      "output_tokens": 35255,
+      "total_tokens": 1266914,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1231659
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/datetimelike.py b/pandas/core/indexes/datetimelike.py\nindex 3456006552..e41b2b4f8d 100644\n--- a/pandas/core/indexes/datetimelike.py\n+++ b/pandas/core/indexes/datetimelike.py\n@@ -103,6 +103,17 @@ class DatetimeIndexOpsMixin(ExtensionIndex, ExtensionOpsMixin):\n \n     @property\n     def is_all_dates(self) -> bool:\n+    def _shallow_copy(self, arr, freq=None, name=None):\n+        \"\"\"\n+        Create a shallow copy of the index with a new array.\n+\n+        If freq is not specified, inherit from the array if it has a freq attribute.\n+        \"\"\"\n+        # Always use the array's freq if it has one, regardless of what freq parameter is passed\n+        if hasattr(arr, \"freq\"):\n+            freq = arr.freq\n+        return super()._shallow_copy(arr, freq=freq, name=name)\n+\n         return True\n \n     def unique(self, level=None):\n@@ -256,8 +267,8 @@ class DatetimeIndexOpsMixin(ExtensionIndex, ExtensionOpsMixin):\n         )\n \n         # keep freq in PeriodArray/Index, reset otherwise\n-        freq = self.freq if is_period_dtype(self) else None\n-        assert taken.freq == freq, (taken.freq, freq, taken)\n+        # Use the taken array's freq if it has one, otherwise use the original index's freq for PeriodArray/Index\n+        freq = taken.freq if hasattr(taken, \"freq\") else (self.freq if is_period_dtype(self) else None)\n         return self._shallow_copy(taken, freq=freq)\n \n     _can_hold_na = True\n@@ -486,8 +497,9 @@ class DatetimeIndexOpsMixin(ExtensionIndex, ExtensionOpsMixin):\n     @Appender(_index_shared_docs[\"repeat\"] % _index_doc_kwargs)\n     def repeat(self, repeats, axis=None):\n         nv.validate_repeat(tuple(), dict(axis=axis))\n-        freq = self.freq if is_period_dtype(self) else None\n-        return self._shallow_copy(self.asi8.repeat(repeats), freq=freq)\n+        result_array = self.asi8.repeat(repeats)\n+        freq = result_array.freq if hasattr(result_array, \"freq\") else (self.freq if is_period_dtype(self) else None)\n+        return self._shallow_copy(result_array, freq=freq)\n \n     @Appender(_index_shared_docs[\"where\"] % _index_doc_kwargs)\n     def where(self, cond, other=None):\ndiff --git a/pandas/tests/indexes/datetimes/test_constructors.py b/pandas/tests/indexes/datetimes/test_constructors.py\nindex c75c296e72..46d7cd2c13 100644\n--- a/pandas/tests/indexes/datetimes/test_constructors.py\n+++ b/pandas/tests/indexes/datetimes/test_constructors.py\n@@ -29,6 +29,25 @@ class TestDatetimeIndex:\n         with pytest.raises(ValueError, match=msg):\n             dt_cls([pd.NaT, pd.Timestamp(\"2011-01-01\").value], freq=\"D\")\n \n+    # TODO: better place for tests shared by DTI/TDI?\n+    @pytest.mark.parametrize(\n+        \"index\",\n+        [\n+            pd.date_range(\"2016-01-01\", periods=5, tz=\"US/Pacific\"),\n+            pd.timedelta_range(\"1 Day\", periods=5),\n+        ],\n+    )\n+    def test_shallow_copy_inherits_array_freq(self, index):\n+        # If we pass a DTA/TDA to shallow_copy and dont specify a freq,\n+        #  we should inherit the array's freq, not our own.\n+        array = index._data\n+\n+        arr = array[[0, 3, 2, 4, 1]]\n+        assert arr.freq is None\n+\n+        result = index._shallow_copy(arr)\n+        assert result.freq is None\n+\n     def test_categorical_preserves_tz(self):\n         # GH#18664 retain tz when going DTI-->Categorical-->DTI\n         # TODO: parametrize over DatetimeIndex/DatetimeArray\n"
+  },
+  "timestamp": "2026-06-27 23:21:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_94",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_94/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TDI/DTI _shallow_copy creating invalid arrays (#30764)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 31,
+        "end_line": 31,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 254,
+        "end_line": 254,
+        "function_name": "take",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 258,
+        "end_line": 262,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 489,
+        "end_line": 490,
+        "function_name": "repeat",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_constructors.py::TestDatetimeIndex::test_shallow_copy_inherits_array_freq"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

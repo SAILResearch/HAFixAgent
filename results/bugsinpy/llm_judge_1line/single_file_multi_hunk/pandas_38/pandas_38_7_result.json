@@ -1,0 +1,64 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_38",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 03:47:16",
+      "end_time": "2026-03-24 04:00:37",
+      "duration_seconds": 801,
+      "duration_human": "13m 21s"
+    },
+    "model_cost": 0.0897,
+    "model_calls": 31,
+    "token_usage": {
+      "input_tokens": 338534,
+      "output_tokens": 23935,
+      "total_tokens": 362469,
+      "cached_input_tokens": 42496,
+      "uncached_input_tokens": 296038
+    },
+    "agent_steps": 31,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/reshape/reshape.py b/pandas/core/reshape/reshape.py\nindex 14c2a05e5d..ff5686119c 100644\n--- a/pandas/core/reshape/reshape.py\n+++ b/pandas/core/reshape/reshape.py\n@@ -360,10 +360,14 @@ def _unstack_multiple(data, clocs, fill_value=None):\n     else:\n         if isinstance(data.columns, MultiIndex):\n             result = data\n-            for i in range(len(clocs)):\n-                val = clocs[i]\n+            # Unstack levels one by one in the order given\n+            # We need to adjust level indices after each unstack\n+            while clocs:\n+                val = clocs[0]  # Unstack the first level in the list\n                 result = result.unstack(val, fill_value=fill_value)\n-                clocs = [v if i > v else v - 1 for v in clocs]\n+                # Remove the unstacked level and adjust remaining levels\n+                # Levels > val shift left by 1\n+                clocs = [v - 1 if v > val else v for v in clocs[1:]]\n \n             return result\n \ndiff --git a/pandas/tests/frame/test_reshape.py b/pandas/tests/frame/test_reshape.py\nindex 4f039baa5c..9d3c40ce92 100644\n--- a/pandas/tests/frame/test_reshape.py\n+++ b/pandas/tests/frame/test_reshape.py\n@@ -765,6 +765,60 @@ class TestDataFrameReshape:\n         expected.index = expected.index.droplevel(\"C\")\n         tm.assert_frame_equal(result, expected)\n \n+    def test_unstack_long_index(self):\n+        # PH 32624: Error when using a lot of indices to unstack.\n+        # The error occurred only, if a lot of indices are used.\n+        df = pd.DataFrame(\n+            [[1]],\n+            columns=pd.MultiIndex.from_tuples([[0]], names=[\"c1\"]),\n+            index=pd.MultiIndex.from_tuples(\n+                [[0, 0, 1, 0, 0, 0, 1]],\n+                names=[\"i1\", \"i2\", \"i3\", \"i4\", \"i5\", \"i6\", \"i7\"],\n+            ),\n+        )\n+        result = df.unstack([\"i2\", \"i3\", \"i4\", \"i5\", \"i6\", \"i7\"])\n+        expected = pd.DataFrame(\n+            [[1]],\n+            columns=pd.MultiIndex.from_tuples(\n+                [[0, 0, 1, 0, 0, 0, 1]],\n+                names=[\"c1\", \"i2\", \"i3\", \"i4\", \"i5\", \"i6\", \"i7\"],\n+            ),\n+            index=pd.Index([0], name=\"i1\"),\n+        )\n+        tm.assert_frame_equal(result, expected)\n+\n+    def test_unstack_multi_level_cols(self):\n+        # PH 24729: Unstack a df with multi level columns\n+        df = pd.DataFrame(\n+            [[0.0, 0.0], [0.0, 0.0]],\n+            columns=pd.MultiIndex.from_tuples(\n+                [[\"B\", \"C\"], [\"B\", \"D\"]], names=[\"c1\", \"c2\"]\n+            ),\n+            index=pd.MultiIndex.from_tuples(\n+                [[10, 20, 30], [10, 20, 40]], names=[\"i1\", \"i2\", \"i3\"],\n+            ),\n+        )\n+        assert df.unstack([\"i2\", \"i1\"]).columns.names[-2:] == [\"i2\", \"i1\"]\n+\n+    def test_unstack_multi_level_rows_and_cols(self):\n+        # PH 28306: Unstack df with multi level cols and rows\n+        df = pd.DataFrame(\n+            [[1, 2], [3, 4], [-1, -2], [-3, -4]],\n+            columns=pd.MultiIndex.from_tuples([[\"a\", \"b\", \"c\"], [\"d\", \"e\", \"f\"]]),\n+            index=pd.MultiIndex.from_tuples(\n+                [\n+                    [\"m1\", \"P3\", 222],\n+                    [\"m1\", \"A5\", 111],\n+                    [\"m2\", \"P3\", 222],\n+                    [\"m2\", \"A5\", 111],\n+                ],\n+                names=[\"i1\", \"i2\", \"i3\"],\n+            ),\n+        )\n+        result = df.unstack([\"i3\", \"i2\"])\n+        expected = df.unstack([\"i3\"]).unstack([\"i2\"])\n+        tm.assert_frame_equal(result, expected)\n+\n     def test_unstack_nan_index(self):  # GH7466\n         def cast(val):\n             val_str = \"\" if val != val else val\n"
+  },
+  "timestamp": "2026-03-24 00:00:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_38",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_38/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Multiple unstack using row index level labels and multi level columns DataFrame (#32990)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/reshape/reshape.py",
+        "start_line": 341,
+        "end_line": 341,
+        "function_name": "_unstack_multiple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/reshape/reshape.py",
+        "start_line": 366,
+        "end_line": 366,
+        "function_name": "_unstack_multiple",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_reshape.py::TestDataFrameReshape::test_unstack_long_index",
+      "pytest pandas/tests/frame/test_reshape.py::TestDataFrameReshape::test_unstack_multi_level_cols",
+      "pytest pandas/tests/frame/test_reshape.py::TestDataFrameReshape::test_unstack_multi_level_rows_and_cols"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

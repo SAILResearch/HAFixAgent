@@ -1,0 +1,74 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_29",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 10:03:10",
+      "end_time": "2026-03-23 10:50:39",
+      "duration_seconds": 2849,
+      "duration_human": "47m 29s"
+    },
+    "model_cost": 0.4083,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 2417154,
+      "output_tokens": 73410,
+      "total_tokens": 2490564,
+      "cached_input_tokens": 1016576,
+      "uncached_input_tokens": 1400578
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/callbacks.py b/keras/callbacks.py\nindex e113e3719..f753b2c12 100644\n--- a/keras/callbacks.py\n+++ b/keras/callbacks.py\n@@ -213,6 +213,8 @@ class BaseLogger(Callback):\n \n     def __init__(self, stateful_metrics=None):\n         if stateful_metrics:\n+            if isinstance(stateful_metrics, dict):\n+                stateful_metrics = list(stateful_metrics.keys())\n             self.stateful_metrics = set(stateful_metrics)\n         else:\n             self.stateful_metrics = set()\n@@ -288,6 +290,8 @@ class ProgbarLogger(Callback):\n         else:\n             raise ValueError('Unknown `count_mode`: ' + str(count_mode))\n         if stateful_metrics:\n+            if isinstance(stateful_metrics, dict):\n+                stateful_metrics = list(stateful_metrics.keys())\n             self.stateful_metrics = set(stateful_metrics)\n         else:\n             self.stateful_metrics = set()\ndiff --git a/keras/engine/training.py b/keras/engine/training.py\nindex 78be752b0..b0c7c8412 100644\n--- a/keras/engine/training.py\n+++ b/keras/engine/training.py\n@@ -1175,7 +1175,7 @@ class Model(Container):\n         for epoch in range(initial_epoch, epochs):\n             # Reset stateful metrics\n             for m in self.metrics:\n-                if isinstance(m, Layer) and m.stateful:\n+                if hasattr(m, \"stateful\") and m.stateful:\n                     m.reset_states()\n             callbacks.on_epoch_begin(epoch)\n             epoch_logs = {}\n@@ -1364,7 +1364,7 @@ class Model(Container):\n \n         if hasattr(self, 'metrics'):\n             for m in self.metrics:\n-                if isinstance(m, Layer) and m.stateful:\n+                if hasattr(m, \"stateful\") and m.stateful:\n                     m.reset_states()\n             stateful_metric_indices = [\n                 i for i, name in enumerate(self.metrics_names)\n@@ -2186,8 +2186,8 @@ class Model(Container):\n             epoch_logs = {}\n             while epoch < epochs:\n                 for m in self.metrics:\n-                    if isinstance(m, Layer) and m.stateful:\n-                        m.reset_states()\n+                if hasattr(m, \"stateful\") and m.stateful:\n+                    m.reset_states()\n                 callbacks.on_epoch_begin(epoch)\n                 steps_done = 0\n                 batch_index = 0\ndiff --git a/tests/keras/metrics_test.py b/tests/keras/metrics_test.py\nindex 2e40daeda..39ad1cdbc 100644\n--- a/tests/keras/metrics_test.py\n+++ b/tests/keras/metrics_test.py\n@@ -107,7 +107,8 @@ def test_sparse_top_k_categorical_accuracy():\n \n \n @keras_test\n-def test_stateful_metrics():\n+@pytest.mark.parametrize('metrics_mode', ['list', 'dict'])\n+def test_stateful_metrics(metrics_mode):\n     np.random.seed(1334)\n \n     class BinaryTruePositives(keras.layers.Layer):\n@@ -155,11 +156,17 @@ def test_stateful_metrics():\n \n     # Test on simple model\n     inputs = keras.Input(shape=(2,))\n-    outputs = keras.layers.Dense(1, activation='sigmoid')(inputs)\n+    outputs = keras.layers.Dense(1, activation='sigmoid', name='out')(inputs)\n     model = keras.Model(inputs, outputs)\n-    model.compile(optimizer='sgd',\n-                  loss='binary_crossentropy',\n-                  metrics=['acc', metric_fn])\n+\n+    if metrics_mode == 'list':\n+        model.compile(optimizer='sgd',\n+                      loss='binary_crossentropy',\n+                      metrics=['acc', metric_fn])\n+    elif metrics_mode == 'dict':\n+        model.compile(optimizer='sgd',\n+                      loss='binary_crossentropy',\n+                      metrics={'out': ['acc', metric_fn]})\n \n     samples = 1000\n     x = np.random.random((samples, 2))\n"
+  },
+  "timestamp": "2026-03-23 06:50:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_29",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_29/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix stateful metrics when passing dict to compile (#9894)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1177,
+        "end_line": 1179,
+        "function_name": "_fit_loop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1366,
+        "end_line": 1368,
+        "function_name": "_test_loop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2188,
+        "end_line": 2190,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2334,
+        "end_line": 2336,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/metrics_test.py::test_stateful_metrics[dict]"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

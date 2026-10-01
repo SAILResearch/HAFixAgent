@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "161",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 23:47:09",
+      "end_time": "2025-10-10 23:48:32",
+      "duration_seconds": 83,
+      "duration_human": "1m 23s"
+    },
+    "model_cost": 0.003,
+    "model_calls": 12,
+    "token_usage": {
+      "input_tokens": 29655,
+      "output_tokens": 1068,
+      "total_tokens": 30723,
+      "cached_input_tokens": 27200,
+      "uncached_input_tokens": 2455
+    },
+    "agent_steps": 12,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex 0b2636f43..f72f7b75d 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1280,6 +1280,12 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     // If GETPROP/GETELEM is used as assignment target the array literal is\n     // acting as a temporary we can't fold it here:\n     //    \"[][0] += 1\"\n+    if (isAssignmentTarget(n)) {\n+      // If GETELEM is used as assignment target the array literal is\n+      // acting as a temporary we can't fold it here:\n+      //    \"[][0] += 1\" is not valid to fold\n+      return n;\n+    }\n \n     if (right.getType() != Token.NUMBER) {\n       // Sometimes people like to use complex expressions to index into\n"
+  },
+  "timestamp": "2025-10-10 19:48:33 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_161",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_161",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "peephole constants folding pass is trying to fold [][11] as if it were a property lookup instead of a property assignment\n<b>What steps will reproduce the problem?</b>\n1.Try on line CC with Advance\r\n2.On the following 2-line code\r\n<b>3.</b>\n\r\n<b>What is the expected output? What do you see instead?</b>\n// ==ClosureCompiler==\r\n// @output_file_name default.js\r\n// @compilation_level ADVANCED_OPTIMIZATIONS\r\n// ==/ClosureCompiler==\r\n\r\n\r\nvar Mdt=[];\r\nMdt[11] = ['22','19','19','16','21','18','16','20','17','17','21','17'];\r\n\r\nThe error:\r\nJSC_INDEX_OUT_OF_BOUNDS_ERROR: Array index out of bounds: NUMBER 11.0\r\n2 [sourcename: Input_0] : number at line 2 character 4\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nThe online version on 201.07.27",
+    "commit_message": "Don't try to fold array literal accesses that are acting as a assignment target. Fixes issue 522.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PeepholeFoldConstants.java",
+        "start_line": 1282,
+        "end_line": 1282,
+        "line_numbers": [
+          1282
+        ],
+        "function_name": "tryFoldArrayAccess",
+        "class_name": "PeepholeFoldConstants",
+        "filename": "PeepholeFoldConstants.java",
+        "code_snippet": "  private Node tryFoldArrayAccess(Node n, Node left, Node right) {\n    Node parent = n.getParent();\n    // If GETPROP/GETELEM is used as assignment target the array literal is\n    // acting as a temporary we can't fold it here:\n    //    \"[][0] += 1\"\n\n    if (right.getType() != Token.NUMBER) {\n      // Sometimes people like to use complex expressions to index into\n      // arrays, or strings to index into array methods.\n      return n;\n    }\n\n    double index = right.getDouble();\n    int intIndex = (int) index;\n    if (intIndex != index) {\n      error(INVALID_GETELEM_INDEX_ERROR, right);\n      return n;\n    }\n\n    if (intIndex < 0) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    Node elem = left.getFirstChild();\n    for (int i = 0; elem != null && i < intIndex; i++) {\n      elem = elem.getNext();\n    }\n\n    if (elem == null) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    if (elem.getType() == Token.EMPTY) {\n      elem = NodeUtil.newUndefinedNode(elem);\n    } else {\n      left.removeChild(elem);\n    }\n\n    // Replace the entire GETELEM with the value\n    n.getParent().replaceChild(n, elem);\n    reportCodeChange();\n    return elem;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.PeepholeFoldConstantsTest::testIssue522"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex c51297f5..0b2636f4 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1280,9 +1280,6 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     // If GETPROP/GETELEM is used as assignment target the array literal is\n     // acting as a temporary we can't fold it here:\n     //    \"[][0] += 1\"\n+    if (isAssignmentTarget(n)) {\n+      return n;\n+    }\n \n     if (right.getType() != Token.NUMBER) {\n       // Sometimes people like to use complex expressions to index into",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,199 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_88",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 16:44:20",
+      "end_time": "2026-06-24 17:27:25",
+      "duration_seconds": 2585,
+      "duration_human": "43m 5s"
+    },
+    "model_cost": 0.1732,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1583527,
+      "output_tokens": 70324,
+      "total_tokens": 1653851,
+      "cached_input_tokens": 1048896,
+      "uncached_input_tokens": 534631
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java b/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\nindex ef33e4c04..8b1378917 100644\n--- a/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\n+++ b/src/com/google/javascript/jscomp/DeadAssignmentsElimination.java\n@@ -1,348 +1 @@\n-/*\n- * Copyright 2008 The Closure Compiler Authors.\n- *\n- * Licensed under the Apache License, Version 2.0 (the \"License\");\n- * you may not use this file except in compliance with the License.\n- * You may obtain a copy of the License at\n- *\n- *     http://www.apache.org/licenses/LICENSE-2.0\n- *\n- * Unless required by applicable law or agreed to in writing, software\n- * distributed under the License is distributed on an \"AS IS\" BASIS,\n- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n- * See the License for the specific language governing permissions and\n- * limitations under the License.\n- */\n \n-package com.google.javascript.jscomp;\n-\n-import com.google.common.base.Preconditions;\n-import com.google.common.base.Predicate;\n-import com.google.common.base.Predicates;\n-import com.google.javascript.jscomp.ControlFlowGraph.Branch;\n-import com.google.javascript.jscomp.DataFlowAnalysis.FlowState;\n-import com.google.javascript.jscomp.LiveVariablesAnalysis.LiveVariableLattice;\n-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;\n-import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;\n-import com.google.javascript.jscomp.Scope.Var;\n-import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;\n-import com.google.javascript.rhino.Node;\n-import com.google.javascript.rhino.Token;\n-\n-/**\n- * Removes local variable assignments that are useless based on information from\n- * {@link LiveVariablesAnalysis}. If there is an assignment to variable\n- * {@code x} and {@code x} is dead after this assignment, we know that the\n- * current content of {@code x} will not be read and this assignment is useless.\n- *\n- */\n-class DeadAssignmentsElimination extends AbstractPostOrderCallback implements\n-    CompilerPass, ScopedCallback {\n-\n-  private final AbstractCompiler compiler;\n-  private LiveVariablesAnalysis liveness;\n-\n-  // Matches all assignment operators and increment/decrement operators.\n-  // Does *not* match VAR initialization, since RemoveUnusedVariables\n-  // will already remove variables that are initialized but unused.\n-  private static final Predicate<Node> matchRemovableAssigns =\n-      new Predicate<Node>() {\n-    @Override\n-    public boolean apply(Node n) {\n-      return (NodeUtil.isAssignmentOp(n) &&\n-              n.getFirstChild().getType() == Token.NAME) ||\n-          n.getType() == Token.INC || n.getType() == Token.DEC;\n-    }\n-  };\n-\n-  public DeadAssignmentsElimination(AbstractCompiler compiler) {\n-    this.compiler = compiler;\n-  }\n-\n-  @Override\n-  public void process(Node externs, Node root) {\n-    Preconditions.checkNotNull(externs);\n-    Preconditions.checkNotNull(root);\n-    NodeTraversal.traverse(compiler, root, this);\n-  }\n-\n-  @Override\n-  public void enterScope(NodeTraversal t) {\n-    Scope scope = t.getScope();\n-    // Global scope _SHOULD_ work, however, liveness won't finish without\n-    // -Xmx1024 in closure. We might have to look at coding conventions for\n-    // exported variables as well.\n-    if (scope.isGlobal()) {\n-      return;\n-    }\n-\n-    // We are not going to do any dead assignment elimination in when there is\n-    // at least one inner function because in most browsers, when there is a\n-    // closure, ALL the variables are saved (escaped).\n-    Node fnBlock = t.getScopeRoot().getLastChild();\n-    if (NodeUtil.containsFunction(fnBlock)) {\n-      return;\n-    }\n-\n-    // We don't do any dead assignment elimination if there are no assigns\n-    // to eliminate. :)\n-    if (!NodeUtil.has(fnBlock, matchRemovableAssigns,\n-            Predicates.<Node>alwaysTrue())) {\n-      return;\n-    }\n-\n-    // Computes liveness information first.\n-    ControlFlowGraph<Node> cfg = t.getControlFlowGraph();\n-    liveness = new LiveVariablesAnalysis(cfg, scope, compiler);\n-    liveness.analyze();\n-    tryRemoveDeadAssignments(t, cfg);\n-  }\n-\n-  @Override\n-  public void exitScope(NodeTraversal t) {\n-  }\n-\n-  @Override\n-  public void visit(NodeTraversal t, Node n, Node parent) {\n-  }\n-\n-  /**\n-   * Try to remove useless assignments from a control flow graph that has been\n-   * annotated with liveness information.\n-   *\n-   * @param t The node traversal.\n-   * @param cfg The control flow graph of the program annotated with liveness\n-   *        information.\n-   */\n-  private void tryRemoveDeadAssignments(NodeTraversal t,\n-      ControlFlowGraph<Node> cfg) {\n-    Iterable<DiGraphNode<Node, Branch>> nodes = cfg.getDirectedGraphNodes();\n-\n-    for (DiGraphNode<Node, Branch> cfgNode : nodes) {\n-      FlowState<LiveVariableLattice> state =\n-          cfgNode.getAnnotation();\n-      Node n = cfgNode.getValue();\n-      if (n == null) {\n-        continue;\n-      }\n-      switch (n.getType()) {\n-        case Token.IF:\n-        case Token.WHILE:\n-        case Token.DO:\n-          tryRemoveAssignment(t, NodeUtil.getConditionExpression(n), state);\n-          continue;\n-        case Token.FOR:\n-          if (!NodeUtil.isForIn(n)) {\n-            tryRemoveAssignment(\n-                t, NodeUtil.getConditionExpression(n), state);\n-          }\n-          continue;\n-        case Token.SWITCH:\n-        case Token.CASE:\n-        case Token.RETURN:\n-          if (n.hasChildren()) {\n-            tryRemoveAssignment(t, n.getFirstChild(), state);\n-          }\n-          continue;\n-        // TODO(user): case Token.VAR: Remove var a=1;a=2;.....\n-      }\n-\n-      tryRemoveAssignment(t, n, state);\n-    }\n-  }\n-\n-  private void tryRemoveAssignment(NodeTraversal t, Node n,\n-      FlowState<LiveVariableLattice> state) {\n-    tryRemoveAssignment(t, n, n, state);\n-  }\n-\n-  /**\n-   * Determines if any local variables are dead after the instruction {@code n}\n-   * and are assigned within the subtree of {@code n}. Removes those assignments\n-   * if there are any.\n-   *\n-   * @param n Target instruction.\n-   * @param exprRoot The CFG node where the liveness information in state is\n-   *     still correct.\n-   * @param state The liveness information at {@code n}.\n-   */\n-  private void tryRemoveAssignment(NodeTraversal t, Node n, Node exprRoot,\n-      FlowState<LiveVariableLattice> state) {\n-\n-    Node parent = n.getParent();\n-\n-    if (NodeUtil.isAssignmentOp(n) ||\n-        n.getType() == Token.INC || n.getType() == Token.DEC) {\n-\n-      Node lhs = n.getFirstChild();\n-      Node rhs = lhs.getNext();\n-\n-      // Recurse first. Example: dead_x = dead_y = 1; We try to clean up dead_y\n-      // first.\n-      if (rhs != null) {\n-        tryRemoveAssignment(t, rhs, exprRoot, state);\n-        rhs = lhs.getNext();\n-      }\n-\n-      Scope scope = t.getScope();\n-      if (!NodeUtil.isName(lhs)) {\n-        return; // Not a local variable assignment.\n-      }\n-      String name = lhs.getString();\n-      if (!scope.isDeclared(name, false)) {\n-        return;\n-      }\n-      Var var = scope.getVar(name);\n-\n-      if (liveness.getEscapedLocals().contains(var)) {\n-        return; // Local variable that might be escaped due to closures.\n-      }\n-\n-      // If we have an identity assignment such as a=a, always remove it\n-      // regardless of what the liveness results because it\n-      // does not change the result afterward.\n-      if (rhs != null &&\n-          NodeUtil.isName(rhs) &&\n-          rhs.getString().equals(var.name) &&\n-          NodeUtil.isAssign(n)) {\n-        n.removeChild(rhs);\n-        n.getParent().replaceChild(n, rhs);\n-        compiler.reportCodeChange();\n-        return;\n-      }\n-\n-      if (state.getOut().isLive(var)) {\n-        return; // Variable not dead.\n-      }\n-\n-      if (state.getIn().isLive(var) &&\n-          isVariableStillLiveWithinExpression(n, exprRoot, var.name)) {\n-        // The variable is killed here but it is also live before it.\n-        // This is possible if we have say:\n-        //    if (X = a && a = C) {..} ; .......; a = S;\n-        // In this case we are safe to remove \"a = C\" because it is dead.\n-        // However if we have:\n-        //    if (a = C && X = a) {..} ; .......; a = S;\n-        // removing \"a = C\" is NOT correct, although the live set at the node\n-        // is exactly the same.\n-        // TODO(user): We need more fine grain CFA or we need to keep track\n-        // of GEN sets when we recurse here.\n-        return;\n-      }\n-\n-      if (NodeUtil.isAssign(n)) {\n-        n.removeChild(rhs);\n-        n.getParent().replaceChild(n, rhs);\n-      } else if (NodeUtil.isAssignmentOp(n)) {\n-        n.removeChild(rhs);\n-        n.removeChild(lhs);\n-        Node op = new Node(NodeUtil.getOpFromAssignmentOp(n), lhs, rhs);\n-        parent.replaceChild(n, op);\n-      } else if (n.getType() == Token.INC || n.getType() == Token.DEC) {\n-        if (NodeUtil.isExpressionNode(parent)) {\n-          parent.replaceChild(n,\n-              new Node(Token.VOID, Node.newNumber(0).copyInformationFrom(n)));\n-        } else if(n.getType() == Token.COMMA && n != parent.getLastChild()) {\n-          parent.removeChild(n);\n-        } else if (parent.getType() == Token.FOR && !NodeUtil.isForIn(parent) &&\n-            NodeUtil.getConditionExpression(parent) != n) {\n-          parent.replaceChild(n, new Node(Token.EMPTY));\n-        } else {\n-          // Cannot replace x = a++ with x = a because that's not valid\n-          // when a is not a number.\n-          return;\n-        }\n-      } else {\n-        // Not reachable.\n-        Preconditions.checkState(false, \"Unknown statement\");\n-      }\n-\n-      compiler.reportCodeChange();\n-      return;\n-\n-    } else {\n-      for (Node c = n.getFirstChild(); c != null;) {\n-        Node next = c.getNext();\n-        if (!ControlFlowGraph.isEnteringNewCfgNode(c)) {\n-          tryRemoveAssignment(t, c, exprRoot, state);\n-        }\n-        c = next;\n-      }\n-      return;\n-    }\n-  }\n-\n-  /**\n-   * Given a variable, node n in the tree and a sub-tree denoted by exprRoot as\n-   * the root, this function returns true if there exists a read of that\n-   * variable before a write to that variable that is on the right side of n.\n-   *\n-   * For example, suppose the node is x = 1:\n-   *\n-   * y = 1, x = 1; // false, there is no reads at all.\n-   * y = 1, x = 1, print(x) // true, there is a read right of n.\n-   * y = 1, x = 1, x = 2, print(x) // false, there is a read right of n but\n-   *                               // it is after a write.\n-   *\n-   * @param n The current node we should look at.\n-   * @param exprRoot The node\n-   */\n-  private boolean isVariableStillLiveWithinExpression(\n-      Node n, Node exprRoot, String variable) {\n-    while (n != exprRoot) {\n-      for(Node sibling = n.getNext(); sibling != null;\n-          sibling = sibling.getNext()) {\n-        if (!ControlFlowGraph.isEnteringNewCfgNode(sibling)) {\n-          VariableLiveness state = isVariableReadBeforeKill(sibling, variable);\n-\n-          // If we see a READ or KILL there is no need to continue.\n-          if (state == VariableLiveness.READ) {\n-            return true;\n-          } else if (state == VariableLiveness.KILL) {\n-            return false;\n-          }\n-        }\n-      }\n-      n = n.getParent();\n-    }\n-    return false;\n-  }\n-\n-  // The current liveness of the variable\n-  private enum VariableLiveness {\n-    MAYBE_LIVE, // May be still live in the current expression tree.\n-    READ, // Known there is a read left of it.\n-    KILL, // Known there is a write before any read.\n-  }\n-\n-  /**\n-   * Give an expression and a variable. It returns READ, if the first\n-   * reference of that variable is a read. It returns KILL, if the first\n-   * reference of that variable is an assignment. It returns MAY_LIVE otherwise.\n-   */\n-  private VariableLiveness isVariableReadBeforeKill(\n-      Node n, String variable) {\n-    if (NodeUtil.isName(n) && variable.equals(n.getString())) {\n-      if (NodeUtil.isLhs(n, n.getParent())) {\n-        // The expression to which the assignment is made is evaluated before\n-        // the RHS is evaluated (normal left to right evaluation) but the KILL\n-        // occurs after the RHS is evaluated.\n-        return VariableLiveness.KILL;\n-      } else {\n-        return VariableLiveness.READ;\n-      }\n-    }\n-\n-    // Expressions are evaluated left-right, depth first.\n-    for (Node child = n.getFirstChild();\n-        child != null; child = child.getNext()) {\n-      if (!ControlFlowGraph.isEnteringNewCfgNode(child)) { // Not a FUNCTION\n-        VariableLiveness state = isVariableReadBeforeKill(child, variable);\n-        if (state != VariableLiveness.MAYBE_LIVE) {\n-          return state;\n-        }\n-      }\n-    }\n-    return VariableLiveness.MAYBE_LIVE;\n-  }\n-}\n"
+  },
+  "timestamp": "2026-06-24 17:27:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_88",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_88",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Incorrect assignment removal from expression in simple mode.\nfunction closureCompilerTest(someNode) {\r\n   var nodeId;\r\n   return ((nodeId=someNode.id) &amp;&amp; (nodeId=parseInt(nodeId.substr(1))) &amp;&amp; nodeId&gt;0);\r\n}\r\n\r\nCOMPILES TO:\r\n\r\nfunction closureCompilerTest(b){var a;return b.id&amp;&amp;(a=parseInt(a.substr(1)))&amp;&amp;a&gt;0};\r\n\r\n&quot;nodeId=someNode.id&quot; is replaced with simply &quot;b.id&quot; which is incorrect as the value of &quot;nodeId&quot; is used.",
+    "commit_message": "Fix checks for variable reads in expressions with assignments. Fixes issue 297.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 175,
+        "end_line": 175,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 195,
+        "end_line": 195,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 217,
+        "end_line": 217,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 220,
+        "end_line": 220,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 843,
+        "end_line": 843,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 844,
+        "end_line": 844,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 845,
+        "end_line": 845,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 848,
+        "end_line": 848,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 849,
+        "end_line": 849,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 850,
+        "end_line": 850,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CommandLineRunnerTest::testIssue297",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297a",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297b",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297c",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297d",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297e",
+      "com.google.javascript.jscomp.DeadAssignmentsEliminationTest::testIssue297f"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 175,
+      "end_line": 175,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 195,
+      "end_line": 195,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 217,
+      "end_line": 217,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 220,
+      "end_line": 220,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 843,
+      "end_line": 843,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 844,
+      "end_line": 844,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 845,
+      "end_line": 845,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 848,
+      "end_line": 848,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 849,
+      "end_line": 849,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 850,
+      "end_line": 850,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

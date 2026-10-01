@@ -1,0 +1,56 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_58",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 01:38:01",
+      "end_time": "2026-06-28 01:39:37",
+      "duration_seconds": 96,
+      "duration_human": "1m 36s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 524150,
+      "output_tokens": 3800,
+      "total_tokens": 527950,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 524150
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex d26ff7490e..07eb578f0f 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -644,7 +644,17 @@ class Categorical(ExtensionArray, PandasObject):\n             )\n             raise ValueError(msg)\n \n+        # Handle nullable integer arrays\n+        if hasattr(codes, \"dtype\") and is_extension_array_dtype(codes.dtype):\n+            if is_integer_dtype(codes.dtype):\n+                if isna(codes).any():\n+                    raise ValueError(\"codes cannot contain NA values\")\n+                codes = codes.to_numpy(int, na_value=-1)\n+            else:\n+                raise ValueError(\"codes need to be array-like integers\")\n+        \n         codes = np.asarray(codes)  # #21767\n+        if len(codes) and not is_integer_dtype(codes):\n         if len(codes) and not is_integer_dtype(codes):\n             raise ValueError(\"codes need to be array-like integers\")\n \ndiff --git a/pandas/tests/arrays/categorical/test_constructors.py b/pandas/tests/arrays/categorical/test_constructors.py\nindex 70e1421c8d..dbd8fd8df6 100644\n--- a/pandas/tests/arrays/categorical/test_constructors.py\n+++ b/pandas/tests/arrays/categorical/test_constructors.py\n@@ -560,6 +560,23 @@ class TestCategoricalConstructors:\n         with pytest.raises(ValueError, match=msg):\n             Categorical.from_codes([0, 1])\n \n+    def test_from_codes_with_nullable_int(self):\n+        codes = pd.array([0, 1], dtype=\"Int64\")\n+        categories = [\"a\", \"b\"]\n+\n+        result = Categorical.from_codes(codes, categories=categories)\n+        expected = Categorical.from_codes(codes.to_numpy(int), categories=categories)\n+\n+        tm.assert_categorical_equal(result, expected)\n+\n+    def test_from_codes_with_nullable_int_na_raises(self):\n+        codes = pd.array([0, None], dtype=\"Int64\")\n+        categories = [\"a\", \"b\"]\n+\n+        msg = \"codes cannot contain NA values\"\n+        with pytest.raises(ValueError, match=msg):\n+            Categorical.from_codes(codes, categories=categories)\n+\n     @pytest.mark.parametrize(\"dtype\", [None, \"category\"])\n     def test_from_inferred_categories(self, dtype):\n         cats = [\"a\", \"b\"]\n"
+  },
+  "timestamp": "2026-06-28 01:39:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_58",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_58/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Avoid casting Int to object in Categorical.from_codes (#31794)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 647,
+        "end_line": 647,
+        "function_name": "from_codes",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_constructors.py::TestCategoricalConstructors::test_from_codes_with_nullable_int",
+      "pytest pandas/tests/arrays/categorical/test_constructors.py::TestCategoricalConstructors::test_from_codes_with_nullable_int_na_raises"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "project_name": "Lang",
+  "bug_id": "43",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 23:14:32",
+      "end_time": "2026-06-26 23:22:22",
+      "duration_seconds": 470,
+      "duration_human": "7m 50s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 2228593,
+      "output_tokens": 21331,
+      "total_tokens": 2249924,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 2228593
+    },
+    "agent_steps": 39,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex 3b157e49a..6543dab08 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -57,7 +57,7 @@\n \t</target>\n \t<target name=\"static\" depends=\"prepare\" description=\"Copy static files to build directory\">\n \t\t<tstamp/>\n-\t\t<copy todir=\"${build.home}/conf\" filtering=\"on\">\n+\t\t<copy todir=\"${build.home}/conf\" filtering=\"off\">\n \t\t\t<fileset dir=\"${conf.home}\" includes=\"*.MF\"/>\n \t\t</copy>\n \t</target>\n@@ -65,7 +65,7 @@\n \t\t<javac srcdir=\"${source.home}\" destdir=\"${build.home}/classes\" debug=\"${compile.debug}\" deprecation=\"${compile.deprecation}\" target=\"${compile.target}\" source=\"${compile.source}\" excludes=\"${compile.excludes}\" optimize=\"${compile.optimize}\">\n \t\t\t<classpath refid=\"compile.classpath\"/>\n \t\t</javac>\n-\t\t<copy todir=\"${build.home}/classes\" filtering=\"on\">\n+\t\t<copy todir=\"${build.home}/classes\" filtering=\"off\">\n \t\t\t<fileset dir=\"${source.home}\" excludes=\"**/*.java\"/>\n \t\t</copy>\n \t</target>\n@@ -73,7 +73,7 @@\n \t\t<javac srcdir=\"${test.home}\" destdir=\"${build.home}/tests\" debug=\"${compile.debug}\" deprecation=\"off\" target=\"${compile.target}\" source=\"${compile.source}\" optimize=\"${compile.optimize}\">\n \t\t\t<classpath refid=\"test.classpath\"/>\n \t\t</javac>\n-\t\t<copy todir=\"${build.home}/tests\" filtering=\"on\">\n+\t\t<copy todir=\"${build.home}/tests\" filtering=\"off\">\n \t\t\t<fileset dir=\"${test.home}\" excludes=\"**/*.java\"/>\n \t\t</copy>\n \t</target>\ndiff --git a/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java b/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\nindex 404be490c..4af3955b5 100644\n--- a/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\n+++ b/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\n@@ -419,6 +419,7 @@ public class ExtendedMessageFormat extends MessageFormat {\n         int start = pos.getIndex();\n         char[] c = pattern.toCharArray();\n         if (escapingOn && c[start] == QUOTE) {\n+            next(pos);\n             return appendTo == null ? null : appendTo.append(QUOTE);\n         }\n         int lastHold = start;\n"
+  },
+  "timestamp": "2026-06-26 23:22:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_43",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_43",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "ExtendedMessageFormat: OutOfMemory with custom format registry and a pattern containing single quotes\nWhen using ExtendedMessageFormat with a custom format registry and a pattern conatining single quotes, an OutOfMemoryError will occur.\n\nExample that will cause error:\n\n{code:title=ExtendedMessageFormatTest.java|borderStyle=solid}\n\nprivate static Map<String, Object> formatRegistry = new HashMap<String, Object>();    \n    static {\n        formatRegistry.put(DummyFormatFactory.DUMMY_FORMAT, new DummyFormatFactory());\n    }\n    \n    public static void main(String[] args) {\n        ExtendedMessageFormat mf = new ExtendedMessageFormat(\"it''s a {dummy} 'test'!\", formatRegistry);\n        String formattedPattern = mf.format(new String[] {\"great\"});\n        System.out.println(formattedPattern);\n    }\n}\n\n{code}\n\nThe following change starting at line 421 on the 2.4 release seems to fix the problem:\n\n{code:title=ExtendedMessageFormat.java|borderStyle=solid}\nCURRENT (Broken):\nif (escapingOn && c[start] == QUOTE) {\n        return appendTo == null ? null : appendTo.append(QUOTE);\n}\n\nWORKING:\nif (escapingOn && c[start] == QUOTE) {\n        next(pos);\n        return appendTo == null ? null : appendTo.append(QUOTE);\n}\n{code}",
+    "commit_message": "Fix for LANG-477 OutOfMemory with custom format registry and a pattern containing single quotes - thanks to Duncan Eley",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java",
+        "start_line": 421,
+        "end_line": 421,
+        "line_numbers": [
+          421
+        ],
+        "function_name": "appendQuotedString",
+        "class_name": "ExtendedMessageFormat",
+        "filename": "ExtendedMessageFormat.java",
+        "code_snippet": "    private StringBuffer appendQuotedString(String pattern, ParsePosition pos,\n            StringBuffer appendTo, boolean escapingOn) {\n        int start = pos.getIndex();\n        char[] c = pattern.toCharArray();\n        if (escapingOn && c[start] == QUOTE) {\n            return appendTo == null ? null : appendTo.append(QUOTE);\n        }\n        int lastHold = start;\n        for (int i = pos.getIndex(); i < pattern.length(); i++) {\n            if (escapingOn && pattern.substring(i).startsWith(ESCAPED_QUOTE)) {\n                appendTo.append(c, lastHold, pos.getIndex() - lastHold).append(\n                        QUOTE);\n                pos.setIndex(i + ESCAPED_QUOTE.length());\n                lastHold = pos.getIndex();\n                continue;\n            }\n            switch (c[pos.getIndex()]) {\n            case QUOTE:\n                next(pos);\n                return appendTo == null ? null : appendTo.append(c, lastHold,\n                        pos.getIndex() - lastHold);\n            default:\n                next(pos);\n            }\n        }\n        throw new IllegalArgumentException(\n                \"Unterminated quoted string at position \" + start);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang.text.ExtendedMessageFormatTest::testEscapedQuote_LANG_477"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java b/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\nindex 4af3955..404be49 100644\n--- a/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\n+++ b/src/java/org/apache/commons/lang/text/ExtendedMessageFormat.java\n@@ -419,7 +419,6 @@ public class ExtendedMessageFormat extends MessageFormat {\n         int start = pos.getIndex();\n         char[] c = pattern.toCharArray();\n         if (escapingOn && c[start] == QUOTE) {\n+            next(pos);\n             return appendTo == null ? null : appendTo.append(QUOTE);\n         }\n         int lastHold = start;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

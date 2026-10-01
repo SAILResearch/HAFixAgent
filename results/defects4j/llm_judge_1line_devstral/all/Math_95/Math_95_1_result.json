@@ -1,0 +1,62 @@
+{
+  "project_name": "Math",
+  "bug_id": "95",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 17:48:29",
+      "end_time": "2026-06-26 17:55:05",
+      "duration_seconds": 397,
+      "duration_human": "6m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 234669,
+      "output_tokens": 2183,
+      "total_tokens": 236852,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 234669
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/math/distribution/FDistributionImpl.java b/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\nindex e19e97aef..eae524e72 100644\n--- a/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\n+++ b/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\n@@ -144,7 +144,7 @@ public class FDistributionImpl\n         double ret;\n         double d = getDenominatorDegreesOfFreedom();\n             // use mean\n-            ret = d / (d - 2.0);\n+        ret = (d - 1.0) / (d - 2.0);\n         return ret;\n     }\n     \n"
+  },
+  "timestamp": "2026-06-26 17:55:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_95",
+    "repo_path": "/defects4j/framework/bin/temp/Math_95",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "denominatorDegreeOfFreedom in FDistribution leads to IllegalArgumentsException in UnivariateRealSolverUtils.bracket\nWe are using the FDistributionImpl from the commons.math project to do\nsome statistical calculations, namely receiving the upper and lower\nboundaries of a confidence interval. Everything is working fine and the\nresults are matching our reference calculations.\n\nHowever, the FDistribution behaves strange if a\ndenominatorDegreeOfFreedom of 2 is used, with an alpha-value of 0.95.\nThis results in an IllegalArgumentsException, stating:\n        \nInvalid endpoint parameters:  lowerBound=0.0 initial=Infinity\nupperBound=1.7976931348623157E308\n        \ncoming from\norg.apache.commons.math.analysis.UnivariateRealSolverUtils.bracket\n        \nThe problem is the 'initial' parameter to that function, wich is\nPOSITIVE_INFINITY and therefore not within the boundaries. I already\npinned down the problem to the FDistributions getInitialDomain()-method,\nwich goes like:\n\n        return getDenominatorDegreesOfFreedom() /\n                    (getDenominatorDegreesOfFreedom() - 2.0);\n        \nObviously, in case of denominatorDegreesOfFreedom == 2, this must lead\nto a division-by-zero, resulting in POSTIVE_INFINITY. The result of this\noperation is then directly passed into the\nUnivariateRealSolverUtils.bracket() - method as second argument.",
+    "commit_message": "propagated trunk changes from r699157 into branch 2.0 MATH-227.  fixed F distribution inverse CDF computation for small denominator degrees of freedom.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/math/distribution/FDistributionImpl.java",
+        "start_line": 144,
+        "end_line": 144,
+        "line_numbers": [
+          144
+        ],
+        "function_name": "getInitialDomain",
+        "class_name": "FDistributionImpl",
+        "filename": "FDistributionImpl.java",
+        "code_snippet": "    protected double getInitialDomain(double p) {\n        double ret;\n        double d = getDenominatorDegreesOfFreedom();\n            // use mean\n            ret = d / (d - 2.0);\n        return ret;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.distribution.FDistributionTest::testSmallDegreesOfFreedom"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/math/distribution/FDistributionImpl.java b/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\nindex 59aeb07..e19e97a 100644\n--- a/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\n+++ b/src/java/org/apache/commons/math/distribution/FDistributionImpl.java\n@@ -141,12 +141,10 @@ public class FDistributionImpl\n      * @return initial domain value\n      */\n     protected double getInitialDomain(double p) {\n+        double ret = 1.0;\n-        double ret;\n         double d = getDenominatorDegreesOfFreedom();\n+        if (d > 2.0) {\n             // use mean\n             ret = d / (d - 2.0);\n+        }\n         return ret;\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

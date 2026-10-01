@@ -1,0 +1,62 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_3",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 02:18:41",
+      "end_time": "2026-06-28 02:20:35",
+      "duration_seconds": 114,
+      "duration_human": "1m 54s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 454161,
+      "output_tokens": 6689,
+      "total_tokens": 460850,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 454161
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/httpclient.py b/tornado/httpclient.py\nindex d1c92a49..2f440a19 100644\n--- a/tornado/httpclient.py\n+++ b/tornado/httpclient.py\n@@ -53,7 +53,6 @@ from tornado.util import Configurable\n \n from typing import Type, Any, Union, Dict, Callable, Optional, cast\n \n-\n class HTTPClient(object):\n     \"\"\"A blocking HTTP client.\n \n@@ -109,12 +108,20 @@ class HTTPClient(object):\n         self.close()\n \n     def close(self) -> None:\n-        \"\"\"Closes the HTTPClient, freeing any resources used.\"\"\"\n-        if not self._closed:\n-            self._async_client.close()\n-            self._io_loop.close()\n-            self._closed = True\n-\n+        \"\"\"Destroys this HTTP client, freeing any file descriptors used.\n+        \n+        This method is **not needed in normal use** due to the way\n+        that `AsyncHTTPClient` objects are transparently reused.\n+        ``close()`` is generally only necessary when either the\n+        `.IOLoop` is also being closed, or the ``force_instance=True``\n+        argument was used when creating the `AsyncHTTPClient`.\n+        \n+        No other methods may be called on the `AsyncHTTPClient` after\n+        ``close()``.\n+        \n+                raise RuntimeError(\"inconsistent AsyncHTTPClient cache\")\n+            if cached_instance is not None:\n+                del self._instance_cache[self.io_loop]\n     def fetch(\n         self, request: Union[\"HTTPRequest\", str], **kwargs: Any\n     ) -> \"HTTPResponse\":\n@@ -132,7 +139,6 @@ class HTTPClient(object):\n         )\n         return response\n \n-\n class AsyncHTTPClient(Configurable):\n     \"\"\"An non-blocking HTTP client.\n \n@@ -218,25 +224,26 @@ class AsyncHTTPClient(Configurable):\n \n     def close(self) -> None:\n         \"\"\"Destroys this HTTP client, freeing any file descriptors used.\n-\n+        \n         This method is **not needed in normal use** due to the way\n         that `AsyncHTTPClient` objects are transparently reused.\n         ``close()`` is generally only necessary when either the\n         `.IOLoop` is also being closed, or the ``force_instance=True``\n         argument was used when creating the `AsyncHTTPClient`.\n-\n+        \n         No other methods may be called on the `AsyncHTTPClient` after\n         ``close()``.\n-\n+        \n         \"\"\"\n         if self._closed:\n             return\n         self._closed = True\n         if self._instance_cache is not None:\n-            if self._instance_cache.get(self.io_loop) is not self:\n+            cached_instance = self._instance_cache.get(self.io_loop)\n+            if cached_instance is not None and cached_instance is not self:\n                 raise RuntimeError(\"inconsistent AsyncHTTPClient cache\")\n-            del self._instance_cache[self.io_loop]\n-\n+            if cached_instance is not None:\n+                del self._instance_cache[self.io_loop]\n     def fetch(\n         self,\n         request: Union[str, \"HTTPRequest\"],\n@@ -326,7 +333,6 @@ class AsyncHTTPClient(Configurable):\n         \"\"\"\n         super(AsyncHTTPClient, cls).configure(impl, **kwargs)\n \n-\n class HTTPRequest(object):\n     \"\"\"HTTP client request object.\"\"\"\n \n@@ -557,7 +563,6 @@ class HTTPRequest(object):\n     def body(self, value: Union[bytes, str]) -> None:\n         self._body = utf8(value)\n \n-\n class HTTPResponse(object):\n     \"\"\"HTTP Response object.\n \n@@ -672,7 +677,6 @@ class HTTPResponse(object):\n         args = \",\".join(\"%s=%r\" % i for i in sorted(self.__dict__.items()))\n         return \"%s(%s)\" % (self.__class__.__name__, args)\n \n-\n class HTTPClientError(Exception):\n     \"\"\"Exception thrown for an unsuccessful HTTP request.\n \n@@ -711,10 +715,8 @@ class HTTPClientError(Exception):\n     # detection as cpython).\n     __repr__ = __str__\n \n-\n HTTPError = HTTPClientError\n \n-\n class _RequestProxy(object):\n     \"\"\"Combines an object with a dictionary of defaults.\n \n@@ -736,7 +738,6 @@ class _RequestProxy(object):\n         else:\n             return None\n \n-\n def main() -> None:\n     from tornado.options import define, options, parse_command_line\n \n@@ -768,6 +769,5 @@ def main() -> None:\n             print(native_str(response.body))\n     client.close()\n \n-\n if __name__ == \"__main__\":\n     main()\ndiff --git a/tornado/test/httpclient_test.py b/tornado/test/httpclient_test.py\nindex 0a732ddc..4677101c 100644\n--- a/tornado/test/httpclient_test.py\n+++ b/tornado/test/httpclient_test.py\n@@ -6,12 +6,14 @@ import copy\n import threading\n import datetime\n from io import BytesIO\n+import subprocess\n+import sys\n import time\n import typing  # noqa: F401\n import unicodedata\n import unittest\n \n-from tornado.escape import utf8, native_str\n+from tornado.escape import utf8, native_str, to_unicode\n from tornado import gen\n from tornado.httpclient import (\n     HTTPRequest,\n@@ -676,6 +678,35 @@ class SyncHTTPClientTest(unittest.TestCase):\n         self.assertEqual(assertion.exception.code, 404)\n \n \n+class SyncHTTPClientSubprocessTest(unittest.TestCase):\n+    def test_destructor_log(self):\n+        # Regression test for\n+        # https://github.com/tornadoweb/tornado/issues/2539\n+        #\n+        # In the past, the following program would log an\n+        # \"inconsistent AsyncHTTPClient cache\" error from a destructor\n+        # when the process is shutting down. The shutdown process is\n+        # subtle and I don't fully understand it; the failure does not\n+        # manifest if that lambda isn't there or is a simpler object\n+        # like an int (nor does it manifest in the tornado test suite\n+        # as a whole, which is why we use this subprocess).\n+        proc = subprocess.run(\n+            [\n+                sys.executable,\n+                \"-c\",\n+                \"from tornado.httpclient import HTTPClient; f = lambda: None; c = HTTPClient()\",\n+            ],\n+            stdout=subprocess.PIPE,\n+            stderr=subprocess.STDOUT,\n+            check=True,\n+        )\n+        if proc.stdout:\n+            print(\"STDOUT:\")\n+            print(to_unicode(proc.stdout))\n+        if proc.stdout:\n+            self.fail(\"subprocess produced unexpected output\")\n+\n+\n class HTTPRequestTestCase(unittest.TestCase):\n     def test_headers(self):\n         request = HTTPRequest(\"http://example.com\", headers={\"foo\": \"bar\"})\n"
+  },
+  "timestamp": "2026-06-28 02:20:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_3",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_3/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "httpclient: Fix warning logged by sync HTTPClient destructor",
+    "fault_locations": [
+      {
+        "file": "tornado/httpclient.py",
+        "start_line": 236,
+        "end_line": 236,
+        "function_name": "close",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/httpclient.py",
+        "start_line": 238,
+        "end_line": 238,
+        "function_name": "close",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.httpclient_test.SyncHTTPClientSubprocessTest"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

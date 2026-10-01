@@ -1,0 +1,82 @@
+{
+  "project_name": "Time",
+  "bug_id": "14",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 23:24:55",
+      "end_time": "2025-09-30 23:31:24",
+      "duration_seconds": 389,
+      "duration_human": "6m 29s"
+    },
+    "model_cost": 0.0381,
+    "model_calls": 43,
+    "token_usage": {
+      "input_tokens": 465697,
+      "output_tokens": 6045,
+      "total_tokens": 471742,
+      "cached_input_tokens": 451392,
+      "uncached_input_tokens": 14305
+    },
+    "agent_steps": 44,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java b/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\nindex afca44e6..13ed3065 100644\n--- a/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\n+++ b/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\n@@ -209,8 +209,20 @@ class BasicMonthOfYearDateTimeField extends ImpreciseDateTimeField {\n             // month is largest field and being added to, such as month-day\n         if (DateTimeUtils.isContiguous(partial)) {\n             long instant = 0L;\n-            for (int i = 0, isize = partial.size(); i < isize; i++) {\n-                instant = partial.getFieldType(i).getField(iChronology).set(instant, values[i]);\n+            // Special handling for MonthDay to preserve day semantics across month boundaries\n+            if (partial.size() == 2 && \n+                partial.getFieldType(0).equals(org.joda.time.DateTimeFieldType.monthOfYear()) &&\n+                partial.getFieldType(1).equals(org.joda.time.DateTimeFieldType.dayOfMonth())) {\n+                // For MonthDay, use a leap year as base to handle February 29 correctly\n+                int year = 2000; // known leap year\n+                int month = values[0];\n+                int day = values[1];\n+                instant = iChronology.getDateTimeMillis(year, month, day, 0, 0, 0, 0);\n+            } else {\n+                // Default behavior for other partial types\n+                for (int i = 0, isize = partial.size(); i < isize; i++) {\n+                    instant = partial.getFieldType(i).getField(iChronology).set(instant, values[i]);\n+                }\n             }\n             instant = add(instant, valueToAdd);\n             return iChronology.get(partial, instant);\n"
+  },
+  "timestamp": "2025-09-30 23:31:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Time",
+    "bug_id": "Time_14",
+    "repo_path": "/defects4j/framework/bin/temp/Time_14",
+    "github_url": "https://github.com/JodaOrg/joda-time.git",
+    "description": "#151 Unable to add days to a MonthDay set to the ISO leap date\nIt's not possible to add days to a MonthDay set to the ISO leap date (February 29th).  This is even more bizarre given the exact error message thrown.\nSample snippet:\nfinal MonthDay isoLeap = new MonthDay(DateTimeConstants.FEBRUARY, 29, ISOChronology.getInstanceUTC());\nSystem.out.println(isoLeap);\nSystem.out.println(isoLeap.plusDays(2));\n\nWhich generates the following combined console output and stack trace:  \n--02-29\nException in thread \"main\" org.joda.time.IllegalFieldValueException: Value 29 for dayOfMonth must be in the range [1,28]\n    at org.joda.time.field.FieldUtils.verifyValueBounds(FieldUtils.java:215)\n    at org.joda.time.field.PreciseDurationDateTimeField.set(PreciseDurationDateTimeField.java:78)\n    at org.joda.time.chrono.BasicMonthOfYearDateTimeField.add(BasicMonthOfYearDateTimeField.java:212)\n    at org.joda.time.field.BaseDateTimeField.add(BaseDateTimeField.java:324)\n    at org.joda.time.MonthDay.withFieldAdded(MonthDay.java:519)\n    at org.joda.time.MonthDay.minusDays(MonthDay.java:672)\n    at ext.site.time.chrono.Main.m7(Main.java:191)\n    at ext.site.time.chrono.Main.main(Main.java:27)\nThe follwing method calls and parameters also generate the same or related error:  \nisoLeap.plusMonths(1);\nisoLeap.plusMonths(-1);\nisoLeap.minusMonths(1);\nisoLeap.minusMonths(-1);\nisoLeap.minusDays(-1);\n\nHowever, the following methods work:  \nisoLeap.minusDays(1);\nisoLeap.plusDays(-1);\n\nPerforming operations on dates around the ISO leap date react as if it exists, ie:\nSystem.out.println(isoLeap.minusDays(1).plusDays(2));\n\nPrints out '--03-01' as expected.",
+    "commit_message": "Fix MonthDay add/subtract around Feb29 [3528941]",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java",
+        "start_line": 208,
+        "end_line": 208,
+        "line_numbers": [
+          208
+        ],
+        "function_name": "add",
+        "class_name": "BasicMonthOfYearDateTimeField",
+        "filename": "BasicMonthOfYearDateTimeField.java",
+        "code_snippet": "    public int[] add(ReadablePartial partial, int fieldIndex, int[] values, int valueToAdd) {\n        // overridden as superclass algorithm can't handle\n        // 2004-02-29 + 48 months -> 2008-02-29 type dates\n        if (valueToAdd == 0) {\n            return values;\n        }\n            // month is largest field and being added to, such as month-day\n        if (DateTimeUtils.isContiguous(partial)) {\n            long instant = 0L;\n            for (int i = 0, isize = partial.size(); i < isize; i++) {\n                instant = partial.getFieldType(i).getField(iChronology).set(instant, values[i]);\n            }\n            instant = add(instant, valueToAdd);\n            return iChronology.get(partial, instant);\n        } else {\n            return super.add(partial, fieldIndex, values, valueToAdd);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java",
+        "start_line": 210,
+        "end_line": 210,
+        "line_numbers": [
+          210
+        ],
+        "function_name": "add",
+        "class_name": "BasicMonthOfYearDateTimeField",
+        "filename": "BasicMonthOfYearDateTimeField.java",
+        "code_snippet": "    public int[] add(ReadablePartial partial, int fieldIndex, int[] values, int valueToAdd) {\n        // overridden as superclass algorithm can't handle\n        // 2004-02-29 + 48 months -> 2008-02-29 type dates\n        if (valueToAdd == 0) {\n            return values;\n        }\n            // month is largest field and being added to, such as month-day\n        if (DateTimeUtils.isContiguous(partial)) {\n            long instant = 0L;\n            for (int i = 0, isize = partial.size(); i < isize; i++) {\n                instant = partial.getFieldType(i).getField(iChronology).set(instant, values[i]);\n            }\n            instant = add(instant, valueToAdd);\n            return iChronology.get(partial, instant);\n        } else {\n            return super.add(partial, fieldIndex, values, valueToAdd);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.joda.time.TestMonthDay_Basics::testPlusMonths_int_negativeFromLeap",
+      "org.joda.time.TestMonthDay_Basics::testMinusDays_int_negativeFromLeap",
+      "org.joda.time.TestMonthDay_Basics::testPlusMonths_int_fromLeap",
+      "org.joda.time.TestMonthDay_Basics::testPlusMonths_int_negativeEndOfMonthAdjust",
+      "org.joda.time.TestMonthDay_Basics::testMinusMonths_int_endOfMonthAdjust",
+      "org.joda.time.TestMonthDay_Basics::testMinusMonths_int_negativeFromLeap",
+      "org.joda.time.TestMonthDay_Basics::testMinusMonths_int_fromLeap",
+      "org.joda.time.TestMonthDay_Basics::testPlusDays_int_fromLeap"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java b/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\nindex 2892a2d..afca44e 100644\n--- a/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\n+++ b/src/main/java/org/joda/time/chrono/BasicMonthOfYearDateTimeField.java\n@@ -206,12 +206,7 @@ class BasicMonthOfYearDateTimeField extends ImpreciseDateTimeField {\n         if (valueToAdd == 0) {\n             return values;\n         }\n+        if (partial.size() > 0 && partial.getFieldType(0).equals(DateTimeFieldType.monthOfYear()) && fieldIndex == 0) {\n             // month is largest field and being added to, such as month-day\n+            int curMonth0 = partial.getValue(0) - 1;\n+            int newMonth = ((curMonth0 + (valueToAdd % 12) + 12) % 12) + 1;\n+            return set(partial, 0, values, newMonth);\n+        }\n         if (DateTimeUtils.isContiguous(partial)) {\n             long instant = 0L;\n             for (int i = 0, isize = partial.size(); i < isize; i++) {",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

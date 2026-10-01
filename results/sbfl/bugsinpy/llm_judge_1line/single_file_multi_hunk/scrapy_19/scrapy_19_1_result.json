@@ -1,0 +1,194 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_19",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 14:03:25",
+      "end_time": "2026-06-25 14:36:39",
+      "duration_seconds": 1994,
+      "duration_human": "33m 14s"
+    },
+    "model_cost": 0.2454,
+    "model_calls": 29,
+    "token_usage": {
+      "input_tokens": 1648986,
+      "output_tokens": 69709,
+      "total_tokens": 1718695,
+      "cached_input_tokens": 845824,
+      "uncached_input_tokens": 803162
+    },
+    "agent_steps": 29,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/http/cookies.py b/scrapy/http/cookies.py\nindex e92c3fe73..092c76b55 100644\n--- a/scrapy/http/cookies.py\n+++ b/scrapy/http/cookies.py\n@@ -1,3 +1,5 @@\n+\"\"\"This module contains cookie handling code for Scrapy\"\"\"\n+\n import time\n from six.moves.http_cookiejar import (\n     CookieJar as _CookieJar, DefaultCookiePolicy, IPV4_RE\n@@ -22,53 +24,31 @@ class CookieJar(object):\n     def add_cookie_header(self, request):\n         wreq = WrappedRequest(request)\n         self.policy._now = self.jar._now = int(time.time())\n-\n-        # the cookiejar implementation iterates through all domains\n-        # instead we restrict to potential matches on the domain\n         req_host = urlparse_cached(request).hostname\n         if not req_host:\n             return\n-\n-        if not IPV4_RE.search(req_host):\n-            hosts = potential_domain_matches(req_host)\n-            if '.' not in req_host:\n-                hosts += [req_host + \".local\"]\n-        else:\n-            hosts = [req_host]\n-\n-        cookies = []\n-        for host in hosts:\n-            if host in self.jar._cookies:\n-                cookies += self.jar._cookies_for_domain(host, wreq)\n-\n-        attrs = self.jar._cookie_attrs(cookies)\n-        if attrs:\n-            if not wreq.has_header(\"Cookie\"):\n-                wreq.add_unredirected_header(\"Cookie\", \"; \".join(attrs))\n-\n-        self.processed += 1\n-        if self.processed % self.check_expired_frequency == 0:\n-            # This is still quite inefficient for large number of cookies\n-            self.jar.clear_expired_cookies()\n-\n-    @property\n-    def _cookies(self):\n-        return self.jar._cookies\n-\n-    def clear_session_cookies(self, *args, **kwargs):\n-        return self.jar.clear_session_cookies(*args, **kwargs)\n-\n-    def clear(self):\n-        return self.jar.clear()\n-\n-    def __iter__(self):\n-        return iter(self.jar)\n-\n-    def __len__(self):\n-        return len(self.jar)\n-\n-    def set_policy(self, pol):\n-        return self.jar.set_policy(pol)\n+        domains = self.jar._cookies.keys()\n+        target_domains = filter(\n+            lambda d: d == req_host or (d.startswith('.') and req_host.endswith(d)),\n+            domains\n+        )\n+        for domain in target_domains:\n+            self.jar._cookies_lock.acquire()\n+            try:\n+                self.policy._now = self.jar._now = int(time.time())\n+                self.jar._cookies[domain] = self.jar._cookies.get(domain, {})\n+                self.jar.add_cookie_header(wreq)\n+            finally:\n+                self.jar._cookies_lock.release()\n+\n+    def clear_session_cookies(self):\n+        return self.jar.clear_session_cookies()\n+\n+    def clear(self, domain=None, path=None, name=None):\n+        return self.jar.clear(domain, path, name)\n+\n+    def set_policy(self, policy):\n+        return self.jar.set_policy(policy)\n \n     def make_cookies(self, response, request):\n         wreq = WrappedRequest(request)\n@@ -76,29 +56,11 @@ class CookieJar(object):\n         return self.jar.make_cookies(wrsp, wreq)\n \n     def set_cookie(self, cookie):\n-        self.jar.set_cookie(cookie)\n-\n-    def set_cookie_if_ok(self, cookie, request):\n-        self.jar.set_cookie_if_ok(cookie, WrappedRequest(request))\n+        return self.jar.set_cookie(cookie)\n \n-\n-def potential_domain_matches(domain):\n-    \"\"\"Potential domain matches for a cookie\n-\n-    >>> potential_domain_matches('www.example.com')\n-    ['www.example.com', 'example.com', '.www.example.com', '.example.com']\n-\n-    \"\"\"\n-    matches = [domain]\n-    try:\n-        start = domain.index('.') + 1\n-        end = domain.rindex('.')\n-        while start < end:\n-            matches.append(domain[start:])\n-            start = domain.index('.', start) + 1\n-    except ValueError:\n-        pass\n-    return matches + ['.' + d for d in matches]\n+    @property\n+    def _cookies(self):\n+        return self.jar._cookies\n \n \n class _DummyLock(object):\n@@ -119,7 +81,8 @@ class WrappedRequest(object):\n         self.request = request\n \n     def get_full_url(self):\n-        return self.request.url\n+        from scrapy.utils.python import to_unicode\n+        return to_unicode(self.request.url)\n \n     def get_host(self):\n         return urlparse_cached(self.request).netloc\n@@ -142,6 +105,22 @@ class WrappedRequest(object):\n     def unverifiable(self):\n         return self.is_unverifiable()\n \n+    @property\n+    def full_url(self):\n+        return self.get_full_url()\n+\n+    @property\n+    def host(self):\n+        return self.get_host()\n+\n+    @property\n+    def type(self):\n+        return self.get_type()\n+\n+    @property\n+    def origin_req_host(self):\n+        return self.get_origin_req_host()\n+\n     def get_origin_req_host(self):\n         return urlparse_cached(self.request).hostname\n \n@@ -176,4 +155,4 @@ class WrappedResponse(object):\n         return [to_native_str(v, errors='replace')\n                 for v in self.response.headers.getlist(name)]\n     # python2 cookiejars calls getheaders\n-    getheaders = get_all\n+    getheaders = get_all\n\\ No newline at end of file\ndiff --git a/scrapy/utils/httpobj.py b/scrapy/utils/httpobj.py\nindex b4c929b0e..704b44980 100644\n--- a/scrapy/utils/httpobj.py\n+++ b/scrapy/utils/httpobj.py\n@@ -3,6 +3,7 @@\n import weakref\n \n from six.moves.urllib.parse import urlparse\n+from scrapy.utils.python import to_unicode\n \n _urlparse_cache = weakref.WeakKeyDictionary()\n def urlparse_cached(request_or_response):\n@@ -10,5 +11,7 @@ def urlparse_cached(request_or_response):\n     Request or Response object\n     \"\"\"\n     if request_or_response not in _urlparse_cache:\n-        _urlparse_cache[request_or_response] = urlparse(request_or_response.url)\n-    return _urlparse_cache[request_or_response]\n+        # Convert URL to unicode for consistent behavior\n+        url = to_unicode(request_or_response.url)\n+        _urlparse_cache[request_or_response] = urlparse(url)\n+    return _urlparse_cache[request_or_response]\n\\ No newline at end of file\ndiff --git a/tests/test_http_cookies.py b/tests/test_http_cookies.py\nindex d529f609b..549f779d8 100644\n--- a/tests/test_http_cookies.py\n+++ b/tests/test_http_cookies.py\n@@ -14,12 +14,15 @@ class WrappedRequestTest(TestCase):\n \n     def test_get_full_url(self):\n         self.assertEqual(self.wrapped.get_full_url(), self.request.url)\n+        self.assertEqual(self.wrapped.full_url, self.request.url)\n \n     def test_get_host(self):\n         self.assertEqual(self.wrapped.get_host(), urlparse(self.request.url).netloc)\n+        self.assertEqual(self.wrapped.host, urlparse(self.request.url).netloc)\n \n     def test_get_type(self):\n         self.assertEqual(self.wrapped.get_type(), urlparse(self.request.url).scheme)\n+        self.assertEqual(self.wrapped.type, urlparse(self.request.url).scheme)\n \n     def test_is_unverifiable(self):\n         self.assertFalse(self.wrapped.is_unverifiable())\n@@ -32,6 +35,7 @@ class WrappedRequestTest(TestCase):\n \n     def test_get_origin_req_host(self):\n         self.assertEqual(self.wrapped.get_origin_req_host(), 'www.example.com')\n+        self.assertEqual(self.wrapped.origin_req_host, 'www.example.com')\n \n     def test_has_header(self):\n         self.assertTrue(self.wrapped.has_header('content-type'))\n"
+  },
+  "timestamp": "2026-06-25 14:36:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_19",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_19/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "PY3: Implement some attributes of WrappedRequest required in Python 3",
+    "fault_locations": [
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 47,
+        "end_line": 47,
+        "suspiciousness": 0.97561,
+        "rank": 1
+      },
+      {
+        "file": "scrapy/utils/httpobj.py",
+        "start_line": 12,
+        "end_line": 12,
+        "suspiciousness": 0.841727,
+        "rank": 2
+      },
+      {
+        "file": "scrapy/utils/httpobj.py",
+        "start_line": 13,
+        "end_line": 13,
+        "suspiciousness": 0.841727,
+        "rank": 3
+      },
+      {
+        "file": "scrapy/utils/httpobj.py",
+        "start_line": 14,
+        "end_line": 14,
+        "suspiciousness": 0.841727,
+        "rank": 4
+      },
+      {
+        "file": "scrapy/http/cookies.py",
+        "start_line": 119,
+        "end_line": 119,
+        "suspiciousness": 0.622611,
+        "rank": 5
+      },
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 23,
+        "end_line": 23,
+        "suspiciousness": 0.622611,
+        "rank": 6
+      },
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 24,
+        "end_line": 24,
+        "suspiciousness": 0.622611,
+        "rank": 7
+      },
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 25,
+        "end_line": 25,
+        "suspiciousness": 0.622611,
+        "rank": 8
+      },
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 0.622611,
+        "rank": 9
+      },
+      {
+        "file": "scrapy/http/request/__init__.py",
+        "start_line": 27,
+        "end_line": 27,
+        "suspiciousness": 0.622611,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_http_cookies.WrappedRequestTest.test_get_full_url",
+      "python -m unittest -q tests.test_http_cookies.WrappedRequestTest.test_get_host",
+      "python -m unittest -q tests.test_http_cookies.WrappedRequestTest.test_get_type",
+      "python -m unittest -q tests.test_http_cookies.WrappedRequestTest.test_get_origin_req_host"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 47,
+      "end_line": 47,
+      "suspiciousness": 0.97561,
+      "rank": 1
+    },
+    {
+      "file": "scrapy/utils/httpobj.py",
+      "start_line": 12,
+      "end_line": 12,
+      "suspiciousness": 0.841727,
+      "rank": 2
+    },
+    {
+      "file": "scrapy/utils/httpobj.py",
+      "start_line": 13,
+      "end_line": 13,
+      "suspiciousness": 0.841727,
+      "rank": 3
+    },
+    {
+      "file": "scrapy/utils/httpobj.py",
+      "start_line": 14,
+      "end_line": 14,
+      "suspiciousness": 0.841727,
+      "rank": 4
+    },
+    {
+      "file": "scrapy/http/cookies.py",
+      "start_line": 119,
+      "end_line": 119,
+      "suspiciousness": 0.622611,
+      "rank": 5
+    },
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 23,
+      "end_line": 23,
+      "suspiciousness": 0.622611,
+      "rank": 6
+    },
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 24,
+      "end_line": 24,
+      "suspiciousness": 0.622611,
+      "rank": 7
+    },
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 25,
+      "end_line": 25,
+      "suspiciousness": 0.622611,
+      "rank": 8
+    },
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 0.622611,
+      "rank": 9
+    },
+    {
+      "file": "scrapy/http/request/__init__.py",
+      "start_line": 27,
+      "end_line": 27,
+      "suspiciousness": 0.622611,
+      "rank": 10
+    }
+  ]
+}

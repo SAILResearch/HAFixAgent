@@ -1,0 +1,89 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "14",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:31:07",
+      "end_time": "2026-06-26 22:31:52",
+      "duration_seconds": 44,
+      "duration_human": "44.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 279001,
+      "output_tokens": 2504,
+      "total_tokens": 281505,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 279001
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 22:31:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_14",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_14",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Unclosed title tag causes JSoup to \"eat up\" rest of document\nHi:\n\nWe've come across an issue with parsing a document with an unclosed title tag. JSoup\nseems to \"eat up\" the rest of the document in its parsing and thus no elements after\nthe unclosed tag are available after the parse.\n\nWhile this is obviously not a valid document Firefox seems to handle it OK by displaying\nthe document and saying \"Untitled document\" in its title bar.\n\nWe come across a lot of badly formed documents in our web crawls so having a fix\nfor this issue would be much appreciated. I've given some sample source below\nwhich demonstrates the bug (tested against JSoup 1.5.2).\n\nMany thanks,\n- Francis.\n\nimport org.jsoup.Jsoup;\nimport org.jsoup.nodes.Document;\nimport org.jsoup.nodes.Element;\nimport org.jsoup.select.Elements;\n\npublic class UnclosedTitleTest {\n\n```\npublic static void main(String args[]) throws Exception {\n    String html = \"<html><head><title>First parse</head>\"\n          + \"<body><p>Parsed HTML into a doc.</p></body></html>\";\n    Document doc = Jsoup.parse(html);\n\n    Elements elements = doc.select(\"p\");\n\n    for (Element element : elements) {\n        System.out.println(element.outerHtml());\n    }\n}\n```\n\n}\n\n",
+    "commit_message": "Handle  unclosed <title> tags in document by breaking out of the title at the next start tag, instead of eating up to the end of the document.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/Tokeniser.java",
+        "start_line": 196,
+        "end_line": 196,
+        "line_numbers": [
+          196
+        ],
+        "function_name": "",
+        "class_name": "Tokeniser",
+        "filename": "Tokeniser.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokeniserState.java",
+        "start_line": 217,
+        "end_line": 217,
+        "line_numbers": [
+          217
+        ],
+        "function_name": "read",
+        "class_name": "",
+        "filename": "TokeniserState.java",
+        "code_snippet": "        void read(Tokeniser t, CharacterReader r) {\n            if (r.matches('/')) {\n                t.createTempBuffer();\n                t.advanceTransition(RCDATAEndTagOpen);\n                // diverge from spec: got a start tag, but there's no appropriate end tag (</title>), so rather than\n                // consuming to EOF; break out here\n            } else {\n                t.emit(\"<\");\n                t.transition(Rcdata);\n            }\n        }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokeniserState.java",
+        "start_line": 220,
+        "end_line": 220,
+        "line_numbers": [
+          220
+        ],
+        "function_name": "read",
+        "class_name": "",
+        "filename": "TokeniserState.java",
+        "code_snippet": "        void read(Tokeniser t, CharacterReader r) {\n            if (r.matches('/')) {\n                t.createTempBuffer();\n                t.advanceTransition(RCDATAEndTagOpen);\n                // diverge from spec: got a start tag, but there's no appropriate end tag (</title>), so rather than\n                // consuming to EOF; break out here\n            } else {\n                t.emit(\"<\");\n                t.transition(Rcdata);\n            }\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.ParserTest::parsesUnterminatedTextarea",
+      "org.jsoup.parser.ParserTest::handlesUnclosedTitle"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/Tokeniser.java b/src/main/java/org/jsoup/parser/Tokeniser.java\nindex 316cbea..6d729cf 100644\n--- a/src/main/java/org/jsoup/parser/Tokeniser.java\n+++ b/src/main/java/org/jsoup/parser/Tokeniser.java\n@@ -194,9 +194,6 @@ class Tokeniser {\n         return tagPending.tagName.equals(lastStartTag.tagName);\n     }\n \n+    String appropriateEndTagName() {\n+        return lastStartTag.tagName;\n+    }\n \n     boolean isTrackErrors() {\n         return trackErrors;\ndiff --git a/src/main/java/org/jsoup/parser/TokeniserState.java b/src/main/java/org/jsoup/parser/TokeniserState.java\nindex 8774823..ca27ea0 100644\n--- a/src/main/java/org/jsoup/parser/TokeniserState.java\n+++ b/src/main/java/org/jsoup/parser/TokeniserState.java\n@@ -215,13 +215,8 @@ enum TokeniserState {\n             if (r.matches('/')) {\n                 t.createTempBuffer();\n                 t.advanceTransition(RCDATAEndTagOpen);\n+            } else if (r.matchesLetter() && !r.containsIgnoreCase(\"</\" + t.appropriateEndTagName())) {\n                 // diverge from spec: got a start tag, but there's no appropriate end tag (</title>), so rather than\n                 // consuming to EOF; break out here\n+                t.tagPending = new Token.EndTag(t.appropriateEndTagName());\n+                t.emitTagPending();\n+                r.unconsume(); // undo \"<\"\n+                t.transition(Data);\n             } else {\n                 t.emit(\"<\");\n                 t.transition(Rcdata);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

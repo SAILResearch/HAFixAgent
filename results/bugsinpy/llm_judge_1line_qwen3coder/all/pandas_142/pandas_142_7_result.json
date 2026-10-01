@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_142",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 17:28:17",
+      "end_time": "2026-06-20 17:35:16",
+      "duration_seconds": 419,
+      "duration_human": "6m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 546891,
+      "output_tokens": 3864,
+      "total_tokens": 550755,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 546891
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/algorithms.py b/pandas/core/algorithms.py\nindex 002bbcc63d..5a479667f0 100644\n--- a/pandas/core/algorithms.py\n+++ b/pandas/core/algorithms.py\n@@ -1910,6 +1910,7 @@ def diff(arr, n: int, axis: int = 0):\n     dtype = arr.dtype\n \n     is_timedelta = False\n+    is_bool = False\n     if needs_i8_conversion(arr):\n         dtype = np.float64\n         arr = arr.view(\"i8\")\n@@ -1918,6 +1919,7 @@ def diff(arr, n: int, axis: int = 0):\n \n     elif is_bool_dtype(dtype):\n         dtype = np.object_\n+        is_bool = True\n \n     elif is_integer_dtype(dtype):\n         dtype = np.float64\n@@ -1959,6 +1961,8 @@ def diff(arr, n: int, axis: int = 0):\n             result = res - lag\n             result[mask] = na\n             out_arr[res_indexer] = result\n+        elif is_bool:\n+            out_arr[res_indexer] = arr[res_indexer] ^ arr[lag_indexer]\n         else:\n             out_arr[res_indexer] = arr[res_indexer] - arr[lag_indexer]\n \ndiff --git a/pandas/tests/series/test_analytics.py b/pandas/tests/series/test_analytics.py\nindex 1ddaa4692d..08aa3ad02e 100644\n--- a/pandas/tests/series/test_analytics.py\n+++ b/pandas/tests/series/test_analytics.py\n@@ -20,6 +20,7 @@ from pandas import (\n from pandas.api.types import is_scalar\n from pandas.core.index import MultiIndex\n from pandas.core.indexes.datetimes import Timestamp\n+from pandas.core.indexes.timedeltas import TimedeltaIndex\n import pandas.util.testing as tm\n from pandas.util.testing import (\n     assert_almost_equal,\n@@ -228,7 +229,7 @@ class TestSeriesAnalytics:\n         result = s.cummax(skipna=False)\n         tm.assert_series_equal(expected, result)\n \n-    def test_npdiff(self):\n+    def test_np_diff(self):\n         pytest.skip(\"skipping due to Series no longer being an ndarray\")\n \n         # no longer works as the return type of np.diff is now nd.array\n@@ -237,6 +238,67 @@ class TestSeriesAnalytics:\n         r = np.diff(s)\n         assert_series_equal(Series([nan, 0, 0, 0, nan]), r)\n \n+    def test_int_diff(self):\n+        # int dtype\n+        a = 10000000000000000\n+        b = a + 1\n+        s = Series([a, b])\n+\n+        result = s.diff()\n+        assert result[1] == 1\n+\n+    def test_tz_diff(self):\n+        # Combined datetime diff, normal diff and boolean diff test\n+        ts = tm.makeTimeSeries(name=\"ts\")\n+        ts.diff()\n+\n+        # neg n\n+        result = ts.diff(-1)\n+        expected = ts - ts.shift(-1)\n+        assert_series_equal(result, expected)\n+\n+        # 0\n+        result = ts.diff(0)\n+        expected = ts - ts\n+        assert_series_equal(result, expected)\n+\n+        # datetime diff (GH3100)\n+        s = Series(date_range(\"20130102\", periods=5))\n+        result = s.diff()\n+        expected = s - s.shift(1)\n+        assert_series_equal(result, expected)\n+\n+        # timedelta diff\n+        result = result - result.shift(1)  # previous result\n+        expected = expected.diff()  # previously expected\n+        assert_series_equal(result, expected)\n+\n+        # with tz\n+        s = Series(\n+            date_range(\"2000-01-01 09:00:00\", periods=5, tz=\"US/Eastern\"), name=\"foo\"\n+        )\n+        result = s.diff()\n+        expected = Series(TimedeltaIndex([\"NaT\"] + [\"1 days\"] * 4), name=\"foo\")\n+        assert_series_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"input,output,diff\",\n+        [([False, True, True, False, False], [nan, True, False, True, False], 1)],\n+    )\n+    def test_bool_diff(self, input, output, diff):\n+        # boolean series (test for fixing #17294)\n+        s = Series(input)\n+        result = s.diff()\n+        expected = Series(output)\n+        assert_series_equal(result, expected)\n+\n+    def test_obj_diff(self):\n+        # object series\n+        s = Series([False, True, 5.0, nan, True, False])\n+        result = s.diff()\n+        expected = s - s.shift(1)\n+        assert_series_equal(result, expected)\n+\n     def _check_accum_op(self, name, datetime_series_, check_dtype=True):\n         func = getattr(np, name)\n         tm.assert_numpy_array_equal(\n"
+  },
+  "timestamp": "2026-06-20 17:35:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_142",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_142/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fix numpy boolean subtraction error in Series.diff (#28251)",
+    "fault_locations": [
+      {
+        "file": "pandas/tests/series/test_timeseries.py",
+        "start_line": 358,
+        "end_line": 399,
+        "function_name": "test_diff",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/series/test_analytics.py::TestSeriesAnalytics::test_bool_diff"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

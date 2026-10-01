@@ -1,0 +1,159 @@
+{
+  "project_name": "Closure",
+  "bug_id": "3",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 02:24:39",
+      "end_time": "2026-06-20 02:27:12",
+      "duration_seconds": 153,
+      "duration_human": "2m 33s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 486051,
+      "output_tokens": 3031,
+      "total_tokens": 489082,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 486051
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 02:27:12 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_3",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_3",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "optimization fails with variable in catch clause\nEnter the following in the closure service:\r\n\r\nfunction getStack() {\r\n  var getErrorObject = function() {\r\n    try {\r\n      throw Error(&quot;&quot;);\r\n    } catch(err) {\r\n      return err;\r\n    }\r\n  };\r\n  return getErrorObject().stack;\r\n}\r\nwindow['getStackTrace']=getStack;\r\n\r\nUse Optimization = Simple. Note the following result:\r\n\r\nfunction getStack() \r\n{ \r\n  try \r\n  { \r\n    throw Error(&quot;&quot;); \r\n  }\r\n  catch(a) \r\n  { \r\n  } \r\n  return a.stack \r\n} \r\nwindow.getStackTrace = getStack;\r\n\r\nThe scope of the variable a is limited to the catch clause, but the compiler references it illegally as the return value of the inlined function.",
+    "commit_message": "Special case catch expressions to work around the fact that we don't module catch block as lexical scope for the exception and it doesn't belong in the function scope. Fixes issue 864.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java",
+        "start_line": 155,
+        "end_line": 155,
+        "line_numbers": [
+          155
+        ],
+        "function_name": "enterScope",
+        "class_name": "FlowSensitiveInlineVariables",
+        "filename": "FlowSensitiveInlineVariables.java",
+        "code_snippet": "  public void enterScope(NodeTraversal t) {\n\n    if (t.inGlobalScope()) {\n      return; // Don't even brother. All global variables are likely escaped.\n    }\n\n    if (LiveVariablesAnalysis.MAX_VARIABLES_TO_ANALYZE <\n        t.getScope().getVarCount()) {\n      return;\n    }\n\n    // Compute the forward reaching definition.\n    ControlFlowAnalysis cfa = new ControlFlowAnalysis(compiler, false, true);\n    // Process the body of the function.\n    Preconditions.checkState(t.getScopeRoot().isFunction());\n    cfa.process(null, t.getScopeRoot().getLastChild());\n    cfg = cfa.getCfg();\n    reachingDef = new MustBeReachingVariableDef(cfg, t.getScope(), compiler);\n    reachingDef.analyze();\n    candidates = Lists.newLinkedList();\n\n    // Using the forward reaching definition search to find all the inline\n    // candidates\n    new NodeTraversal(compiler, new GatherCandiates()).traverse(\n        t.getScopeRoot().getLastChild());\n\n    // Compute the backward reaching use. The CFG can be reused.\n    reachingUses = new MaybeReachingVariableUse(cfg, t.getScope(), compiler);\n    reachingUses.analyze();\n    for (Candidate c : candidates) {\n      if (c.canInline()) {\n        c.inlineVariable();\n\n        // If definition c has dependencies, then inlining it may have\n        // introduced new dependencies for our other inlining candidates.\n        //\n        // MustBeReachingVariableDef uses this dependency graph in its\n        // analysis, so some of these candidates may no longer be valid.\n        // We keep track of when the variable dependency graph changed\n        // so that we can back off appropriately.\n        if (!c.defMetadata.depends.isEmpty()) {\n          inlinedNewDependencies.add(t.getScope().getVar(c.varName));\n        }\n      }\n    }\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java",
+        "start_line": 280,
+        "end_line": 280,
+        "line_numbers": [
+          280
+        ],
+        "function_name": "canInline",
+        "class_name": "Candidate",
+        "filename": "FlowSensitiveInlineVariables.java",
+        "code_snippet": "    private boolean canInline() {\n      // Cannot inline a parameter.\n      if (getDefCfgNode().isFunction()) {\n        return false;\n      }\n\n      // If one of our dependencies has been inlined, then our dependency\n      // graph is wrong. Re-computing it would take another CFG computation,\n      // so we just back off for now.\n      for (Var dependency : defMetadata.depends) {\n        if (inlinedNewDependencies.contains(dependency)) {\n          return false;\n        }\n      }\n\n      getDefinition(getDefCfgNode(), null);\n      getNumUseInUseCfgNode(useCfgNode, null);\n\n      // Definition was not found.\n      if (def == null) {\n        return false;\n      }\n\n      // Check that the assignment isn't used as a R-Value.\n      // TODO(user): Certain cases we can still inline.\n      if (def.isAssign() && !NodeUtil.isExprAssign(def.getParent())) {\n        return false;\n      }\n\n      // The right of the definition has side effect:\n      // Example, for x:\n      // x = readProp(b), modifyProp(b); print(x);\n      if (checkRightOf(def, getDefCfgNode(), SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n      // Similar check as the above but this time, all the sub-expressions\n      // left of the use of the variable.\n      // x = readProp(b); modifyProp(b), print(x);\n      if (checkLeftOf(use, useCfgNode, SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n      // TODO(user): Side-effect is OK sometimes. As long as there are no\n      // side-effect function down all paths to the use. Once we have all the\n      // side-effect analysis tool.\n      if (NodeUtil.mayHaveSideEffects(def.getLastChild(), compiler)) {\n        return false;\n      }\n\n      // TODO(user): We could inline all the uses if the expression is short.\n\n      // Finally we have to make sure that there are no more than one use\n      // in the program and in the CFG node. Even when it is semantically\n      // correctly inlining twice increases code size.\n      if (numUseWithinUseCfgNode != 1) {\n        return false;\n      }\n\n      // Make sure that the name is not within a loop\n      if (NodeUtil.isWithinLoop(use)) {\n        return false;\n      }\n\n\n      Collection<Node> uses = reachingUses.getUses(varName, getDefCfgNode());\n\n      if (uses.size() != 1) {\n        return false;\n      }\n\n      // We give up inlining stuff with R-Value that has:\n      // 1) GETPROP, GETELEM,\n      // 2) anything that creates a new object.\n      // 3) a direct reference to a catch expression.\n      // Example:\n      // var x = a.b.c; j.c = 1; print(x);\n      // Inlining print(a.b.c) is not safe consider j and be alias to a.b.\n      // TODO(user): We could get more accuracy by looking more in-detail\n      // what j is and what x is trying to into to.\n      // TODO(johnlenz): rework catch expression handling when we\n      // have lexical scope support so catch expressions don't\n      // need to be special cased.\n      if (NodeUtil.has(def.getLastChild(),\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                switch (input.getType()) {\n                  case Token.GETELEM:\n                  case Token.GETPROP:\n                  case Token.ARRAYLIT:\n                  case Token.OBJECTLIT:\n                  case Token.REGEXP:\n                  case Token.NEW:\n                    return true;\n                }\n                return false;\n              }\n          },\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                // Recurse if the node is not a function.\n                return !input.isFunction();\n              }\n          })) {\n        return false;\n      }\n\n      // We can skip the side effect check along the paths of two nodes if\n      // they are just next to each other.\n      if (NodeUtil.isStatementBlock(getDefCfgNode().getParent()) &&\n          getDefCfgNode().getNext() != useCfgNode) {\n        // Similar side effect check as above but this time the side effect is\n        // else where along the path.\n        // x = readProp(b); while(modifyProp(b)) {}; print(x);\n        CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>\n          pathCheck = new CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>(\n                 cfg,\n                 cfg.getDirectedGraphNode(getDefCfgNode()),\n                 cfg.getDirectedGraphNode(useCfgNode),\n                 SIDE_EFFECT_PREDICATE,\n                 Predicates.\n                     <DiGraphEdge<Node, ControlFlowGraph.Branch>>alwaysTrue(),\n                 false);\n        if (pathCheck.somePathsSatisfyPredicate()) {\n          return false;\n        }\n      }\n\n      return true;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testDoNotInlineCatchExpression1a",
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testDoNotInlineCatchExpression1",
+      "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testDoNotInlineCatchExpression3"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\nindex c46ee7d..a77221a 100644\n--- a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n+++ b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n@@ -152,7 +152,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n     reachingUses = new MaybeReachingVariableUse(cfg, t.getScope(), compiler);\n     reachingUses.analyze();\n     for (Candidate c : candidates) {\n+      if (c.canInline(t.getScope())) {\n-      if (c.canInline()) {\n         c.inlineVariable();\n \n         // If definition c has dependencies, then inlining it may have\n@@ -277,7 +277,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n       return defMetadata.node;\n     }\n \n+    private boolean canInline(final Scope scope) {\n-    private boolean canInline() {\n       // Cannot inline a parameter.\n       if (getDefCfgNode().isFunction()) {\n         return false;\n@@ -372,12 +372,6 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n                   case Token.REGEXP:\n                   case Token.NEW:\n                     return true;\n+                  case Token.NAME:\n+                    Var var = scope.getOwnSlot(input.getString());\n+                    if (var != null\n+                        && var.getParentNode().isCatch()) {\n+                      return true;\n+                    }\n                 }\n                 return false;\n               }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "nicksantos@google.com",
+        "commit_date": "2012-07-19 14:28:32",
+        "commit_message": "Fix a bug where the dependency graph between variables was",
+        "commit_hash": "bc3e3a494c406098064ee63487f9bfafcf3354f3"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "getDefCfgNode",
+          "canInline"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "getDef",
+          "getDefNode",
+          "getDefCfgNode",
+          "canInline",
+          "dependsOnOuterScopeVars"
+        ],
+        "functions_name_modified_file": [
+          "apply",
+          "getNumUseInUseCfgNode",
+          "exitScope",
+          "GatherCandiates",
+          "canInline",
+          "getDefCfgNode",
+          "inlineVariable",
+          "checkRightOf",
+          "enterScope",
+          "checkLeftOf",
+          "Candidate",
+          "FlowSensitiveInlineVariables",
+          "visit",
+          "getDefinition",
+          "process"
+        ],
+        "functions_name_all_files": [
+          "Definition",
+          "getDefNode",
+          "getDefCfgNode",
+          "equals",
+          "isForward",
+          "checkRightOf",
+          "Candidate",
+          "visit",
+          "getDef",
+          "inlineVariable",
+          "computeMustDef",
+          "enterScope",
+          "computeDependence",
+          "getDefinition",
+          "flowThrough",
+          "exitScope",
+          "MustDef",
+          "MustBeReachingVariableDef",
+          "canInline",
+          "checkLeftOf",
+          "isParameter",
+          "FlowSensitiveInlineVariables",
+          "process",
+          "apply",
+          "createEntryLattice",
+          "addToDefIfLocal",
+          "escapeParameters",
+          "GatherCandiates",
+          "createInitialEstimateLattice",
+          "getNumUseInUseCfgNode",
+          "dependsOnOuterScopeVars"
+        ],
+        "function_code_before": "    private boolean canInline() {\n\n      // Cannot inline a parameter.\n      if (defCfgNode.isFunction()) {\n        return false;\n      }\n\n      getDefinition(defCfgNode, null);\n      getNumUseInUseCfgNode(useCfgNode, null);\n\n      // Definition was not found.\n      if (def == null) {\n        return false;\n      }\n\n      // Check that the assignment isn't used as a R-Value.\n      // TODO(user): Certain cases we can still inline.\n      if (def.isAssign() && !NodeUtil.isExprAssign(def.getParent())) {\n        return false;\n      }\n\n\n      // The right of the definition has side effect:\n      // Example, for x:\n      // x = readProp(b), modifyProp(b); print(x);\n      if (checkRightOf(def, defCfgNode, SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n      // Similar check as the above but this time, all the sub-expressions\n      // left of the use of the variable.\n      // x = readProp(b); modifyProp(b), print(x);\n      if (checkLeftOf(use, useCfgNode, SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n\n      // TODO(user): Side-effect is OK sometimes. As long as there are no\n      // side-effect function down all paths to the use. Once we have all the\n      // side-effect analysis tool.\n      if (NodeUtil.mayHaveSideEffects(def.getLastChild())) {\n        return false;\n      }\n\n      // TODO(user): We could inline all the uses if the expression is short.\n\n      // Finally we have to make sure that there are no more than one use\n      // in the program and in the CFG node. Even when it is semantically\n      // correctly inlining twice increases code size.\n      if (numUseWithinUseCfgNode != 1) {\n        return false;\n      }\n\n      // Make sure that the name is not within a loop\n      if (NodeUtil.isWithinLoop(use)) {\n        return false;\n      }\n\n\n      Collection<Node> uses = reachingUses.getUses(varName, defCfgNode);\n\n      if (uses.size() != 1) {\n        return false;\n      }\n\n      // We give up inlining stuff with R-Value that has GETPROP, GETELEM,\n      // or anything that creates a new object.\n      // Example:\n      // var x = a.b.c; j.c = 1; print(x);\n      // Inlining print(a.b.c) is not safe consider j and be alias to a.b.\n      // TODO(user): We could get more accuracy by looking more in-detail\n      // what j is and what x is trying to into to.\n      if (NodeUtil.has(def.getLastChild(),\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                switch (input.getType()) {\n                  case Token.GETELEM:\n                  case Token.GETPROP:\n                  case Token.ARRAYLIT:\n                  case Token.OBJECTLIT:\n                  case Token.REGEXP:\n                  case Token.NEW:\n                    return true;\n                }\n                return false;\n              }\n          },\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                // Recurse if the node is not a function.\n                return !input.isFunction();\n              }\n          })) {\n        return false;\n      }\n\n      // We can skip the side effect check along the paths of two nodes if\n      // they are just next to each other.\n      if (NodeUtil.isStatementBlock(defCfgNode.getParent()) &&\n          defCfgNode.getNext() != useCfgNode) {\n        // Similar side effect check as above but this time the side effect is\n        // else where along the path.\n        // x = readProp(b); while(modifyProp(b)) {}; print(x);\n        CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>\n          pathCheck = new CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>(\n                 cfg,\n                 cfg.getDirectedGraphNode(defCfgNode),\n                 cfg.getDirectedGraphNode(useCfgNode),\n                 SIDE_EFFECT_PREDICATE,\n                 Predicates.\n                     <DiGraphEdge<Node, ControlFlowGraph.Branch>>alwaysTrue(),\n                 false);\n        if (pathCheck.somePathsSatisfyPredicate()) {\n          return false;\n        }\n      }\n\n      return true;\n    }",
+        "function_code_after": "    private boolean canInline() {\n      // Cannot inline a parameter.\n      if (getDefCfgNode().isFunction()) {\n        return false;\n      }\n\n      // If one of our dependencies has been inlined, then our dependency\n      // graph is wrong. Re-computing it would take another CFG computation,\n      // so we just back off for now.\n      for (Var dependency : defMetadata.depends) {\n        if (inlinedNewDependencies.contains(dependency)) {\n          return false;\n        }\n      }\n\n      getDefinition(getDefCfgNode(), null);\n      getNumUseInUseCfgNode(useCfgNode, null);\n\n      // Definition was not found.\n      if (def == null) {\n        return false;\n      }\n\n      // Check that the assignment isn't used as a R-Value.\n      // TODO(user): Certain cases we can still inline.\n      if (def.isAssign() && !NodeUtil.isExprAssign(def.getParent())) {\n        return false;\n      }\n\n      // The right of the definition has side effect:\n      // Example, for x:\n      // x = readProp(b), modifyProp(b); print(x);\n      if (checkRightOf(def, getDefCfgNode(), SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n      // Similar check as the above but this time, all the sub-expressions\n      // left of the use of the variable.\n      // x = readProp(b); modifyProp(b), print(x);\n      if (checkLeftOf(use, useCfgNode, SIDE_EFFECT_PREDICATE)) {\n        return false;\n      }\n\n      // TODO(user): Side-effect is OK sometimes. As long as there are no\n      // side-effect function down all paths to the use. Once we have all the\n      // side-effect analysis tool.\n      if (NodeUtil.mayHaveSideEffects(def.getLastChild())) {\n        return false;\n      }\n\n      // TODO(user): We could inline all the uses if the expression is short.\n\n      // Finally we have to make sure that there are no more than one use\n      // in the program and in the CFG node. Even when it is semantically\n      // correctly inlining twice increases code size.\n      if (numUseWithinUseCfgNode != 1) {\n        return false;\n      }\n\n      // Make sure that the name is not within a loop\n      if (NodeUtil.isWithinLoop(use)) {\n        return false;\n      }\n\n\n      Collection<Node> uses = reachingUses.getUses(varName, getDefCfgNode());\n\n      if (uses.size() != 1) {\n        return false;\n      }\n\n      // We give up inlining stuff with R-Value that has GETPROP, GETELEM,\n      // or anything that creates a new object.\n      // Example:\n      // var x = a.b.c; j.c = 1; print(x);\n      // Inlining print(a.b.c) is not safe consider j and be alias to a.b.\n      // TODO(user): We could get more accuracy by looking more in-detail\n      // what j is and what x is trying to into to.\n      if (NodeUtil.has(def.getLastChild(),\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                switch (input.getType()) {\n                  case Token.GETELEM:\n                  case Token.GETPROP:\n                  case Token.ARRAYLIT:\n                  case Token.OBJECTLIT:\n                  case Token.REGEXP:\n                  case Token.NEW:\n                    return true;\n                }\n                return false;\n              }\n          },\n          new Predicate<Node>() {\n              @Override\n              public boolean apply(Node input) {\n                // Recurse if the node is not a function.\n                return !input.isFunction();\n              }\n          })) {\n        return false;\n      }\n\n      // We can skip the side effect check along the paths of two nodes if\n      // they are just next to each other.\n      if (NodeUtil.isStatementBlock(getDefCfgNode().getParent()) &&\n          getDefCfgNode().getNext() != useCfgNode) {\n        // Similar side effect check as above but this time the side effect is\n        // else where along the path.\n        // x = readProp(b); while(modifyProp(b)) {}; print(x);\n        CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>\n          pathCheck = new CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>(\n                 cfg,\n                 cfg.getDirectedGraphNode(getDefCfgNode()),\n                 cfg.getDirectedGraphNode(useCfgNode),\n                 SIDE_EFFECT_PREDICATE,\n                 Predicates.\n                     <DiGraphEdge<Node, ControlFlowGraph.Branch>>alwaysTrue(),\n                 false);\n        if (pathCheck.somePathsSatisfyPredicate()) {\n          return false;\n        }\n      }\n\n      return true;\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java",
+          "src/com/google/javascript/jscomp/MustBeReachingVariableDef.java"
+        ],
+        "file_patches": {
+          "src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java": "diff --git a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\nindex 20196bf79..d1836e6a0 100644\n--- a/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n+++ b/src/com/google/javascript/jscomp/FlowSensitiveInlineVariables.java\n@@ -20,13 +20,16 @@ import com.google.common.base.Preconditions;\n import com.google.common.base.Predicate;\n import com.google.common.base.Predicates;\n import com.google.common.collect.Lists;\n+import com.google.common.collect.Sets;\n import com.google.javascript.jscomp.ControlFlowGraph.AbstractCfgNodeTraversalCallback;\n import com.google.javascript.jscomp.ControlFlowGraph.Branch;\n import com.google.javascript.jscomp.DataFlowAnalysis.FlowState;\n+import com.google.javascript.jscomp.MustBeReachingVariableDef.Definition;\n import com.google.javascript.jscomp.MustBeReachingVariableDef.MustDef;\n import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;\n import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;\n import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;\n+import com.google.javascript.jscomp.Scope.Var;\n import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;\n import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;\n import com.google.javascript.rhino.Node;\n@@ -34,6 +37,7 @@ import com.google.javascript.rhino.Token;\n \n import java.util.Collection;\n import java.util.List;\n+import java.util.Set;\n \n /**\n  * Inline variables when possible. Using the information from\n@@ -70,6 +74,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n    * need two separate dataflow result.\n    */\n   private final AbstractCompiler compiler;\n+  private final Set<Var> inlinedNewDependencies = Sets.newHashSet();\n \n   // These two pieces of data is persistent in the whole execution of enter\n   // scope.\n@@ -149,6 +154,17 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n     for (Candidate c : candidates) {\n       if (c.canInline()) {\n         c.inlineVariable();\n+\n+        // If definition c has dependencies, then inlining it may have\n+        // introduced new dependencies for our other inlining candidates.\n+        //\n+        // MustBeReachingVariableDef uses this dependency graph in its\n+        // analysis, so some of these candidates may no longer be valid.\n+        // We keep track of when the variable dependency graph changed\n+        // so that we can back off appropriately.\n+        if (!c.defMetadata.depends.isEmpty()) {\n+          inlinedNewDependencies.add(t.getScope().getVar(c.varName));\n+        }\n       }\n     }\n   }\n@@ -213,12 +229,12 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n               return;\n             }\n \n-            Node defNode = reachingDef.getDef(name, cfgNode);\n+            Definition def = reachingDef.getDef(name, cfgNode);\n             // TODO(nicksantos): We need to add some notion of @const outer\n             // scope vars. We can inline those just fine.\n-            if (defNode != null &&\n-                !reachingDef.dependsOnOuterScopeVars(name, cfgNode)) {\n-              candidates.add(new Candidate(name, defNode, n, cfgNode));\n+            if (def != null &&\n+                !reachingDef.dependsOnOuterScopeVars(def)) {\n+              candidates.add(new Candidate(name, def, n, cfgNode));\n             }\n           }\n         }\n@@ -238,7 +254,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n \n     // Nodes related to the definition.\n     private Node def;\n-    private final Node defCfgNode;\n+    private final Definition defMetadata;\n \n     // Nodes related to the use.\n     private final Node use;\n@@ -248,22 +264,35 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n     // use in the CFG.\n     private int numUseWithinUseCfgNode;\n \n-    Candidate(String varName, Node defCfgNode, Node use, Node useCfgNode) {\n+    Candidate(String varName, Definition defMetadata,\n+        Node use, Node useCfgNode) {\n       Preconditions.checkArgument(use.isName());\n       this.varName = varName;\n-      this.defCfgNode = defCfgNode;\n+      this.defMetadata = defMetadata;\n       this.use = use;\n       this.useCfgNode = useCfgNode;\n     }\n \n-    private boolean canInline() {\n+    private Node getDefCfgNode() {\n+      return defMetadata.node;\n+    }\n \n+    private boolean canInline() {\n       // Cannot inline a parameter.\n-      if (defCfgNode.isFunction()) {\n+      if (getDefCfgNode().isFunction()) {\n         return false;\n       }\n \n-      getDefinition(defCfgNode, null);\n+      // If one of our dependencies has been inlined, then our dependency\n+      // graph is wrong. Re-computing it would take another CFG computation,\n+      // so we just back off for now.\n+      for (Var dependency : defMetadata.depends) {\n+        if (inlinedNewDependencies.contains(dependency)) {\n+          return false;\n+        }\n+      }\n+\n+      getDefinition(getDefCfgNode(), null);\n       getNumUseInUseCfgNode(useCfgNode, null);\n \n       // Definition was not found.\n@@ -277,11 +306,10 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n         return false;\n       }\n \n-\n       // The right of the definition has side effect:\n       // Example, for x:\n       // x = readProp(b), modifyProp(b); print(x);\n-      if (checkRightOf(def, defCfgNode, SIDE_EFFECT_PREDICATE)) {\n+      if (checkRightOf(def, getDefCfgNode(), SIDE_EFFECT_PREDICATE)) {\n         return false;\n       }\n \n@@ -292,7 +320,6 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n         return false;\n       }\n \n-\n       // TODO(user): Side-effect is OK sometimes. As long as there are no\n       // side-effect function down all paths to the use. Once we have all the\n       // side-effect analysis tool.\n@@ -315,7 +342,7 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n       }\n \n \n-      Collection<Node> uses = reachingUses.getUses(varName, defCfgNode);\n+      Collection<Node> uses = reachingUses.getUses(varName, getDefCfgNode());\n \n       if (uses.size() != 1) {\n         return false;\n@@ -356,15 +383,15 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback\n \n       // We can skip the side effect check along the paths of two nodes if\n       // they are just next to each other.\n-      if (NodeUtil.isStatementBlock(defCfgNode.getParent()) &&\n-          defCfgNode.getNext() != useCfgNode) {\n+      if (NodeUtil.isStatementBlock(getDefCfgNode().getParent()) &&\n+          getDefCfgNode().getNext() != useCfgNode) {\n         // Similar side effect check as above but this time the side effect is\n         // else where along the path.\n         // x = readProp(b); while(modifyProp(b)) {}; print(x);\n         CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>\n           pathCheck = new CheckPathsBetweenNodes<Node, ControlFlowGraph.Branch>(\n                  cfg,\n-                 cfg.getDirectedGraphNode(defCfgNode),\n+                 cfg.getDirectedGraphNode(getDefCfgNode()),\n                  cfg.getDirectedGraphNode(useCfgNode),\n                  SIDE_EFFECT_PREDICATE,\n                  Predicates."
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

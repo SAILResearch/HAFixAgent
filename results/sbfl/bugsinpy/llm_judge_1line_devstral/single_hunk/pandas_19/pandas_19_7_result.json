@@ -1,0 +1,195 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_19",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 20:35:43",
+      "end_time": "2026-06-30 20:37:08",
+      "duration_seconds": 85,
+      "duration_human": "1m 25s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 659364,
+      "output_tokens": 3927,
+      "total_tokens": 663291,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 659364
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/multi.py b/pandas/core/indexes/multi.py\nindex 86110433b3..ccb303fa59 100644\n--- a/pandas/core/indexes/multi.py\n+++ b/pandas/core/indexes/multi.py\n@@ -2070,6 +2070,7 @@ class MultiIndex(Index):\n                     msg = f\"unsupported indexer of type {type(loc)}\"\n                     raise AssertionError(msg)\n             except KeyError:\n+        raise\n                 if errors != \"ignore\":\n                     raise\n \n@@ -2930,6 +2931,7 @@ class MultiIndex(Index):\n                     stop = len(level_index) - 1\n                 step = key.step\n             except KeyError:\n+        raise\n \n                 # we have a partial slice (like looking up a partial date\n                 # string)\n@@ -3066,6 +3068,7 @@ class MultiIndex(Index):\n                         )\n                         indexers = idxrs if indexers is None else indexers | idxrs\n                     except KeyError:\n+        raise\n \n                         # ignore not founds\n                         continue\ndiff --git a/pandas/tests/indexing/multiindex/test_loc.py b/pandas/tests/indexing/multiindex/test_loc.py\nindex b7802d9b8f..f0cbdbe8d0 100644\n--- a/pandas/tests/indexing/multiindex/test_loc.py\n+++ b/pandas/tests/indexing/multiindex/test_loc.py\n@@ -134,16 +134,15 @@ class TestMultiIndexLoc:\n \n     @pytest.mark.parametrize(\"key, pos\", [([2, 4], [0, 1]), ([2], []), ([2, 3], [])])\n     def test_loc_multiindex_list_missing_label(self, key, pos):\n-        # GH 27148 - lists with missing labels do not raise:\n+        # GH 27148 - lists with missing labels _do_ raise\n         df = DataFrame(\n             np.random.randn(3, 3),\n             columns=[[2, 2, 4], [6, 8, 10]],\n             index=[[4, 4, 8], [8, 10, 12]],\n         )\n \n-        expected = df.iloc[pos]\n-        result = df.loc[key]\n-        tm.assert_frame_equal(result, expected)\n+        with pytest.raises(KeyError, match=\"not in index\"):\n+            df.loc[key]\n \n     def test_loc_multiindex_too_many_dims_raises(self):\n         # GH 14885\n@@ -295,8 +294,8 @@ class TestMultiIndexLoc:\n     [\n         ([], []),  # empty ok\n         ([\"A\"], slice(3)),\n-        ([\"A\", \"D\"], slice(3)),\n-        ([\"D\", \"E\"], []),  # no values found - fine\n+        ([\"A\", \"D\"], []),  # \"D\" isnt present -> raise\n+        ([\"D\", \"E\"], []),  # no values found -> raise\n         ([\"D\"], []),  # same, with single item list: GH 27148\n         (pd.IndexSlice[:, [\"foo\"]], slice(2, None, 3)),\n         (pd.IndexSlice[:, [\"foo\", \"bah\"]], slice(2, None, 3)),\n@@ -310,8 +309,13 @@ def test_loc_getitem_duplicates_multiindex_missing_indexers(indexer, pos):\n     )\n     s = Series(np.arange(9, dtype=\"int64\"), index=idx).sort_index()\n     expected = s.iloc[pos]\n-    result = s.loc[indexer]\n-    tm.assert_series_equal(result, expected)\n+\n+    if expected.size == 0 and indexer != []:\n+        with pytest.raises(KeyError, match=str(indexer)):\n+            s.loc[indexer]\n+    else:\n+        result = s.loc[indexer]\n+        tm.assert_series_equal(result, expected)\n \n \n def test_series_loc_getitem_fancy(multiindex_year_month_day_dataframe_random_data):\ndiff --git a/pandas/tests/indexing/multiindex/test_slice.py b/pandas/tests/indexing/multiindex/test_slice.py\nindex f367a92d0b..532bb4f2e6 100644\n--- a/pandas/tests/indexing/multiindex/test_slice.py\n+++ b/pandas/tests/indexing/multiindex/test_slice.py\n@@ -118,11 +118,11 @@ class TestMultiIndexSlicers:\n         with pytest.raises(ValueError, match=msg):\n             df.loc[(slice(None), np.array([True, False])), :]\n \n-        # ambiguous notation\n-        # this is interpreted as slicing on both axes (GH #16396)\n-        result = df.loc[slice(None), [1]]\n-        expected = df.iloc[:, []]\n-        tm.assert_frame_equal(result, expected)\n+        with pytest.raises(KeyError, match=r\"\\[1\\] not in index\"):\n+            # slice(None) is on the index, [1] is on the columns, but 1 is\n+            #  not in the columns, so we raise\n+            #  This used to treat [1] as positional GH#16396\n+            df.loc[slice(None), [1]]\n \n         result = df.loc[(slice(None), [1]), :]\n         expected = df.iloc[[0, 3]]\ndiff --git a/pandas/tests/series/indexing/test_getitem.py b/pandas/tests/series/indexing/test_getitem.py\nindex 9ce31f5f6d..164c63483f 100644\n--- a/pandas/tests/series/indexing/test_getitem.py\n+++ b/pandas/tests/series/indexing/test_getitem.py\n@@ -114,6 +114,19 @@ class TestSeriesGetitemListLike:\n         result = ser[key]\n         tm.assert_series_equal(result, expected)\n \n+    @pytest.mark.parametrize(\"box\", [list, np.array, pd.Index])\n+    @pytest.mark.parametrize(\"dtype\", [np.int64, np.float64, np.uint64])\n+    def test_getitem_intlist_multiindex_numeric_level(self, dtype, box):\n+        # GH#33404 do _not_ fall back to positional since ints are ambiguous\n+        idx = pd.Index(range(4)).astype(dtype)\n+        dti = date_range(\"2000-01-03\", periods=3)\n+        mi = pd.MultiIndex.from_product([idx, dti])\n+        ser = Series(range(len(mi))[::-1], index=mi)\n+\n+        key = box([5])\n+        with pytest.raises(KeyError, match=\"5\"):\n+            ser[key]\n+\n \n def test_getitem_generator(string_series):\n     gen = (x > 0 for x in string_series)\n"
+  },
+  "timestamp": "2026-06-30 20:37:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_19",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_19/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Series[listlike_of_ints] incorrect on MultiIndex (#33539)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 3068,
+        "end_line": 3068,
+        "suspiciousness": 0.911751,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 3071,
+        "end_line": 3071,
+        "suspiciousness": 0.911751,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 1114,
+        "end_line": 1114,
+        "suspiciousness": 0.764724,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 1112,
+        "end_line": 1112,
+        "suspiciousness": 0.729569,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 1111,
+        "end_line": 1111,
+        "suspiciousness": 0.698871,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 2839,
+        "end_line": 2839,
+        "suspiciousness": 0.67176,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 3077,
+        "end_line": 3077,
+        "suspiciousness": 0.655738,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 2838,
+        "end_line": 2838,
+        "suspiciousness": 0.647588,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 868,
+        "end_line": 868,
+        "suspiciousness": 0.517727,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 870,
+        "end_line": 870,
+        "suspiciousness": 0.517727,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/multiindex/test_loc.py::TestMultiIndexLoc::test_loc_multiindex_list_missing_label",
+      "pytest pandas/tests/indexing/multiindex/test_slice.py::TestMultiIndexSlicers::test_per_axis_per_level_getitem",
+      "pytest pandas/tests/series/indexing/test_getitem.py::TestSeriesGetitemListLike::test_getitem_intlist_multiindex_numeric_level"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/indexes/multi.py",
+      "start_line": 3068,
+      "end_line": 3068,
+      "suspiciousness": 0.911751,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/indexes/multi.py",
+      "start_line": 3071,
+      "end_line": 3071,
+      "suspiciousness": 0.911751,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 1114,
+      "end_line": 1114,
+      "suspiciousness": 0.764724,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 1112,
+      "end_line": 1112,
+      "suspiciousness": 0.729569,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 1111,
+      "end_line": 1111,
+      "suspiciousness": 0.698871,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 2839,
+      "end_line": 2839,
+      "suspiciousness": 0.67176,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/indexes/multi.py",
+      "start_line": 3077,
+      "end_line": 3077,
+      "suspiciousness": 0.655738,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 2838,
+      "end_line": 2838,
+      "suspiciousness": 0.647588,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 868,
+      "end_line": 868,
+      "suspiciousness": 0.517727,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 870,
+      "end_line": 870,
+      "suspiciousness": 0.517727,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_63",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 19:28:49",
+      "end_time": "2026-06-29 19:32:57",
+      "duration_seconds": 248,
+      "duration_human": "4m 8s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 582436,
+      "output_tokens": 5815,
+      "total_tokens": 588251,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 582436
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexing.py b/pandas/core/indexing.py\nindex 3e468fb567..f5817693b8 100755\n--- a/pandas/core/indexing.py\n+++ b/pandas/core/indexing.py\n@@ -2096,10 +2096,13 @@ class _AtIndexer(_ScalarAccessIndexer):\n                     )\n             else:\n                 if is_integer(i) and not (ax.holds_integer() or ax.is_floating()):\n-                    raise ValueError(\n-                        \"At based indexing on an non-integer \"\n-                        \"index can only have non-integer \"\n-                        \"indexers\"\n+                    raise TypeError(\n+                        \"cannot do label indexing on {ax} with these \"\n+                        \"indexers [{i}] of {type_i}\".format(\n+                            ax=type(ax),\n+                            i=i,\n+                            type_i=type(i)\n+                        )\n                     )\n         return key\n \ndiff --git a/pandas/tests/indexing/test_scalar.py b/pandas/tests/indexing/test_scalar.py\nindex 9e6446ebc8..312a0c6531 100644\n--- a/pandas/tests/indexing/test_scalar.py\n+++ b/pandas/tests/indexing/test_scalar.py\n@@ -129,38 +129,79 @@ class TestScalar2:\n         result = df.iat[2, 0]\n         assert result == 2\n \n-    def test_at_to_fail(self):\n+    def test_series_at_raises_type_error(self):\n         # at should not fallback\n         # GH 7814\n-        s = Series([1, 2, 3], index=list(\"abc\"))\n-        result = s.at[\"a\"]\n+        # GH#31724 .at should match .loc\n+        ser = Series([1, 2, 3], index=list(\"abc\"))\n+        result = ser.at[\"a\"]\n         assert result == 1\n+        result = ser.loc[\"a\"]\n+        assert result == 1\n+\n         msg = (\n-            \"At based indexing on an non-integer index can only have \"\n-            \"non-integer indexers\"\n+            \"cannot do label indexing on <class 'pandas.core.indexes.base.Index'> \"\n+            r\"with these indexers \\[0\\] of <class 'int'>\"\n         )\n-        with pytest.raises(ValueError, match=msg):\n-            s.at[0]\n+        with pytest.raises(TypeError, match=msg):\n+            ser.at[0]\n+        with pytest.raises(TypeError, match=msg):\n+            ser.loc[0]\n \n+    def test_frame_raises_type_error(self):\n+        # GH#31724 .at should match .loc\n         df = DataFrame({\"A\": [1, 2, 3]}, index=list(\"abc\"))\n         result = df.at[\"a\", \"A\"]\n         assert result == 1\n-        with pytest.raises(ValueError, match=msg):\n+        result = df.loc[\"a\", \"A\"]\n+        assert result == 1\n+\n+        msg = (\n+            \"cannot do label indexing on <class 'pandas.core.indexes.base.Index'> \"\n+            r\"with these indexers \\[0\\] of <class 'int'>\"\n+        )\n+        with pytest.raises(TypeError, match=msg):\n             df.at[\"a\", 0]\n+        with pytest.raises(TypeError, match=msg):\n+            df.loc[\"a\", 0]\n+\n+    def test_series_at_raises_key_error(self):\n+        # GH#31724 .at should match .loc\n \n-        s = Series([1, 2, 3], index=[3, 2, 1])\n-        result = s.at[1]\n+        ser = Series([1, 2, 3], index=[3, 2, 1])\n+        result = ser.at[1]\n         assert result == 3\n-        msg = \"At based indexing on an integer index can only have integer indexers\"\n-        with pytest.raises(ValueError, match=msg):\n-            s.at[\"a\"]\n+        result = ser.loc[1]\n+        assert result == 3\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n+            ser.at[\"a\"]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            # .at should match .loc\n+            ser.loc[\"a\"]\n+\n+    def test_frame_at_raises_key_error(self):\n+        # GH#31724 .at should match .loc\n \n         df = DataFrame({0: [1, 2, 3]}, index=[3, 2, 1])\n+\n         result = df.at[1, 0]\n         assert result == 3\n-        with pytest.raises(ValueError, match=msg):\n+        result = df.loc[1, 0]\n+        assert result == 3\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n             df.at[\"a\", 0]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.loc[\"a\", 0]\n+\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.at[1, \"a\"]\n+        with pytest.raises(KeyError, match=\"a\"):\n+            df.loc[1, \"a\"]\n \n+    # TODO: belongs somewhere else?\n+    def test_getitem_list_missing_key(self):\n         # GH 13822, incorrect error string with non-unique columns when missing\n         # column is accessed\n         df = DataFrame({\"x\": [1.0], \"y\": [2.0], \"z\": [3.0]})\n"
+  },
+  "timestamp": "2026-06-29 19:32:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_63",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_63/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "API/BUG: make .at raise same exceptions as .loc (#31724)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2093,
+        "end_line": 2093,
+        "suspiciousness": 0.68296,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2094,
+        "end_line": 2094,
+        "suspiciousness": 0.68296,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2099,
+        "end_line": 2099,
+        "suspiciousness": 0.68296,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2100,
+        "end_line": 2100,
+        "suspiciousness": 0.68296,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2090,
+        "end_line": 2090,
+        "suspiciousness": 0.655738,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2091,
+        "end_line": 2091,
+        "suspiciousness": 0.655738,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2104,
+        "end_line": 2104,
+        "suspiciousness": 0.655738,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 3024,
+        "end_line": 3024,
+        "suspiciousness": 0.655738,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2051,
+        "end_line": 2051,
+        "suspiciousness": 0.622611,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 2059,
+        "end_line": 2059,
+        "suspiciousness": 0.622611,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_scalar.py::TestScalar2::test_series_at_raises_type_error"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2093,
+      "end_line": 2093,
+      "suspiciousness": 0.68296,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2094,
+      "end_line": 2094,
+      "suspiciousness": 0.68296,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2099,
+      "end_line": 2099,
+      "suspiciousness": 0.68296,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2100,
+      "end_line": 2100,
+      "suspiciousness": 0.68296,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2090,
+      "end_line": 2090,
+      "suspiciousness": 0.655738,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2091,
+      "end_line": 2091,
+      "suspiciousness": 0.655738,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2104,
+      "end_line": 2104,
+      "suspiciousness": 0.655738,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/internals/blocks.py",
+      "start_line": 3024,
+      "end_line": 3024,
+      "suspiciousness": 0.655738,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2051,
+      "end_line": 2051,
+      "suspiciousness": 0.622611,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexing.py",
+      "start_line": 2059,
+      "end_line": 2059,
+      "suspiciousness": 0.622611,
+      "rank": 10
+    }
+  ]
+}

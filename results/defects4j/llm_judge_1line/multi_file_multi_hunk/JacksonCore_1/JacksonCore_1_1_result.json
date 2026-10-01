@@ -1,0 +1,75 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "1",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 17:08:38",
+      "end_time": "2025-09-30 17:14:24",
+      "duration_seconds": 346,
+      "duration_human": "5m 46s"
+    },
+    "model_cost": 0.0345,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 423939,
+      "output_tokens": 5760,
+      "total_tokens": 429699,
+      "cached_input_tokens": 412672,
+      "uncached_input_tokens": 11267
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\nindex a05410d6..19da7477 100644\n--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n@@ -382,6 +382,13 @@ public final class TextBuffer\n     public BigDecimal contentsAsDecimal()\n         throws NumberFormatException\n     {\n+        // Check for NaN and infinity values first\n+        String numStr = contentsAsString().trim();\n+        // Debug: print the actual string being checked\n+        // System.err.println(\"DEBUG: Checking numStr='\" + numStr + \"'\");\n+        if (\"NaN\".equals(numStr) || \"+Infinity\".equals(numStr) || \"-Infinity\".equals(numStr) || \"Infinity\".equals(numStr)) {\n+            throw new NumberFormatException(\"can not be represented as BigDecimal\");\n+        }\n         // Already got a pre-cut array?\n         if (_resultArray != null) {\n             return NumberInput.parseBigDecimal(_resultArray);\n"
+  },
+  "timestamp": "2025-09-30 17:14:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_1",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_1",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "NullPointerException thrown when NaN read as BigDecimal\n(moved from https://github.com/FasterXML/jackson/issues/4 reported by @jroper)\n\n---\n\nIf `JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS` is turned on, then when NaN is encountered, it will be reported as being a float number token. Subsequently invoking getDecimalNumber throws an NPE:\n\n```\nNullPointerException: null (TextBuffer.java:394)\ncom.fasterxml.jackson.core.util.TextBuffer.contentsAsDecimal(TextBuffer.java:394)\ncom.fasterxml.jackson.core.base.ParserBase._parseSlowFloatValue(ParserBase.java:799)\ncom.fasterxml.jackson.core.base.ParserBase._parseNumericValue(ParserBase.java:781)\n com.fasterxml.jackson.core.base.ParserBase.getDecimalValue(ParserBase.java:711)\n```\n\nBy the way, the expected behaviour here I would say would be to throw NumberFormatException, this is what is thrown by the BigDecimal constructor when you pass in Double.NaN or any of the infinity double values.\n\nI'm not sure, but maybe this NPE is also an issue for integers too, and the expected behaviour for them would also be to throw NumberFormatException.\n\n",
+    "commit_message": "Fix #98",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java",
+        "start_line": 390,
+        "end_line": 390,
+        "line_numbers": [
+          390
+        ],
+        "function_name": "contentsAsDecimal",
+        "class_name": "TextBuffer",
+        "filename": "TextBuffer.java",
+        "code_snippet": "    public BigDecimal contentsAsDecimal()\n        throws NumberFormatException\n    {\n        // Already got a pre-cut array?\n        if (_resultArray != null) {\n            return NumberInput.parseBigDecimal(_resultArray);\n        }\n        // Or a shared buffer?\n        if (_inputStart >= 0) {\n            return NumberInput.parseBigDecimal(_inputBuffer, _inputStart, _inputLen);\n        }\n        // Or if not, just a single buffer (the usual case)\n        if (_segmentSize == 0) {\n            return NumberInput.parseBigDecimal(_currentSegment, 0, _currentSize);\n        }\n        // If not, let's just get it aggregated...\n        return NumberInput.parseBigDecimal(contentsAsArray());\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java",
+        "start_line": 394,
+        "end_line": 394,
+        "line_numbers": [
+          394
+        ],
+        "function_name": "contentsAsDecimal",
+        "class_name": "TextBuffer",
+        "filename": "TextBuffer.java",
+        "code_snippet": "    public BigDecimal contentsAsDecimal()\n        throws NumberFormatException\n    {\n        // Already got a pre-cut array?\n        if (_resultArray != null) {\n            return NumberInput.parseBigDecimal(_resultArray);\n        }\n        // Or a shared buffer?\n        if (_inputStart >= 0) {\n            return NumberInput.parseBigDecimal(_inputBuffer, _inputStart, _inputLen);\n        }\n        // Or if not, just a single buffer (the usual case)\n        if (_segmentSize == 0) {\n            return NumberInput.parseBigDecimal(_currentSegment, 0, _currentSize);\n        }\n        // If not, let's just get it aggregated...\n        return NumberInput.parseBigDecimal(contentsAsArray());\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.TestParserNonStandard::testAllowNaN"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java b/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java\nindex eb463b99..01c18d94 100644\n--- a/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java\n+++ b/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java\n@@ -292,11 +292,7 @@ public final class NumberInput\n \n     public static BigDecimal parseBigDecimal(String numStr) throws NumberFormatException\n     {\n+        try {\n             return new BigDecimal(numStr);\n+        } catch (NumberFormatException e) {\n+            throw _badBigDecimal(numStr);\n+        }\n     }\n \n     public static BigDecimal parseBigDecimal(char[] buffer) throws NumberFormatException {\n@@ -306,14 +302,7 @@ public final class NumberInput\n     public static BigDecimal parseBigDecimal(char[] buffer, int offset, int len)\n             throws NumberFormatException\n     {\n+        try {\n             return new BigDecimal(buffer, offset, len);\n+        } catch (NumberFormatException e) {\n+            throw _badBigDecimal(new String(buffer, offset, len));\n+        }\n     }\n \n+    private static NumberFormatException _badBigDecimal(String str) {\n+        return new NumberFormatException(\"Value \\\"\"+str+\"\\\" can not be represented as BigDecimal\");\n+    }\n }\ndiff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\nindex bab80e0a..a05410d6 100644\n--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n@@ -387,11 +387,11 @@ public final class TextBuffer\n             return NumberInput.parseBigDecimal(_resultArray);\n         }\n         // Or a shared buffer?\n+        if ((_inputStart >= 0) && (_inputBuffer != null)) {\n-        if (_inputStart >= 0) {\n             return NumberInput.parseBigDecimal(_inputBuffer, _inputStart, _inputLen);\n         }\n         // Or if not, just a single buffer (the usual case)\n+        if ((_segmentSize == 0) && (_currentSegment != null)) {\n-        if (_segmentSize == 0) {\n             return NumberInput.parseBigDecimal(_currentSegment, 0, _currentSize);\n         }\n         // If not, let's just get it aggregated...",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

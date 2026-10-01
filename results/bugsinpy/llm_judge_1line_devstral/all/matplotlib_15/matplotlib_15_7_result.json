@@ -1,0 +1,104 @@
+{
+  "project_name": "matplotlib",
+  "bug_id": "matplotlib_15",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:51:21",
+      "end_time": "2026-06-27 22:54:16",
+      "duration_seconds": 175,
+      "duration_human": "2m 55s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 571915,
+      "output_tokens": 11203,
+      "total_tokens": 583118,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 571915
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/examples/userdemo/colormap_normalizations.py b/examples/userdemo/colormap_normalizations.py\nindex 419a4b5051..cbc9d2675b 100644\n--- a/examples/userdemo/colormap_normalizations.py\n+++ b/examples/userdemo/colormap_normalizations.py\n@@ -69,7 +69,7 @@ fig, ax = plt.subplots(2, 1)\n \n pcm = ax[0].pcolormesh(X, Y, Z1,\n                        norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n-                                              vmin=-1.0, vmax=1.0),\n+                       norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n                        cmap='RdBu_r')\n fig.colorbar(pcm, ax=ax[0], extend='both')\n \ndiff --git a/examples/userdemo/colormap_normalizations_symlognorm.py b/examples/userdemo/colormap_normalizations_symlognorm.py\nindex 780381e43d..f4bf314457 100644\n--- a/examples/userdemo/colormap_normalizations_symlognorm.py\n+++ b/examples/userdemo/colormap_normalizations_symlognorm.py\n@@ -29,7 +29,7 @@ fig, ax = plt.subplots(2, 1)\n \n pcm = ax[0].pcolormesh(X, Y, Z,\n                        norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n-                                              vmin=-1.0, vmax=1.0),\n+                       norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n                        cmap='RdBu_r')\n fig.colorbar(pcm, ax=ax[0], extend='both')\n \ndiff --git a/lib/matplotlib/colors.py b/lib/matplotlib/colors.py\nindex 52d2b24389..637d241f0d 100644\n--- a/lib/matplotlib/colors.py\n+++ b/lib/matplotlib/colors.py\n@@ -1203,7 +1203,7 @@ class SymLogNorm(Normalize):\n     (-*linthresh*, *linthresh*).\n     \"\"\"\n     def __init__(self, linthresh, linscale=1.0,\n-                 vmin=None, vmax=None, clip=False):\n+                 vmin=None, vmax=None, clip=False, base=10):\n         \"\"\"\n         Parameters\n         ----------\n@@ -1220,6 +1220,7 @@ class SymLogNorm(Normalize):\n         \"\"\"\n         Normalize.__init__(self, vmin, vmax, clip)\n         self.linthresh = float(linthresh)\n+        self.base = base\n         self._linscale_adj = (linscale / (1.0 - np.e ** -1))\n         if vmin is not None and vmax is not None:\n             self._transform_vmin_vmax()\n@@ -1255,7 +1256,7 @@ class SymLogNorm(Normalize):\n         with np.errstate(invalid=\"ignore\"):\n             masked = np.abs(a) > self.linthresh\n         sign = np.sign(a[masked])\n-        log = (self._linscale_adj + np.log(np.abs(a[masked]) / self.linthresh))\n+        log = (self._linscale_adj + np.log(np.abs(a[masked]) / self.linthresh) * np.log(self.base))\n         log *= sign * self.linthresh\n         a[masked] = log\n         a[~masked] *= self._linscale_adj\n@@ -1265,7 +1266,7 @@ class SymLogNorm(Normalize):\n         \"\"\"Inverse inplace Transformation.\"\"\"\n         masked = np.abs(a) > (self.linthresh * self._linscale_adj)\n         sign = np.sign(a[masked])\n-        exp = np.exp(sign * a[masked] / self.linthresh - self._linscale_adj)\n+        exp = np.exp(sign * a[masked] / self.linthresh - self._linscale_adj) * np.log(self.base)\n         exp *= sign * self.linthresh\n         a[masked] = exp\n         a[~masked] /= self._linscale_adj\ndiff --git a/lib/matplotlib/tests/test_colors.py b/lib/matplotlib/tests/test_colors.py\nindex 05a81e26de..d1cedfeb14 100644\n--- a/lib/matplotlib/tests/test_colors.py\n+++ b/lib/matplotlib/tests/test_colors.py\n@@ -398,7 +398,7 @@ def test_SymLogNorm():\n     \"\"\"\n     Test SymLogNorm behavior\n     \"\"\"\n-    norm = mcolors.SymLogNorm(3, vmax=5, linscale=1.2)\n+    norm = mcolors.SymLogNorm(3, vmax=5, linscale=1.2, base=np.e)\n     vals = np.array([-30, -1, 2, 6], dtype=float)\n     normed_vals = norm(vals)\n     expected = [0., 0.53980074, 0.826991, 1.02758204]\n@@ -408,16 +408,30 @@ def test_SymLogNorm():\n     _mask_tester(norm, vals)\n \n     # Ensure that specifying vmin returns the same result as above\n-    norm = mcolors.SymLogNorm(3, vmin=-30, vmax=5, linscale=1.2)\n+    norm = mcolors.SymLogNorm(3, vmin=-30, vmax=5, linscale=1.2, base=np.e)\n     normed_vals = norm(vals)\n     assert_array_almost_equal(normed_vals, expected)\n \n+    # test something more easily checked.\n+    norm = mcolors.SymLogNorm(1, vmin=-np.e**3, vmax=np.e**3, base=np.e)\n+    nn = norm([-np.e**3, -np.e**2, -np.e**1, -1,\n+              0, 1, np.e**1, np.e**2, np.e**3])\n+    xx = np.array([0., 0.109123, 0.218246, 0.32737, 0.5, 0.67263,\n+                   0.781754, 0.890877, 1.])\n+    assert_array_almost_equal(nn, xx)\n+    norm = mcolors.SymLogNorm(1, vmin=-10**3, vmax=10**3, base=10)\n+    nn = norm([-10**3, -10**2, -10**1, -1,\n+              0, 1, 10**1, 10**2, 10**3])\n+    xx = np.array([0., 0.121622, 0.243243, 0.364865, 0.5, 0.635135,\n+                   0.756757, 0.878378, 1.])\n+    assert_array_almost_equal(nn, xx)\n+\n \n def test_SymLogNorm_colorbar():\n     \"\"\"\n     Test un-called SymLogNorm in a colorbar.\n     \"\"\"\n-    norm = mcolors.SymLogNorm(0.1, vmin=-1, vmax=1, linscale=1)\n+    norm = mcolors.SymLogNorm(0.1, vmin=-1, vmax=1, linscale=1, base=np.e)\n     fig = plt.figure()\n     mcolorbar.ColorbarBase(fig.add_subplot(111), norm=norm)\n     plt.close(fig)\n@@ -428,7 +442,7 @@ def test_SymLogNorm_single_zero():\n     Test SymLogNorm to ensure it is not adding sub-ticks to zero label\n     \"\"\"\n     fig = plt.figure()\n-    norm = mcolors.SymLogNorm(1e-5, vmin=-1, vmax=1)\n+    norm = mcolors.SymLogNorm(1e-5, vmin=-1, vmax=1, base=np.e)\n     cbar = mcolorbar.ColorbarBase(fig.add_subplot(111), norm=norm)\n     ticks = cbar.get_ticks()\n     assert sum(ticks == 0) == 1\n@@ -905,9 +919,10 @@ def test_ndarray_subclass_norm(recwarn):\n     mydata = data.view(MyArray)\n \n     for norm in [mcolors.Normalize(), mcolors.LogNorm(),\n-                 mcolors.SymLogNorm(3, vmax=5, linscale=1),\n+                 mcolors.SymLogNorm(3, vmax=5, linscale=1, base=np.e),\n                  mcolors.Normalize(vmin=mydata.min(), vmax=mydata.max()),\n-                 mcolors.SymLogNorm(3, vmin=mydata.min(), vmax=mydata.max()),\n+                 mcolors.SymLogNorm(3, vmin=mydata.min(), vmax=mydata.max(),\n+                                    base=np.e),\n                  mcolors.PowerNorm(1)]:\n         assert_array_equal(norm(mydata), norm(data))\n         fig, ax = plt.subplots()\ndiff --git a/tutorials/colors/colormapnorms.py b/tutorials/colors/colormapnorms.py\nindex 412278ac45..081dc29e77 100644\n--- a/tutorials/colors/colormapnorms.py\n+++ b/tutorials/colors/colormapnorms.py\n@@ -98,7 +98,7 @@ fig, ax = plt.subplots(2, 1)\n \n pcm = ax[0].pcolormesh(X, Y, Z,\n                        norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n-                                              vmin=-1.0, vmax=1.0),\n+                       norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,\n                        cmap='RdBu_r')\n fig.colorbar(pcm, ax=ax[0], extend='both')\n \n"
+  },
+  "timestamp": "2026-06-27 22:54:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "matplotlib",
+    "bug_id": "matplotlib_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/matplotlib_15/matplotlib",
+    "github_url": "https://github.com/matplotlib/matplotlib",
+    "description": "",
+    "commit_message": "FIX: add base kwarg to symlognorm",
+    "fault_locations": [
+      {
+        "file": "examples/userdemo/colormap_normalizations.py",
+        "start_line": 72,
+        "end_line": 72,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "examples/userdemo/colormap_normalizations_symlognorm.py",
+        "start_line": 32,
+        "end_line": 32,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/colors.py",
+        "start_line": 1205,
+        "end_line": 1206,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/colors.py",
+        "start_line": 1216,
+        "end_line": 1219,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/colors.py",
+        "start_line": 1223,
+        "end_line": 1223,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/colors.py",
+        "start_line": 1258,
+        "end_line": 1258,
+        "function_name": "_transform",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/colors.py",
+        "start_line": 1268,
+        "end_line": 1268,
+        "function_name": "_inv_transform",
+        "class_name": ""
+      },
+      {
+        "file": "tutorials/colors/colormapnorms.py",
+        "start_line": 101,
+        "end_line": 101,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest lib/matplotlib/tests/test_colors.py::test_SymLogNorm"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

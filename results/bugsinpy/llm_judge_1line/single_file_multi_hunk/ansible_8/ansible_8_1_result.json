@@ -1,0 +1,53 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_8",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:02:54",
+      "end_time": "2026-03-23 07:45:48",
+      "duration_seconds": 2573,
+      "duration_human": "42m 53s"
+    },
+    "model_cost": 0.0979,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 451510,
+      "output_tokens": 95151,
+      "total_tokens": 546661,
+      "cached_input_tokens": 233536,
+      "uncached_input_tokens": 217974
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py\nindex ee23147cc5..bf4412dfc1 100644\n--- a/lib/ansible/plugins/shell/powershell.py\n+++ b/lib/ansible/plugins/shell/powershell.py\n@@ -96,12 +96,26 @@ class ShellModule(ShellBase):\n         parts = []\n         for arg in args:\n             arg = self._unquote(arg).replace('/', '\\\\')\n-            parts.extend([a for a in arg.split('\\\\') if a])\n-        path = '\\\\'.join(parts)\n+            # Split and keep all parts including empty strings\n+            split_arg = arg.split('\\\\')\n+            parts.extend(split_arg)\n+        \n+        # Process to handle UNC paths\n+        if len(parts) >= 2 and parts[0] == '' and parts[1] == '':\n+            # UNC path: keep first two empty strings, remove other empties\n+            new_parts = ['', '']\n+            for part in parts[2:]:\n+                if part != '':\n+                    new_parts.append(part)\n+            path = '\\\\'.join(new_parts)\n+        else:\n+            # Non-UNC path: remove all empty strings\n+            new_parts = [p for p in parts if p != '']\n+            path = '\\\\'.join(new_parts)\n+        \n         if path.startswith('~'):\n             return path\n         return path\n-\n     def get_remote_filename(self, pathname):\n         # powershell requires that script files end with .ps1\n         base_name = os.path.basename(pathname.strip())\ndiff --git a/test/units/plugins/shell/test_powershell.py b/test/units/plugins/shell/test_powershell.py\nindex a73070c689..6da7ffd5e6 100644\n--- a/test/units/plugins/shell/test_powershell.py\n+++ b/test/units/plugins/shell/test_powershell.py\n@@ -1,4 +1,4 @@\n-from ansible.plugins.shell.powershell import _parse_clixml\n+from ansible.plugins.shell.powershell import _parse_clixml, ShellModule\n \n \n def test_parse_clixml_empty():\n@@ -51,3 +51,11 @@ def test_parse_clixml_multiple_streams():\n     expected = b\"hi info\"\n     actual = _parse_clixml(multiple_stream, stream=\"Info\")\n     assert actual == expected\n+\n+\n+def test_join_path_unc():\n+    pwsh = ShellModule()\n+    unc_path_parts = ['\\\\\\\\host\\\\share\\\\dir1\\\\\\\\dir2\\\\', '\\\\dir3/dir4', 'dir5', 'dir6\\\\']\n+    expected = '\\\\\\\\host\\\\share\\\\dir1\\\\dir2\\\\dir3\\\\dir4\\\\dir5\\\\dir6'\n+    actual = pwsh.join_path(*unc_path_parts)\n+    assert actual == expected\n"
+  },
+  "timestamp": "2026-03-23 03:45:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_8",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_8/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "Fix UNC path support in the powershell shell plugin (#66604)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/plugins/shell/powershell.py",
+        "start_line": 96,
+        "end_line": 103,
+        "function_name": "join_path",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/plugins/shell/test_powershell.py::test_join_path_unc"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

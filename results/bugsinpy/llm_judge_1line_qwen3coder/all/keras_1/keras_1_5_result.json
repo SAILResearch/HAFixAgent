@@ -1,0 +1,258 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_1",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 14:50:19",
+      "end_time": "2026-06-20 14:54:04",
+      "duration_seconds": 225,
+      "duration_human": "3m 45s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 871244,
+      "output_tokens": 5265,
+      "total_tokens": 876509,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 871244
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/backend/tensorflow_backend.py b/keras/backend/tensorflow_backend.py\nindex 408a97493..942722155 100644\n--- a/keras/backend/tensorflow_backend.py\n+++ b/keras/backend/tensorflow_backend.py\n@@ -14,6 +14,7 @@ from tensorflow.python.ops import functional_ops\n from tensorflow.python.ops import ctc_ops as ctc\n from .common import floatx, epsilon, image_data_format\n \n+import sys\n import functools\n import threading\n \n@@ -1203,7 +1204,9 @@ def update(x, new_x):\n     # Returns\n         The variable `x` updated.\n     \"\"\"\n-    return tf_state_ops.assign(x, new_x)\n+    op = tf_state_ops.assign(x, new_x)\n+    with tf.control_dependencies([op]):\n+        return tf.identity(x)\n \n \n @symbolic\n@@ -1217,7 +1220,9 @@ def update_add(x, increment):\n     # Returns\n         The variable `x` updated.\n     \"\"\"\n-    return tf_state_ops.assign_add(x, increment)\n+    op = tf_state_ops.assign_add(x, increment)\n+    with tf.control_dependencies([op]):\n+        return tf.identity(x)\n \n \n @symbolic\n@@ -1231,7 +1236,9 @@ def update_sub(x, decrement):\n     # Returns\n         The variable `x` updated.\n     \"\"\"\n-    return tf_state_ops.assign_sub(x, decrement)\n+    op = tf_state_ops.assign_sub(x, decrement)\n+    with tf.control_dependencies([op]):\n+        return tf.identity(x)\n \n \n @symbolic\n@@ -2880,6 +2887,7 @@ def get_variable_shape(x):\n     return int_shape(x)\n \n \n+@symbolic\n def print_tensor(x, message=''):\n     \"\"\"Prints `message` and the tensor value when evaluated.\n \n@@ -2899,8 +2907,9 @@ def print_tensor(x, message=''):\n     # Returns\n         The same tensor `x`, unchanged.\n     \"\"\"\n-    # TODO\n-    return tf.Print(x, [x], message)\n+    op = tf.print(message, x, output_stream=sys.stdout)\n+    with tf.control_dependencies([op]):\n+        return tf.identity(x)\n \n \n # GRAPH MANIPULATION\ndiff --git a/keras/initializers.py b/keras/initializers.py\nindex aea81b5c5..eff004825 100644\n--- a/keras/initializers.py\n+++ b/keras/initializers.py\n@@ -80,8 +80,11 @@ class RandomNormal(Initializer):\n         self.seed = seed\n \n     def __call__(self, shape, dtype=None):\n-        return K.random_normal(shape, self.mean, self.stddev,\n-                               dtype=dtype, seed=self.seed)\n+        x = K.random_normal(shape, self.mean, self.stddev,\n+                            dtype=dtype, seed=self.seed)\n+        if self.seed is not None:\n+            self.seed += 1\n+        return x\n \n     def get_config(self):\n         return {\n@@ -108,8 +111,11 @@ class RandomUniform(Initializer):\n         self.seed = seed\n \n     def __call__(self, shape, dtype=None):\n-        return K.random_uniform(shape, self.minval, self.maxval,\n-                                dtype=dtype, seed=self.seed)\n+        x = K.random_uniform(shape, self.minval, self.maxval,\n+                             dtype=dtype, seed=self.seed)\n+        if self.seed is not None:\n+            self.seed += 1\n+        return x\n \n     def get_config(self):\n         return {\n@@ -141,8 +147,11 @@ class TruncatedNormal(Initializer):\n         self.seed = seed\n \n     def __call__(self, shape, dtype=None):\n-        return K.truncated_normal(shape, self.mean, self.stddev,\n-                                  dtype=dtype, seed=self.seed)\n+        x = K.truncated_normal(shape, self.mean, self.stddev,\n+                               dtype=dtype, seed=self.seed)\n+        if self.seed is not None:\n+            self.seed += 1\n+        return x\n \n     def get_config(self):\n         return {\n@@ -210,12 +219,15 @@ class VarianceScaling(Initializer):\n         if self.distribution == 'normal':\n             # 0.879... = scipy.stats.truncnorm.std(a=-2, b=2, loc=0., scale=1.)\n             stddev = np.sqrt(scale) / .87962566103423978\n-            return K.truncated_normal(shape, 0., stddev,\n-                                      dtype=dtype, seed=self.seed)\n+            x = K.truncated_normal(shape, 0., stddev,\n+                                   dtype=dtype, seed=self.seed)\n         else:\n             limit = np.sqrt(3. * scale)\n-            return K.random_uniform(shape, -limit, limit,\n-                                    dtype=dtype, seed=self.seed)\n+            x = K.random_uniform(shape, -limit, limit,\n+                                 dtype=dtype, seed=self.seed)\n+        if self.seed is not None:\n+            self.seed += 1\n+        return x\n \n     def get_config(self):\n         return {\n@@ -251,6 +263,7 @@ class Orthogonal(Initializer):\n         rng = np.random\n         if self.seed is not None:\n             rng = np.random.RandomState(self.seed)\n+            self.seed += 1\n         a = rng.normal(0.0, 1.0, flat_shape)\n         u, _, v = np.linalg.svd(a, full_matrices=False)\n         # Pick the one with the correct shape.\ndiff --git a/tests/keras/initializers_test.py b/tests/keras/initializers_test.py\nindex b5cbfd9b2..4c82228cf 100644\n--- a/tests/keras/initializers_test.py\n+++ b/tests/keras/initializers_test.py\n@@ -142,5 +142,25 @@ def test_one(tensor_shape):\n             target_mean=1., target_max=1.)\n \n \n+@pytest.mark.parametrize('initializer',\n+                         [initializers.orthogonal,\n+                          initializers.uniform,\n+                          initializers.normal,\n+                          initializers.truncated_normal,\n+                          initializers.VarianceScaling],\n+                         ids=['orthogonal',\n+                              'uniform',\n+                              'normal',\n+                              'truncated_normal',\n+                              'variance_scaling'])\n+def test_statefulness(initializer):\n+    # Test that calling a same seeded random initializer\n+    # in succession results in different values.\n+    init = initializer(seed=1337)\n+    samples = [init((2, 2)) for _ in range(2)]\n+    samples = [K.get_value(K.variable(x)) for x in samples]\n+    assert np.mean(np.abs(samples[0] - samples[1])) > 0.\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-20 14:54:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_1/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix initializers and update ops.",
+    "fault_locations": [
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 1206,
+        "end_line": 1206,
+        "function_name": "update",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 1220,
+        "end_line": 1220,
+        "function_name": "update_add",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 1234,
+        "end_line": 1234,
+        "function_name": "update_sub",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 2902,
+        "end_line": 2903,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/theano_backend.py",
+        "start_line": 1381,
+        "end_line": 1382,
+        "function_name": "print_tensor",
+        "class_name": ""
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 83,
+        "end_line": 84,
+        "function_name": "__call__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 111,
+        "end_line": 112,
+        "function_name": "__call__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 144,
+        "end_line": 145,
+        "function_name": "__call__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 213,
+        "end_line": 214,
+        "function_name": "__call__",
+        "class_name": ""
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 217,
+        "end_line": 218,
+        "function_name": "__call__",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 483,
+        "end_line": 483,
+        "function_name": "test_print_tensor",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 486,
+        "end_line": 487,
+        "function_name": "test_print_tensor",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 585,
+        "end_line": 585,
+        "function_name": "test_update_add",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 587,
+        "end_line": 587,
+        "function_name": "test_update_add",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 589,
+        "end_line": 590,
+        "function_name": "test_update_add",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 592,
+        "end_line": 592,
+        "function_name": "test_update_add",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 597,
+        "end_line": 597,
+        "function_name": "test_update_sub",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 599,
+        "end_line": 599,
+        "function_name": "test_update_sub",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 601,
+        "end_line": 602,
+        "function_name": "test_update_sub",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 604,
+        "end_line": 604,
+        "function_name": "test_update_sub",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 715,
+        "end_line": 715,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1366,
+        "end_line": 1366,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1368,
+        "end_line": 1370,
+        "function_name": "test_random_normal",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1374,
+        "end_line": 1380,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1384,
+        "end_line": 1385,
+        "function_name": "test_random_uniform",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1390,
+        "end_line": 1395,
+        "function_name": "test_random_uniform",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1398,
+        "end_line": 1399,
+        "function_name": "test_random_binomial",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1404,
+        "end_line": 1409,
+        "function_name": "test_random_binomial",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 1415,
+        "end_line": 1417,
+        "function_name": "test_truncated_normal",
+        "class_name": ""
+      },
+      {
+        "file": "tests/keras/backend/backend_test.py",
+        "start_line": 2125,
+        "end_line": 2134,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/initializers_test.py::test_statefulness"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

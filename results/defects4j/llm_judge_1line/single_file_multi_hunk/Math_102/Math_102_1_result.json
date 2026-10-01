@@ -1,0 +1,93 @@
+{
+  "project_name": "Math",
+  "bug_id": "102",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 21:52:02",
+      "end_time": "2025-09-30 21:55:35",
+      "duration_seconds": 213,
+      "duration_human": "3m 33s"
+    },
+    "model_cost": 0.0189,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 217900,
+      "output_tokens": 3564,
+      "total_tokens": 221464,
+      "cached_input_tokens": 207616,
+      "uncached_input_tokens": 10284
+    },
+    "agent_steps": 31,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/math/stat/descriptive/SynchronizedSummaryStatistics.java b/src/java/org/apache/commons/math/stat/descriptive/SynchronizedSummaryStatistics.java\nindex 7cd45b238..86c8a6442 100644\n--- a/src/java/org/apache/commons/math/stat/descriptive/SynchronizedSummaryStatistics.java\n+++ b/src/java/org/apache/commons/math/stat/descriptive/SynchronizedSummaryStatistics.java\n@@ -27,7 +27,7 @@ package org.apache.commons.math.stat.descriptive;\n  * the instance nor compute another statistic. \n  *\n  * @since 1.2\n- * @version $Revision: 602304 $ $Date: 2007-12-08 03:48:39 +0100 (sam., 08 d\u00e9c. 2007) $\n+ * @version $Revision: 602304 $ $Date: 2007-12-08 $\n  */\n public class SynchronizedSummaryStatistics extends SummaryStatistics {\n \ndiff --git a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\nindex c87b0101f..c729cf43c 100644\n--- a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n+++ b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n@@ -72,10 +72,27 @@ public class ChiSquareTestImpl implements UnknownDistributionChiSquareTest {\n                 \"observed counts must be non-negative and expected counts must be postive\");\n         }\n         double sumSq = 0.0d;\n+        double sumExpected = 0.0d;\n+        long sumObserved = 0L;\n+        for (int i = 0; i < observed.length; i++) {\n+            sumExpected += expected[i];\n+            sumObserved += observed[i];\n+        }\n+        double ratio = 1.0d;\n+        boolean rescale = false;\n+        if (Math.abs(sumExpected - sumObserved) > 10E-6 * sumObserved) {\n+            ratio = sumObserved / sumExpected;\n+            rescale = true;\n+        }\n         double dev = 0.0d;\n         for (int i = 0; i < observed.length; i++) {\n+            if (rescale) {\n+                dev = ((double) observed[i] - (expected[i] * ratio));\n+                sumSq += dev * dev / (expected[i] * ratio);\n+            } else {\n                 dev = ((double) observed[i] - expected[i]);\n                 sumSq += dev * dev / expected[i];\n+            }\n         }\n         return sumSq;\n     }\ndiff --git a/src/test/org/apache/commons/math/stat/descriptive/SummaryStatisticsAbstractTest.java b/src/test/org/apache/commons/math/stat/descriptive/SummaryStatisticsAbstractTest.java\nindex cffe55fb6..52f324803 100644\n--- a/src/test/org/apache/commons/math/stat/descriptive/SummaryStatisticsAbstractTest.java\n+++ b/src/test/org/apache/commons/math/stat/descriptive/SummaryStatisticsAbstractTest.java\n@@ -23,7 +23,7 @@ import org.apache.commons.math.TestUtils;\n /**\n  * Test cases for the {@link SummaryStatisticsImpl} class.\n  *\n- * @version $Revision: 602305 $ $Date: 2007-12-08 03:51:23 +0100 (sam., 08 d\u00e9c. 2007) $\n+ * @version $Revision: 602305 $ $Date: 2007-12-08 $\n  * @deprecated should be moved down into SummaryStatisticsTest\n  *   when SummaryStatisticsImpl is removed in 2.0\n  */\n"
+  },
+  "timestamp": "2025-09-30 21:55:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_102",
+    "repo_path": "/defects4j/framework/bin/temp/Math_102",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "chiSquare(double[] expected, long[] observed) is returning incorrect test statistic\nChiSquareTestImpl is returning incorrect chi-squared value. An implicit assumption of public double chiSquare(double[] expected, long[] observed) is that the sum of expected and observed are equal. That is, in the code:\nfor (int i = 0; i < observed.length; i++) {\n            dev = ((double) observed[i] - expected[i]);\n            sumSq += dev * dev / expected[i];\n        }\nthis calculation is only correct if sum(observed)==sum(expected). When they are not equal then one must rescale the expected value by sum(observed) / sum(expected) so that they are.\nIronically, it is an example in the unit test ChiSquareTestTest that highlights the error:\n\nlong[] observed1 = { 500, 623, 72, 70, 31 };\n        double[] expected1 = { 485, 541, 82, 61, 37 };\n        assertEquals( \"chi-square test statistic\", 16.4131070362, testStatistic.chiSquare(expected1, observed1), 1E-10);\n        assertEquals(\"chi-square p-value\", 0.002512096, testStatistic.chiSquareTest(expected1, observed1), 1E-9);\n\n16.413 is not correct because the expected values do not make sense, they should be: 521.19403 581.37313  88.11940  65.55224  39.76119 so that the sum of expected equals 1296 which is the sum of observed.\n\nHere is some R code (r-project.org) which proves it:\n> o1\n[1] 500 623  72  70  31\n> e1\n[1] 485 541  82  61  37\n> chisq.test(o1,p=e1,rescale.p=TRUE)\n\n        Chi-squared test for given probabilities\n\ndata:  o1 \nX-squared = 9.0233, df = 4, p-value = 0.06052\n\n> chisq.test(o1,p=e1,rescale.p=TRUE)$observed\n[1] 500 623  72  70  31\n> chisq.test(o1,p=e1,rescale.p=TRUE)$expected\n[1] 521.19403 581.37313  88.11940  65.55224  39.76119\n\n\n\n\n\n ",
+    "commit_message": "Added check and rescaling of expected counts to sum to sum of expected counts if necessary in ChiSquare test. JIRA: MATH-175 Reported and patched by Carl Anderson.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 73,
+        "end_line": 73,
+        "line_numbers": [
+          73
+        ],
+        "function_name": "chiSquare",
+        "class_name": "ChiSquareTestImpl",
+        "filename": "ChiSquareTestImpl.java",
+        "code_snippet": "    public double chiSquare(double[] expected, long[] observed)\n        throws IllegalArgumentException {\n        if ((expected.length < 2) || (expected.length != observed.length)) {\n            throw new IllegalArgumentException(\n                    \"observed, expected array lengths incorrect\");\n        }\n        if (!isPositive(expected) || !isNonNegative(observed)) {\n            throw new IllegalArgumentException(\n                \"observed counts must be non-negative and expected counts must be postive\");\n        }\n        double sumSq = 0.0d;\n        double dev = 0.0d;\n        for (int i = 0; i < observed.length; i++) {\n                dev = ((double) observed[i] - expected[i]);\n                sumSq += dev * dev / expected[i];\n        }\n        return sumSq;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 88,
+        "end_line": 88,
+        "line_numbers": [
+          88
+        ],
+        "function_name": "",
+        "class_name": "ChiSquareTestImpl",
+        "filename": "ChiSquareTestImpl.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 94,
+        "end_line": 94,
+        "line_numbers": [
+          94
+        ],
+        "function_name": "",
+        "class_name": "ChiSquareTestImpl",
+        "filename": "ChiSquareTestImpl.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.stat.inference.ChiSquareFactoryTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.ChiSquareFactoryTest::testChiSquare",
+      "org.apache.commons.math.stat.inference.ChiSquareTestTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.ChiSquareTestTest::testChiSquare",
+      "org.apache.commons.math.stat.inference.TestUtilsTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.TestUtilsTest::testChiSquare"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\nindex 984d56d..c87b010 100644\n--- a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n+++ b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n@@ -71,28 +71,11 @@ public class ChiSquareTestImpl implements UnknownDistributionChiSquareTest {\n             throw new IllegalArgumentException(\n                 \"observed counts must be non-negative and expected counts must be postive\");\n         }\n+        double sumExpected = 0d;\n+        double sumObserved = 0d;\n+        for (int i = 0; i < observed.length; i++) {\n+            sumExpected += expected[i];\n+            sumObserved += observed[i];\n+        }\n+        double ratio = 1.0d;\n+        boolean rescale = false;\n+        if (Math.abs(sumExpected - sumObserved) > 10E-6) {\n+            ratio = sumObserved / sumExpected;\n+            rescale = true;\n+        }\n         double sumSq = 0.0d;\n         double dev = 0.0d;\n         for (int i = 0; i < observed.length; i++) {\n+            if (rescale) {\n+                dev = ((double) observed[i] - ratio * expected[i]);\n+                sumSq += dev * dev / (ratio * expected[i]);\n+            } else {\n                 dev = ((double) observed[i] - expected[i]);\n                 sumSq += dev * dev / expected[i];\n+            }\n         }\n         return sumSq;\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

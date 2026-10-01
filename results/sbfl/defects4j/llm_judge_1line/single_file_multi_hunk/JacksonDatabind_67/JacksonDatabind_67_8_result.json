@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_67",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 06:20:36",
+      "end_time": "2026-06-25 06:26:08",
+      "duration_seconds": 332,
+      "duration_human": "5m 32s"
+    },
+    "model_cost": 0.1174,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 792522,
+      "output_tokens": 5655,
+      "total_tokens": 798177,
+      "cached_input_tokens": 366464,
+      "uncached_input_tokens": 426058
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\nindex 7d6a7bf5e..ade4b73f2 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n@@ -1400,9 +1400,10 @@ public abstract class BasicDeserializerFactory\n         // the only non-standard thing is this:\n         if (deser == null) {\n             if (type.isEnumType()) {\n-                return _createEnumKeyDeserializer(ctxt, type);\n+                deser = _createEnumKeyDeserializer(ctxt, type);\n+            } else {\n+                deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n             }\n-            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n         }\n         // and then post-processing\n         if (deser != null) {\n"
+  },
+  "timestamp": "2026-06-25 06:26:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_67",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_67",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Map key deserializerModifiers ignored\nWe have a module that extends simple model to allow us to accept enum names in lower case in a fairly generic manner\r\nInside that we add the `modifyKeyDeserializer`\r\n\r\nThe incoming class (using immutables) is mapped to a guava immutable map.\r\nWalking through the code:\r\n\r\n> com.fasterxml.jackson.datatype.guava.deser.ImmutableMapDeserializer.createContextual\r\n>  calls DeserializationContext.findKeyDeserializer\r\n>  calls DeserializerCache.findKeyDeserializer\r\n>  calls BasicDeserializerFactory.createKeyDeserializer\r\n\r\nwhich has the code:\r\n```java\r\n        // the only non-standard thing is this:\r\n        if (deser == null) {\r\n            if (type.isEnumType()) {\r\n                return _createEnumKeyDeserializer(ctxt, type);\r\n            }\r\n            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\r\n        }\r\n```\r\n\r\nSince we are an enum type, it returns the value in the `_createEnumKeyDeserializer`, which is the standard enum deserializer.\r\nBelow that block is the check for the hasDeserializerModifiers, but since we have returned already, it is never called, so we can't override the behaviour.\r\n\r\nModule fragment:\r\n```java\r\n    setDeserializerModifier(new BeanDeserializerModifier() {\r\n                @Override\r\n                @SuppressWarnings(\"unchecked\")\r\n                public JsonDeserializer<Enum> modifyEnumDeserializer(\r\n                        DeserializationConfig config,\r\n                        final JavaType type,\r\n                        BeanDescription beanDesc,\r\n                        final JsonDeserializer<?> deserializer) {\r\n                    return new JsonDeserializer<Enum>() {\r\n                        @Override\r\n                        public Enum deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException {\r\n                            Class<? extends Enum> rawClass = (Class<Enum<?>>) type.getRawClass();\r\n                            return Enum.valueOf(rawClass, jp.getValueAsString().toUpperCase());\r\n                        }\r\n                    };\r\n                }\r\n\r\n                @Override\r\n                public KeyDeserializer modifyKeyDeserializer(\r\n                        DeserializationConfig config,\r\n                        JavaType type,\r\n                        KeyDeserializer deserializer) {\r\n                    if (!type.isEnumType()) {\r\n                        return super.modifyKeyDeserializer(config, type, deserializer);\r\n                    }\r\n                    return new KeyDeserializer() {\r\n                        @Override\r\n                        @SuppressWarnings(\"unchecked\")\r\n                        public Object deserializeKey(String key, DeserializationContext ctxt)\r\n                                throws IOException, JsonProcessingException {\r\n                            Class<? extends Enum> rawClass = (Class<Enum<?>>) type.getRawClass();\r\n                            return Enum.valueOf(rawClass, key.toUpperCase());\r\n                        }\r\n                    };\r\n                }\r\n            });\r\n```\r\n\r\nI appreciate the code around here is fairly complex.\r\n\r\n\r\nRelated issues (possibly):\r\nhttps://github.com/FasterXML/jackson-databind/issues/749\r\nhttps://github.com/FasterXML/jackson-databind/issues/1313\n",
+    "commit_message": "Fix #1445",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 278,
+        "end_line": 278,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 279,
+        "end_line": 279,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 283,
+        "end_line": 283,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9930400925808021,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.module.TestCustomEnumKeyDeserializer::testCustomEnumValueAndKeyViaModifier"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 278,
+      "end_line": 278,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 279,
+      "end_line": 279,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 283,
+      "end_line": 283,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9930400925808021,
+      "rank": 10
+    }
+  ]
+}

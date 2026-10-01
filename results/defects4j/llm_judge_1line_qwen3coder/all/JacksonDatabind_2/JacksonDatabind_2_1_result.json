@@ -1,0 +1,127 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "2",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:27:20",
+      "end_time": "2026-06-20 01:28:57",
+      "duration_seconds": 97,
+      "duration_human": "1m 37s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 726775,
+      "output_tokens": 2889,
+      "total_tokens": 729664,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 726775
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 01:28:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_2",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_2",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Unwanted POJO's embedded in tree via serialization to tree\nI have a class, more or less:\n\n```\n   class X<T> {\n       String s;\n       List<T> items;\n  };\n```\n\nIt has a custom serializer.\n\nWhen I serialize to a tree, the entire list ends up as a\nVALUE_EMBEDDED_OBJECT: the ArrayList itself.\n\nHere's the serializer class, note the use of writeObjectField.\n\n```\npublic class ListAttributeSerializer extends JsonSerializer<ListAttribute> {\n    @Override\n    public void serialize(ListAttribute value, JsonGenerator jgen,\nSerializerProvider provider) throws IOException {\n        jgen.writeStartObject();\n        jgen.writeStringField(\"itemType\", value.getItemJsonKey());\n        jgen.writeObjectField(\"items\", value.getItems());\n        jgen.writeEndObject();\n    }\n\n    @Override\n    public void serializeWithType(ListAttribute value, JsonGenerator\njgen, SerializerProvider provider, TypeSerializer typeSer) throws\nIOException {\n        typeSer.writeTypePrefixForObject(value, jgen);\n        jgen.writeStringField(\"itemType\", value.getItemJsonKey());\n        jgen.writeObjectField(\"items\", value.getItems());\n        typeSer.writeTypeSuffixForObject(value, jgen);\n}\n}\n```\n\nAnd Tatu wrote me:\n\nOk. valueToTree() uses TokenBuffer as target, so it probably then simply retains Object passed as-is, to defer conversion/serialization, for common use case of buffering. But in your case you would rather get actual serialization into JsonNodes.\n\nYou will probably want to write conversion out then, something like:\n\nbyte[] json = mapper.writeValueAsBytes(referenceText);\nJsonNode tree = mapper.readTree(json);\n\nThis is just the work-around on short term.\nBut this is one thing where configurability might be needed; or possibly different methods. One that forces full serialization into JSON with no POJONodes, other that leaves things as is.\n\n",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 782,
+        "end_line": 782,
+        "line_numbers": [
+          782
+        ],
+        "function_name": "writeObject",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void writeObject(Object value) throws IOException\n    {\n            _append(JsonToken.VALUE_EMBEDDED_OBJECT, value);\n            /* 28-May-2014, tatu: Tricky choice here; if no codec, should we\n             *   err out, or just embed? For now, do latter.\n             */\n//          throw new JsonMappingException(\"No ObjectCodec configured for TokenBuffer, writeObject() called\");\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 789,
+        "end_line": 789,
+        "line_numbers": [
+          789
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 795,
+        "end_line": 795,
+        "line_numbers": [
+          795
+        ],
+        "function_name": "writeTree",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void writeTree(TreeNode node) throws IOException\n    {\n\n            // as with 'writeObject()', is codec optional?\n            _append(JsonToken.VALUE_EMBEDDED_OBJECT, node);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 804,
+        "end_line": 804,
+        "line_numbers": [
+          804
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 809,
+        "end_line": 809,
+        "line_numbers": [
+          809
+        ],
+        "function_name": "writeBinary",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void writeBinary(Base64Variant b64variant, byte[] data, int offset, int len)\n        throws IOException, JsonGenerationException\n    {\n        /* 31-Dec-2009, tatu: can do this using multiple alternatives; but for\n         *   now, let's try to limit number of conversions.\n         *   The only (?) tricky thing is that of whether to preserve variant,\n         *   seems pointless, so let's not worry about it unless there's some\n         *   compelling reason to.\n         */\n        byte[] copy = new byte[len];\n        System.arraycopy(data, offset, copy, 0, len);\n        writeObject(copy);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 812,
+        "end_line": 812,
+        "line_numbers": [
+          812
+        ],
+        "function_name": "writeBinary",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public void writeBinary(Base64Variant b64variant, byte[] data, int offset, int len)\n        throws IOException, JsonGenerationException\n    {\n        /* 31-Dec-2009, tatu: can do this using multiple alternatives; but for\n         *   now, let's try to limit number of conversions.\n         *   The only (?) tricky thing is that of whether to preserve variant,\n         *   seems pointless, so let's not worry about it unless there's some\n         *   compelling reason to.\n         */\n        byte[] copy = new byte[len];\n        System.arraycopy(data, offset, copy, 0, len);\n        writeObject(copy);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.TestConversions::testConversionOfPojos"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex caea32836..ff8b1c4cf 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -780,39 +780,19 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n     @Override\n     public void writeObject(Object value) throws IOException\n     {\n+        if (value == null) {\n+            writeNull();\n+            return;\n+        }\n+        Class<?> raw = value.getClass();\n+        if (raw == byte[].class) {\n             _append(JsonToken.VALUE_EMBEDDED_OBJECT, value);\n+            return;\n+        } else if (_objectCodec == null) {\n             /* 28-May-2014, tatu: Tricky choice here; if no codec, should we\n              *   err out, or just embed? For now, do latter.\n              */\n //          throw new JsonMappingException(\"No ObjectCodec configured for TokenBuffer, writeObject() called\");\n+            _append(JsonToken.VALUE_EMBEDDED_OBJECT, value);\n+        } else {\n+            _objectCodec.writeValue(this, value);\n+        }\n     }\n \n     @Override\n     public void writeTree(TreeNode node) throws IOException\n     {\n+        if (node == null) {\n+            writeNull();\n+            return;\n+        }\n \n+        if (_objectCodec == null) {\n             // as with 'writeObject()', is codec optional?\n             _append(JsonToken.VALUE_EMBEDDED_OBJECT, node);\n+        } else {\n+            _objectCodec.writeTree(this, node);\n+        }\n     }\n \n     /*",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

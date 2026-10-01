@@ -1,0 +1,70 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "100",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:16:48",
+      "end_time": "2026-06-26 21:18:43",
+      "duration_seconds": 115,
+      "duration_human": "1m 55s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 49,
+    "token_usage": {
+      "input_tokens": 580428,
+      "output_tokens": 5722,
+      "total_tokens": 586150,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 580428
+    },
+    "agent_steps": 49,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\nindex 9d2f74b35..c5c981c57 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n@@ -8,6 +8,7 @@ import java.math.BigInteger;\n import com.fasterxml.jackson.core.*;\n import com.fasterxml.jackson.core.base.ParserMinimalBase;\n \n+import com.fasterxml.jackson.databind.node.TextNode;\n import com.fasterxml.jackson.databind.JsonNode;\n \n /**\n@@ -360,6 +361,9 @@ public class TreeTraversingParser extends ParserMinimalBase\n         if (n != null) {\n             // [databind#2096]: although `binaryValue()` works for real binary node\n             // and embedded \"POJO\" node, coercion from TextNode may require variant, so:\n+            if (n instanceof TextNode) {\n+                return ((TextNode) n).getBinaryValue(b64variant);\n+            }\n             byte[] data = n.binaryValue();\n             if (data != null) {\n                 return data;\n"
+  },
+  "timestamp": "2026-06-26 21:18:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_100",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_100",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`TreeTraversingParser` does not take base64 variant into account\nThis affects at least 2.6.4 to current versions. In [TreeTraversingParser#getBinaryValue](https://github.com/FasterXML/jackson-databind/blob/master/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java#L348), a `Base64Variant` is accepted but ignored. The call to `n.binaryValue()`, when `n` is a `TextNode`, then uses the default Base64 variant instead of what's specified. It seems the correct behavior would be to call `TextNode#getBinaryValue` instead.\n",
+    "commit_message": "Fix #2096",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java",
+        "start_line": 363,
+        "end_line": 371,
+        "line_numbers": [
+          363,
+          364,
+          365,
+          366,
+          367,
+          368,
+          369,
+          370,
+          371
+        ],
+        "function_name": "getBinaryValue",
+        "class_name": "TreeTraversingParser",
+        "filename": "TreeTraversingParser.java",
+        "code_snippet": "    public byte[] getBinaryValue(Base64Variant b64variant)\n        throws IOException, JsonParseException\n    {\n        // Multiple possibilities...\n        JsonNode n = currentNode();\n        if (n != null) {\n            // [databind#2096]: although `binaryValue()` works for real binary node\n            // and embedded \"POJO\" node, coercion from TextNode may require variant, so:\n            byte[] data = n.binaryValue();\n            if (data != null) {\n                return data;\n            }\n            if (n.isPojo()) {\n                Object ob = ((POJONode) n).getPojo();\n                if (ob instanceof byte[]) {\n                    return (byte[]) ob;\n                }\n            }\n        }\n        // otherwise return null to mark we have no binary content\n        return null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.TestConversions::testBase64Text"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\nindex 40bf3d343..9d2f74b35 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n@@ -360,10 +360,16 @@ public class TreeTraversingParser extends ParserMinimalBase\n         if (n != null) {\n             // [databind#2096]: although `binaryValue()` works for real binary node\n             // and embedded \"POJO\" node, coercion from TextNode may require variant, so:\n+            if (n instanceof TextNode) {\n+                return ((TextNode) n).getBinaryValue(b64variant);\n-            byte[] data = n.binaryValue();\n-            if (data != null) {\n-                return data;\n-            }\n-            if (n.isPojo()) {\n-                Object ob = ((POJONode) n).getPojo();\n-                if (ob instanceof byte[]) {\n-                    return (byte[]) ob;\n-                }\n             }\n+            return n.binaryValue();\n         }\n         // otherwise return null to mark we have no binary content\n         return null;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

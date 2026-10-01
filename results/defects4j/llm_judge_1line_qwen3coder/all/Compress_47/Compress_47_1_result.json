@@ -1,0 +1,62 @@
+{
+  "project_name": "Compress",
+  "bug_id": "47",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:59:27",
+      "end_time": "2026-06-20 00:01:47",
+      "duration_seconds": 140,
+      "duration_human": "2m 20s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 609476,
+      "output_tokens": 3782,
+      "total_tokens": 613258,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 609476
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:01:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_47",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_47",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "ZipArchiveInputStream#getNextZipEntry should verify compressed size is known for bzip2, implode etc.\n{code}\r\n        if (current.entry.getCompressedSize() != ArchiveEntry.SIZE_UNKNOWN) {\r\n            if (current.entry.getMethod() == ZipMethod.UNSHRINKING.getCode()) {\r\n                current.in = new UnshrinkingInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            } else if (current.entry.getMethod() == ZipMethod.IMPLODING.getCode()) {\r\n                current.in = new ExplodingInputStream(\r\n                        current.entry.getGeneralPurposeBit().getSlidingDictionarySize(),\r\n                        current.entry.getGeneralPurposeBit().getNumberOfShannonFanoTrees(),\r\n                        new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            } else if (current.entry.getMethod() == ZipMethod.BZIP2.getCode()) {\r\n                current.in = new BZip2CompressorInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            }\r\n        }\r\n{code}\r\n\r\nnever sets {{current.in}} if the compressed size is unknown which probably leads to a NullPointerException in {{read}} later. We should fail early with a useful error message instead.",
+    "commit_message": "COMPRESS-436 sanity check compressed size is known for bzip etc",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 415,
+        "end_line": 415,
+        "line_numbers": [
+          415
+        ],
+        "function_name": "canReadEntryData",
+        "class_name": "ZipArchiveInputStream",
+        "filename": "ZipArchiveInputStream.java",
+        "code_snippet": "    public boolean canReadEntryData(final ArchiveEntry ae) {\n        if (ae instanceof ZipArchiveEntry) {\n            final ZipArchiveEntry ze = (ZipArchiveEntry) ae;\n            return ZipUtil.canHandleEntryData(ze)\n                && supportsDataDescriptorFor(ze);\n        }\n        return false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.ZipArchiveInputStreamTest::properlyMarksEntriesAsUnreadableIfUncompressedSizeIsUnknown"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex 41e6940b..dd845b83 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -412,8 +412,7 @@ public boolean canReadEntryData(final ArchiveEntry ae) {\n         if (ae instanceof ZipArchiveEntry) {\n             final ZipArchiveEntry ze = (ZipArchiveEntry) ae;\n             return ZipUtil.canHandleEntryData(ze)\n+                && supportsDataDescriptorFor(ze)\n+                && supportsCompressedSizeFor(ze);\n-                && supportsDataDescriptorFor(ze);\n         }\n         return false;\n     }\n@@ -438,10 +437,6 @@ public int read(final byte[] buffer, final int offset, final int length) throws\n             throw new UnsupportedZipFeatureException(UnsupportedZipFeatureException.Feature.DATA_DESCRIPTOR,\n                     current.entry);\n         }\n+        if (!supportsCompressedSizeFor(current.entry)) {\n+            throw new UnsupportedZipFeatureException(UnsupportedZipFeatureException.Feature.UNKNOWN_COMPRESSED_SIZE,\n+                    current.entry);\n+        }\n \n         int read;\n         if (current.entry.getMethod() == ZipArchiveOutputStream.STORED) {\n@@ -811,14 +806,6 @@ private boolean supportsDataDescriptorFor(final ZipArchiveEntry entry) {\n      * Whether the compressed size for the entry is either known or\n      * not required by the compression method being used.\n      */\n+    private boolean supportsCompressedSizeFor(final ZipArchiveEntry entry) {\n+        return entry.getCompressedSize() != ArchiveEntry.SIZE_UNKNOWN\n+            || entry.getMethod() == ZipEntry.DEFLATED\n+            || entry.getMethod() == ZipMethod.ENHANCED_DEFLATED.getCode()\n+            || (entry.getGeneralPurposeBit().usesDataDescriptor()\n+                && allowStoredEntriesWithDataDescriptor\n+                && entry.getMethod() == ZipEntry.STORED);\n+    }\n \n     /**\n      * Caches a stored entry that uses the data descriptor.",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

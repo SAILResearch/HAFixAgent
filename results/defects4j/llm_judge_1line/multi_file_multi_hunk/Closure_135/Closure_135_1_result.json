@@ -1,0 +1,89 @@
+{
+  "project_name": "Closure",
+  "bug_id": "135",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 18:43:49",
+      "end_time": "2025-09-30 18:50:48",
+      "duration_seconds": 420,
+      "duration_human": "7m 0s"
+    },
+    "model_cost": 0.0433,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 544254,
+      "output_tokens": 5669,
+      "total_tokens": 549923,
+      "cached_input_tokens": 530752,
+      "uncached_input_tokens": 13502
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/rhino/jstype/FunctionType.java b/src/com/google/javascript/rhino/jstype/FunctionType.java\nindex 3e8ab0790..78f03f4ed 100644\n--- a/src/com/google/javascript/rhino/jstype/FunctionType.java\n+++ b/src/com/google/javascript/rhino/jstype/FunctionType.java\n@@ -469,9 +469,16 @@ public class FunctionType extends PrototypeObjectType {\n     if (\"prototype\".equals(name)) {\n       ObjectType objType = type.toObjectType();\n       if (objType != null) {\n-        return setPrototype(\n-            new FunctionPrototypeType(\n-                registry, this, objType, isNativeObjectType()));\n+        ObjectType implicitProto = objType.getImplicitPrototype();\n+        if (implicitProto != null) {\n+          return setPrototype(\n+              new FunctionPrototypeType(\n+                  registry, this, implicitProto, isNativeObjectType()));\n+        } else {\n+          return setPrototype(\n+              new FunctionPrototypeType(\n+                  registry, this, objType, isNativeObjectType()));\n+        }\n       } else {\n         return false;\n       }\n"
+  },
+  "timestamp": "2025-09-30 18:50:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_135",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_135",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Inheritance not detected when prototype directly assigned\nGiven the following input JS:\r\n//--------------------------\r\n/**\r\n* @constructor\r\n*/\r\nfunction SuperClass () {\r\n}\r\n\r\nSuperClass.prototype.CustomMethod = function() {\r\n}\r\n\r\n/**\r\n* @constructor\r\n* @extends {SuperClass}\r\n*/\r\nfunction SubClass () {\r\n}\r\nSubClass.prototype = new SuperClass();\r\n\r\n/**\r\n* @override\r\n*/\r\nSubClass.prototype.CustomMethod = function() {\r\n\tthis.myProperty = &quot;value&quot;;\r\n}\r\n\r\nwindow['SubClassInstance'] = new SubClass();\r\n//---------------------------------\r\n\r\nWhen compiled with ADVANCED_OPTIMIZATIONS produces the warning:\r\nJSC_UNKNOWN_OVERRIDE: property CustomMethod not defined on any superclass\r\nof SubClass\r\n\r\nThis error has been reproduced in both the downloaded compiler and the\r\nCompiler Service UI.\r\n\r\nWhen the prototype assignment is wrapped in a function, it is correctly\r\ndetected. See below:\r\n//---------------------------------\r\nfunction inherit(Child, Parent) {\r\n    Child.prototype = new Parent();\r\n} \r\ninherit(SubClass, SuperClass);\r\n//---------------------------------",
+    "commit_message": "Type-checking fix when the prototype is assigned directly. Fixes issue 59.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/DevirtualizePrototypeMethods.java",
+        "start_line": 361,
+        "end_line": 361,
+        "line_numbers": [
+          361
+        ],
+        "function_name": "replaceReferencesToThis",
+        "class_name": "DevirtualizePrototypeMethods",
+        "filename": "DevirtualizePrototypeMethods.java",
+        "code_snippet": "  private void replaceReferencesToThis(Node node, String name) {\n    if (NodeUtil.isFunction(node)) {\n      return;\n    }\n\n    for (Node child : node.children()) {\n      if (NodeUtil.isThis(child)) {\n        Node newName = Node.newString(Token.NAME, name);\n        node.replaceChild(child, newName);\n      } else {\n        replaceReferencesToThis(child, name);\n      }\n    }\n  }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/FunctionType.java",
+        "start_line": 411,
+        "end_line": 411,
+        "line_numbers": [
+          411
+        ],
+        "function_name": "",
+        "class_name": "FunctionType",
+        "filename": "FunctionType.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/FunctionType.java",
+        "start_line": 475,
+        "end_line": 475,
+        "line_numbers": [
+          475
+        ],
+        "function_name": "defineProperty",
+        "class_name": "FunctionType",
+        "filename": "FunctionType.java",
+        "code_snippet": "  boolean defineProperty(String name, JSType type,\n      boolean inferred, boolean inExterns) {\n    if (\"prototype\".equals(name)) {\n      ObjectType objType = type.toObjectType();\n      if (objType != null) {\n        return setPrototype(\n            new FunctionPrototypeType(\n                registry, this, objType, isNativeObjectType()));\n      } else {\n        return false;\n      }\n    }\n    return super.defineProperty(name, type, inferred, inExterns);\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.DevirtualizePrototypeMethodsTest::testRewritePrototypeMethods2",
+      "com.google.javascript.jscomp.TypeCheckTest::testGoodExtends9"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/DevirtualizePrototypeMethods.java b/src/com/google/javascript/jscomp/DevirtualizePrototypeMethods.java\nindex e7cfc6d9..a42dc347 100644\n--- a/src/com/google/javascript/jscomp/DevirtualizePrototypeMethods.java\n+++ b/src/com/google/javascript/jscomp/DevirtualizePrototypeMethods.java\n@@ -359,7 +359,6 @@ class DevirtualizePrototypeMethods implements CompilerPass {\n     for (Node child : node.children()) {\n       if (NodeUtil.isThis(child)) {\n         Node newName = Node.newString(Token.NAME, name);\n+        newName.setJSType(child.getJSType());\n         node.replaceChild(child, newName);\n       } else {\n         replaceReferencesToThis(child, name);\ndiff --git a/src/com/google/javascript/rhino/jstype/FunctionType.java b/src/com/google/javascript/rhino/jstype/FunctionType.java\nindex b318d8a6..3e8ab079 100644\n--- a/src/com/google/javascript/rhino/jstype/FunctionType.java\n+++ b/src/com/google/javascript/rhino/jstype/FunctionType.java\n@@ -409,10 +409,6 @@ public class FunctionType extends PrototypeObjectType {\n     return super.hasProperty(name) || \"prototype\".equals(name);\n   }\n \n+  @Override\n+  public boolean hasOwnProperty(String name) {\n+    return super.hasOwnProperty(name) || \"prototype\".equals(name);\n+  }\n \n   @Override\n   public JSType getPropertyType(String name) {\n@@ -473,9 +469,6 @@ public class FunctionType extends PrototypeObjectType {\n     if (\"prototype\".equals(name)) {\n       ObjectType objType = type.toObjectType();\n       if (objType != null) {\n+        if (objType.equals(prototype)) {\n+          return true;\n+        }\n         return setPrototype(\n             new FunctionPrototypeType(\n                 registry, this, objType, isNativeObjectType()));",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

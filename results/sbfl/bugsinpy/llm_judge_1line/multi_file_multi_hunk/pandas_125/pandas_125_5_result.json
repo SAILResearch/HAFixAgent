@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_125",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 20:24:24",
+      "end_time": "2026-06-17 20:55:25",
+      "duration_seconds": 1862,
+      "duration_human": "31m 2s"
+    },
+    "model_cost": 0.3472,
+    "model_calls": 33,
+    "token_usage": {
+      "input_tokens": 2290945,
+      "output_tokens": 77807,
+      "total_tokens": 2368752,
+      "cached_input_tokens": 1123136,
+      "uncached_input_tokens": 1167809
+    },
+    "agent_steps": 33,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 53689b6bc2..cc5686586f 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -2146,6 +2146,19 @@ class Categorical(ExtensionArray, PandasObject):\n             pass\n \n         # else: array of True/False in Series or Categorical\n+    def replace(self, to_replace, value, inplace=False):\n+        \"\"\"\n+        Replace values in the Categorical.\n+        \"\"\"\n+        from pandas.core.algorithms import replace\n+        return replace(self, to_replace, value, inplace=inplace)\n+\n+    def _replace_with(self, to_replace, value, inplace=False):\n+        \"\"\"\n+        Replace values in the Categorical.\n+        Called by algos.replace for ExtensionArrays.\n+        \"\"\"\n+        return self.replace(to_replace, value, inplace=inplace)\n \n         lindexer = self.categories.get_indexer(rvalue)\n         lindexer = self._maybe_coerce_indexer(lindexer)\ndiff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py\nindex 38e1f241c1..360260b088 100644\n--- a/pandas/core/internals/blocks.py\n+++ b/pandas/core/internals/blocks.py\n@@ -1679,10 +1679,30 @@ class NonConsolidatableMixIn:\n \n \n class ExtensionBlock(NonConsolidatableMixIn, Block):\n+    def _can_hold_element(self, element):\n+        \"\"\"\n+        Check if the CategoricalBlock can hold an element.\n+        \"\"\"\n+        # For Categorical, we can only hold values in categories\n+        cats = self.values.categories\n+        for cat in cats:\n+            if cat == element:\n+                return True\n+        return False\n     \"\"\"Block for holding extension types.\n \n     Notes\n     -----\n+    def _can_hold_element(self, element):\n+        \"\"\"\n+        Check if the CategoricalBlock can hold an element.\n+        \"\"\"\n+        # For Categorical, we can only hold values in categories\n+        cats = self.values.categories\n+        for cat in cats:\n+            if cat == element:\n+                return True\n+        return False\n     This holds all 3rd-party extension array types. It's also the immediate\n     parent class for our internal extension types' blocks, CategoricalBlock.\n \n@@ -1805,10 +1825,20 @@ class ExtensionBlock(NonConsolidatableMixIn, Block):\n         # axis doesn't matter; we are really a single-dim object\n         # but are passed the axis depending on the calling routing\n         # if its REALLY axis 0, then this will be a reindex and not a take\n-        new_values = self.values.take(indexer, fill_value=fill_value, allow_fill=True)\n-\n-        # Called from three places in managers, all of which satisfy\n-        #  this assertion\n+    def _can_hold_element(self, element):\n+        \"\"\"\n+        Check if the ExtensionBlock can hold an element.\n+        \"\"\"\n+        from pandas.core.arrays.categorical import Categorical\n+        if isinstance(self.values, Categorical):\n+            # For Categorical, we can only hold values in categories\n+            cats = self.values.categories\n+            for cat in cats:\n+                if cat == element:\n+                    return True\n+            return False\n+        # For other extension arrays, return True (default behavior)\n+        return True\n         assert not (self.ndim == 1 and new_mgr_locs is None)\n         if new_mgr_locs is None:\n             new_mgr_locs = self.mgr_locs\n@@ -2799,6 +2829,16 @@ class ObjectBlock(Block):\n         to_replace : object or pattern\n             Scalar to replace or regular expression to match.\n         value : object\n+    def _can_hold_element(self, element):\n+        \"\"\"\n+        Check if the CategoricalBlock can hold an element.\n+        \"\"\"\n+        # For Categorical, we can only hold values in categories\n+        cats = self.values.categories\n+        for cat in cats:\n+            if cat == element:\n+                return True\n+        return False\n             Replacement object.\n         inplace : bool, default False\n             Perform inplace modification.\n@@ -2829,6 +2869,16 @@ class ObjectBlock(Block):\n \n \n class CategoricalBlock(ExtensionBlock):\n+    def _can_hold_element(self, element):\n+        \"\"\"\n+        Check if the CategoricalBlock can hold an element.\n+        \"\"\"\n+        # For Categorical, we can only hold values in categories\n+        cats = self.values.categories\n+        for cat in cats:\n+            if cat == element:\n+                return True\n+        return False\n     __slots__ = ()\n     is_categorical = True\n     _verify_integrity = True\n@@ -2860,11 +2910,11 @@ class CategoricalBlock(ExtensionBlock):\n \n     def to_native_types(self, slicer=None, na_rep=\"\", quoting=None, **kwargs):\n         \"\"\" convert to our native types format, slicing if desired \"\"\"\n-\n-        values = self.values\n-        if slicer is not None:\n-            # Categorical is always one dimension\n-            values = values[slicer]\n+        from pandas.core.arrays.categorical import Categorical\n+        if isinstance(self.values, Categorical):\n+            # For Categorical, check if element is in categories\n+            return element in self.values.categories\n+        return self.values._can_hold_element(element)\n         mask = isna(values)\n         values = np.array(values, dtype=\"object\")\n         values[mask] = na_rep\ndiff --git a/pandas/tests/arrays/categorical/test_algos.py b/pandas/tests/arrays/categorical/test_algos.py\nindex 1a48ccf85f..e076015c5f 100644\n--- a/pandas/tests/arrays/categorical/test_algos.py\n+++ b/pandas/tests/arrays/categorical/test_algos.py\n@@ -59,6 +59,24 @@ def test_isin_cats():\n     tm.assert_numpy_array_equal(expected, result)\n \n \n+@pytest.mark.parametrize(\n+    \"to_replace, value, result\",\n+    [(\"b\", \"c\", [\"a\", \"c\"]), (\"c\", \"d\", [\"a\", \"b\"]), (\"b\", None, [\"a\", None])],\n+)\n+def test_replace(to_replace, value, result):\n+    # GH 26988\n+    cat = pd.Categorical([\"a\", \"b\"])\n+    expected = pd.Categorical(result)\n+    result = cat.replace(to_replace, value)\n+    tm.assert_categorical_equal(result, expected)\n+    if to_replace == \"b\":  # the \"c\" test is supposed to be unchanged\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_categorical_equal(cat, expected)\n+    cat.replace(to_replace, value, inplace=True)\n+    tm.assert_categorical_equal(cat, expected)\n+\n+\n @pytest.mark.parametrize(\"empty\", [[], pd.Series(), np.array([])])\n def test_isin_empty(empty):\n     s = pd.Categorical([\"a\", \"b\"])\ndiff --git a/pandas/tests/frame/test_replace.py b/pandas/tests/frame/test_replace.py\nindex c30efa1212..60b601b57e 100644\n--- a/pandas/tests/frame/test_replace.py\n+++ b/pandas/tests/frame/test_replace.py\n@@ -1296,6 +1296,24 @@ class TestDataFrameReplace:\n         expected = DataFrame(expected)\n         tm.assert_frame_equal(result, expected)\n \n+    @pytest.mark.parametrize(\n+        \"replace_dict, final_data\",\n+        [({\"a\": 1, \"b\": 1}, [[3, 3], [2, 2]]), ({\"a\": 1, \"b\": 2}, [[3, 1], [2, 3]])],\n+    )\n+    def test_categorical_replace_with_dict(self, replace_dict, final_data):\n+        # GH 26988\n+        df = DataFrame([[1, 1], [2, 2]], columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected = DataFrame(final_data, columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected[\"a\"] = expected[\"a\"].cat.set_categories([1, 2, 3])\n+        expected[\"b\"] = expected[\"b\"].cat.set_categories([1, 2, 3])\n+        result = df.replace(replace_dict, 3)\n+        tm.assert_frame_equal(result, expected)\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_frame_equal(df, expected)\n+        df.replace(replace_dict, 3, inplace=True)\n+        tm.assert_frame_equal(df, expected)\n+\n     @pytest.mark.parametrize(\n         \"df, to_replace, exp\",\n         [\n"
+  },
+  "timestamp": "2026-06-17 20:55:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_125",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_125/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG-26988 implement replace for categorical blocks (#27026)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 183,
+        "end_line": 183,
+        "suspiciousness": 0.426852,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 189,
+        "end_line": 189,
+        "suspiciousness": 0.426852,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 190,
+        "end_line": 190,
+        "suspiciousness": 0.426852,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1994,
+        "end_line": 1994,
+        "suspiciousness": 0.426852,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 636,
+        "end_line": 636,
+        "suspiciousness": 0.426852,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 638,
+        "end_line": 638,
+        "suspiciousness": 0.426852,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 641,
+        "end_line": 641,
+        "suspiciousness": 0.426852,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 643,
+        "end_line": 643,
+        "suspiciousness": 0.426852,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 644,
+        "end_line": 644,
+        "suspiciousness": 0.426852,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 373,
+        "end_line": 373,
+        "suspiciousness": 0.426852,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_algos.py::test_replace",
+      "pytest pandas/tests/frame/test_replace.py::TestDataFrameReplace::test_categorical_replace_with_dict"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 183,
+      "end_line": 183,
+      "suspiciousness": 0.426852,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 189,
+      "end_line": 189,
+      "suspiciousness": 0.426852,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 190,
+      "end_line": 190,
+      "suspiciousness": 0.426852,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1994,
+      "end_line": 1994,
+      "suspiciousness": 0.426852,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 636,
+      "end_line": 636,
+      "suspiciousness": 0.426852,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 638,
+      "end_line": 638,
+      "suspiciousness": 0.426852,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 641,
+      "end_line": 641,
+      "suspiciousness": 0.426852,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 643,
+      "end_line": 643,
+      "suspiciousness": 0.426852,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 644,
+      "end_line": 644,
+      "suspiciousness": 0.426852,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 373,
+      "end_line": 373,
+      "suspiciousness": 0.426852,
+      "rank": 10
+    }
+  ]
+}

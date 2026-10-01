@@ -1,0 +1,114 @@
+{
+  "project_name": "Closure",
+  "bug_id": "98",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:20:32",
+      "end_time": "2026-06-26 22:21:29",
+      "duration_seconds": 56,
+      "duration_human": "56.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 246357,
+      "output_tokens": 2432,
+      "total_tokens": 248789,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 246357
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 22:21:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_98",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_98",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "bad variable inlining in closure\n// ==ClosureCompiler==\r\n// @compilation_level SIMPLE_OPTIMIZATIONS\r\n// @output_file_name default.js\r\n// @formatting pretty_print\r\n// ==/ClosureCompiler==\r\n\r\nfunction foo() {\r\n var arr = [1, 2, 3, 4, 5];\r\n for (var i = 0, l = arr.length; i &lt; l; i++) {\r\n   var j = arr[i];\r\n   (function() {\r\n     var k = j;\r\n     setTimeout(function() { console.log(k); }, 0);\r\n   })();\r\n }\r\n}\r\nfoo();\r\n\r\n&quot;k&quot; will get incorrectly inlined.",
+    "commit_message": "Change on 2010/06/09 by nicksantos",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 360,
+        "end_line": 360,
+        "line_numbers": [
+          360
+        ],
+        "function_name": "isAssignedOnceInLifetime",
+        "class_name": "ReferenceCollection",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "    boolean isAssignedOnceInLifetime() {\n      Reference ref = getOneAndOnlyAssignment();\n      if (ref == null) {\n        return false;\n      }\n\n      // Make sure this assignment is not in a loop.\n\n      return true;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 552,
+        "end_line": 552,
+        "line_numbers": [
+          552
+        ],
+        "function_name": "",
+        "class_name": "BasicBlock",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 557,
+        "end_line": 557,
+        "line_numbers": [
+          557
+        ],
+        "function_name": "",
+        "class_name": "BasicBlock",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 570,
+        "end_line": 570,
+        "line_numbers": [
+          570
+        ],
+        "function_name": "",
+        "class_name": "BasicBlock",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 572,
+        "end_line": 572,
+        "line_numbers": [
+          572
+        ],
+        "function_name": "provablyExecutesBefore",
+        "class_name": "BasicBlock",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "    boolean provablyExecutesBefore(BasicBlock thatBlock) {\n      // If thatBlock is a descendant of this block, and there are no hoisted\n      // blocks between them, then this block must start before thatBlock.\n      BasicBlock currentBlock;\n      for (currentBlock = thatBlock;\n           currentBlock != null && currentBlock != this;\n           currentBlock = currentBlock.getParent()) {\n        if (currentBlock.isHoisted) {\n          return false;\n        }\n      }\n\n      return currentBlock == this;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.InlineVariablesTest::testNoInlineAliasesInLoop"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\nindex da4ed3e..f053321 100644\n--- a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n+++ b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n@@ -358,14 +358,6 @@ class ReferenceCollectingCallback implements ScopedCallback, CompilerPass {\n       }\n \n       // Make sure this assignment is not in a loop.\n+      for (BasicBlock block = ref.getBasicBlock();\n+           block != null; block = block.getParent()) {\n+        if (block.isFunction) {\n+          break;\n+        } else if (block.isLoop) {\n+          return false;\n+        }\n+      }\n \n       return true;\n     }\n@@ -550,12 +542,10 @@ class ReferenceCollectingCallback implements ScopedCallback, CompilerPass {\n     /**\n      * Whether this block denotes a function scope.\n      */\n+    private final boolean isFunction;\n \n     /**\n      * Whether this block denotes a loop.\n      */\n+    private final boolean isLoop;\n \n     /**\n      * Creates a new block.\n@@ -568,16 +558,7 @@ class ReferenceCollectingCallback implements ScopedCallback, CompilerPass {\n       // only named functions may be hoisted.\n       this.isHoisted = NodeUtil.isHoistedFunctionDeclaration(root);\n \n+      this.isFunction = root.getType() == Token.FUNCTION;\n \n+      if (root.getParent() != null) {\n+        int pType = root.getParent().getType();\n+        this.isLoop = pType == Token.DO ||\n+            pType == Token.WHILE ||\n+            pType == Token.FOR;\n+      } else {\n+        this.isLoop = false;\n+      }\n     }\n \n     BasicBlock getParent() {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

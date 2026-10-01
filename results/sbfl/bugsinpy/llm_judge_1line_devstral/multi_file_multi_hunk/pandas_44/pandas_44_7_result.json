@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_44",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 20:41:15",
+      "end_time": "2026-06-30 20:43:29",
+      "duration_seconds": 134,
+      "duration_human": "2m 14s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 855309,
+      "output_tokens": 5481,
+      "total_tokens": 860790,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 855309
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/base.py b/pandas/core/indexes/base.py\nindex 3196648940..a9347ac0d0 100644\n--- a/pandas/core/indexes/base.py\n+++ b/pandas/core/indexes/base.py\n@@ -4659,8 +4659,14 @@ class Index(IndexOpsMixin, PandasObject):\n \n         if is_categorical(target):\n             tgt_values = np.asarray(target)\n-        elif self.is_all_dates and target.is_all_dates:  # GH 30399\n-            tgt_values = target.asi8\n+        elif self.is_all_dates and target.is_all_dates:\n+            if str(self.dtype) == str(target.dtype):  # GH 30399\n+                tgt_values = target.asi8\n+            else:\n+                # Incompatible dtypes, return -1 arrays\n+                indexer = np.full(len(target), -1, dtype=np.intp)\n+                missing = np.full(len(target), -1, dtype=np.intp)\n+                return ensure_platform_int(indexer), missing\n         else:\n             tgt_values = target._get_engine_target()\n \ndiff --git a/pandas/core/indexes/period.py b/pandas/core/indexes/period.py\nindex f83234f1aa..5e0f88a105 100644\n--- a/pandas/core/indexes/period.py\n+++ b/pandas/core/indexes/period.py\n@@ -434,7 +434,7 @@ class PeriodIndex(DatetimeIndexOpsMixin, Int64Index):\n         if isinstance(target, PeriodIndex):\n             if target.freq != self.freq:\n                 # No matches\n-                no_matches = -1 * np.ones(self.shape, dtype=np.intp)\n+                no_matches = -1 * np.ones(len(target), dtype=np.intp)\n                 return no_matches\n \n             target = target.asi8\n@@ -456,10 +456,14 @@ class PeriodIndex(DatetimeIndexOpsMixin, Int64Index):\n \n         if isinstance(target, PeriodIndex):\n             if target.freq != self.freq:\n-                no_matches = -1 * np.ones(self.shape, dtype=np.intp)\n+                no_matches = -1 * np.ones(len(target), dtype=np.intp)\n                 return no_matches, no_matches\n \n             target = target.asi8\n+        else:\n+            # Incompatible index types, return -1 arrays\n+            no_matches = -1 * np.ones(len(target), dtype=np.intp)\n+            return no_matches, no_matches\n \n         indexer, missing = self._int64index.get_indexer_non_unique(target)\n         return ensure_platform_int(indexer), missing\ndiff --git a/pandas/tests/indexes/test_base.py b/pandas/tests/indexes/test_base.py\nindex 2981f56e58..5bdbc18769 100644\n--- a/pandas/tests/indexes/test_base.py\n+++ b/pandas/tests/indexes/test_base.py\n@@ -2616,3 +2616,40 @@ def test_convert_almost_null_slice(indices):\n         msg = \"'>=' not supported between instances of 'str' and 'int'\"\n         with pytest.raises(TypeError, match=msg):\n             idx._convert_slice_indexer(key, \"loc\")\n+\n+\n+dtlike_dtypes = [\n+    np.dtype(\"timedelta64[ns]\"),\n+    np.dtype(\"datetime64[ns]\"),\n+    pd.DatetimeTZDtype(\"ns\", \"Asia/Tokyo\"),\n+    pd.PeriodDtype(\"ns\"),\n+]\n+\n+\n+@pytest.mark.parametrize(\"ldtype\", dtlike_dtypes)\n+@pytest.mark.parametrize(\"rdtype\", dtlike_dtypes)\n+def test_get_indexer_non_unique_wrong_dtype(ldtype, rdtype):\n+\n+    vals = np.tile(3600 * 10 ** 9 * np.arange(3), 2)\n+\n+    def construct(dtype):\n+        if dtype is dtlike_dtypes[-1]:\n+            # PeriodArray will try to cast ints to strings\n+            return pd.DatetimeIndex(vals).astype(dtype)\n+        return pd.Index(vals, dtype=dtype)\n+\n+    left = construct(ldtype)\n+    right = construct(rdtype)\n+\n+    result = left.get_indexer_non_unique(right)\n+\n+    if ldtype is rdtype:\n+        ex1 = np.array([0, 3, 1, 4, 2, 5] * 2, dtype=np.intp)\n+        ex2 = np.array([], dtype=np.intp)\n+        tm.assert_numpy_array_equal(result[0], ex1)\n+        tm.assert_numpy_array_equal(result[1], ex2.astype(np.int64))\n+\n+    else:\n+        no_matches = np.array([-1] * 6, dtype=np.intp)\n+        tm.assert_numpy_array_equal(result[0], no_matches)\n+        tm.assert_numpy_array_equal(result[1], no_matches)\ndiff --git a/pandas/tests/indexing/test_loc.py b/pandas/tests/indexing/test_loc.py\nindex a0edf78f79..ee92e5a692 100644\n--- a/pandas/tests/indexing/test_loc.py\n+++ b/pandas/tests/indexing/test_loc.py\n@@ -1073,3 +1073,25 @@ def test_loc_slice_disallows_positional():\n     with tm.assert_produces_warning(FutureWarning):\n         # GH#31840 deprecated incorrect behavior\n         df.loc[1:3, 1] = 2\n+\n+\n+def test_loc_datetimelike_mismatched_dtypes():\n+    # GH#32650 dont mix and match datetime/timedelta/period dtypes\n+\n+    df = pd.DataFrame(\n+        np.random.randn(5, 3),\n+        columns=[\"a\", \"b\", \"c\"],\n+        index=pd.date_range(\"2012\", freq=\"H\", periods=5),\n+    )\n+    # create dataframe with non-unique DatetimeIndex\n+    df = df.iloc[[0, 2, 2, 3]].copy()\n+\n+    dti = df.index\n+    tdi = pd.TimedeltaIndex(dti.asi8)  # matching i8 values\n+\n+    msg = r\"None of \\[TimedeltaIndex.* are in the \\[index\\]\"\n+    with pytest.raises(KeyError, match=msg):\n+        df.loc[tdi]\n+\n+    with pytest.raises(KeyError, match=msg):\n+        df[\"a\"].loc[tdi]\n"
+  },
+  "timestamp": "2026-06-30 20:43:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_44",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_44/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: DTI/TDI/PI get_indexer_non_unique with incompatible dtype (#32650)",
+    "fault_locations": [
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 892,
+        "end_line": 892,
+        "suspiciousness": 0.991736,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 894,
+        "end_line": 894,
+        "suspiciousness": 0.991736,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 899,
+        "end_line": 899,
+        "suspiciousness": 0.991736,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 908,
+        "end_line": 908,
+        "suspiciousness": 0.991736,
+        "rank": 4
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 910,
+        "end_line": 910,
+        "suspiciousness": 0.991736,
+        "rank": 5
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 913,
+        "end_line": 913,
+        "suspiciousness": 0.991736,
+        "rank": 6
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 966,
+        "end_line": 966,
+        "suspiciousness": 0.991736,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 967,
+        "end_line": 967,
+        "suspiciousness": 0.991736,
+        "rank": 8
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 986,
+        "end_line": 986,
+        "suspiciousness": 0.991736,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/dtypes/dtypes.py",
+        "start_line": 144,
+        "end_line": 144,
+        "suspiciousness": 0.904613,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/test_base.py::test_get_indexer_non_unique_wrong_dtype",
+      "pytest pandas/tests/indexing/test_loc.py::test_loc_datetimelike_mismatched_dtypes"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 892,
+      "end_line": 892,
+      "suspiciousness": 0.991736,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 894,
+      "end_line": 894,
+      "suspiciousness": 0.991736,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 899,
+      "end_line": 899,
+      "suspiciousness": 0.991736,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 908,
+      "end_line": 908,
+      "suspiciousness": 0.991736,
+      "rank": 4
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 910,
+      "end_line": 910,
+      "suspiciousness": 0.991736,
+      "rank": 5
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 913,
+      "end_line": 913,
+      "suspiciousness": 0.991736,
+      "rank": 6
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 966,
+      "end_line": 966,
+      "suspiciousness": 0.991736,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 967,
+      "end_line": 967,
+      "suspiciousness": 0.991736,
+      "rank": 8
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 986,
+      "end_line": 986,
+      "suspiciousness": 0.991736,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/dtypes/dtypes.py",
+      "start_line": 144,
+      "end_line": 144,
+      "suspiciousness": 0.904613,
+      "rank": 10
+    }
+  ]
+}

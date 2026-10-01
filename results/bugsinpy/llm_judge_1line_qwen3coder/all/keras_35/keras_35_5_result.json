@@ -1,0 +1,62 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_35",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 14:58:21",
+      "end_time": "2026-06-20 15:01:30",
+      "duration_seconds": 189,
+      "duration_human": "3m 9s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 940010,
+      "output_tokens": 3750,
+      "total_tokens": 943760,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 940010
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/preprocessing/image.py b/keras/preprocessing/image.py\nindex 97d97792d..18812797d 100644\n--- a/keras/preprocessing/image.py\n+++ b/keras/preprocessing/image.py\n@@ -580,8 +580,6 @@ class ImageDataGenerator(object):\n         # Returns\n             The inputs, normalized.\n         \"\"\"\n-        if self.preprocessing_function:\n-            x = self.preprocessing_function(x)\n         if self.rescale:\n             x *= self.rescale\n         if self.samplewise_center:\n@@ -951,6 +949,8 @@ class NumpyArrayIterator(Iterator):\n                            dtype=K.floatx())\n         for i, j in enumerate(index_array):\n             x = self.x[j]\n+            if self.image_data_generator.preprocessing_function:\n+                x = self.image_data_generator.preprocessing_function(x)\n             x = self.image_data_generator.random_transform(x.astype(K.floatx()))\n             x = self.image_data_generator.standardize(x)\n             batch_x[i] = x\n@@ -1227,13 +1227,25 @@ class DirectoryIterator(Iterator):\n             fname = self.filenames[j]\n             img = load_img(os.path.join(self.directory, fname),\n                            grayscale=grayscale,\n-                           target_size=self.target_size,\n+                           target_size=None,\n                            interpolation=self.interpolation)\n+            if self.image_data_generator.preprocessing_function:\n+                img = self.image_data_generator.preprocessing_function(img)\n+            if self.target_size is not None:\n+                width_height_tuple = (self.target_size[1], self.target_size[0])\n+                if img.size != width_height_tuple:\n+                    if self.interpolation not in _PIL_INTERPOLATION_METHODS:\n+                        raise ValueError(\n+                            'Invalid interpolation method {} specified. Supported ' \n+                            'methods are {}'.format(\n+                                self.interpolation,\n+                                \", \".join(_PIL_INTERPOLATION_METHODS.keys())))\n+                    resample = _PIL_INTERPOLATION_METHODS[self.interpolation]\n+                    img = img.resize(width_height_tuple, resample)\n             x = img_to_array(img, data_format=self.data_format)\n             x = self.image_data_generator.random_transform(x)\n             x = self.image_data_generator.standardize(x)\n             batch_x[i] = x\n-        # optionally save augmented images to disk for debugging purposes\n         if self.save_to_dir:\n             for i, j in enumerate(index_array):\n                 img = array_to_img(batch_x[i], self.data_format, scale=True)\ndiff --git a/pytest.ini b/pytest.ini\nindex cdfd1d5da..5dd74212a 100644\n--- a/pytest.ini\n+++ b/pytest.ini\n@@ -1,7 +1,7 @@\n # Configuration of py.test\n [pytest]\n addopts=-v\n-        -n 2\n+        #-n 2\n         --durations=10\n \n # Do not run tests in the build folder\ndiff --git a/tests/keras/preprocessing/image_test.py b/tests/keras/preprocessing/image_test.py\nindex 0c81cb582..bdc06ae1d 100644\n--- a/tests/keras/preprocessing/image_test.py\n+++ b/tests/keras/preprocessing/image_test.py\n@@ -235,6 +235,29 @@ class TestImage(object):\n         with pytest.raises(ValueError):\n             x1, y1 = dir_seq[9]\n \n+        # Test Preprocessing before resize\n+        def preprocess_test(img):\n+            return img.resize((1, 1))\n+\n+        generator = image.ImageDataGenerator(preprocessing_function=preprocess_test)\n+        dir_seq = generator.flow_from_directory(str(tmpdir),\n+                                                target_size=(26, 26),\n+                                                color_mode='rgb',\n+                                                batch_size=1,\n+                                                class_mode='categorical')\n+\n+        gen_x1, gen_y1 = dir_seq[1]\n+\n+        test_x1 = image.load_img(os.path.join(dir_seq.directory, dir_seq.filenames[1]),\n+                                 grayscale=False)\n+        test_x1 = preprocess_test(test_x1)\n+        test_x1 = test_x1.resize((26, 26))\n+        test_x1 = image.img_to_array(test_x1)\n+        test_x1 = dir_seq.image_data_generator.random_transform(test_x1)\n+        test_x1 = dir_seq.image_data_generator.standardize(test_x1)\n+\n+        assert gen_x1.shape[1:] == test_x1.shape\n+\n     def test_directory_iterator_class_mode_input(self, tmpdir):\n         tmpdir.join('class-1').mkdir()\n \n"
+  },
+  "timestamp": "2026-06-20 15:01:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_35",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_35/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix ImageDataGenerator preprocessing_function (#9273)",
+    "fault_locations": [
+      {
+        "file": "keras/preprocessing/image.py",
+        "start_line": 583,
+        "end_line": 584,
+        "function_name": "standardize",
+        "class_name": ""
+      },
+      {
+        "file": "keras/preprocessing/image.py",
+        "start_line": 1230,
+        "end_line": 1230,
+        "function_name": "_get_batches_of_transformed_samples",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/preprocessing/image_test.py::TestImage::test_directory_iterator"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_33",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 03:13:50",
+      "end_time": "2026-06-18 03:27:11",
+      "duration_seconds": 801,
+      "duration_human": "13m 21s"
+    },
+    "model_cost": 0.0644,
+    "model_calls": 33,
+    "token_usage": {
+      "input_tokens": 498307,
+      "output_tokens": 12780,
+      "total_tokens": 511087,
+      "cached_input_tokens": 279168,
+      "uncached_input_tokens": 219139
+    },
+    "agent_steps": 33,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/preprocessing/text.py b/keras/preprocessing/text.py\nindex 8264c1a6c..dd09ee315 100644\n--- a/keras/preprocessing/text.py\n+++ b/keras/preprocessing/text.py\n@@ -38,12 +38,38 @@ def text_to_word_sequence(text,\n     if lower:\n         text = text.lower()\n \n-    if sys.version_info < (3,) and isinstance(text, unicode):\n-        translate_map = dict((ord(c), unicode(split)) for c in filters)\n-    else:\n+    if len(split) == 1:\n+        # Single character split, can use maketrans for efficiency\n         translate_map = maketrans(filters, split * len(filters))\n-\n-    text = text.translate(translate_map)\n+        text = text.translate(translate_map)\n+    else:\n+        # Multi-character split\n+        if sys.version_info < (3,):\n+            # Python 2\n+            if isinstance(text, unicode):\n+                # Python 2 unicode\n+                translate_map = dict((ord(c), unicode(split)) for c in filters)\n+                text = text.translate(translate_map)\n+            else:\n+                # Python 2 str - translate doesn't accept dict\n+                # Manually replace each filter character with split string\n+                # Python 2 str - translate doesn't accept dict\n+                # Use a translation table with placeholders to avoid recursive replacement\n+                import string\n+                # Find a placeholder character not in filters or split\n+                placeholder = chr(1)  # Start with SOH\n+                while placeholder in filters or placeholder in split:\n+                    placeholder = chr(ord(placeholder) + 1)\n+                # Create translation table mapping filters to placeholder\n+                translate_map = string.maketrans(filters, placeholder * len(filters))\n+                text = text.translate(translate_map)\n+                # Replace placeholder with split string\n+                text = text.replace(placeholder, split)\n+        else:\n+            # Python 3 - translate accepts dict\n+            translate_map = dict((ord(c), split) for c in filters)\n+            text = text.translate(translate_map)\n+    \n     seq = text.split(split)\n     return [i for i in seq if i]\n \n@@ -59,13 +85,14 @@ def one_hot(text, n,\n \n     # Arguments\n         text: Input text (string).\n-        n: Dimension of the hashing space.\n+        n: int. Size of vocabulary.\n         filters: Sequence of characters to filter out.\n         lower: Whether to convert the input to lowercase.\n         split: Sentence split marker (string).\n \n     # Returns\n-        A list of integer word indices (unicity non-guaranteed).\n+        List of integers in [1, n]. Each integer encodes a word\n+        (unicity non-guaranteed).\n     \"\"\"\n     return hashing_trick(text, n,\n                          hash_function=hash,\n@@ -84,9 +111,9 @@ def hashing_trick(text, n,\n     # Arguments\n         text: Input text (string).\n         n: Dimension of the hashing space.\n-        hash_function: if `None` uses python `hash` function, can be 'md5' or\n+        hash_function: defaults to python `hash` function, can be 'md5' or\n             any function that takes in input a string and returns a int.\n-            Note that `hash` is not a stable hashing function, so\n+            Note that 'hash' is not a stable hashing function, so\n             it is not consistent across different runs, while 'md5'\n             is a stable hashing function.\n         filters: Sequence of characters to filter out.\n@@ -96,13 +123,10 @@ def hashing_trick(text, n,\n     # Returns\n         A list of integer word indices (unicity non-guaranteed).\n \n-    `0` is a reserved index that won't be assigned to any word.\n-\n-    Two or more words may be assigned to the same index, due to possible\n-    collisions by the hashing function.\n-    The [probability](https://en.wikipedia.org/wiki/Birthday_problem#Probability_table)\n-    of a collision is in relation to the dimension of the hashing space and\n-    the number of distinct objects.\n+    # Raises\n+        ValueError: If hash_function is 'md5', because in that case the method\n+            is not deterministic. Use hash_function='md5' only for\n+            experimentation.\n     \"\"\"\n     if hash_function is None:\n         hash_function = hash\n@@ -126,13 +150,13 @@ class Tokenizer(object):\n \n     # Arguments\n         num_words: the maximum number of words to keep, based\n-            on word frequency. Only the most common `num_words` words will\n+            on word frequency. Only the most common `num_words-1` words will\n             be kept.\n         filters: a string where each element is a character that will be\n             filtered from the texts. The default is all punctuation, plus\n             tabs and line breaks, minus the `'` character.\n         lower: boolean. Whether to convert the texts to lowercase.\n-        split: character or string to use for token splitting.\n+        split: string. Separator for word splitting.\n         char_level: if True, every character will be treated as a token.\n         oov_token: if given, it will be added to word_index and used to\n             replace out-of-vocabulary words during text_to_sequence calls\n@@ -151,30 +175,25 @@ class Tokenizer(object):\n                  split=' ',\n                  char_level=False,\n                  oov_token=None,\n-                 **kwargs):\n-        # Legacy support\n-        if 'nb_words' in kwargs:\n-            warnings.warn('The `nb_words` argument in `Tokenizer` '\n-                          'has been renamed `num_words`.')\n-            num_words = kwargs.pop('nb_words')\n-        if kwargs:\n-            raise TypeError('Unrecognized keyword arguments: ' + str(kwargs))\n-\n+                 document_count=0):\n         self.word_counts = OrderedDict()\n         self.word_docs = {}\n         self.filters = filters\n         self.split = split\n         self.lower = lower\n         self.num_words = num_words\n-        self.document_count = 0\n+        self.document_count = document_count\n         self.char_level = char_level\n         self.oov_token = oov_token\n         self.index_docs = {}\n+        self.word_index = {}\n+        self.index_word = {}\n \n     def fit_on_texts(self, texts):\n         \"\"\"Updates internal vocabulary based on a list of texts.\n-        In the case where texts contains lists, we assume each entry of the lists\n-        to be a token.\n+\n+        In the case where texts contains lists,\n+        we assume each entry of the lists to be a token.\n \n         Required before using `texts_to_sequences` or `texts_to_matrix`.\n \n@@ -186,12 +205,17 @@ class Tokenizer(object):\n         for text in texts:\n             self.document_count += 1\n             if self.char_level or isinstance(text, list):\n+                if self.lower:\n+                    if isinstance(text, list):\n+                        text = [t.lower() for t in text]\n+                    else:\n+                        text = text.lower()\n                 seq = text\n             else:\n                 seq = text_to_word_sequence(text,\n-                                            self.filters,\n-                                            self.lower,\n-                                            self.split)\n+                                            filters=self.filters,\n+                                            lower=self.lower,\n+                                            split=self.split)\n             for w in seq:\n                 if w in self.word_counts:\n                     self.word_counts[w] += 1\n@@ -207,13 +231,16 @@ class Tokenizer(object):\n         wcounts.sort(key=lambda x: x[1], reverse=True)\n         sorted_voc = [wc[0] for wc in wcounts]\n         # note that index 0 is reserved, never assigned to an existing word\n-        self.word_index = dict(list(zip(sorted_voc, list(range(1, len(sorted_voc) + 1)))))\n+        self.word_index = dict(\n+            list(zip(sorted_voc, list(range(1, len(sorted_voc) + 1)))))\n \n         if self.oov_token is not None:\n             i = self.word_index.get(self.oov_token)\n             if i is None:\n                 self.word_index[self.oov_token] = len(self.word_index) + 1\n \n+        self.index_word = {c: w for w, c in self.word_index.items()}\n+\n         for w, c in list(self.word_docs.items()):\n             self.index_docs[self.word_index[w]] = c\n \n@@ -237,9 +264,9 @@ class Tokenizer(object):\n                     self.index_docs[i] += 1\n \n     def texts_to_sequences(self, texts):\n-        \"\"\"Transforms each text in texts in a sequence of integers.\n+        \"\"\"Transforms each text in texts to a sequence of integers.\n \n-        Only top \"num_words\" most frequent words will be taken into account.\n+        Only top `num_words-1` most frequent words will be taken into account.\n         Only words known by the tokenizer will be taken into account.\n \n         # Arguments\n@@ -254,11 +281,9 @@ class Tokenizer(object):\n         return res\n \n     def texts_to_sequences_generator(self, texts):\n-        \"\"\"Transforms each text in `texts` in a sequence of integers.\n-        Each item in texts can also be a list, in which case we assume each item of that list\n-        to be a token.\n+        \"\"\"Transforms each text in texts in a sequence of integers.\n \n-        Only top \"num_words\" most frequent words will be taken into account.\n+        Only top `num_words-1` most frequent words will be taken into account.\n         Only words known by the tokenizer will be taken into account.\n \n         # Arguments\n@@ -268,26 +293,31 @@ class Tokenizer(object):\n             Yields individual sequences.\n         \"\"\"\n         num_words = self.num_words\n+        oov_token_index = self.word_index.get(self.oov_token)\n         for text in texts:\n             if self.char_level or isinstance(text, list):\n+                if self.lower:\n+                    if isinstance(text, list):\n+                        text = [t.lower() for t in text]\n+                    else:\n+                        text = text.lower()\n                 seq = text\n             else:\n                 seq = text_to_word_sequence(text,\n-                                            self.filters,\n-                                            self.lower,\n-                                            self.split)\n+                                            filters=self.filters,\n+                                            lower=self.lower,\n+                                            split=self.split)\n             vect = []\n             for w in seq:\n                 i = self.word_index.get(w)\n                 if i is not None:\n                     if num_words and i >= num_words:\n-                        continue\n+                        if oov_token_index is not None:\n+                            vect.append(oov_token_index)\n                     else:\n                         vect.append(i)\n                 elif self.oov_token is not None:\n-                    i = self.word_index.get(self.oov_token)\n-                    if i is not None:\n-                        vect.append(i)\n+                    vect.append(oov_token_index)\n             yield vect\n \n     def texts_to_matrix(self, texts, mode='binary'):\n@@ -309,27 +339,23 @@ class Tokenizer(object):\n         # Arguments\n             sequences: list of sequences\n                 (a sequence is a list of integer word indices).\n-            mode: one of \"binary\", \"count\", \"tfidf\", \"freq\"\n+            mode: one of \"binary\", \"count\", \"tfidf\", \"freq\".\n \n         # Returns\n             A Numpy matrix.\n-\n-        # Raises\n-            ValueError: In case of invalid `mode` argument,\n-                or if the Tokenizer requires to be fit to sample data.\n         \"\"\"\n         if not self.num_words:\n             if self.word_index:\n                 num_words = len(self.word_index) + 1\n             else:\n-                raise ValueError('Specify a dimension (num_words argument), '\n-                                 'or fit on some text data first.')\n+                raise RuntimeError('Specify a dimension (num_words argument), '\n+                                   'or fit on some text data first.')\n         else:\n             num_words = self.num_words\n \n         if mode == 'tfidf' and not self.document_count:\n-            raise ValueError('Fit the Tokenizer on some data '\n-                             'before using tfidf mode.')\n+            raise RuntimeError('Fit the Tokenizer on some data '\n+                               'before using tfidf mode.')\n \n         x = np.zeros((len(sequences), num_words))\n         for i, seq in enumerate(sequences):\n@@ -357,6 +383,4 @@ class Tokenizer(object):\n                     idf = np.log(1 + self.document_count /\n                                  (1 + self.index_docs.get(j, 0)))\n                     x[i][j] = tf * idf\n-                else:\n-                    raise ValueError('Unknown vectorization mode:', mode)\n         return x\ndiff --git a/tests/keras/preprocessing/text_test.py b/tests/keras/preprocessing/text_test.py\nindex 8d5ffb2f7..65fbdbb37 100644\n--- a/tests/keras/preprocessing/text_test.py\n+++ b/tests/keras/preprocessing/text_test.py\n@@ -73,11 +73,21 @@ def test_text_to_word_sequence():\n     assert text_to_word_sequence(text) == ['hello', 'world']\n \n \n+def test_text_to_word_sequence_multichar_split():\n+    text = 'hello!stop?world!'\n+    assert text_to_word_sequence(text, split='stop') == ['hello', 'world']\n+\n+\n def test_text_to_word_sequence_unicode():\n     text = u'ali! veli? k\u0131rk dokuz elli'\n     assert text_to_word_sequence(text) == [u'ali', u'veli', u'k\u0131rk', u'dokuz', u'elli']\n \n \n+def test_text_to_word_sequence_unicode_multichar_split():\n+    text = u'ali!stopveli?stopk\u0131rkstopdokuzstopelli'\n+    assert text_to_word_sequence(text, split='stop') == [u'ali', u'veli', u'k\u0131rk', u'dokuz', u'elli']\n+\n+\n def test_tokenizer_unicode():\n     texts = [u'ali veli k\u0131rk dokuz elli', u'ali veli k\u0131rk dokuz elli veli k\u0131rk dokuz']\n     tokenizer = Tokenizer(num_words=5)\n"
+  },
+  "timestamp": "2026-06-18 03:27:11 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_33",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_33/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Correct tokenization with multi-character `split` (#9585)",
+    "fault_locations": [
+      {
+        "file": "keras/preprocessing/text.py",
+        "start_line": 38,
+        "end_line": 38,
+        "suspiciousness": 0.4175,
+        "rank": 1
+      },
+      {
+        "file": "keras/preprocessing/text.py",
+        "start_line": 39,
+        "end_line": 39,
+        "suspiciousness": 0.4175,
+        "rank": 2
+      },
+      {
+        "file": "keras/preprocessing/text.py",
+        "start_line": 41,
+        "end_line": 41,
+        "suspiciousness": 0.4175,
+        "rank": 3
+      },
+      {
+        "file": "keras/preprocessing/text.py",
+        "start_line": 44,
+        "end_line": 44,
+        "suspiciousness": 0.4175,
+        "rank": 4
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/preprocessing/text_test.py::test_text_to_word_sequence_multichar_split",
+      "pytest tests/keras/preprocessing/text_test.py::test_text_to_word_sequence_unicode_multichar_split"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/preprocessing/text.py",
+      "start_line": 38,
+      "end_line": 38,
+      "suspiciousness": 0.4175,
+      "rank": 1
+    },
+    {
+      "file": "keras/preprocessing/text.py",
+      "start_line": 39,
+      "end_line": 39,
+      "suspiciousness": 0.4175,
+      "rank": 2
+    },
+    {
+      "file": "keras/preprocessing/text.py",
+      "start_line": 41,
+      "end_line": 41,
+      "suspiciousness": 0.4175,
+      "rank": 3
+    },
+    {
+      "file": "keras/preprocessing/text.py",
+      "start_line": 44,
+      "end_line": 44,
+      "suspiciousness": 0.4175,
+      "rank": 4
+    }
+  ]
+}

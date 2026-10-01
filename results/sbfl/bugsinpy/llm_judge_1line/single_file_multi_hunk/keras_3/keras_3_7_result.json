@@ -1,0 +1,193 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_3",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 22:49:47",
+      "end_time": "2026-06-25 23:10:53",
+      "duration_seconds": 1265,
+      "duration_human": "21m 5s"
+    },
+    "model_cost": 0.0755,
+    "model_calls": 9,
+    "token_usage": {
+      "input_tokens": 305835,
+      "output_tokens": 41835,
+      "total_tokens": 347670,
+      "cached_input_tokens": 89856,
+      "uncached_input_tokens": 215979
+    },
+    "agent_steps": 9,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/base_layer.py b/keras/engine/base_layer.py\nindex f02662f1a..2f29f8855 100644\n--- a/keras/engine/base_layer.py\n+++ b/keras/engine/base_layer.py\n@@ -590,7 +590,7 @@ class Layer(object):\n         \"\"\"\n         return input_shape\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         \"\"\"Computes an output mask tensor.\n \n         # Arguments\ndiff --git a/keras/engine/network.py b/keras/engine/network.py\nindex e5daf0bbe..c7762785f 100644\n--- a/keras/engine/network.py\n+++ b/keras/engine/network.py\n@@ -564,7 +564,7 @@ class Network(Layer):\n             output_tensors, _, _ = self.run_internal_graph(inputs, masks)\n             return output_tensors\n \n-    def compute_mask(self, inputs, mask):\n+    def compute_mask(self, inputs, mask, *args, **kwargs):\n         if not self._is_graph_network:\n             return None\n \ndiff --git a/keras/layers/core.py b/keras/layers/core.py\nindex ad7e9077c..9586cad99 100644\n--- a/keras/layers/core.py\n+++ b/keras/layers/core.py\n@@ -60,8 +60,10 @@ class Masking(Layer):\n         self.supports_masking = True\n         self.mask_value = mask_value\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         output_mask = K.any(K.not_equal(inputs, self.mask_value), axis=-1)\n+        if mask is not None:\n+            output_mask = K.any(K.stack([output_mask, mask], axis=0), axis=0)\n         return output_mask\n \n     def call(self, inputs):\n@@ -713,12 +715,11 @@ class Lambda(Layer):\n             self._input_dtypes = [K.dtype(x) for x in inputs]\n         else:\n             self._input_dtypes = K.dtype(inputs)\n-        return self.function(inputs, **arguments)\n-\n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         if callable(self.mask):\n             return self.mask(inputs, mask)\n         return self.mask\n+        return self.mask\n \n     def get_config(self):\n         if isinstance(self.function, python_types.LambdaType):\ndiff --git a/keras/layers/embeddings.py b/keras/layers/embeddings.py\nindex 5c372b388..d55604527 100644\n--- a/keras/layers/embeddings.py\n+++ b/keras/layers/embeddings.py\n@@ -112,7 +112,7 @@ class Embedding(Layer):\n             dtype=self.dtype)\n         self.built = True\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         if not self.mask_zero:\n             return None\n         output_mask = K.not_equal(inputs, 0)\ndiff --git a/keras/layers/merge.py b/keras/layers/merge.py\nindex a0d574599..801a00bad 100644\n--- a/keras/layers/merge.py\n+++ b/keras/layers/merge.py\n@@ -181,7 +181,7 @@ class _Merge(Layer):\n             output_shape = (None,) + output_shape\n         return output_shape\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         if mask is None:\n             return None\n         if not isinstance(mask, list):\n@@ -377,7 +377,7 @@ class Concatenate(_Merge):\n             output_shape[self.axis] += shape[self.axis]\n         return tuple(output_shape)\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         if mask is None:\n             return None\n         if not isinstance(mask, list):\n@@ -515,7 +515,7 @@ class Dot(_Merge):\n             output_shape += [1]\n         return tuple(output_shape)\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         return None\n \n     def get_config(self):\ndiff --git a/keras/layers/pooling.py b/keras/layers/pooling.py\nindex f2ce5d7e8..e0af7ea48 100644\n--- a/keras/layers/pooling.py\n+++ b/keras/layers/pooling.py\n@@ -550,7 +550,7 @@ class GlobalAveragePooling1D(_GlobalPooling1D):\n         else:\n             return K.mean(inputs, axis=steps_axis)\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         return None\n \n \ndiff --git a/keras/layers/recurrent.py b/keras/layers/recurrent.py\nindex b5a6a2fd8..e7a1bccec 100644\n--- a/keras/layers/recurrent.py\n+++ b/keras/layers/recurrent.py\n@@ -460,7 +460,7 @@ class RNN(Layer):\n         else:\n             return output_shape\n \n-    def compute_mask(self, inputs, mask):\n+    def compute_mask(self, inputs, mask, *args, **kwargs):\n         if isinstance(mask, list):\n             mask = mask[0]\n         output_mask = mask if self.return_sequences else None\ndiff --git a/keras/layers/wrappers.py b/keras/layers/wrappers.py\nindex 5f0de7e3d..196943095 100644\n--- a/keras/layers/wrappers.py\n+++ b/keras/layers/wrappers.py\n@@ -264,7 +264,7 @@ class TimeDistributed(Wrapper):\n             y._uses_learning_phase = True\n         return y\n \n-    def compute_mask(self, inputs, mask=None):\n+    def compute_mask(self, inputs, mask=None, *args, **kwargs):\n         \"\"\"Computes an output mask tensor for Embedding layer\n         based on the inputs, mask, and the inner layer.\n \n@@ -570,7 +570,7 @@ class Bidirectional(Wrapper):\n             self.backward_layer.build(input_shape)\n         self.built = True\n \n-    def compute_mask(self, inputs, mask):\n+    def compute_mask(self, inputs, mask, *args, **kwargs):\n         if isinstance(mask, list):\n             mask = mask[0]\n         if self.return_sequences:\ndiff --git a/keras/legacy/layers.py b/keras/legacy/layers.py\nindex 9716caf89..062db5037 100644\n--- a/keras/legacy/layers.py\n+++ b/keras/legacy/layers.py\n@@ -466,7 +466,7 @@ class Recurrent(Layer):\n         else:\n             return output_shape\n \n-    def compute_mask(self, inputs, mask):\n+    def compute_mask(self, inputs, mask, *args, **kwargs):\n         if isinstance(mask, list):\n             mask = mask[0]\n         output_mask = mask if self.return_sequences else None\ndiff --git a/tests/keras/test_sequential_model.py b/tests/keras/test_sequential_model.py\nindex d848734f6..13160734c 100644\n--- a/tests/keras/test_sequential_model.py\n+++ b/tests/keras/test_sequential_model.py\n@@ -339,6 +339,33 @@ def test_clone_functional_model():\n     new_model.train_on_batch(None, val_out)\n \n \n+def test_clone_functional_model_with_multi_outputs():\n+    input_layer = keras.Input(shape=(4,))\n+\n+    # Layer with single input and multiple outputs\n+    layer1 = keras.layers.Lambda(lambda x: [x + 1, x],\n+                                 lambda shapes: [shapes, shapes])\n+    x_a, x_b = layer1(input_layer)\n+\n+    class SwapLayer(keras.layers.Layer):\n+        def call(self, inputs, **kwargs):\n+            return [inputs[1], inputs[0]]\n+\n+        def compute_output_shape(self, input_shape):\n+            return [input_shape[1], input_shape[0]]\n+\n+    # Layer with multiple inputs and outputs\n+    x_a, x_b = SwapLayer()([x_a, x_b])\n+    model = keras.Model(inputs=[input_layer], outputs=[x_a, x_b])\n+    new_model = keras.models.clone_model(model)\n+\n+    x_test = np.random.random((10, 4))\n+    pred_a, pred_b = model.predict(x_test)\n+    pred_new_a, pred_new_b = new_model.predict(x_test)\n+    assert(pred_a.all() == pred_new_a.all())\n+    assert(pred_b.all() == pred_new_b.all())\n+\n+\n def test_clone_sequential_model():\n     val_a = np.random.random((10, 4))\n     val_out = np.random.random((10, 4))\n"
+  },
+  "timestamp": "2026-06-25 23:11:03 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_3",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_3/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "[P?] Fix clone_model (#12205)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 484,
+        "end_line": 484,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 605,
+        "end_line": 605,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 606,
+        "end_line": 606,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 607,
+        "end_line": 607,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "keras/engine/base_layer.py",
+        "start_line": 618,
+        "end_line": 618,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "keras/engine/network.py",
+        "start_line": 1375,
+        "end_line": 1375,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "keras/layers/core.py",
+        "start_line": 649,
+        "end_line": 649,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "keras/layers/core.py",
+        "start_line": 650,
+        "end_line": 650,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "keras/layers/core.py",
+        "start_line": 651,
+        "end_line": 651,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "keras/layers/core.py",
+        "start_line": 652,
+        "end_line": 652,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/test_sequential_model.py::test_clone_functional_model_with_multi_outputs"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 484,
+      "end_line": 484,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 605,
+      "end_line": 605,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 606,
+      "end_line": 606,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 607,
+      "end_line": 607,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "keras/engine/base_layer.py",
+      "start_line": 618,
+      "end_line": 618,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "keras/engine/network.py",
+      "start_line": 1375,
+      "end_line": 1375,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "keras/layers/core.py",
+      "start_line": 649,
+      "end_line": 649,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "keras/layers/core.py",
+      "start_line": 650,
+      "end_line": 650,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "keras/layers/core.py",
+      "start_line": 651,
+      "end_line": 651,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "keras/layers/core.py",
+      "start_line": 652,
+      "end_line": 652,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

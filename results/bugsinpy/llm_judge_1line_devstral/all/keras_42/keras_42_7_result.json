@@ -1,0 +1,139 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_42",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:39:27",
+      "end_time": "2026-06-27 22:46:45",
+      "duration_seconds": 437,
+      "duration_human": "7m 17s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1347635,
+      "output_tokens": 14238,
+      "total_tokens": 1361873,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1347635
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/training.py b/keras/engine/training.py\nindex 6cd7d35fb..bc1e4618e 100644\n--- a/keras/engine/training.py\n+++ b/keras/engine/training.py\n@@ -2064,9 +2064,8 @@ class Model(Container):\n             warnings.warn(\n                 UserWarning('Using a generator with `use_multiprocessing=True`'\n                             ' and multiple workers may duplicate your data.'\n-                            ' Please consider using the`keras.utils.Sequence'\n-                            ' class.'))\n-        if is_sequence:\n+        if is_sequence and steps_per_epoch is None:\n+            steps_per_epoch = len(generator)\n             steps_per_epoch = len(generator)\n         enqueuer = None\n \n@@ -2288,7 +2287,7 @@ class Model(Container):\n             return averages\n \n     @interfaces.legacy_generator_methods_support\n-    def predict_generator(self, generator, steps,\n+    def evaluate_generator(self, generator, steps=None,\n                           max_queue_size=10,\n                           workers=1,\n                           use_multiprocessing=False,\n@@ -2296,10 +2295,10 @@ class Model(Container):\n         \"\"\"Generates predictions for the input samples from a data generator.\n \n         The generator should return the same kind of data as accepted by\n-        `predict_on_batch`.\n-\n-        # Arguments\n-            generator: Generator yielding batches of input samples\n+        if is_sequence and steps is None:\\n            steps = len(generator)\n+        if is_sequence and steps is None:\\n            steps = len(generator)\n+        if is_sequence and steps is None:\n+            steps = len(generator)\n                     or an instance of Sequence (keras.utils.Sequence)\n                     object in order to avoid duplicate data\n                     when using multiprocessing.\n@@ -2336,15 +2335,15 @@ class Model(Container):\n                 UserWarning('Using a generator with `use_multiprocessing=True`'\n                             ' and multiple workers may duplicate your data.'\n                             ' Please consider using the`keras.utils.Sequence'\n-                            ' class.'))\n+    def predict_generator(self, generator, steps=None,\n         if is_sequence:\n             steps = len(generator)\n         enqueuer = None\n-\n-        try:\n+        if is_sequence and steps is None:\\n            steps = len(generator)\n+        if is_sequence and steps is None:\\n            steps = len(generator)\n             if is_sequence:\n-                enqueuer = OrderedEnqueuer(generator,\n-                                           use_multiprocessing=use_multiprocessing)\n+        if is_sequence and steps is None:\n+            steps = len(generator)\n             else:\n                 enqueuer = GeneratorEnqueuer(generator,\n                                              use_multiprocessing=use_multiprocessing,\ndiff --git a/tests/keras/engine/test_training.py b/tests/keras/engine/test_training.py\nindex 45738ec71..6cda6c4c5 100644\n--- a/tests/keras/engine/test_training.py\n+++ b/tests/keras/engine/test_training.py\n@@ -233,12 +233,17 @@ def test_model_methods():\n \n     # test starting from non-zero initial epoch\n     trained_epochs = []\n+    trained_batches = []\n \n     # define tracer callback\n     def on_epoch_begin(epoch, logs):\n         trained_epochs.append(epoch)\n \n-    tracker_cb = LambdaCallback(on_epoch_begin=on_epoch_begin)\n+    def on_batch_begin(batch, logs):\n+        trained_batches.append(batch)\n+\n+    tracker_cb = LambdaCallback(on_epoch_begin=on_epoch_begin,\n+                                on_batch_begin=on_batch_begin)\n \n     out = model.fit([input_a_np, input_b_np],\n                     [output_a_np, output_b_np], epochs=5, batch_size=4,\n@@ -380,10 +385,30 @@ def test_model_methods():\n     model.compile(optimizer, loss, metrics=[], loss_weights=loss_weights,\n                   sample_weight_mode=None)\n     trained_epochs = []\n-    out = model.fit_generator(generator=RandomSequence(3), steps_per_epoch=12, epochs=5,\n+    trained_batches = []\n+    out = model.fit_generator(generator=RandomSequence(3), steps_per_epoch=3, epochs=5,\n+                              initial_epoch=0, validation_data=RandomSequence(4),\n+                              validation_steps=3, callbacks=[tracker_cb])\n+    assert trained_epochs == [0, 1, 2, 3, 4]\n+    assert trained_batches == list(range(3)) * 5\n+\n+    # steps_per_epoch will be equal to len of sequence if it's unspecified\n+    trained_epochs = []\n+    trained_batches = []\n+    out = model.fit_generator(generator=RandomSequence(3), epochs=5,\n                               initial_epoch=0, validation_data=RandomSequence(4),\n-                              validation_steps=12, callbacks=[tracker_cb])\n+                              callbacks=[tracker_cb])\n     assert trained_epochs == [0, 1, 2, 3, 4]\n+    assert trained_batches == list(range(12)) * 5\n+\n+    # fit_generator will throw an exception if steps is unspecified for regular generator\n+    with pytest.raises(ValueError):\n+        def gen_data():\n+            while True:\n+                yield (np.asarray([]), np.asarray([]))\n+        out = model.fit_generator(generator=gen_data(), epochs=5,\n+                                  initial_epoch=0, validation_data=gen_data(),\n+                                  callbacks=[tracker_cb])\n \n \n @pytest.mark.skipif(sys.version_info < (3,), reason='Cannot catch warnings in python 2')\n"
+  },
+  "timestamp": "2026-06-27 22:46:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_42",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_42/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Allow custom steps_per_epoch for sequences, default to len(generator) if unspecified (#8509)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1903,
+        "end_line": 1903,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 1944,
+        "end_line": 1944,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2013,
+        "end_line": 2016,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2062,
+        "end_line": 2070,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2176,
+        "end_line": 2176,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2193,
+        "end_line": 2193,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2228,
+        "end_line": 2229,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2291,
+        "end_line": 2291,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2308,
+        "end_line": 2308,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/engine/training.py",
+        "start_line": 2340,
+        "end_line": 2341,
+        "function_name": "predict_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1119,
+        "end_line": 1119,
+        "function_name": "fit_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1226,
+        "end_line": 1226,
+        "function_name": "evaluate_generator",
+        "class_name": ""
+      },
+      {
+        "file": "keras/models.py",
+        "start_line": 1266,
+        "end_line": 1266,
+        "function_name": "predict_generator",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/engine/test_training.py::test_model_methods"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

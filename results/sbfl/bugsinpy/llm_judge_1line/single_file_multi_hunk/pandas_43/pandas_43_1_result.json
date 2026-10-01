@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_43",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 13:23:44",
+      "end_time": "2026-06-25 13:31:28",
+      "duration_seconds": 463,
+      "duration_human": "7m 43s"
+    },
+    "model_cost": 0.0773,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 577395,
+      "output_tokens": 11258,
+      "total_tokens": 588653,
+      "cached_input_tokens": 308352,
+      "uncached_input_tokens": 269043
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/ops/array_ops.py b/pandas/core/ops/array_ops.py\nindex e285c53d98..80b56ebd56 100644\n--- a/pandas/core/ops/array_ops.py\n+++ b/pandas/core/ops/array_ops.py\n@@ -95,6 +95,15 @@ def masked_arith_op(x: np.ndarray, y, op):\n         #  we would get int64 dtype, see GH#19956\n         yrav = y.ravel()\n         mask = notna(xrav) & ymask.ravel()\n+        # 1 ** np.nan is 1. So we have to include those in the mask.\n+        if op is pow:\n+            # For pow operation, if x == 1, include in mask even if y is NaN\n+            x_is_one = (x.ravel() == 1)\n+            mask = mask | x_is_one\n+        elif op is rpow:\n+            # For rpow operation, if y == 1, include in mask even if x is NaN\n+            y_is_one = (y.ravel() == 1)\n+            mask = mask | y_is_one\n \n         if yrav.shape != mask.shape:\n             # FIXME: GH#5284, GH#5035, GH#19448\n@@ -109,21 +118,45 @@ def masked_arith_op(x: np.ndarray, y, op):\n \n     else:\n         if not is_scalar(y):\n-            raise TypeError(\n-                f\"Cannot broadcast np.ndarray with operand of type { type(y) }\"\n-            )\n-\n+# 1 ** np.nan is 1. So we have to include those in the mask.\n+        if op is pow:\n+            # For pow operation, if x == 1, include in mask\n+            mask = mask | (x == 1)\n+        elif op is rpow:\n+            # For rpow operation, if y == 1, include in mask\n+            mask = mask | (y == 1)\n+# 1 ** np.nan is 1. So we have to include those in the mask.\n+        if op is pow:\n+            # For pow operation, if x == 1, include in mask\n+            mask = mask | (x == 1)\n+        elif op is rpow:\n+            # For rpow operation, if y == 1, include in mask\n+            mask = mask | (y == 1)\n+# 1 ** np.nan is 1. So we have to include those in the mask.\n+        if op is pow:\n+            # For pow operation, if x == 1, include in mask\n+            mask = mask | (x == 1)\n+        elif op is rpow:\n+            # For rpow operation, if y == 1, include in mask\n+            mask = mask | (y == 1)\n+# 1 ** np.nan is 1. So we have to include those in the mask.\n+        if op is pow:\n+            # For pow operation, if x == 1, include in mask\n+            mask = mask | (x == 1)\n+        elif op is rpow:\n+            # For rpow operation, if y == 1, include in mask\n+            mask = mask | (y == 1)\n         # mask is only meaningful for x\n         result = np.empty(x.size, dtype=x.dtype)\n         mask = notna(xrav)\n \n-        # 1 ** np.nan is 1. So we have to unmask those.\n+        # 1 ** np.nan is 1. So we have to include those in the mask.\n         if op is pow:\n-            mask = np.where(x == 1, False, mask)\n+            # For pow operation, if x == 1, include in mask\n+            mask = mask | (x == 1)\n         elif op is rpow:\n-            mask = np.where(y == 1, False, mask)\n-\n-        if mask.any():\n+            # For rpow operation, if y == 1, include in mask\n+            mask = mask | (y == 1)\n             with np.errstate(all=\"ignore\"):\n                 result[mask] = op(xrav[mask], y)\n \ndiff --git a/pandas/tests/frame/test_arithmetic.py b/pandas/tests/frame/test_arithmetic.py\nindex 92d86c8b60..b39c58b993 100644\n--- a/pandas/tests/frame/test_arithmetic.py\n+++ b/pandas/tests/frame/test_arithmetic.py\n@@ -823,3 +823,27 @@ class TestFrameArithmeticUnsorted:\n         half = ts[::2]\n         result = ts + half.take(np.random.permutation(len(half)))\n         tm.assert_frame_equal(result, expected)\n+\n+\n+def test_pow_with_realignment():\n+    # GH#32685 pow has special semantics for operating with null values\n+    left = pd.DataFrame({\"A\": [0, 1, 2]})\n+    right = pd.DataFrame(index=[0, 1, 2])\n+\n+    result = left ** right\n+    expected = pd.DataFrame({\"A\": [np.nan, 1.0, np.nan]})\n+    tm.assert_frame_equal(result, expected)\n+\n+\n+# TODO: move to tests.arithmetic and parametrize\n+def test_pow_nan_with_zero():\n+    left = pd.DataFrame({\"A\": [np.nan, np.nan, np.nan]})\n+    right = pd.DataFrame({\"A\": [0, 0, 0]})\n+\n+    expected = pd.DataFrame({\"A\": [1.0, 1.0, 1.0]})\n+\n+    result = left ** right\n+    tm.assert_frame_equal(result, expected)\n+\n+    result = left[\"A\"] ** right[\"A\"]\n+    tm.assert_series_equal(result, expected[\"A\"])\n"
+  },
+  "timestamp": "2026-06-25 13:31:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_43",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_43/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: arithmetic with reindex pow (#32734)",
+    "fault_locations": [
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 892,
+        "end_line": 892,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 894,
+        "end_line": 894,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 895,
+        "end_line": 895,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 899,
+        "end_line": 899,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 900,
+        "end_line": 900,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 908,
+        "end_line": 908,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 910,
+        "end_line": 910,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 913,
+        "end_line": 913,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 245,
+        "end_line": 245,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 2636,
+        "end_line": 2636,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_arithmetic.py::test_pow_with_realignment"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 892,
+      "end_line": 892,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 894,
+      "end_line": 894,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 895,
+      "end_line": 895,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 899,
+      "end_line": 899,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 900,
+      "end_line": 900,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 908,
+      "end_line": 908,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 910,
+      "end_line": 910,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 913,
+      "end_line": 913,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 245,
+      "end_line": 245,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 2636,
+      "end_line": 2636,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

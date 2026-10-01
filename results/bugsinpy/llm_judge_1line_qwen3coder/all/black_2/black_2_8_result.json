@@ -1,0 +1,69 @@
+{
+  "project_name": "black",
+  "bug_id": "black_2",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 18:19:04",
+      "end_time": "2026-06-20 18:21:15",
+      "duration_seconds": 131,
+      "duration_human": "2m 11s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 573942,
+      "output_tokens": 3949,
+      "total_tokens": 577891,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 573942
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex 2df03f7..e55e4fe 100644\n--- a/black.py\n+++ b/black.py\n@@ -3116,18 +3116,49 @@ def generate_ignored_nodes(leaf: Leaf) -> Iterator[LN]:\n     \"\"\"\n     container: Optional[LN] = container_of(leaf)\n     while container is not None and container.type != token.ENDMARKER:\n-        is_fmt_on = False\n-        for comment in list_comments(container.prefix, is_endmarker=False):\n-            if comment.value in FMT_ON:\n-                is_fmt_on = True\n-            elif comment.value in FMT_OFF:\n-                is_fmt_on = False\n-        if is_fmt_on:\n+        if fmt_on(container):\n             return\n \n-        yield container\n+        # fix for fmt: on in children\n+        if contains_fmt_on_at_column(container, leaf.column):\n+            for child in container.children:\n+                if contains_fmt_on_at_column(child, leaf.column):\n+                    return\n+                yield child\n+        else:\n+            yield container\n+            container = container.next_sibling\n+\n \n-        container = container.next_sibling\n+def fmt_on(container: LN) -> bool:\n+    is_fmt_on = False\n+    for comment in list_comments(container.prefix, is_endmarker=False):\n+        if comment.value in FMT_ON:\n+            is_fmt_on = True\n+        elif comment.value in FMT_OFF:\n+            is_fmt_on = False\n+    return is_fmt_on\n+\n+\n+def contains_fmt_on_at_column(container: LN, column: int) -> bool:\n+    for child in container.children:\n+        if (\n+            isinstance(child, Node)\n+            and first_leaf_column(child) == column\n+            or isinstance(child, Leaf)\n+            and child.column == column\n+        ):\n+            if fmt_on(child):\n+                return True\n+\n+    return False\n+\n+\n+def first_leaf_column(node: Node) -> Optional[int]:\n+    for child in node.children:\n+        if isinstance(child, Leaf):\n+            return child.column\n+    return None\n \n \n def maybe_make_parens_invisible_in_atom(node: LN, parent: LN) -> bool:\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 7a4a3bb..15b6341 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -632,6 +632,14 @@ class BlackTestCase(unittest.TestCase):\n         black.assert_equivalent(source, actual)\n         black.assert_stable(source, actual, black.FileMode())\n \n+    @patch(\"black.dump_to_file\", dump_to_stderr)\n+    def test_fmtonoff4(self) -> None:\n+        source, expected = read_data(\"fmtonoff4\")\n+        actual = fs(source)\n+        self.assertFormatEqual(expected, actual)\n+        black.assert_equivalent(source, actual)\n+        black.assert_stable(source, actual, black.FileMode())\n+\n     @patch(\"black.dump_to_file\", dump_to_stderr)\n     def test_remove_empty_parentheses_after_class(self) -> None:\n         source, expected = read_data(\"class_blank_parentheses\")\n"
+  },
+  "timestamp": "2026-06-20 18:21:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_2",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_2/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Fix for \"# fmt: on\" with decorators (#1325)",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 3119,
+        "end_line": 3125,
+        "function_name": "generate_ignored_nodes",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 3128,
+        "end_line": 3128,
+        "function_name": "generate_ignored_nodes",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 3130,
+        "end_line": 3130,
+        "function_name": "generate_ignored_nodes",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_fmtonoff4"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

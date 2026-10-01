@@ -1,0 +1,191 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_1",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 15:21:24",
+      "end_time": "2026-06-30 15:23:27",
+      "duration_seconds": 124,
+      "duration_human": "2m 4s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 326649,
+      "output_tokens": 4942,
+      "total_tokens": 331591,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 326649
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/backend/numpy_backend.py b/keras/backend/numpy_backend.py\nindex 383916d46..04c5e6b35 100644\n--- a/keras/backend/numpy_backend.py\n+++ b/keras/backend/numpy_backend.py\n@@ -658,6 +658,29 @@ def random_uniform_variable(shape, low, high, dtype=None, name=None, seed=None):\n \n \n def random_normal_variable(shape, mean, scale, dtype=None, name=None, seed=None):\n+\\\n+def random_uniform(shape, minval=0.0, maxval=1.0, dtype=None, seed=None):\n+    \"\"\"Returns a tensor with uniform distribution of values.\n+\n+    # Arguments\n+        shape: A tuple of integers, the shape of tensor to create.\n+        minval: A float, lower boundary of the uniform distribution\n+            to draw samples.\n+        maxval: A float, upper boundary of the uniform distribution\n+            to draw samples.\n+        dtype: String, dtype of returned tensor.\n+        seed: Integer, random seed.\n+\n+    # Returns\n+        A tensor.\n+    \"\"\"\n+    if dtype is None:\n+        dtype = floatx()\n+    if seed is None:\n+        seed = np.random.randint(10e6)\n+    if seed is not None:\n+        np.random.seed(seed)\n+    return (maxval - minval) * np.random.random(shape).astype(dtype) + minval\n     return scale * np.random.randn(*shape).astype(dtype) + mean\n \n \n@@ -752,3 +775,64 @@ expand_dims = np.expand_dims\n squeeze = np.squeeze\n cos = np.cos\n sin = np.sin\n+\n+def placeholder(shape, dtype=None, name=None):\n+    \"\"\"Instantiates a placeholder variable.\n+\n+    # Arguments\n+        shape: Shape of the placeholder.\n+        dtype: Data type of the placeholder.\n+        name: Optional name string for the variable.\n+\n+    # Returns\n+        Tensorflow/Keras variable\n+    \"\"\"\n+    return np.zeros(shape, dtype=dtype)\n+\n+def variable(value, dtype=None, name=None):\n+    \"\"\"Instantiates a variable (i.e. a tensor whose value gets updated by operations).\n+\n+    # Arguments\n+        value: Numpy array, value of the initial variable.\n+        dtype: Data type of the variable.\n+        name: Optional name string for the variable.\n+\n+    # Returns\n+        A variable instance (wrapper over a Numpy array).\n+    \"\"\"\n+    return value\n+\n+def get_value(x):\n+    \"\"\"Returns the value of a variable.\n+\n+    # Arguments\n+        x: A variable.\n+\n+    # Returns\n+        A numpy array.\n+    \"\"\"\n+    return x\n+\n+def function(inputs, outputs, updates=[]):\n+    \"\"\"Instantiates a Keras function.\n+\n+    # Arguments\n+        inputs: List of placeholder nodes.\n+        outputs: List of output nodes.\n+        updates: List of update functions.\n+\n+    # Returns\n+        Output values as Numpy arrays.\n+    \"\"\"\n+    return outputs\n+\n+def symbolic(x):\n+    \"\"\"Returns whether `x` is a symbolic tensor.\n+\n+    # Arguments\n+        x: A tensor or variable.\n+\n+    # Returns\n+        Boolean.\n+    \"\"\"\n+    return False\ndiff --git a/keras/initializers.py b/keras/initializers.py\nindex aea81b5c5..625c4acf5 100644\n--- a/keras/initializers.py\n+++ b/keras/initializers.py\n@@ -108,8 +108,13 @@ class RandomUniform(Initializer):\n         self.seed = seed\n \n     def __call__(self, shape, dtype=None):\n+        if hasattr(self, '_seed_used'):\n+            seed = None\n+        else:\n+            seed = self.seed\n+            self._seed_used = True\n         return K.random_uniform(shape, self.minval, self.maxval,\n-                                dtype=dtype, seed=self.seed)\n+                                dtype=dtype, seed=seed)\n \n     def get_config(self):\n         return {\ndiff --git a/tests/keras/initializers_test.py b/tests/keras/initializers_test.py\nindex b5cbfd9b2..4c82228cf 100644\n--- a/tests/keras/initializers_test.py\n+++ b/tests/keras/initializers_test.py\n@@ -142,5 +142,25 @@ def test_one(tensor_shape):\n             target_mean=1., target_max=1.)\n \n \n+@pytest.mark.parametrize('initializer',\n+                         [initializers.orthogonal,\n+                          initializers.uniform,\n+                          initializers.normal,\n+                          initializers.truncated_normal,\n+                          initializers.VarianceScaling],\n+                         ids=['orthogonal',\n+                              'uniform',\n+                              'normal',\n+                              'truncated_normal',\n+                              'variance_scaling'])\n+def test_statefulness(initializer):\n+    # Test that calling a same seeded random initializer\n+    # in succession results in different values.\n+    init = initializer(seed=1337)\n+    samples = [init((2, 2)) for _ in range(2)]\n+    samples = [K.get_value(K.variable(x)) for x in samples]\n+    assert np.mean(np.abs(samples[0] - samples[1])) > 0.\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-30 15:23:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_1/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix initializers and update ops.",
+    "fault_locations": [
+      {
+        "file": "keras/backend/load_backend.py",
+        "start_line": 124,
+        "end_line": 124,
+        "suspiciousness": 0.369921,
+        "rank": 1
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 253,
+        "end_line": 253,
+        "suspiciousness": 0.306534,
+        "rank": 2
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 106,
+        "end_line": 106,
+        "suspiciousness": 0.2517,
+        "rank": 3
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 107,
+        "end_line": 107,
+        "suspiciousness": 0.2517,
+        "rank": 4
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 108,
+        "end_line": 108,
+        "suspiciousness": 0.2517,
+        "rank": 5
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 111,
+        "end_line": 111,
+        "suspiciousness": 0.2517,
+        "rank": 6
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 112,
+        "end_line": 112,
+        "suspiciousness": 0.2517,
+        "rank": 7
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 139,
+        "end_line": 139,
+        "suspiciousness": 0.2517,
+        "rank": 8
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 140,
+        "end_line": 140,
+        "suspiciousness": 0.2517,
+        "rank": 9
+      },
+      {
+        "file": "keras/initializers.py",
+        "start_line": 141,
+        "end_line": 141,
+        "suspiciousness": 0.2517,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/initializers_test.py::test_statefulness"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/backend/load_backend.py",
+      "start_line": 124,
+      "end_line": 124,
+      "suspiciousness": 0.369921,
+      "rank": 1
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 253,
+      "end_line": 253,
+      "suspiciousness": 0.306534,
+      "rank": 2
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 106,
+      "end_line": 106,
+      "suspiciousness": 0.2517,
+      "rank": 3
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 107,
+      "end_line": 107,
+      "suspiciousness": 0.2517,
+      "rank": 4
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 108,
+      "end_line": 108,
+      "suspiciousness": 0.2517,
+      "rank": 5
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 111,
+      "end_line": 111,
+      "suspiciousness": 0.2517,
+      "rank": 6
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 112,
+      "end_line": 112,
+      "suspiciousness": 0.2517,
+      "rank": 7
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 139,
+      "end_line": 139,
+      "suspiciousness": 0.2517,
+      "rank": 8
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 140,
+      "end_line": 140,
+      "suspiciousness": 0.2517,
+      "rank": 9
+    },
+    {
+      "file": "keras/initializers.py",
+      "start_line": 141,
+      "end_line": 141,
+      "suspiciousness": 0.2517,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "project_name": "Gson",
+  "bug_id": "18",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 23:12:46",
+      "end_time": "2025-10-01 23:18:48",
+      "duration_seconds": 362,
+      "duration_human": "6m 2s"
+    },
+    "model_cost": 0.0537,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 672335,
+      "output_tokens": 5322,
+      "total_tokens": 677657,
+      "cached_input_tokens": 651328,
+      "uncached_input_tokens": 21007
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex f86ad36f..cc18bba6 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -322,6 +322,10 @@ public final class $Gson$Types {\n     }\n \n     Type mapType = getSupertype(context, contextRawType, Map.class);\n+    // strip wildcards\n+    if (mapType instanceof WildcardType) {\n+      mapType = ((WildcardType)mapType).getUpperBounds()[0];\n+    }\n     // TODO: strip wildcards?\n     if (mapType instanceof ParameterizedType) {\n       ParameterizedType mapParameterizedType = (ParameterizedType) mapType;\ndiff --git a/gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java b/gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java\nindex 5a34a5d5..612ee028 100644\n--- a/gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java\n+++ b/gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java\n@@ -33,6 +33,7 @@ import com.google.gson.stream.JsonToken;\n import com.google.gson.stream.JsonWriter;\n import java.io.IOException;\n import java.lang.reflect.Type;\n+import java.lang.reflect.WildcardType;\n import java.util.ArrayList;\n import java.util.List;\n import java.util.Map;\n@@ -123,7 +124,11 @@ public final class MapTypeAdapterFactory implements TypeAdapterFactory {\n     Class<?> rawTypeOfSrc = $Gson$Types.getRawType(type);\n     Type[] keyAndValueTypes = $Gson$Types.getMapKeyAndValueTypes(type, rawTypeOfSrc);\n     TypeAdapter<?> keyAdapter = getKeyAdapter(gson, keyAndValueTypes[0]);\n-    TypeAdapter<?> valueAdapter = gson.getAdapter(TypeToken.get(keyAndValueTypes[1]));\n+    Type valueType = keyAndValueTypes[1];\n+    if (valueType instanceof WildcardType) {\n+      valueType = ((WildcardType) valueType).getUpperBounds()[0];\n+    }\n+    TypeAdapter<?> valueAdapter = gson.getAdapter(TypeToken.get(valueType));\n     ObjectConstructor<T> constructor = constructorConstructor.get(typeToken);\n \n     @SuppressWarnings({\"unchecked\", \"rawtypes\"})\n"
+  },
+  "timestamp": "2025-10-01 19:18:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_18",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_18",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "Gson deserializes wildcards to LinkedHashMap\nThis issue is a successor to #1101.\r\n\r\nModels:\r\n```java\r\n// ? extends causes the issue\r\nclass BigClass { Map<String, ? extends List<SmallClass>> inBig; }\r\n\r\nclass SmallClass { String inSmall; }\r\n```\r\n\r\nJson:\r\n```json\r\n{\r\n  \"inBig\": {\r\n    \"key\": [\r\n      { \"inSmall\": \"hello\" }\r\n    ]\r\n  }\r\n}\r\n```\r\n\r\nGson call:\r\n```java\r\nSmallClass small = new Gson().fromJson(json, BigClass.class).inBig.get(\"inSmall\").get(0);\r\n```\r\n\r\nThis call will fail with a `ClassCastException` exception \u2013\r\n `com.google.gson.internal.LinkedTreeMap cannot be cast to Entry`. If we remove `? extends` then everything works fine.\n",
+    "commit_message": "fix issue #1107: resolve element type in wildcard collection types (#1146)",
+    "fault_locations": [],
+    "failing_tests": [
+      "com.google.gson.functional.CollectionTest::testIssue1107"
+    ],
+    "golden_patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex adea605f..f86ad36f 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -275,10 +275,7 @@ public final class $Gson$Types {\n    * @param supertype a superclass of, or interface implemented by, this.\n    */\n   static Type getSupertype(Type context, Class<?> contextRawType, Class<?> supertype) {\n+    if (context instanceof WildcardType) {\n       // wildcards are useless for resolving supertypes. As the upper bound has the same raw type, use it instead\n+      context = ((WildcardType)context).getUpperBounds()[0];\n+    }\n     checkArgument(supertype.isAssignableFrom(contextRawType));\n     return resolve(context, contextRawType,\n         $Gson$Types.getGenericSupertype(context, contextRawType, supertype));",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

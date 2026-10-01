@@ -1,0 +1,88 @@
+{
+  "project_name": "Closure",
+  "bug_id": "84",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 22:39:32",
+      "end_time": "2025-09-30 22:45:27",
+      "duration_seconds": 355,
+      "duration_human": "5m 55s"
+    },
+    "model_cost": 0.0652,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 822052,
+      "output_tokens": 3887,
+      "total_tokens": 825939,
+      "cached_input_tokens": 793536,
+      "uncached_input_tokens": 28516
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/parsing/IRFactory.java b/src/com/google/javascript/jscomp/parsing/IRFactory.java\nindex cca8d9b7d..6fe09d8f0 100644\n--- a/src/com/google/javascript/jscomp/parsing/IRFactory.java\n+++ b/src/com/google/javascript/jscomp/parsing/IRFactory.java\n@@ -337,7 +337,18 @@ public class IRFactory {\n \n     @Override\n     Node processAssignment(Assignment assignmentNode) {\n+    private void checkLeftHandSideAssignment(Node left) {\n+      if (left.getType() == Token.OR || left.getType() == Token.AND) {\n+        errorReporter.error(\n+          \"invalid assignment target\",\n+          sourceName,\n+          left.getLineno(),\n+          left.getCharno());\n+      }\n+    }\n+\n       Node assign = processInfixExpression(assignmentNode);\n+      checkLeftHandSideAssignment(assign.getFirstChild());\n       return assign;\n     }\n \n"
+  },
+  "timestamp": "2025-09-30 22:45:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_84",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_84",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Invalid left-hand side of assignment not detected\n<b>What steps will reproduce the problem?</b>\nCompile this:\r\n  var x=0,y=1;x||y=8\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nI expect an error, because this is parsed as (x||y)=8, which is an invalid left-hand side of an assignment. Instead, I get\r\n  var x=0,y=1;x||y=8;\r\nwhich, like the input, is invalid code.",
+    "commit_message": "Don't let invalid LHS assignments to slip through. Fixes issue 215. Fixes issue 214.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 340,
+        "end_line": 340,
+        "line_numbers": [
+          340
+        ],
+        "function_name": "processAssignment",
+        "class_name": "TransformDispatcher",
+        "filename": "IRFactory.java",
+        "code_snippet": "    Node processAssignment(Assignment assignmentNode) {\n      Node assign = processInfixExpression(assignmentNode);\n      return assign;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 803,
+        "end_line": 803,
+        "line_numbers": [
+          803
+        ],
+        "function_name": "processUnaryExpression",
+        "class_name": "TransformDispatcher",
+        "filename": "IRFactory.java",
+        "code_snippet": "    Node processUnaryExpression(UnaryExpression exprNode) {\n      int type = transformTokenType(exprNode.getType());\n      Node operand = transform(exprNode.getOperand());\n      if (type == Token.NEG && operand.getType() == Token.NUMBER) {\n        operand.setDouble(-operand.getDouble());\n        return operand;\n      } else {\n\n        Node node = newNode(type, operand);\n        if (exprNode.isPostfix()) {\n          node.putBooleanProp(Node.INCRDECR_PROP, true);\n        }\n        return node;\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 823,
+        "end_line": 823,
+        "line_numbers": [
+          823
+        ],
+        "function_name": "processVariableInitializer",
+        "class_name": "TransformDispatcher",
+        "filename": "IRFactory.java",
+        "code_snippet": "    Node processVariableInitializer(VariableInitializer initializerNode) {\n      Node node = transform(initializerNode.getTarget());\n      if (initializerNode.getInitializer() != null) {\n        node.addChildToBack(transform(initializerNode.getInitializer()));\n        node.setLineno(node.getLineno());\n      }\n      return node;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.parsing.ParserTest::testDestructuringAssignForbidden4"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/parsing/IRFactory.java b/src/com/google/javascript/jscomp/parsing/IRFactory.java\nindex d2a4e5d..cca8d9b 100644\n--- a/src/com/google/javascript/jscomp/parsing/IRFactory.java\n+++ b/src/com/google/javascript/jscomp/parsing/IRFactory.java\n@@ -338,13 +338,6 @@ public class IRFactory {\n     @Override\n     Node processAssignment(Assignment assignmentNode) {\n       Node assign = processInfixExpression(assignmentNode);\n+      Node target = assign.getFirstChild();\n+      if (!validAssignmentTarget(target)) {\n+        errorReporter.error(\n+          \"invalid assignment target\",\n+          sourceName,\n+          target.getLineno(), \"\", 0);\n+      }\n       return assign;\n     }\n \n@@ -801,17 +794,6 @@ public class IRFactory {\n         operand.setDouble(-operand.getDouble());\n         return operand;\n       } else {\n+        if (type == Token.INC || type == Token.DEC) {\n+          if (!validAssignmentTarget(operand)) {\n+            String msg = (type == Token.INC)\n+                ? \"invalid increment target\"\n+                : \"invalid decrement target\";\n+            errorReporter.error(\n+              msg,\n+              sourceName,\n+              operand.getLineno(), \"\", 0);\n+          }\n+        }\n \n         Node node = newNode(type, operand);\n         if (exprNode.isPostfix()) {\n@@ -821,15 +803,6 @@ public class IRFactory {\n       }\n     }\n \n+    private boolean validAssignmentTarget(Node target) {\n+      switch (target.getType()) {\n+        case Token.NAME:\n+        case Token.GETPROP:\n+        case Token.GETELEM:\n+          return true;\n+      }\n+      return false;\n+    }\n \n     @Override\n     Node processVariableDeclaration(VariableDeclaration declarationNode) {",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

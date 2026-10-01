@@ -1,0 +1,109 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_30",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 22:08:14",
+      "end_time": "2026-06-17 22:19:06",
+      "duration_seconds": 652,
+      "duration_human": "10m 52s"
+    },
+    "model_cost": 0.3077,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1667414,
+      "output_tokens": 21380,
+      "total_tokens": 1688794,
+      "cached_input_tokens": 560320,
+      "uncached_input_tokens": 1107094
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/rules/test_fix_file.py b/tests/rules/test_fix_file.py\nindex 2eb42ca..83ac273 100644\n--- a/tests/rules/test_fix_file.py\n+++ b/tests/rules/test_fix_file.py\n@@ -158,19 +158,29 @@ ReferenceError: conole is not defined\n \n \n @pytest.mark.parametrize('test', tests)\n-def test_match(monkeypatch, test):\n+def test_match(mocker, monkeypatch, test):\n+    mocker.patch('os.path.isfile', return_value=True)\n     monkeypatch.setenv('EDITOR', 'dummy_editor')\n     assert match(Command(stderr=test[4]), None)\n \n \n @pytest.mark.parametrize('test', tests)\n-def test_not_match(monkeypatch, test):\n+def test_no_editor(mocker, monkeypatch, test):\n+    mocker.patch('os.path.isfile', return_value=True)\n     if 'EDITOR' in os.environ:\n         monkeypatch.delenv('EDITOR')\n \n     assert not match(Command(stderr=test[4]), None)\n \n \n+@pytest.mark.parametrize('test', tests)\n+def test_not_file(mocker, monkeypatch, test):\n+    mocker.patch('os.path.isfile', return_value=False)\n+    monkeypatch.setenv('EDITOR', 'dummy_editor')\n+\n+    assert not match(Command(stderr=test[4]), None)\n+\n+\n @pytest.mark.parametrize('test', tests)\n def test_get_new_command(monkeypatch, test):\n     monkeypatch.setenv('EDITOR', 'dummy_editor')\ndiff --git a/thefuck/rules/fix_file.py b/thefuck/rules/fix_file.py\nindex 5f4aafb..49df821 100644\n--- a/thefuck/rules/fix_file.py\n+++ b/thefuck/rules/fix_file.py\n@@ -3,43 +3,40 @@ import os\n from thefuck.utils import memoize\n from thefuck import shells\n \n-\n patterns = (\n-        # js, node:\n-        '^    at {file}:{line}:{col}',\n-        # cargo:\n-        '^   {file}:{line}:{col}',\n-        # python, thefuck:\n-        '^  File \"{file}\", line {line}',\n-        # awk:\n-        '^awk: {file}:{line}:',\n-        # git\n-        '^fatal: bad config file line {line} in {file}',\n-        # llc:\n-        '^llc: {file}:{line}:{col}:',\n-        # lua:\n-        '^lua: {file}:{line}:',\n-        # fish:\n-        '^{file} \\(line {line}\\):',\n-        # bash, sh, ssh:\n-        '^{file}: line {line}: ',\n-        # ghc, make, ruby, zsh:\n-        '^{file}:{line}:',\n-        # cargo, clang, gcc, go, rustc:\n-        '^{file}:{line}:{col}',\n-        # perl:\n-        'at {file} line {line}',\n-    )\n-\n+    # js, node:\n+    '^    at {file}:{line}:{col}',\n+    # cargo:\n+    '^   {file}:{line}:{col}',\n+    # python, thefuck:\n+    '^  File \"{file}\", line {line}',\n+    # awk:\n+    '^awk: {file}:{line}:',\n+    # git\n+    '^fatal: bad config file line {line} in {file}',\n+    # llc:\n+    '^llc: {file}:{line}:{col}:',\n+    # lua:\n+    '^lua: {file}:{line}:',\n+    # fish:\n+    '^{file} \\\\(line {line}\\\\):',\n+    # bash, sh, ssh:\n+    '^{file}: line {line}: ',\n+    # ghc, make, ruby, zsh:\n+    '^{file}:{line}:',\n+    # cargo, clang, gcc, go, rustc:\n+    '^{file}:{line}:{col}',\n+    # perl:\n+    'at {file} line {line}',\n+)\n \n-# for the sake of readability do not use named groups above\n def _make_pattern(pattern):\n-    pattern = pattern.replace('{file}', '(?P<file>[^:\\n]+)')\n-    pattern = pattern.replace('{line}', '(?P<line>[0-9]+)')\n-    pattern = pattern.replace('{col}',  '(?P<col>[0-9]+)')\n+    pattern = pattern.replace('{file}', r'(?P<file>[^:\\n]+)')\n+    pattern = pattern.replace('{line}', r'(?P<line>[0-9]+)')\n+    pattern = pattern.replace('{col}', r'(?P<col>[0-9]+)')\n     return re.compile(pattern, re.MULTILINE)\n-patterns = [_make_pattern(p) for p in patterns]\n \n+patterns = [_make_pattern(p) for p in patterns]\n \n @memoize\n def _search(stderr):\n@@ -48,15 +45,13 @@ def _search(stderr):\n         if m:\n             return m\n \n-\n def match(command, settings):\n-    return 'EDITOR' in os.environ and _search(command.stderr)\n-\n+    if 'EDITOR' not in os.environ:\n+        return False\n+    m = _search(command.stderr)\n+    return m and os.path.isfile(m.group('file'))\n \n def get_new_command(command, settings):\n     m = _search(command.stderr)\n-\n-    # Note: there does not seem to be a standard for columns, so they are just\n-    # ignored for now\n     return shells.and_('{} {} +{}'.format(os.environ['EDITOR'], m.group('file'), m.group('line')),\n                        command.script)\ndiff --git a/thefuck/utils.py b/thefuck/utils.py\nindex 639fa4d..11f3a0c 100644\n--- a/thefuck/utils.py\n+++ b/thefuck/utils.py\n@@ -1,6 +1,5 @@\n from difflib import get_close_matches\n from functools import wraps\n-from pathlib import Path\n from shlex import split\n import os\n import pickle\n"
+  },
+  "timestamp": "2026-06-17 22:19:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_30",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_30/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Test if the file exists in the `fix_file` rule",
+    "fault_locations": [
+      {
+        "file": "thefuck/rules/fix_file.py",
+        "start_line": 53,
+        "end_line": 53,
+        "suspiciousness": 0.575688,
+        "rank": 1
+      },
+      {
+        "file": "thefuck/utils.py",
+        "start_line": 115,
+        "end_line": 115,
+        "suspiciousness": 0.575688,
+        "rank": 2
+      },
+      {
+        "file": "thefuck/utils.py",
+        "start_line": 116,
+        "end_line": 116,
+        "suspiciousness": 0.575688,
+        "rank": 3
+      },
+      {
+        "file": "thefuck/utils.py",
+        "start_line": 119,
+        "end_line": 119,
+        "suspiciousness": 0.575688,
+        "rank": 4
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/rules/test_fix_file.py::test_not_file"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "thefuck/rules/fix_file.py",
+      "start_line": 53,
+      "end_line": 53,
+      "suspiciousness": 0.575688,
+      "rank": 1
+    },
+    {
+      "file": "thefuck/utils.py",
+      "start_line": 115,
+      "end_line": 115,
+      "suspiciousness": 0.575688,
+      "rank": 2
+    },
+    {
+      "file": "thefuck/utils.py",
+      "start_line": 116,
+      "end_line": 116,
+      "suspiciousness": 0.575688,
+      "rank": 3
+    },
+    {
+      "file": "thefuck/utils.py",
+      "start_line": 119,
+      "end_line": 119,
+      "suspiciousness": 0.575688,
+      "rank": 4
+    }
+  ]
+}

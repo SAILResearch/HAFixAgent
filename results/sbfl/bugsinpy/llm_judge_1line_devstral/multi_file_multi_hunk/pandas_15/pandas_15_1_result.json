@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_15",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:17:25",
+      "end_time": "2026-06-30 16:18:45",
+      "duration_seconds": 80,
+      "duration_human": "1m 20s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 356094,
+      "output_tokens": 3924,
+      "total_tokens": 360018,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 356094
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/__init__.py b/pandas/__init__.py\nindex 2b9a461e0e..87b7832995 100644\n--- a/pandas/__init__.py\n+++ b/pandas/__init__.py\n@@ -10,7 +10,7 @@ for dependency in hard_dependencies:\n     try:\n         __import__(dependency)\n     except ImportError as e:\n-        missing_dependencies.append(f\"{dependency}: {e}\")\n+        missing_dependencies.append(\"{}\".format(dependency, e))\n \n if missing_dependencies:\n     raise ImportError(\n@@ -34,7 +34,7 @@ except ImportError as e:  # pragma: no cover\n     # hack but overkill to use re\n     module = str(e).replace(\"cannot import name \", \"\")\n     raise ImportError(\n-        f\"C extension: {module} not built. If you want to import \"\n+        \"C extension: {} not built. If you want to import \".format(module)\n         \"pandas from the source directory, you may need to run \"\n         \"'python setup.py build_ext --inplace --force' to build the C extensions first.\"\n     ) from e\n@@ -236,7 +236,7 @@ if pandas.compat.PY37:\n \n         elif name in {\"SparseSeries\", \"SparseDataFrame\"}:\n             warnings.warn(\n-                f\"The {name} class is removed from pandas. Accessing it from \"\n+                \"The {name} class is removed from pandas. Accessing it from \".format()\n                 \"the top-level namespace will also be removed in the next version\",\n                 FutureWarning,\n                 stacklevel=2,\n@@ -257,7 +257,7 @@ if pandas.compat.PY37:\n \n             return _SparseArray\n \n-        raise AttributeError(f\"module 'pandas' has no attribute '{name}'\")\n+        raise AttributeError(\"module 'pandas' has no attribute '{name}'\".format())\n \n \n else:\n@@ -291,7 +291,7 @@ else:\n             try:\n                 return getattr(self.np, item)\n             except AttributeError as err:\n-                raise AttributeError(f\"module numpy has no attribute {item}\") from err\n+                raise AttributeError(\"module numpy has no attribute {item}\".format()) from err\n \n     np = __numpy()\n \n@@ -308,7 +308,7 @@ else:\n                 return getattr(cls.datetime, item)\n             except AttributeError as err:\n                 raise AttributeError(\n-                    f\"module datetime has no attribute {item}\"\n+                    \"module datetime has no attribute {item}\".format()\n                 ) from err\n \n         def __instancecheck__(cls, other):\ndiff --git a/pandas/core/indexes/datetimes.py b/pandas/core/indexes/datetimes.py\nindex 5a89c45a3e..b7c6b56846 100644\n--- a/pandas/core/indexes/datetimes.py\n+++ b/pandas/core/indexes/datetimes.py\n@@ -52,7 +52,11 @@ def _new_DatetimeIndex(cls, d):\n                 # These are already stored in our DatetimeArray; if they are\n                 #  also in the pickle and don't match, we have a problem.\n                 if key in d:\n-                    assert d.pop(key) == getattr(dta, key)\n+                    val = d.pop(key)\n+                    dta_val = getattr(dta, key)\n+                    # Allow None freq to match None freq for backward compatibility\n+                    if not (key == \"freq\" and val is None and dta_val is None):\n+                        assert val == dta_val\n         result = cls._simple_new(dta, **d)\n     else:\n         with warnings.catch_warnings():\ndiff --git a/pandas/io/pickle.py b/pandas/io/pickle.py\nindex 6faebf56a1..160befcdd8 100644\n--- a/pandas/io/pickle.py\n+++ b/pandas/io/pickle.py\n@@ -10,10 +10,10 @@ from pandas.io.common import get_filepath_or_buffer, get_handle\n \n \n def to_pickle(\n-    obj: Any,\n-    filepath_or_buffer: FilePathOrBuffer,\n-    compression: Optional[str] = \"infer\",\n-    protocol: int = pickle.HIGHEST_PROTOCOL,\n+    obj,\n+    filepath_or_buffer,\n+    compression=\"infer\",\n+    protocol=pickle.HIGHEST_PROTOCOL,\n ):\n     \"\"\"\n     Pickle (serialize) object to file.\n@@ -97,7 +97,7 @@ def to_pickle(\n \n \n def read_pickle(\n-    filepath_or_buffer: FilePathOrBuffer, compression: Optional[str] = \"infer\"\n+    filepath_or_buffer, compression=\"infer\"\n ):\n     \"\"\"\n     Load pickled pandas object (or any object) from file.\ndiff --git a/pandas/tests/indexes/datetimes/test_datetime.py b/pandas/tests/indexes/datetimes/test_datetime.py\nindex 81fa1a27ac..e0e5beaf48 100644\n--- a/pandas/tests/indexes/datetimes/test_datetime.py\n+++ b/pandas/tests/indexes/datetimes/test_datetime.py\n@@ -38,6 +38,13 @@ class TestDatetimeIndex:\n         idx_p = tm.round_trip_pickle(idx)\n         tm.assert_index_equal(idx, idx_p)\n \n+    def test_pickle_after_set_freq(self):\n+        dti = date_range(\"20130101\", periods=3, tz=\"US/Eastern\", name=\"foo\")\n+        dti = dti._with_freq(None)\n+\n+        res = tm.round_trip_pickle(dti)\n+        tm.assert_index_equal(res, dti)\n+\n     def test_reindex_preserves_tz_if_target_is_empty_list_or_array(self):\n         # GH7774\n         index = date_range(\"20130101\", periods=3, tz=\"US/Eastern\")\n"
+  },
+  "timestamp": "2026-06-30 16:18:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_15/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: pickle after _with_freq (#33811)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 668,
+        "end_line": 668,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 182,
+        "end_line": 182,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 187,
+        "end_line": 187,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/tseries/offsets.py",
+        "start_line": 2560,
+        "end_line": 2560,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/dtypes/dtypes.py",
+        "start_line": 171,
+        "end_line": 171,
+        "suspiciousness": 0.660409,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/dtypes/dtypes.py",
+        "start_line": 813,
+        "end_line": 813,
+        "suspiciousness": 0.660409,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/dtypes/dtypes.py",
+        "start_line": 814,
+        "end_line": 814,
+        "suspiciousness": 0.660409,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 153,
+        "end_line": 153,
+        "suspiciousness": 0.545836,
+        "rank": 8
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 154,
+        "end_line": 154,
+        "suspiciousness": 0.545836,
+        "rank": 9
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 155,
+        "end_line": 155,
+        "suspiciousness": 0.545836,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_datetime.py::TestDatetimeIndex::test_pickle_after_set_freq"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/indexes/datetimelike.py",
+      "start_line": 668,
+      "end_line": 668,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/io/pickle.py",
+      "start_line": 182,
+      "end_line": 182,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/io/pickle.py",
+      "start_line": 187,
+      "end_line": 187,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/tseries/offsets.py",
+      "start_line": 2560,
+      "end_line": 2560,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/dtypes/dtypes.py",
+      "start_line": 171,
+      "end_line": 171,
+      "suspiciousness": 0.660409,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/dtypes/dtypes.py",
+      "start_line": 813,
+      "end_line": 813,
+      "suspiciousness": 0.660409,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/dtypes/dtypes.py",
+      "start_line": 814,
+      "end_line": 814,
+      "suspiciousness": 0.660409,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 153,
+      "end_line": 153,
+      "suspiciousness": 0.545836,
+      "rank": 8
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 154,
+      "end_line": 154,
+      "suspiciousness": 0.545836,
+      "rank": 9
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 155,
+      "end_line": 155,
+      "suspiciousness": 0.545836,
+      "rank": 10
+    }
+  ]
+}

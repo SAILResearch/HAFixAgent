@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "31",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:02:44",
+      "end_time": "2026-06-19 23:07:20",
+      "duration_seconds": 276,
+      "duration_human": "4m 36s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 452087,
+      "output_tokens": 3171,
+      "total_tokens": 455258,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 452087
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:07:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_31",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_31",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Add support for --manage_closure_dependencies and --only_closure_dependencies with compilation level WHITESPACE_ONLY\nThe compiler options --manage_closure_dependencies and --only_closure_dependencies are currently ignored with compilation level WHITESPACE_ONLY. It would be helpful for testing, if dependency management were supported for WHITESPACE_ONLY in addition to SIMPLE_OPTIMIZATIONS and ADVANCED_OPTIMIZATIONS. For example, both Closure Builder and plovr automatically manage dependencies for all compilation levels.\r\n\r\nThe proposed change (see attached diff) does not automatically manage dependencies, but it enables dependency management if either --manage_closure_dependencies or --only_closure_dependencies is specified, or if at least one --closure_entry_point is specified.\r\n\r\nThe attached diff passed the JUnit tests: ant test",
+    "commit_message": "add dependency management in whitespace-only mode contributed by Chris Peisert fixes issue 703",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/Compiler.java",
+        "start_line": 1285,
+        "end_line": 1285,
+        "line_numbers": [
+          1285
+        ],
+        "function_name": "parseInputs",
+        "class_name": "Compiler",
+        "filename": "Compiler.java",
+        "code_snippet": "  Node parseInputs() {\n    boolean devMode = options.devMode != DevMode.OFF;\n\n    // If old roots exist (we are parsing a second time), detach each of the\n    // individual file parse trees.\n    if (externsRoot != null) {\n      externsRoot.detachChildren();\n    }\n    if (jsRoot != null) {\n      jsRoot.detachChildren();\n    }\n\n    // Parse main js sources.\n    jsRoot = IR.block();\n    jsRoot.setIsSyntheticBlock(true);\n\n    externsRoot = IR.block();\n    externsRoot.setIsSyntheticBlock(true);\n\n    externAndJsRoot = IR.block(externsRoot, jsRoot);\n    externAndJsRoot.setIsSyntheticBlock(true);\n\n    if (options.tracer.isOn()) {\n      tracker = new PerformanceTracker(jsRoot, options.tracer);\n      addChangeHandler(tracker.getCodeChangeHandler());\n    }\n\n    Tracer tracer = newTracer(\"parseInputs\");\n\n    try {\n      // Parse externs sources.\n      for (CompilerInput input : externs) {\n        Node n = input.getAstRoot(this);\n        if (hasErrors()) {\n          return null;\n        }\n        externsRoot.addChildToBack(n);\n      }\n\n      // Modules inferred in ProcessCommonJS pass.\n      if (options.transformAMDToCJSModules || options.processCommonJSModules) {\n        processAMDAndCommonJSModules();\n      }\n\n      // Check if inputs need to be rebuilt from modules.\n      boolean staleInputs = false;\n\n      // Check if the sources need to be re-ordered.\n      if (options.dependencyOptions.needsManagement() &&\n          !options.skipAllPasses &&\n          options.closurePass) {\n        for (CompilerInput input : inputs) {\n          // Forward-declare all the provided types, so that they\n          // are not flagged even if they are dropped from the process.\n          for (String provide : input.getProvides()) {\n            getTypeRegistry().forwardDeclareType(provide);\n          }\n        }\n\n        try {\n          inputs =\n              (moduleGraph == null ? new JSModuleGraph(modules) : moduleGraph)\n              .manageDependencies(options.dependencyOptions, inputs);\n          staleInputs = true;\n        } catch (CircularDependencyException e) {\n          report(JSError.make(\n              JSModule.CIRCULAR_DEPENDENCY_ERROR, e.getMessage()));\n\n          // If in IDE mode, we ignore the error and keep going.\n          if (hasErrors()) {\n            return null;\n          }\n        } catch (MissingProvideException e) {\n          report(JSError.make(\n              MISSING_ENTRY_ERROR, e.getMessage()));\n\n          // If in IDE mode, we ignore the error and keep going.\n          if (hasErrors()) {\n            return null;\n          }\n        }\n      }\n\n      for (CompilerInput input : inputs) {\n        Node n = input.getAstRoot(this);\n\n        // Inputs can have a null AST during initial parse.\n        if (n == null) {\n          continue;\n        }\n\n        if (n.getJSDocInfo() != null) {\n          JSDocInfo info = n.getJSDocInfo();\n          if (info.isExterns()) {\n            // If the input file is explicitly marked as an externs file, then\n            // assume the programmer made a mistake and throw it into\n            // the externs pile anyways.\n            externsRoot.addChildToBack(n);\n            input.setIsExtern(true);\n\n            input.getModule().remove(input);\n\n            externs.add(input);\n            staleInputs = true;\n          } else if (info.isNoCompile()) {\n            input.getModule().remove(input);\n            staleInputs = true;\n          }\n        }\n      }\n\n      if (staleInputs) {\n        fillEmptyModules(modules);\n        rebuildInputsFromModules();\n      }\n\n      // Build the AST.\n      for (CompilerInput input : inputs) {\n        Node n = input.getAstRoot(this);\n        if (n == null) {\n          continue;\n        }\n\n        if (devMode) {\n          runSanityCheck();\n          if (hasErrors()) {\n            return null;\n          }\n        }\n\n        if (options.sourceMapOutputPath != null ||\n            options.nameReferenceReportPath != null) {\n\n          // Annotate the nodes in the tree with information from the\n          // input file. This information is used to construct the SourceMap.\n          SourceInformationAnnotator sia =\n              new SourceInformationAnnotator(\n                  input.getName(), options.devMode != DevMode.OFF);\n          NodeTraversal.traverse(this, n, sia);\n        }\n\n        jsRoot.addChildToBack(n);\n      }\n\n      if (hasErrors()) {\n        return null;\n      }\n      return externAndJsRoot;\n    } finally {\n      stopTracer(tracer, \"parseInputs\");\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CommandLineRunnerTest::testDependencySortingWhitespaceMode"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java\nindex d98be4a..b76bbb5 100644\n--- a/src/com/google/javascript/jscomp/Compiler.java\n+++ b/src/com/google/javascript/jscomp/Compiler.java\n@@ -1282,6 +1282,7 @@ public class Compiler extends AbstractCompiler {\n \n       // Check if the sources need to be re-ordered.\n       if (options.dependencyOptions.needsManagement() &&\n-          !options.skipAllPasses &&\n           options.closurePass) {\n         for (CompilerInput input : inputs) {\n           // Forward-declare all the provided types, so that they",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

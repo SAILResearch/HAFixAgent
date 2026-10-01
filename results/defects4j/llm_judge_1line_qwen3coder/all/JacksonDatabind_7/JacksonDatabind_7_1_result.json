@@ -1,0 +1,88 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "7",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 01:28:26",
+      "end_time": "2026-06-20 01:32:01",
+      "duration_seconds": 215,
+      "duration_human": "3m 35s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 793000,
+      "output_tokens": 6444,
+      "total_tokens": 799444,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 793000
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 21a6b287b..b440e13f0 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -961,12 +961,65 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n \n         // Let's handle field-name separately first\n         if (t == JsonToken.FIELD_NAME) {\n+            writeStartObject();\n+            // Process first field\n             if (_mayHaveNativeIds) {\n                 _checkNativeIds(jp);\n             }\n             writeFieldName(jp.getCurrentName());\n             t = jp.nextToken();\n-            // fall-through to copy the associated value\n+            if (_mayHaveNativeIds) {\n+                _checkNativeIds(jp);\n+            }\n+            switch (t) {\n+            case START_OBJECT:\n+                writeStartObject();\n+                while (jp.nextToken() != JsonToken.END_OBJECT) {\n+                    copyCurrentStructure(jp);\n+                }\n+                writeEndObject();\n+                break;\n+            case START_ARRAY:\n+                writeStartArray();\n+                while (jp.nextToken() != JsonToken.END_ARRAY) {\n+                    copyCurrentStructure(jp);\n+                }\n+                writeEndArray();\n+                break;\n+            default:\n+                copyCurrentEvent(jp);\n+            }\n+            // Process remaining fields\n+            while (jp.nextToken() == JsonToken.FIELD_NAME) {\n+                if (_mayHaveNativeIds) {\n+                    _checkNativeIds(jp);\n+                }\n+                writeFieldName(jp.getCurrentName());\n+                t = jp.nextToken();\n+                if (_mayHaveNativeIds) {\n+                    _checkNativeIds(jp);\n+                }\n+                switch (t) {\n+                case START_OBJECT:\n+                    writeStartObject();\n+                    while (jp.nextToken() != JsonToken.END_OBJECT) {\n+                        copyCurrentStructure(jp);\n+                    }\n+                    writeEndObject();\n+                    break;\n+                case START_ARRAY:\n+                    writeStartArray();\n+                    while (jp.nextToken() != JsonToken.END_ARRAY) {\n+                        copyCurrentStructure(jp);\n+                    }\n+                    writeEndArray();\n+                    break;\n+                default:\n+                    copyCurrentEvent(jp);\n+                }\n+            }\n+            writeEndObject();\n+            return;\n         }\n \n         if (_mayHaveNativeIds) {\n@@ -992,7 +1045,6 @@ sb.append(\"NativeObjectIds=\").append(_hasNativeObjectIds).append(\",\");\n             copyCurrentEvent(jp);\n         }\n     }\n-\n     \n     private final void _checkNativeIds(JsonParser jp) throws IOException, JsonProcessingException\n     {\n"
+  },
+  "timestamp": "2026-06-20 01:32:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_7",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_7",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Possibly wrong `TokenBuffer` delegate deserialization using `@JsonCreator`\n``` java\nclass Value {\n@JsonCreator\npublic static Value from(TokenBuffer buffer) {\n...\n}\n```\n\nGiven JSON string is  `{ \"a\":1, \"b\":null }`, it is expected that while deserializing using delegate buffer,\ncurrent token will be start object `{`, and rest of the tokens will be available in buffer:\n\n```\n[START_OBJECT, FIELD_NAME, VALUE_NUMBER_INT, FIELD_NAME, VALUE_NULL, END_OBJECT]\n```\n\nBut, buffers ends up being started with field name and then contains single attribute value\n\n```\n[FIELD_NAME, VALUE_NUMBER_INT]\n```\n\nIt's due to how `TokenBuffer#copyCurrentStructure` works when we have current token as a `FIELD_NAME`, rather than `START_OBJECT`, because it's forced to move to next token [BeanDeserializer.java:120](https://github.com/FasterXML/jackson-databind/blob/2.4/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java#L120)\n\nHope this helps to nail it down. Is it an intended behavior, or it's regression/bug? \n\n",
+    "commit_message": "Fix #592",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 404,
+        "end_line": 404,
+        "line_numbers": [
+          404
+        ],
+        "function_name": "deserialize",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n            copyCurrentStructure(jp);\n        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n         *    to assume one did exist.\n         */\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 406,
+        "end_line": 406,
+        "line_numbers": [
+          406
+        ],
+        "function_name": "deserialize",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n            copyCurrentStructure(jp);\n        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n         *    to assume one did exist.\n         */\n        return this;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+        "start_line": 412,
+        "end_line": 412,
+        "line_numbers": [
+          412
+        ],
+        "function_name": "",
+        "class_name": "TokenBuffer",
+        "filename": "TokenBuffer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.creators.TestCreatorsDelegating::testDelegateWithTokenBuffer"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\nindex 58d3e086f..21a6b287b 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java\n@@ -402,23 +402,11 @@ public class TokenBuffer\n      */\n     public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n     {\n+        if (jp.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {\n             copyCurrentStructure(jp);\n+            return this;\n+        }\n         /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n          *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n          *    to assume one did exist.\n          */\n+        JsonToken t;\n+        writeStartObject();\n+        do {\n+            copyCurrentStructure(jp);\n+        } while ((t = jp.nextToken()) == JsonToken.FIELD_NAME);\n+        if (t != JsonToken.END_OBJECT) {\n+            throw ctxt.mappingException(\"Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got \"+t);\n+        }\n+        writeEndObject();\n         return this;\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

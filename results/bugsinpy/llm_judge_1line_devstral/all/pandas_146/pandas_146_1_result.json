@@ -1,0 +1,60 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_146",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:31:58",
+      "end_time": "2026-06-27 18:32:48",
+      "duration_seconds": 51,
+      "duration_human": "51.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 403708,
+      "output_tokens": 2286,
+      "total_tokens": 405994,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 403708
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/dtypes/missing.py b/pandas/core/dtypes/missing.py\nindex 6dd032b924..a83487536d 100644\n--- a/pandas/core/dtypes/missing.py\n+++ b/pandas/core/dtypes/missing.py\n@@ -445,32 +445,12 @@ def array_equivalent(left, right, strict_nan=False):\n                 if not isinstance(right_value, float) or not np.isnan(right_value):\n                     return False\n             else:\n-                if np.any(left_value != right_value):\n+            try:\n+                if left_value != right_value:\n                     return False\n-        return True\n-\n-    # NaNs can occur in float and complex arrays.\n-    if is_float_dtype(left) or is_complex_dtype(left):\n-\n-        # empty\n-        if not (np.prod(left.shape) and np.prod(right.shape)):\n-            return True\n-        return ((left == right) | (isna(left) & isna(right))).all()\n-\n-    # numpy will will not allow this type of datetimelike vs integer comparison\n-    elif is_datetimelike_v_numeric(left, right):\n-        return False\n-\n-    # M8/m8\n-    elif needs_i8_conversion(left) and needs_i8_conversion(right):\n-        if not is_dtype_equal(left.dtype, right.dtype):\n-            return False\n-\n-        left = left.view(\"i8\")\n-        right = right.view(\"i8\")\n-\n-    # if we have structured dtypes, compare first\n-    if left.dtype.type is np.void or right.dtype.type is np.void:\n+            except TypeError:\n+                return False\n+            try:\n         if left.dtype != right.dtype:\n             return False\n \ndiff --git a/pandas/tests/dtypes/test_missing.py b/pandas/tests/dtypes/test_missing.py\nindex 1a292d5bfc..25b447e1df 100644\n--- a/pandas/tests/dtypes/test_missing.py\n+++ b/pandas/tests/dtypes/test_missing.py\n@@ -25,6 +25,9 @@ import pandas as pd\n from pandas import DatetimeIndex, Float64Index, NaT, Series, TimedeltaIndex, date_range\n from pandas.util import testing as tm\n \n+now = pd.Timestamp.now()\n+utcnow = pd.Timestamp.now(\"UTC\")\n+\n \n @pytest.mark.parametrize(\"notna_f\", [notna, notnull])\n def test_notna_notnull(notna_f):\n@@ -332,6 +335,29 @@ def test_array_equivalent():\n     assert not array_equivalent(DatetimeIndex([0, np.nan]), TimedeltaIndex([0, np.nan]))\n \n \n+@pytest.mark.parametrize(\n+    \"lvalue, rvalue\",\n+    [\n+        # There are 3 variants for each of lvalue and rvalue. We include all\n+        #  three for the tz-naive `now` and exclude the datetim64 variant\n+        #  for utcnow because it drops tzinfo.\n+        (now, utcnow),\n+        (now.to_datetime64(), utcnow),\n+        (now.to_pydatetime(), utcnow),\n+        (now, utcnow),\n+        (now.to_datetime64(), utcnow.to_pydatetime()),\n+        (now.to_pydatetime(), utcnow.to_pydatetime()),\n+    ],\n+)\n+def test_array_equivalent_tzawareness(lvalue, rvalue):\n+    # we shouldn't raise if comparing tzaware and tznaive datetimes\n+    left = np.array([lvalue], dtype=object)\n+    right = np.array([rvalue], dtype=object)\n+\n+    assert not array_equivalent(left, right, strict_nan=True)\n+    assert not array_equivalent(left, right, strict_nan=False)\n+\n+\n def test_array_equivalent_compat():\n     # see gh-13388\n     m = np.array([(1, 2), (3, 4)], dtype=[(\"a\", int), (\"b\", float)])\n"
+  },
+  "timestamp": "2026-06-27 18:32:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_146",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_146/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: fix array_equivalent with mismatched tzawareness (#28508)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 448,
+        "end_line": 449,
+        "function_name": "array_equivalent",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 4327,
+        "end_line": 4332,
+        "function_name": "equals",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/dtypes/test_missing.py::test_array_equivalent_tzawareness"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

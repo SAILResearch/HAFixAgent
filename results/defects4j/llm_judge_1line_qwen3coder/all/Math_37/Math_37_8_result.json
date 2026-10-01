@@ -1,0 +1,172 @@
+{
+  "project_name": "Math",
+  "bug_id": "37",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 09:10:35",
+      "end_time": "2026-06-20 09:14:15",
+      "duration_seconds": 220,
+      "duration_human": "3m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 785505,
+      "output_tokens": 7386,
+      "total_tokens": 792891,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 785505
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/complex/Complex.java b/src/main/java/org/apache/commons/math/complex/Complex.java\nindex 8d28c5ffd..c6388c292 100644\n--- a/src/main/java/org/apache/commons/math/complex/Complex.java\n+++ b/src/main/java/org/apache/commons/math/complex/Complex.java\n@@ -1023,6 +1023,15 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n         double imaginary2 = 2.0 * imaginary;\n         double d = FastMath.cos(real2) + FastMath.cosh(imaginary2);\n \n+\n+        // If real part is infinite and imaginary is finite, result is NaN\n+        if (Double.isInfinite(real) && !Double.isInfinite(imaginary)) {\n+            return NaN;\n+        }\n+        // If imaginary part is infinite and real is finite, result is 0 + sign(imaginary)*i\n+        if (Double.isInfinite(imaginary) && !Double.isInfinite(real)) {\n+            return createComplex(0.0, Math.copySign(1.0, imaginary));\n+        }\n         return createComplex(FastMath.sin(real2) / d,\n                              FastMath.sinh(imaginary2) / d);\n     }\n@@ -1067,6 +1076,15 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n         double imaginary2 = 2.0 * imaginary;\n         double d = FastMath.cosh(real2) + FastMath.cos(imaginary2);\n \n+\n+        // If imaginary part is infinite and real is finite, result is NaN\n+        if (Double.isInfinite(imaginary) && !Double.isInfinite(real)) {\n+            return NaN;\n+        }\n+        // If real part is infinite and imaginary is finite, result is sign(real)*1 + 0i\n+        if (Double.isInfinite(real) && !Double.isInfinite(imaginary)) {\n+            return createComplex(Math.copySign(1.0, real), 0.0);\n+        }\n         return createComplex(FastMath.sinh(real2) / d,\n                              FastMath.sin(imaginary2) / d);\n     }\n"
+  },
+  "timestamp": "2026-06-20 09:14:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_37",
+    "repo_path": "/defects4j/framework/bin/temp/Math_37",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "[math] Complex Tanh for \"big\" numbers\nHi,\n\nIn Complex.java the tanh is computed with the following formula:\n\ntanh(a + bi) = sinh(2a)/(cosh(2a)+cos(2b)) + [sin(2b)/(cosh(2a)+cos(2b))]i\n\nThe problem that I'm finding is that as soon as \"a\" is a \"big\" number,\nboth sinh(2a) and cosh(2a) are infinity and then the method tanh returns in\nthe real part NaN (infinity/infinity) when it should return 1.0.\n\nWouldn't it be appropiate to add something as in the FastMath library??:\n\nif (real>20.0){\n      return createComplex(1.0, 0.0);\n}\nif (real<-20.0){\n      return createComplex(-1.0, 0.0);\n}\n\n\nBest regards,\n\nJBB\n",
+    "commit_message": "Introduced tests to guard against overflow (MATH-722). Corrected Javadoc and updated unit tests accordingly.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/complex/Complex.java",
+        "start_line": 1018,
+        "end_line": 1018,
+        "line_numbers": [
+          1018
+        ],
+        "function_name": "tan",
+        "class_name": "Complex",
+        "filename": "Complex.java",
+        "code_snippet": "    public Complex tan() {\n        if (isNaN) {\n            return NaN;\n        }\n\n        double real2 = 2.0 * real;\n        double imaginary2 = 2.0 * imaginary;\n        double d = FastMath.cos(real2) + FastMath.cosh(imaginary2);\n\n        return createComplex(FastMath.sin(real2) / d,\n                             FastMath.sinh(imaginary2) / d);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math/complex/Complex.java",
+        "start_line": 1063,
+        "end_line": 1063,
+        "line_numbers": [
+          1063
+        ],
+        "function_name": "tanh",
+        "class_name": "Complex",
+        "filename": "Complex.java",
+        "code_snippet": "    public Complex tanh() {\n        if (isNaN) {\n            return NaN;\n        }\n        double real2 = 2.0 * real;\n        double imaginary2 = 2.0 * imaginary;\n        double d = FastMath.cosh(real2) + FastMath.cos(imaginary2);\n\n        return createComplex(FastMath.sinh(real2) / d,\n                             FastMath.sin(imaginary2) / d);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.complex.ComplexTest::testTanhInf",
+      "org.apache.commons.math.complex.ComplexTest::testTan",
+      "org.apache.commons.math.complex.ComplexTest::testTanh",
+      "org.apache.commons.math.complex.ComplexTest::testTanInf"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/complex/Complex.java b/src/main/java/org/apache/commons/math/complex/Complex.java\nindex ed76a29..8d28c5f 100644\n--- a/src/main/java/org/apache/commons/math/complex/Complex.java\n+++ b/src/main/java/org/apache/commons/math/complex/Complex.java\n@@ -1015,15 +1015,9 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex tan() {\n+        if (isNaN || Double.isInfinite(real)) {\n-        if (isNaN) {\n             return NaN;\n         }\n+        if (imaginary > 20.0) {\n+            return createComplex(0.0, 1.0);\n+        }\n+        if (imaginary < -20.0) {\n+            return createComplex(0.0, -1.0);\n+        }\n \n         double real2 = 2.0 * real;\n         double imaginary2 = 2.0 * imaginary;\n@@ -1066,15 +1060,9 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex tanh() {\n+        if (isNaN || Double.isInfinite(imaginary)) {\n-        if (isNaN) {\n             return NaN;\n         }\n+        if (real > 20.0) {\n+            return createComplex(1.0, 0.0);\n+        }\n+        if (real < -20.0) {\n+            return createComplex(-1.0, 0.0);\n+        }\n         double real2 = 2.0 * real;\n         double imaginary2 = 2.0 * imaginary;\n         double d = FastMath.cosh(real2) + FastMath.cos(imaginary2);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Gilles Sadowski",
+        "commit_date": "2011-07-13 06:10:56",
+        "commit_message": "MATH-577",
+        "commit_hash": "d171e7dd17441b60b00960eef69f09f3b0ca89c3"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "log",
+          "sin",
+          "getArgument",
+          "divide",
+          "exp",
+          "Complex",
+          "equals",
+          "cosh",
+          "pow",
+          "asin",
+          "nthRoot",
+          "atan",
+          "isNaN",
+          "sqrt",
+          "subtract",
+          "tanh",
+          "abs",
+          "multiply",
+          "sinh",
+          "isInfinite",
+          "toString",
+          "conjugate",
+          "sqrt1z",
+          "getImaginary",
+          "readResolve",
+          "acos",
+          "cos",
+          "add",
+          "tan",
+          "getField",
+          "getReal",
+          "negate",
+          "createComplex",
+          "hashCode"
+        ],
+        "functions_name_all_files": [
+          "log",
+          "sin",
+          "getArgument",
+          "divide",
+          "exp",
+          "Complex",
+          "equals",
+          "cosh",
+          "pow",
+          "asin",
+          "nthRoot",
+          "atan",
+          "isNaN",
+          "sqrt",
+          "subtract",
+          "tanh",
+          "abs",
+          "multiply",
+          "sinh",
+          "isInfinite",
+          "toString",
+          "conjugate",
+          "sqrt1z",
+          "getImaginary",
+          "readResolve",
+          "acos",
+          "cos",
+          "add",
+          "tan",
+          "getField",
+          "getReal",
+          "negate",
+          "createComplex",
+          "hashCode"
+        ],
+        "function_code_before": "    /**\n     * Compute the\n     * <a href=\"http://mathworld.wolfram.com/InverseTangent.html\" TARGET=\"_top\">\n     * inverse tangent</a> of this complex number.\n     * <p>\n     * Implements the formula: <pre>\n     * <code> atan(z) = (i/2) log((i + z)/(i - z)) </code></pre></p>\n     * <p>\n     * Returns {@link Complex#NaN} if either real or imaginary part of the",
+        "function_code_after": "    /**\n     * Compute the\n     * <a href=\"http://mathworld.wolfram.com/InverseTangent.html\" TARGET=\"_top\">\n     * inverse tangent</a> of this complex number.\n     * <p>\n     * Implements the formula: <pre>\n     * <code> atan(z) = (i/2) log((i + z)/(i - z)) </code></pre></p>\n     * <p>\n     * Returns {@link Complex#NaN} if either real or imaginary part of the"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/math/complex/Complex.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/math/complex/Complex.java": "diff --git a/src/main/java/org/apache/commons/math/complex/Complex.java b/src/main/java/org/apache/commons/math/complex/Complex.java\nindex 3fbe74fb2..2db6b4fba 100644\n--- a/src/main/java/org/apache/commons/math/complex/Complex.java\n+++ b/src/main/java/org/apache/commons/math/complex/Complex.java\n@@ -107,7 +107,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @return the absolute value\n      */\n     public double abs() {\n-        if (isNaN()) {\n+        if (isNaN) {\n             return Double.NaN;\n         }\n \n@@ -169,7 +169,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @return the conjugate of this Complex object\n      */\n     public Complex conjugate() {\n-        if (isNaN()) {\n+        if (isNaN) {\n             return NaN;\n         }\n         return createComplex(real, -imaginary);\n@@ -213,7 +213,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n     public Complex divide(Complex rhs)\n         throws NullArgumentException {\n         MathUtils.checkNotNull(rhs);\n-        if (isNaN() || rhs.isNaN()) {\n+        if (isNaN || rhs.isNaN) {\n             return NaN;\n         }\n \n@@ -265,8 +265,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n         }\n         if (other instanceof Complex){\n             Complex rhs = (Complex)other;\n-            if (rhs.isNaN()) {\n-                return this.isNaN();\n+            if (rhs.isNaN) {\n+                return isNaN;\n             } else {\n                 return (real == rhs.real) && (imaginary == rhs.imaginary);\n             }\n@@ -283,7 +283,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      */\n     @Override\n     public int hashCode() {\n-        if (isNaN()) {\n+        if (isNaN) {\n             return 7;\n         }\n         return 37 * (17 * MathUtils.hash(imaginary) +\n@@ -362,7 +362,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n     public Complex multiply(Complex rhs)\n         throws NullArgumentException {\n         MathUtils.checkNotNull(rhs);\n-        if (isNaN() || rhs.isNaN()) {\n+        if (isNaN || rhs.isNaN) {\n             return NaN;\n         }\n         if (Double.isInfinite(real) || Double.isInfinite(imaginary) ||\n@@ -401,7 +401,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @return the complex number product\n      */\n     public Complex multiply(double rhs) {\n-        if (isNaN() || Double.isNaN(rhs)) {\n+        if (isNaN || Double.isNaN(rhs)) {\n             return NaN;\n         }\n         if (Double.isInfinite(real) || Double.isInfinite(imaginary) ||\n@@ -421,7 +421,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @return the negation of this complex number\n      */\n     public Complex negate() {\n-        if (isNaN()) {\n+        if (isNaN) {\n             return NaN;\n         }\n \n@@ -449,7 +449,7 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n     public Complex subtract(Complex rhs)\n         throws NullArgumentException {\n         MathUtils.checkNotNull(rhs);\n-        if (isNaN() || rhs.isNaN()) {\n+        if (isNaN || rhs.isNaN) {\n             return NaN;\n         }\n \n@@ -472,8 +472,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex acos() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return this.add(this.sqrt1z().multiply(Complex.I)).log()\n@@ -495,8 +495,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex asin() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return sqrt1z().add(this.multiply(Complex.I)).log()\n@@ -518,8 +518,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex atan() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return this.add(Complex.I).divide(Complex.I.subtract(this)).log()\n@@ -553,8 +553,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex cos() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return createComplex(FastMath.cos(real) * MathUtils.cosh(imaginary),\n@@ -587,8 +587,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex cosh() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return createComplex(MathUtils.cosh(real) * FastMath.cos(imaginary),\n@@ -622,8 +622,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex exp() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         double expReal = FastMath.exp(real);\n@@ -660,8 +660,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex log() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return createComplex(FastMath.log(abs()),\n@@ -718,8 +718,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex sin() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return createComplex(FastMath.sin(real) * MathUtils.cosh(imaginary),\n@@ -752,8 +752,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex sinh() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         return createComplex(MathUtils.sinh(real) * FastMath.cos(imaginary),\n@@ -794,8 +794,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex sqrt() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         if (real == 0.0 && imaginary == 0.0) {\n@@ -860,8 +860,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex tan() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         double real2 = 2.0 * real;\n@@ -898,8 +898,8 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n      * @since 1.2\n      */\n     public Complex tanh() {\n-        if (isNaN()) {\n-            return Complex.NaN;\n+        if (isNaN) {\n+            return NaN;\n         }\n \n         double real2 = 2.0 * real;\n@@ -957,13 +957,13 @@ public class Complex implements FieldElement<Complex>, Serializable  {\n \n         List<Complex> result = new ArrayList<Complex>();\n \n-        if (isNaN()) {\n-            result.add(Complex.NaN);\n+        if (isNaN) {\n+            result.add(NaN);\n             return result;\n         }\n \n         if (isInfinite()) {\n-            result.add(Complex.INF);\n+            result.add(INF);\n             return result;\n         }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

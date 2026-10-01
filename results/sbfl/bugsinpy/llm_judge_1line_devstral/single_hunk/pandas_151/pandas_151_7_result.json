@@ -1,0 +1,194 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_151",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 20:31:15",
+      "end_time": "2026-06-30 20:32:56",
+      "duration_seconds": 101,
+      "duration_human": "1m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 467134,
+      "output_tokens": 4132,
+      "total_tokens": 471266,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 467134
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/numpy_.py b/pandas/core/arrays/numpy_.py\nindex 4e2e37d88e..1b3970876f 100644\n--- a/pandas/core/arrays/numpy_.py\n+++ b/pandas/core/arrays/numpy_.py\n@@ -228,6 +228,7 @@ class PandasArray(ExtensionArray, ExtensionOpsMixin, NDArrayOperatorsMixin):\n \n     def __setitem__(self, key, value):\n         value = extract_array(value, extract_numpy=True)\n+        value = extract_array(value, extract_numpy=True)\n \n         if not lib.is_scalar(key) and is_list_like(key):\n             key = np.asarray(key)\n@@ -236,232 +237,15 @@ class PandasArray(ExtensionArray, ExtensionOpsMixin, NDArrayOperatorsMixin):\n             value = np.asarray(value)\n \n         values = self._ndarray\n+        value = np.asarray(value)\n         t = np.result_type(value, values)\n         if t != self._ndarray.dtype:\n-            values = values.astype(t, casting=\"safe\")\n+            try:\n+                values = values.astype(t, casting=\"safe\")\n+            except (ValueError, TypeError):\n+                raise ValueError(f\"Cannot convert {t} to {self._ndarray.dtype}\")\n             values[key] = value\n             self._dtype = PandasDtype(t)\n             self._ndarray = values\n         else:\n             self._ndarray[key] = value\n-\n-    def __len__(self) -> int:\n-        return len(self._ndarray)\n-\n-    @property\n-    def nbytes(self) -> int:\n-        return self._ndarray.nbytes\n-\n-    def isna(self):\n-        return isna(self._ndarray)\n-\n-    def fillna(self, value=None, method=None, limit=None):\n-        # TODO(_values_for_fillna): remove this\n-        value, method = validate_fillna_kwargs(value, method)\n-\n-        mask = self.isna()\n-\n-        if is_array_like(value):\n-            if len(value) != len(self):\n-                raise ValueError(\n-                    \"Length of 'value' does not match. Got ({}) \"\n-                    \" expected {}\".format(len(value), len(self))\n-                )\n-            value = value[mask]\n-\n-        if mask.any():\n-            if method is not None:\n-                func = pad_1d if method == \"pad\" else backfill_1d\n-                new_values = func(self._ndarray, limit=limit, mask=mask)\n-                new_values = self._from_sequence(new_values, dtype=self.dtype)\n-            else:\n-                # fill with value\n-                new_values = self.copy()\n-                new_values[mask] = value\n-        else:\n-            new_values = self.copy()\n-        return new_values\n-\n-    def take(self, indices, allow_fill=False, fill_value=None):\n-        result = take(\n-            self._ndarray, indices, allow_fill=allow_fill, fill_value=fill_value\n-        )\n-        return type(self)(result)\n-\n-    def copy(self):\n-        return type(self)(self._ndarray.copy())\n-\n-    def _values_for_argsort(self):\n-        return self._ndarray\n-\n-    def _values_for_factorize(self):\n-        return self._ndarray, -1\n-\n-    def unique(self):\n-        return type(self)(unique(self._ndarray))\n-\n-    # ------------------------------------------------------------------------\n-    # Reductions\n-\n-    def _reduce(self, name, skipna=True, **kwargs):\n-        meth = getattr(self, name, None)\n-        if meth:\n-            return meth(skipna=skipna, **kwargs)\n-        else:\n-            msg = \"'{}' does not implement reduction '{}'\"\n-            raise TypeError(msg.format(type(self).__name__, name))\n-\n-    def any(self, axis=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_any((), dict(out=out, keepdims=keepdims))\n-        return nanops.nanany(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def all(self, axis=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_all((), dict(out=out, keepdims=keepdims))\n-        return nanops.nanall(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def min(self, axis=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_min((), dict(out=out, keepdims=keepdims))\n-        return nanops.nanmin(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def max(self, axis=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_max((), dict(out=out, keepdims=keepdims))\n-        return nanops.nanmax(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def sum(\n-        self,\n-        axis=None,\n-        dtype=None,\n-        out=None,\n-        keepdims=False,\n-        initial=None,\n-        skipna=True,\n-        min_count=0,\n-    ):\n-        nv.validate_sum(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims, initial=initial)\n-        )\n-        return nanops.nansum(\n-            self._ndarray, axis=axis, skipna=skipna, min_count=min_count\n-        )\n-\n-    def prod(\n-        self,\n-        axis=None,\n-        dtype=None,\n-        out=None,\n-        keepdims=False,\n-        initial=None,\n-        skipna=True,\n-        min_count=0,\n-    ):\n-        nv.validate_prod(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims, initial=initial)\n-        )\n-        return nanops.nanprod(\n-            self._ndarray, axis=axis, skipna=skipna, min_count=min_count\n-        )\n-\n-    def mean(self, axis=None, dtype=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_mean((), dict(dtype=dtype, out=out, keepdims=keepdims))\n-        return nanops.nanmean(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def median(\n-        self, axis=None, out=None, overwrite_input=False, keepdims=False, skipna=True\n-    ):\n-        nv.validate_median(\n-            (), dict(out=out, overwrite_input=overwrite_input, keepdims=keepdims)\n-        )\n-        return nanops.nanmedian(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def std(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, skipna=True):\n-        nv.validate_stat_ddof_func(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims), fname=\"std\"\n-        )\n-        return nanops.nanstd(self._ndarray, axis=axis, skipna=skipna, ddof=ddof)\n-\n-    def var(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, skipna=True):\n-        nv.validate_stat_ddof_func(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims), fname=\"var\"\n-        )\n-        return nanops.nanvar(self._ndarray, axis=axis, skipna=skipna, ddof=ddof)\n-\n-    def sem(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, skipna=True):\n-        nv.validate_stat_ddof_func(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims), fname=\"sem\"\n-        )\n-        return nanops.nansem(self._ndarray, axis=axis, skipna=skipna, ddof=ddof)\n-\n-    def kurt(self, axis=None, dtype=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_stat_ddof_func(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims), fname=\"kurt\"\n-        )\n-        return nanops.nankurt(self._ndarray, axis=axis, skipna=skipna)\n-\n-    def skew(self, axis=None, dtype=None, out=None, keepdims=False, skipna=True):\n-        nv.validate_stat_ddof_func(\n-            (), dict(dtype=dtype, out=out, keepdims=keepdims), fname=\"skew\"\n-        )\n-        return nanops.nanskew(self._ndarray, axis=axis, skipna=skipna)\n-\n-    # ------------------------------------------------------------------------\n-    # Additional Methods\n-    def to_numpy(self, dtype=None, copy=False):\n-        \"\"\"\n-        Convert the PandasArray to a :class:`numpy.ndarray`.\n-\n-        By default, this requires no coercion or copying of data.\n-\n-        Parameters\n-        ----------\n-        dtype : numpy.dtype\n-            The NumPy dtype to pass to :func:`numpy.asarray`.\n-        copy : bool, default False\n-            Whether to copy the underlying data.\n-\n-        Returns\n-        -------\n-        ndarray\n-        \"\"\"\n-        result = np.asarray(self._ndarray, dtype=dtype)\n-        if copy and result is self._ndarray:\n-            result = result.copy()\n-\n-        return result\n-\n-    @Appender(ExtensionArray.searchsorted.__doc__)\n-    def searchsorted(self, value, side=\"left\", sorter=None):\n-        return searchsorted(self.to_numpy(), value, side=side, sorter=sorter)\n-\n-    # ------------------------------------------------------------------------\n-    # Ops\n-\n-    def __invert__(self):\n-        return type(self)(~self._ndarray)\n-\n-    @classmethod\n-    def _create_arithmetic_method(cls, op):\n-        def arithmetic_method(self, other):\n-            if isinstance(other, (ABCIndexClass, ABCSeries)):\n-                return NotImplemented\n-\n-            elif isinstance(other, cls):\n-                other = other._ndarray\n-\n-            with np.errstate(all=\"ignore\"):\n-                result = op(self._ndarray, other)\n-\n-            if op is divmod:\n-                a, b = result\n-                return cls(a), cls(b)\n-\n-            return cls(result)\n-\n-        return compat.set_function_name(\n-            arithmetic_method, \"__{}__\".format(op.__name__), cls\n-        )\n-\n-    _create_comparison_method = _create_arithmetic_method\n-\n-\n-PandasArray._add_arithmetic_ops()\n-PandasArray._add_comparison_ops()\ndiff --git a/pandas/tests/arrays/test_numpy.py b/pandas/tests/arrays/test_numpy.py\nindex c4c1696ede..7a150c35fe 100644\n--- a/pandas/tests/arrays/test_numpy.py\n+++ b/pandas/tests/arrays/test_numpy.py\n@@ -211,3 +211,18 @@ def test_basic_binop():\n     result = x + x\n     expected = PandasArray(np.array([2, 4, 6]))\n     tm.assert_extension_array_equal(result, expected)\n+\n+\n+@pytest.mark.parametrize(\"dtype\", [None, object])\n+def test_setitem_object_typecode(dtype):\n+    arr = PandasArray(np.array([\"a\", \"b\", \"c\"], dtype=dtype))\n+    arr[0] = \"t\"\n+    expected = PandasArray(np.array([\"t\", \"b\", \"c\"], dtype=dtype))\n+    tm.assert_extension_array_equal(arr, expected)\n+\n+\n+def test_setitem_no_coercion():\n+    # https://github.com/pandas-dev/pandas/issues/28150\n+    arr = PandasArray(np.array([1, 2, 3]))\n+    with pytest.raises(ValueError, match=\"int\"):\n+        arr[0] = \"a\"\n"
+  },
+  "timestamp": "2026-06-30 20:32:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_151",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_151/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Fixed PandasArray.__setitem__ with str (#28119)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 241,
+        "end_line": 241,
+        "suspiciousness": 0.545836,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 242,
+        "end_line": 242,
+        "suspiciousness": 0.545836,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 243,
+        "end_line": 243,
+        "suspiciousness": 0.545836,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 244,
+        "end_line": 244,
+        "suspiciousness": 0.545836,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 230,
+        "end_line": 230,
+        "suspiciousness": 0.513298,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 232,
+        "end_line": 232,
+        "suspiciousness": 0.513298,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 235,
+        "end_line": 235,
+        "suspiciousness": 0.513298,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 238,
+        "end_line": 238,
+        "suspiciousness": 0.513298,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/arrays/numpy_.py",
+        "start_line": 239,
+        "end_line": 239,
+        "suspiciousness": 0.513298,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/construction.py",
+        "start_line": 359,
+        "end_line": 359,
+        "suspiciousness": 0.472813,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/test_numpy.py::test_setitem_object_typecode",
+      "pytest pandas/tests/arrays/test_numpy.py::test_setitem_no_coercion"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 241,
+      "end_line": 241,
+      "suspiciousness": 0.545836,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 242,
+      "end_line": 242,
+      "suspiciousness": 0.545836,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 243,
+      "end_line": 243,
+      "suspiciousness": 0.545836,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 244,
+      "end_line": 244,
+      "suspiciousness": 0.545836,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 230,
+      "end_line": 230,
+      "suspiciousness": 0.513298,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 232,
+      "end_line": 232,
+      "suspiciousness": 0.513298,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 235,
+      "end_line": 235,
+      "suspiciousness": 0.513298,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 238,
+      "end_line": 238,
+      "suspiciousness": 0.513298,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/arrays/numpy_.py",
+      "start_line": 239,
+      "end_line": 239,
+      "suspiciousness": 0.513298,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/construction.py",
+      "start_line": 359,
+      "end_line": 359,
+      "suspiciousness": 0.472813,
+      "rank": 10
+    }
+  ]
+}

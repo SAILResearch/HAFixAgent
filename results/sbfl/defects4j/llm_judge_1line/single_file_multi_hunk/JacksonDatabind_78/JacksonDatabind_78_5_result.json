@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_78",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 10:55:27",
+      "end_time": "2026-06-24 10:59:53",
+      "duration_seconds": 266,
+      "duration_human": "4m 26s"
+    },
+    "model_cost": 0.1536,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 990598,
+      "output_tokens": 7686,
+      "total_tokens": 998284,
+      "cached_input_tokens": 433344,
+      "uncached_input_tokens": 557254
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerFactory.java\nindex 4a9d8631e..419e54216 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerFactory.java\n@@ -39,14 +39,33 @@ public class BeanDeserializerFactory\n \n     private final static Class<?>[] NO_VIEWS = new Class<?>[0];\n \n+    /**\n     /**\n      * Set of well-known \"nasty classes\", deserialization of which is considered dangerous\n      * and should (and is) prevented by default.\n      *\n      * @since 2.8.9\n      */\n+    private final static Set<String> DEFAULT_NO_DESER_CLASS_NAMES;\n+    static {\n+        Set<String> s = new HashSet<String>();\n         // Courtesy of [https://github.com/kantega/notsoserial]:\n-        // (and wrt [databind#1599]\n+        // (and wrt [databind#1599])\n+        // 01-May-2017, tatu: [databind#1599] try to defend against some known\n+        //   nasty classes that can cause problems via default typing\n+        s.add(\"org.apache.commons.collections.functors.InvokerTransformer\");\n+        s.add(\"org.apache.commons.collections.functors.InstantiateTransformer\");\n+        s.add(\"org.apache.commons.collections4.functors.InvokerTransformer\");\n+        s.add(\"org.apache.commons.collections4.functors.InstantiateTransformer\");\n+        s.add(\"org.codehaus.groovy.runtime.ConvertedClosure\");\n+        s.add(\"org.codehaus.groovy.runtime.MethodClosure\");\n+        s.add(\"org.springframework.beans.factory.ObjectFactory\");\n+        s.add(\"com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl\");\n+        s.add(\"org.apache.xalan.xsltc.trax.TemplatesImpl\");\n+        DEFAULT_NO_DESER_CLASS_NAMES = Collections.unmodifiableSet(s);\n+    }\n+\n+    private final Set<String> _cfgIllegalClassNames = DEFAULT_NO_DESER_CLASS_NAMES;\n \n     /**\n      * Set of class names of types that are never to be deserialized.\n@@ -878,4 +897,42 @@ beanDesc.getBeanClass().getName(), name, ((AnnotatedParameter) m).getIndex());\n         // There are certain nasty classes that could cause problems, mostly\n         // via default typing -- catch them here.\n \n+\n+    /**\n+     * Helper method called to check if given type is one of \"nasty\" classes\n+     * that should never be deserialized due to security concerns.\n+     *\n+     * @since 2.8.9\n+     */\n+    protected void checkIllegalTypes(DeserializationContext ctxt, JavaType type,\n+            BeanDescription beanDesc) throws JsonMappingException\n+    {\n+        // Only check class names for now; can be extended to check\n+        // other properties if necessary\n+        Class<?> raw = type.getRawClass();\n+        String className = raw.getName();\n+        \n+        // Check direct class name match\n+        if (_cfgIllegalClassNames.contains(className)) {\n+            throw ctxt.mappingException(\"Illegal type (%s) to deserialize: prevented for security reasons\",\n+                    className);\n+        }\n+        \n+        // Also check for some known dangerous package prefixes\n+        if (className.startsWith(\"org.apache.commons.collections.functors\")\n+                || className.startsWith(\"org.apache.commons.collections4.functors\")\n+                || className.startsWith(\"org.codehaus.groovy.runtime\")\n+                || className.startsWith(\"com.sun.org.apache.xalan.internal.xsltc.trax\")\n+                || className.startsWith(\"org.apache.xalan.xsltc.trax\")) {\n+            // But only if not already in set\n+            if (!_cfgIllegalClassNames.contains(className)) {\n+                throw ctxt.mappingException(\"Illegal type (%s) to deserialize: prevented for security reasons\",\n+                        className);\n+            }\n+        }\n+    }\n+    \n+    // There are certain nasty classes that could cause problems, mostly\n+    // via default typing -- catch them here.\n+    \n }\n"
+  },
+  "timestamp": "2026-06-24 10:59:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_78",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_78",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Jackson Deserializer security vulnerability via default typing (CVE-2017-7525)\nI have send email to info@fasterxml.com\r\n\r\n**EDIT**: (23-Apr-2024)\r\n\r\nFix in:\r\n\r\n* 2.7.9.1\r\n* 2.8.9\r\n* 2.9.0 and all later 2.x releases\r\n\n",
+    "commit_message": "Fix #1599 for 2.8.9",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 280,
+        "end_line": 280,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 281,
+        "end_line": 281,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 285,
+        "end_line": 285,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9932369343933688,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.interop.IllegalTypesCheckTest::testIssue1599"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 280,
+      "end_line": 280,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 281,
+      "end_line": 281,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 285,
+      "end_line": 285,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9932369343933688,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "project_name": "Closure",
+  "bug_id": "117",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 15:35:26",
+      "end_time": "2025-09-30 15:55:06",
+      "duration_seconds": 1180,
+      "duration_human": "19m 40s"
+    },
+    "model_cost": 0.022,
+    "model_calls": 16,
+    "token_usage": {
+      "input_tokens": 206689,
+      "output_tokens": 10949,
+      "total_tokens": 217638,
+      "cached_input_tokens": 192768,
+      "uncached_input_tokens": 13921
+    },
+    "agent_steps": 17,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java\nindex 1f7438c38..3d8d7248e 100644\n--- a/src/com/google/javascript/jscomp/TypeCheck.java\n+++ b/src/com/google/javascript/jscomp/TypeCheck.java\n@@ -1466,11 +1466,11 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {\n             getClosestPropertySuggestion(objectType, propName);\n         if (pair != null && pair.distance * 4 < propName.length()) {\n           report(t, n, INEXISTENT_PROPERTY_WITH_SUGGESTION, propName,\n-              validator.getReadableJSTypeName(n.getFirstChild(), true),\n+              objectType.getDisplayName(),\n               pair.suggestion);\n         } else {\n           report(t, n, INEXISTENT_PROPERTY, propName,\n-              validator.getReadableJSTypeName(n.getFirstChild(), true));\n+              objectType.getDisplayName());\n         }\n       }\n     }\n"
+  },
+  "timestamp": "2025-09-30 15:55:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_117",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_117",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Wrong type name reported on missing property error.\n/**\r\n * @constructor\r\n */\r\nfunction C2() {}\r\n\r\n/**\r\n * @constructor\r\n */\r\nfunction C3(c2) {\r\n  /**\r\n   * @type {C2} \r\n   * @private\r\n   */\r\n  this.c2_;\r\n\r\n  use(this.c2_.prop);\r\n}\r\n\r\nProduces:\r\n\r\nProperty prop never defined on C3.c2_\r\n\r\nBut should be:\r\n\r\nProperty prop never defined on C2",
+    "commit_message": "Rejigger type name printing. Fixes issue 1047 R=johnlenz",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 756,
+        "end_line": 767,
+        "line_numbers": [
+          756,
+          757,
+          758,
+          759,
+          760,
+          761,
+          762,
+          763,
+          764,
+          765,
+          766,
+          767
+        ],
+        "function_name": "getReadableJSTypeName",
+        "class_name": "TypeValidator",
+        "filename": "TypeValidator.java",
+        "code_snippet": "  String getReadableJSTypeName(Node n, boolean dereference) {\n\n    // The best type name is the actual type name.\n\n    // If we're analyzing a GETPROP, the property may be inherited by the\n    // prototype chain. So climb the prototype chain and find out where\n    // the property was originally defined.\n    if (n.isGetProp()) {\n      ObjectType objectType = getJSType(n.getFirstChild()).dereference();\n      if (objectType != null) {\n        String propName = n.getLastChild().getString();\n        if (objectType.getConstructor() != null &&\n            objectType.getConstructor().isInterface()) {\n          objectType = FunctionType.getTopDefiningInterface(\n              objectType, propName);\n        } else {\n          // classes\n          while (objectType != null && !objectType.hasOwnProperty(propName)) {\n            objectType = objectType.getImplicitPrototype();\n          }\n        }\n\n        // Don't show complex function names or anonymous types.\n        // Instead, try to get a human-readable type name.\n        if (objectType != null &&\n            (objectType.getConstructor() != null ||\n             objectType.isFunctionPrototypeType())) {\n          return objectType.toString() + \".\" + propName;\n        }\n      }\n    }\n\n    JSType type = getJSType(n);\n    if (dereference) {\n      ObjectType dereferenced = type.dereference();\n      if (dereferenced != null) {\n        type = dereferenced;\n      }\n    }\n    if (type.isFunctionPrototypeType() ||\n        (type.toObjectType() != null &&\n         type.toObjectType().getConstructor() != null)) {\n      return type.toString();\n    }\n    String qualifiedName = n.getQualifiedName();\n    if (qualifiedName != null) {\n      return qualifiedName;\n    } else if (type.isFunctionType()) {\n      // Don't show complex function names.\n      return \"function\";\n    } else {\n      return type.toString();\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue1047"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypeValidator.java b/src/com/google/javascript/jscomp/TypeValidator.java\nindex f57ae14..bcd024a 100644\n--- a/src/com/google/javascript/jscomp/TypeValidator.java\n+++ b/src/com/google/javascript/jscomp/TypeValidator.java\n@@ -722,20 +722,8 @@ class TypeValidator {\n    *     to an Object type, if possible.\n    */\n   String getReadableJSTypeName(Node n, boolean dereference) {\n+    JSType type = getJSType(n);\n+    if (dereference) {\n+      ObjectType dereferenced = type.dereference();\n+      if (dereferenced != null) {\n+        type = dereferenced;\n+      }\n+    }\n \n     // The best type name is the actual type name.\n+    if (type.isFunctionPrototypeType() ||\n+        (type.toObjectType() != null &&\n+         type.toObjectType().getConstructor() != null)) {\n+      return type.toString();\n+    }\n \n     // If we're analyzing a GETPROP, the property may be inherited by the\n     // prototype chain. So climb the prototype chain and find out where\n@@ -765,6 +753,18 @@ class TypeValidator {\n       }\n     }\n \n-    JSType type = getJSType(n);\n-    if (dereference) {\n-      ObjectType dereferenced = type.dereference();\n-      if (dereferenced != null) {\n-        type = dereferenced;\n-      }\n-    }\n-    if (type.isFunctionPrototypeType() ||\n-        (type.toObjectType() != null &&\n-         type.toObjectType().getConstructor() != null)) {\n-      return type.toString();\n-    }\n     String qualifiedName = n.getQualifiedName();\n     if (qualifiedName != null) {\n       return qualifiedName;",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

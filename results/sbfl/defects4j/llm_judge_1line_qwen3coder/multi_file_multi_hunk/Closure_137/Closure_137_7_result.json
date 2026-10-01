@@ -1,0 +1,197 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_137",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 23:59:50",
+      "end_time": "2026-06-29 00:02:31",
+      "duration_seconds": 161,
+      "duration_human": "2m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 715337,
+      "output_tokens": 4422,
+      "total_tokens": 719759,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 715337
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/MakeDeclaredNamesUnique.java b/src/com/google/javascript/jscomp/MakeDeclaredNamesUnique.java\nindex 79f2247dd..d88520cb5 100644\n--- a/src/com/google/javascript/jscomp/MakeDeclaredNamesUnique.java\n+++ b/src/com/google/javascript/jscomp/MakeDeclaredNamesUnique.java\n@@ -23,7 +23,7 @@ import com.google.common.collect.Lists;\n import com.google.common.collect.Maps;\n import com.google.common.collect.Multiset;\n import com.google.common.collect.Sets;\n-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;\n+import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;\n import com.google.javascript.jscomp.Scope.Var;\n import com.google.javascript.rhino.Node;\n import com.google.javascript.rhino.Token;\n@@ -45,6 +45,7 @@ import java.util.Set;\n class MakeDeclaredNamesUnique\n     implements NodeTraversal.ScopedCallback {\n \n+  public static final String ARGUMENTS = \"arguments\";\n   private Deque<Renamer> nameStack = new ArrayDeque<Renamer>();\n   private final Renamer rootRenamer;\n \n@@ -232,16 +233,18 @@ class MakeDeclaredNamesUnique\n   /**\n    * Inverts the transformation by {@link ContextualRenamer}, when possible.\n    */\n-  static class ContextualRenameInverter extends AbstractPostOrderCallback\n-      implements CompilerPass {\n+  static class ContextualRenameInverter\n+      implements ScopedCallback, CompilerPass {\n     private final AbstractCompiler compiler;\n \n     // The set of names referenced in the current scope.\n+    private Set<String> referencedNames = ImmutableSet.of();\n \n     // Stack reference sets.\n+    private Deque<Set<String>> referenceStack = new ArrayDeque<Set<String>>();\n \n     // Name are globally unique initially, so we don't need a per-scope map.\n-    private Map<Var, String> nameMap = Maps.newHashMap();\n+    private Map<String, List<Node>> nameMap = Maps.newHashMap();\n \n     private ContextualRenameInverter(AbstractCompiler compiler) {\n       this.compiler = compiler;\n@@ -263,85 +266,105 @@ class MakeDeclaredNamesUnique\n     private boolean containsSeparator(String name) {\n       return name.indexOf(ContextualRenamer.UNIQUE_ID_SEPARATOR) != -1;\n     }\n-    private static String getOrginalNameInternal(String name, int index) {\n-      return name.substring(0, index);\n-    }\n \n     /**\n      * Prepare a set for the new scope.\n      */\n+    public void enterScope(NodeTraversal t) {\n+      if (t.inGlobalScope()) {\n+        return;\n+      }\n \n-    private static String getNameSuffix(String name, int index) {\n-      return name.substring(\n-          index + ContextualRenamer.UNIQUE_ID_SEPARATOR.length(),\n-          name.length());\n+      referenceStack.push(referencedNames);\n+      referencedNames = Sets.newHashSet();\n     }\n \n     /**\n      * Rename vars for the current scope, and merge any referenced \n      * names into the parent scope reference set.\n      */\n-    @Override\n-    public void visit(NodeTraversal t, Node node, Node parent) {\n-      if (node.getType() == Token.NAME) {\n-        String oldName = node.getString();\n-        if (containsSeparator(oldName)) {\n-          Scope scope = t.getScope();\n-          Var var = t.getScope().getVar(oldName);\n-          if (var == null || var.isGlobal()) {\n+    public void exitScope(NodeTraversal t) {\n+      if (t.inGlobalScope()) {\n         return;\n       }\n \n-          if (nameMap.containsKey(var)) {\n-            node.setString(nameMap.get(var));\n-          } else {\n-            int index = indexOfSeparator(oldName);\n-            String newName = getOrginalNameInternal(oldName, index);\n-            String suffix = getNameSuffix(oldName, index);\n+      for (Iterator<Var> it = t.getScope().getVars(); it.hasNext();) {\n+        Var v = it.next();\n+        handleScopeVar(v);\n+      }\n \n       // Merge any names that were referenced but not declared in the current\n       // scope.\n+      Set<String> current = referencedNames;\n+      referencedNames = referenceStack.pop();\n       // If there isn't anything left in the stack we will be going into the\n       // global scope: don't try to build a set of referenced names for the\n       // global scope.\n-            boolean recurseScopes = false;\n-            if (!suffix.matches(\"\\\\d+\")) {\n-              recurseScopes = true;\n-            }\n+      if (!referenceStack.isEmpty()) {\n+        referencedNames.addAll(current);\n+      }\n+    }\n \n     /**\n      * For the Var declared in the current scope determine if it is possible\n      * to revert the name to its orginal form without conflicting with other\n      * values.\n      */\n+    void handleScopeVar(Var v) {\n+      String name  = v.getName();\n+      if (containsSeparator(name)) {\n+        String newName = getOrginalName(name);\n         // Check if the new name is valid and if it would cause conflicts.\n-            if (var.scope.isDeclared(newName, recurseScopes) ||\n-                !TokenStream.isJSIdentifier(newName)) {\n-              newName = oldName;\n-            } else {\n-              var.scope.declare(newName, var.nameNode, null, null);\n+        if (TokenStream.isJSIdentifier(newName) &&\n+            !referencedNames.contains(newName) && \n+            !newName.equals(ARGUMENTS)) {\n+          referencedNames.remove(name);\n           // Adding a reference to the new name to prevent either the parent\n           // scopes or the current scope renaming another var to this new name.\n-              Node parentNode = var.getParentNode();\n-              if (parentNode.getType() == Token.FUNCTION &&\n-                  parentNode == var.scope.getRootNode()) {\n-                var.getNameNode().setString(newName);\n-              }\n-              node.setString(newName);\n+          referencedNames.add(newName);\n+          List<Node> references = nameMap.get(name);\n+          Preconditions.checkState(references != null);\n+          for (Node n : references) {\n+            Preconditions.checkState(n.getType() == Token.NAME);\n+            n.setString(newName);\n+          }\n           compiler.reportCodeChange();\n         }\n+        nameMap.remove(name);\n+      }\n+    }\n \n-            nameMap.put(var, newName);\n+    @Override\n+    public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {\n+      return true;\n+    }\n \n+    @Override\n+    public void visit(NodeTraversal t, Node node, Node parent) {\n+      if (t.inGlobalScope()) {\n+        return;\n       }\n \n+      if (NodeUtil.isReferenceName(node)) {\n+        String name = node.getString();\n         // Add all referenced names to the set so it is possible to check for\n         // conflicts.\n+        referencedNames.add(name);\n         // Store only references to candidate names in the node map.\n+        if (containsSeparator(name)) {\n+          addCandidateNameReference(name, node);\n         }\n       }\n     }\n \n+    private void addCandidateNameReference(String name, Node n) {\n+      List<Node> nodes = nameMap.get(name);\n+      if (null == nodes) {\n+        nodes = Lists.newLinkedList();\n+        nameMap.put(name, nodes);\n+      }\n+      nodes.add(n);\n+    }\n   }\n \n   /**\n@@ -388,6 +411,7 @@ class MakeDeclaredNamesUnique\n      */\n     @Override\n     public void addDeclaredName(String name) {\n+      if (!name.equals(ARGUMENTS)) {\n         if (global) {\n           reserveName(name);\n         } else {\n@@ -397,8 +421,9 @@ class MakeDeclaredNamesUnique\n             String newName = null;\n             if (id != 0) {\n               newName = getUniqueName(name, id);\n+            }\n+            declarations.put(name, newName);\n           }\n-          declarations.put(name, newName);\n         }\n       }\n     }\n@@ -458,6 +483,7 @@ class MakeDeclaredNamesUnique\n \n     @Override\n     public void addDeclaredName(String name) {\n+      Preconditions.checkState(!name.equals(ARGUMENTS));\n       if (!declarations.containsKey(name)) {\n         declarations.put(name, getUniqueName(name));\n       }\n"
+  },
+  "timestamp": "2026-06-29 00:02:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_137",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_137",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Invalid JSC_DETERMINISTIC_TEST\n<b>What steps will reproduce the problem?</b>\n\r\n1. Compile following code:\r\n\r\n// ==ClosureCompiler==\r\n// @output_file_name default.js\r\n// @compilation_level ADVANCED_OPTIMIZATIONS\r\n// ==/ClosureCompiler==\r\n\r\nvar t = null;\r\n\r\nwindow.test = function()\r\n{\r\n    if (t != null)\r\n    {\r\n       t = null;\r\n    }\r\n\r\n    t = 1;\r\n};\r\n\r\n<b>What is the expected output? What do you see instead?</b>\n\r\nCode should be compiled without warnings, but I see \r\n&quot;JSC_DETERMINISTIC_TEST: condition always evaluates to false&quot;.",
+    "commit_message": "Fix assorted type system bugs and crashes. Fixes issue 124. (Nick) R=andrew DELTA=161  (122 added, 9 deleted, 30 changed)",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1330,
+        "end_line": 1330,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1331,
+        "end_line": 1331,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1332,
+        "end_line": 1332,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 900,
+        "end_line": 900,
+        "suspiciousness": 0.5976143046671968,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 901,
+        "end_line": 901,
+        "suspiciousness": 0.5976143046671968,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 177,
+        "end_line": 177,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 197,
+        "end_line": 197,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 222,
+        "end_line": 222,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 805,
+        "end_line": 805,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 810,
+        "end_line": 810,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.MakeDeclaredNamesUniqueTest::testOnlyInversion3",
+      "com.google.javascript.jscomp.MakeDeclaredNamesUniqueTest::testOnlyInversion4",
+      "com.google.javascript.jscomp.MakeDeclaredNamesUniqueTest::testArguments",
+      "com.google.javascript.jscomp.MakeDeclaredNamesUniqueTest::testMakeLocalNamesUniqueWithContext1",
+      "com.google.javascript.jscomp.NormalizeTest::testRemoveDuplicateVarDeclarations2"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1330,
+      "end_line": 1330,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1331,
+      "end_line": 1331,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1332,
+      "end_line": 1332,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 900,
+      "end_line": 900,
+      "suspiciousness": 0.5976143046671968,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 901,
+      "end_line": 901,
+      "suspiciousness": 0.5976143046671968,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 177,
+      "end_line": 177,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 197,
+      "end_line": 197,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 222,
+      "end_line": 222,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 805,
+      "end_line": 805,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 810,
+      "end_line": 810,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 10
+    }
+  ]
+}

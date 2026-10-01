@@ -1,0 +1,192 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_135",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:12:15",
+      "end_time": "2026-06-30 16:14:15",
+      "duration_seconds": 121,
+      "duration_human": "2m 1s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 371117,
+      "output_tokens": 4071,
+      "total_tokens": 375188,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 371117
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex c766fcaa4f..8ec5fb7723 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -267,8 +267,9 @@ class SeriesGroupBy(GroupBy):\n             except Exception:\n                 result = self._aggregate_named(func, *args, **kwargs)\n \n+            result_values = [self._try_cast(v, self._selected_obj) for v in result.values()]\n             index = Index(sorted(result), name=self.grouper.names[0])\n-            ret = Series(result, index=index)\n+            ret = Series(result_values, index=index)\n \n         if not self.as_index:  # pragma: no cover\n             print(\"Warning, ignoring as_index=True\")\ndiff --git a/pandas/tests/extension/decimal/test_decimal.py b/pandas/tests/extension/decimal/test_decimal.py\nindex 3ac9d37ccf..86724d4d09 100644\n--- a/pandas/tests/extension/decimal/test_decimal.py\n+++ b/pandas/tests/extension/decimal/test_decimal.py\n@@ -426,3 +426,55 @@ def test_array_ufunc_series_defer():\n \n     tm.assert_series_equal(r1, expected)\n     tm.assert_series_equal(r2, expected)\n+\n+\n+def test_groupby_agg():\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame(\n+        {\"id1\": [0, 0, 0, 1, 1], \"id2\": [0, 1, 0, 1, 1], \"decimals\": DecimalArray(data)}\n+    )\n+\n+    # single key, selected column\n+    expected = pd.Series(to_decimal([data[0], data[3]]))\n+    result = df.groupby(\"id1\")[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby(df[\"id1\"]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple keys, selected column\n+    expected = pd.Series(\n+        to_decimal([data[0], data[1], data[3]]),\n+        index=pd.MultiIndex.from_tuples([(0, 0), (0, 1), (1, 1)]),\n+    )\n+    result = df.groupby([\"id1\", \"id2\"])[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby([df[\"id1\"], df[\"id2\"]]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple columns\n+    expected = pd.DataFrame({\"id2\": [0, 1], \"decimals\": to_decimal([data[0], data[3]])})\n+    result = df.groupby(\"id1\").agg(lambda x: x.iloc[0])\n+    tm.assert_frame_equal(result, expected, check_names=False)\n+\n+\n+def test_groupby_agg_ea_method(monkeypatch):\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    def DecimalArray__my_sum(self):\n+        return np.sum(np.array(self))\n+\n+    monkeypatch.setattr(DecimalArray, \"my_sum\", DecimalArray__my_sum, raising=False)\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame({\"id\": [0, 0, 0, 1, 1], \"decimals\": DecimalArray(data)})\n+    expected = pd.Series(to_decimal([data[0] + data[1] + data[2], data[3] + data[4]]))\n+\n+    result = df.groupby(\"id\")[\"decimals\"].agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    s = pd.Series(DecimalArray(data))\n+    result = s.groupby(np.array([0, 0, 0, 1, 1])).agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n"
+  },
+  "timestamp": "2026-06-30 16:14:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_135",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_135/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG/TST: ensure groupby.agg preserves extension dtype (#29144)",
+    "fault_locations": [
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 765,
+        "end_line": 765,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 767,
+        "end_line": 767,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 774,
+        "end_line": 774,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/util/testing.py",
+        "start_line": 775,
+        "end_line": 775,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 229,
+        "end_line": 229,
+        "suspiciousness": 0.784471,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 231,
+        "end_line": 231,
+        "suspiciousness": 0.784471,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 232,
+        "end_line": 232,
+        "suspiciousness": 0.784471,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 233,
+        "end_line": 233,
+        "suspiciousness": 0.784471,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 234,
+        "end_line": 234,
+        "suspiciousness": 0.784471,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 245,
+        "end_line": 245,
+        "suspiciousness": 0.784471,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg",
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg_ea_method"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 765,
+      "end_line": 765,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 767,
+      "end_line": 767,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 774,
+      "end_line": 774,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/util/testing.py",
+      "start_line": 775,
+      "end_line": 775,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 229,
+      "end_line": 229,
+      "suspiciousness": 0.784471,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 231,
+      "end_line": 231,
+      "suspiciousness": 0.784471,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 232,
+      "end_line": 232,
+      "suspiciousness": 0.784471,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 233,
+      "end_line": 233,
+      "suspiciousness": 0.784471,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 234,
+      "end_line": 234,
+      "suspiciousness": 0.784471,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/groupby/generic.py",
+      "start_line": 245,
+      "end_line": 245,
+      "suspiciousness": 0.784471,
+      "rank": 10
+    }
+  ]
+}

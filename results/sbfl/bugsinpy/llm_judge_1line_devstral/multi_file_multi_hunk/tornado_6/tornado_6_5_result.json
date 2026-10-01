@@ -1,0 +1,194 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_6",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 19:23:26",
+      "end_time": "2026-06-30 19:25:31",
+      "duration_seconds": 126,
+      "duration_human": "2m 6s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 615758,
+      "output_tokens": 7263,
+      "total_tokens": 623021,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 615758
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/ioloop.py b/tornado/ioloop.py\nindex 839e7ee5..ab46e4e8 100644\n--- a/tornado/ioloop.py\n+++ b/tornado/ioloop.py\n@@ -292,6 +292,14 @@ class IOLoop(Configurable):\n                     from tornado.platform.asyncio import AsyncIOMainLoop\n                     current = AsyncIOMainLoop(make_current=True)\n                 else:\n+                    # Clean up any stale entries when instance=False\n+                    loop = asyncio.get_event_loop()\n+                    # Remove entry if it exists and the loop is closed\n+                    if loop in IOLoop._ioloop_for_asyncio:\n+                        ioloop = IOLoop._ioloop_for_asyncio[loop]\n+                        if ioloop.closing:\n+                            del IOLoop._ioloop_for_asyncio[loop]\n+                    current = None\n                     current = None\n         return current\n \ndiff --git a/tornado/platform/asyncio.py b/tornado/platform/asyncio.py\nindex b2ad9fe6..d2b3d686 100644\n--- a/tornado/platform/asyncio.py\n+++ b/tornado/platform/asyncio.py\n@@ -38,6 +38,9 @@ class BaseAsyncIOLoop(IOLoop):\n         self.readers = set()\n         self.writers = set()\n         self.closing = False\n+        # Clean up any existing entry for this asyncio loop\n+        if asyncio_loop in IOLoop._ioloop_for_asyncio:\n+            del IOLoop._ioloop_for_asyncio[asyncio_loop]\n         IOLoop._ioloop_for_asyncio[asyncio_loop] = self\n         super(BaseAsyncIOLoop, self).initialize(**kwargs)\n \n@@ -48,6 +51,7 @@ class BaseAsyncIOLoop(IOLoop):\n             self.remove_handler(fd)\n             if all_fds:\n                 self.close_fd(fileobj)\n+        del IOLoop._ioloop_for_asyncio[self.asyncio_loop]\n         self.asyncio_loop.close()\n \n     def add_handler(self, fd, handler, events):\ndiff --git a/tornado/test/asyncio_test.py b/tornado/test/asyncio_test.py\nindex 37f2f6e1..a7c75649 100644\n--- a/tornado/test/asyncio_test.py\n+++ b/tornado/test/asyncio_test.py\n@@ -122,6 +122,44 @@ class AsyncIOLoopTest(AsyncTestCase):\n             42)\n \n \n+@unittest.skipIf(asyncio is None, \"asyncio module not present\")\n+class LeakTest(unittest.TestCase):\n+    def setUp(self):\n+        # Trigger a cleanup of the mapping so we start with a clean slate.\n+        AsyncIOLoop().close()\n+        # If we don't clean up after ourselves other tests may fail on\n+        # py34.\n+        self.orig_policy = asyncio.get_event_loop_policy()\n+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())\n+\n+    def tearDown(self):\n+        asyncio.get_event_loop().close()\n+        asyncio.set_event_loop_policy(self.orig_policy)\n+\n+    def test_ioloop_close_leak(self):\n+        orig_count = len(IOLoop._ioloop_for_asyncio)\n+        for i in range(10):\n+            # Create and close an AsyncIOLoop using Tornado interfaces.\n+            loop = AsyncIOLoop()\n+            loop.close()\n+        new_count = len(IOLoop._ioloop_for_asyncio) - orig_count\n+        self.assertEqual(new_count, 0)\n+\n+    def test_asyncio_close_leak(self):\n+        orig_count = len(IOLoop._ioloop_for_asyncio)\n+        for i in range(10):\n+            # Create and close an AsyncIOMainLoop using asyncio interfaces.\n+            loop = asyncio.new_event_loop()\n+            loop.call_soon(IOLoop.current)\n+            loop.call_soon(loop.stop)\n+            loop.run_forever()\n+            loop.close()\n+        new_count = len(IOLoop._ioloop_for_asyncio) - orig_count\n+        # Because the cleanup is run on new loop creation, we have one\n+        # dangling entry in the map (but only one).\n+        self.assertEqual(new_count, 1)\n+\n+\n @unittest.skipIf(asyncio is None, \"asyncio module not present\")\n class AnyThreadEventLoopPolicyTest(unittest.TestCase):\n     def setUp(self):\n"
+  },
+  "timestamp": "2026-06-30 19:25:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_6/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "asyncio: Fix a leak when event loops are created and destroyed",
+    "fault_locations": [
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 295,
+        "end_line": 295,
+        "suspiciousness": 0.561151,
+        "rank": 1
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 330,
+        "end_line": 330,
+        "suspiciousness": 0.561151,
+        "rank": 2
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 331,
+        "end_line": 331,
+        "suspiciousness": 0.561151,
+        "rank": 3
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 332,
+        "end_line": 332,
+        "suspiciousness": 0.561151,
+        "rank": 4
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 333,
+        "end_line": 333,
+        "suspiciousness": 0.561151,
+        "rank": 5
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 356,
+        "end_line": 356,
+        "suspiciousness": 0.561151,
+        "rank": 6
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 357,
+        "end_line": 357,
+        "suspiciousness": 0.561151,
+        "rank": 7
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 275,
+        "end_line": 275,
+        "suspiciousness": 0.520609,
+        "rank": 8
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 282,
+        "end_line": 282,
+        "suspiciousness": 0.520609,
+        "rank": 9
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 283,
+        "end_line": 283,
+        "suspiciousness": 0.520609,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.asyncio_test.LeakTest.test_ioloop_close_leak",
+      "python -m unittest -q tornado.test.asyncio_test.LeakTest.test_asyncio_close_leak"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 295,
+      "end_line": 295,
+      "suspiciousness": 0.561151,
+      "rank": 1
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 330,
+      "end_line": 330,
+      "suspiciousness": 0.561151,
+      "rank": 2
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 331,
+      "end_line": 331,
+      "suspiciousness": 0.561151,
+      "rank": 3
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 332,
+      "end_line": 332,
+      "suspiciousness": 0.561151,
+      "rank": 4
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 333,
+      "end_line": 333,
+      "suspiciousness": 0.561151,
+      "rank": 5
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 356,
+      "end_line": 356,
+      "suspiciousness": 0.561151,
+      "rank": 6
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 357,
+      "end_line": 357,
+      "suspiciousness": 0.561151,
+      "rank": 7
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 275,
+      "end_line": 275,
+      "suspiciousness": 0.520609,
+      "rank": 8
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 282,
+      "end_line": 282,
+      "suspiciousness": 0.520609,
+      "rank": 9
+    },
+    {
+      "file": "tornado/ioloop.py",
+      "start_line": 283,
+      "end_line": 283,
+      "suspiciousness": 0.520609,
+      "rank": 10
+    }
+  ]
+}

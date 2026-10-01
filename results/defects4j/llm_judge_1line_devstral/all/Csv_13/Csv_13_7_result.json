@@ -1,0 +1,197 @@
+{
+  "project_name": "Csv",
+  "bug_id": "13",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 06:37:47",
+      "end_time": "2026-06-27 06:39:32",
+      "duration_seconds": 105,
+      "duration_human": "1m 45s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 565003,
+      "output_tokens": 4254,
+      "total_tokens": 569257,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 565003
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/csv/CSVPrinter.java b/src/main/java/org/apache/commons/csv/CSVPrinter.java\nindex ac4234bb..a05494ca 100644\n--- a/src/main/java/org/apache/commons/csv/CSVPrinter.java\n+++ b/src/main/java/org/apache/commons/csv/CSVPrinter.java\n@@ -117,8 +117,6 @@ public final class CSVPrinter implements Flushable, Closeable {\n      * @param value\n      *            value to be output.\n      * @throws IOException\n-     *             If an I/O error occurs\n-     */\n     public void print(final Object value) throws IOException {\n         // null values are considered empty\n         String strValue;\n@@ -128,10 +126,20 @@ public final class CSVPrinter implements Flushable, Closeable {\n         } else {\n             strValue = value.toString();\n         }\n-        this.print(value, strValue, 0, strValue.length());\n+        // Check if this is a null string that should not be escaped\n+        if (value == null && format.getNullString() != null) {\n+            // For null strings, just append directly without escaping\n+            if (!newRecord) {\n+                out.append(format.getDelimiter());\n+            }\n+            out.append(strValue);\n+            newRecord = false;\n+        } else {\n+            this.printWithFormatting(value, strValue, 0, strValue.length());\n+        }\n     }\n \n-    private void print(final Object object, final CharSequence value, final int offset, final int len)\n+    private void printWithFormatting(final Object object, final CharSequence value, final int offset, final int len)\n             throws IOException {\n         if (!newRecord) {\n             out.append(format.getDelimiter());\n@@ -371,7 +379,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n      */\n     public void printRecord(final Iterable<?> values) throws IOException {\n         for (final Object value : values) {\n-            print(value);\n+            printWithFormatting(value, value == null ? \"\" : value.toString(), 0, value == null ? 0 : value.toString().length());\n         }\n         println();\n     }\n@@ -391,7 +399,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n      */\n     public void printRecord(final Object... values) throws IOException {\n         for (final Object value : values) {\n-            print(value);\n+            printWithFormatting(value, value == null ? \"\" : value.toString(), 0, value == null ? 0 : value.toString().length());\n         }\n         println();\n     }\n"
+  },
+  "timestamp": "2026-06-27 06:39:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Csv",
+    "bug_id": "Csv_13",
+    "repo_path": "/defects4j/framework/bin/temp/Csv_13",
+    "github_url": "https://github.com/apache/commons-csv.git",
+    "description": "CsvFormat.nullString should not be escaped\nHello,\n\nUse case: I'm generating MySQL dump files (text format) - for more details check this - http://dev.mysql.com/doc/refman/5.7/en/select-into.html. \n\nIssue: The value null is represented as \"\\N\". Also by default the escape char is '\\N'. The CsvPrinter.printAndEscape method will convert this value into {noformat}\"\\\\N\"{noformat}\n\nI suggest to modify the CsvPrinter in order to not escape the nullString value  - it should be written as it is. I can create a pull request if you want.\n\nI consider it a minor issue because it can be mitigated by making sure that the escape character is not a part of the nullString - however in my case it means that the LOAD commands should be modified accordingly.",
+    "commit_message": "[CSV-168] CsvFormat.nullString should not be escaped. [CSV-170] CSVFormat.MYSQL nullString should be \"\\N\".",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/csv/CSVFormat.java",
+        "start_line": 319,
+        "end_line": 319,
+        "line_numbers": [
+          319
+        ],
+        "function_name": "",
+        "class_name": "CSVFormat",
+        "filename": "CSVFormat.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/csv/CSVPrinter.java",
+        "start_line": 139,
+        "end_line": 139,
+        "line_numbers": [
+          139
+        ],
+        "function_name": "print",
+        "class_name": "CSVPrinter",
+        "filename": "CSVPrinter.java",
+        "code_snippet": "    private void print(final Object object, final CharSequence value, final int offset, final int len)\n            throws IOException {\n        if (!newRecord) {\n            out.append(format.getDelimiter());\n        }\n        if (format.isQuoteCharacterSet()) {\n            // the original object is needed so can check for Number\n            printAndQuote(object, value, offset, len);\n        } else if (format.isEscapeCharacterSet()) {\n            printAndEscape(value, offset, len);\n        } else {\n            out.append(value, offset, offset + len);\n        }\n        newRecord = false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.csv.CSVPrinterTest::testMySqlNullOutput",
+      "org.apache.commons.csv.CSVPrinterTest::testMySqlNullStringDefault"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/csv/CSVFormat.java b/src/main/java/org/apache/commons/csv/CSVFormat.java\nindex 8c71f3a..847f30a 100644\n--- a/src/main/java/org/apache/commons/csv/CSVFormat.java\n+++ b/src/main/java/org/apache/commons/csv/CSVFormat.java\n@@ -316,7 +316,7 @@ public final class CSVFormat implements Serializable {\n      *      http://dev.mysql.com/doc/refman/5.1/en/load-data.html</a>\n      */\n     public static final CSVFormat MYSQL = DEFAULT.withDelimiter(TAB).withEscape(BACKSLASH).withIgnoreEmptyLines(false)\n+            .withQuote(null).withRecordSeparator(LF).withNullString(\"\\\\N\");\n-            .withQuote(null).withRecordSeparator(LF);\n \n     /**\n      * Returns true if the given character is a line break character.\ndiff --git a/src/main/java/org/apache/commons/csv/CSVPrinter.java b/src/main/java/org/apache/commons/csv/CSVPrinter.java\nindex 0e9a2de..ac4234b 100644\n--- a/src/main/java/org/apache/commons/csv/CSVPrinter.java\n+++ b/src/main/java/org/apache/commons/csv/CSVPrinter.java\n@@ -136,9 +136,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n         if (!newRecord) {\n             out.append(format.getDelimiter());\n         }\n+        if (object == null) {\n+            out.append(value);\n+        } else if (format.isQuoteCharacterSet()) {\n-        if (format.isQuoteCharacterSet()) {\n             // the original object is needed so can check for Number\n             printAndQuote(object, value, offset, len);\n         } else if (format.isEscapeCharacterSet()) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Gary D. Gregory",
+        "commit_date": "2014-07-21 13:18:20",
+        "commit_message": "Use \"Character\" as the postfix is ivar names. Use the method name pattern isFooSet() for ivar \"foo\" for methods that test foo for null (foo != null).",
+        "commit_hash": "f9a3162037f7e82ce6927bbe944b7d61349f8c11"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "withQuoteChar",
+          "getCommentStartCharacter",
+          "isHandlingNull",
+          "isNullStringSet",
+          "isCommentStartCharacterSet",
+          "isQuoteCharacterSet",
+          "withQuote",
+          "isEscapeCharacterSet",
+          "isEscaping",
+          "getQuoteChar",
+          "getQuoteCharacter",
+          "isCommentingEnabled",
+          "getCommentStart",
+          "getEscape",
+          "getEscapeCharacter",
+          "isQuoting"
+        ],
+        "functions_name_modified_file": [
+          "printAndQuote",
+          "close",
+          "println",
+          "print",
+          "printComment",
+          "printRecord",
+          "CSVPrinter",
+          "printRecords",
+          "printAndEscape",
+          "getOut",
+          "flush"
+        ],
+        "functions_name_all_files": [
+          "withHeader",
+          "isEndOfFile",
+          "print",
+          "isQuoteCharacterSet",
+          "format",
+          "printRecord",
+          "newFormat",
+          "readEscape",
+          "printRecords",
+          "withCommentMarker",
+          "flush",
+          "isCommentStart",
+          "printAndQuote",
+          "Lexer",
+          "getIgnoreEmptyLines",
+          "parse",
+          "isStartOfLine",
+          "withEscape",
+          "isCommentStartCharacterSet",
+          "toString",
+          "nextToken",
+          "getOut",
+          "equals",
+          "parseEncapsulatedToken",
+          "withAllowMissingColumnNames",
+          "isQuoteChar",
+          "close",
+          "println",
+          "getCommentStartCharacter",
+          "parseSimpleToken",
+          "withIgnoreSurroundingSpaces",
+          "CSVFormat",
+          "withRecordSeparator",
+          "getDelimiter",
+          "getRecordSeparator",
+          "isNullStringSet",
+          "trimTrailingSpaces",
+          "CSVPrinter",
+          "isEscapeCharacterSet",
+          "isDelimiter",
+          "isEscape",
+          "getAllowMissingColumnNames",
+          "withDelimiter",
+          "isMetaChar",
+          "hashCode",
+          "getEscapeCharacter",
+          "isClosed",
+          "validate",
+          "getNullString",
+          "isLineBreak",
+          "mapNullToDisabled",
+          "getQuoteMode",
+          "getIgnoreSurroundingSpaces",
+          "withSkipHeaderRecord",
+          "printComment",
+          "readEndOfLine",
+          "withQuote",
+          "withNullString",
+          "isWhitespace",
+          "withIgnoreEmptyLines",
+          "getQuoteCharacter",
+          "getSkipHeaderRecord",
+          "withQuoteMode",
+          "printAndEscape",
+          "getCurrentLineNumber"
+        ],
+        "function_code_before": "    /**\n     * Prints the string as the next value on the line. The value will be escaped or encapsulated as needed.\n     *\n     * @param value\n     *            value to be output.\n     * @throws IOException\n     *             If an I/O error occurs\n     */\n    public void print(final Object value) throws IOException {\n        // null values are considered empty\n        String strValue;\n        if (value == null) {\n            final String nullString = format.getNullString();\n            strValue = nullString == null ? Constants.EMPTY : nullString;\n        } else {\n            strValue = value.toString();\n        }\n        this.print(value, strValue, 0, strValue.length());\n    }",
+        "function_code_after": "    /**\n     * Prints the string as the next value on the line. The value will be escaped or encapsulated as needed.\n     *\n     * @param value\n     *            value to be output.\n     * @throws IOException\n     *             If an I/O error occurs\n     */\n    public void print(final Object value) throws IOException {\n        // null values are considered empty\n        String strValue;\n        if (value == null) {\n            final String nullString = format.getNullString();\n            strValue = nullString == null ? Constants.EMPTY : nullString;\n        } else {\n            strValue = value.toString();\n        }\n        this.print(value, strValue, 0, strValue.length());\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/csv/CSVFormat.java",
+          "src/main/java/org/apache/commons/csv/CSVPrinter.java",
+          "src/main/java/org/apache/commons/csv/Lexer.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/csv/CSVPrinter.java": "diff --git a/src/main/java/org/apache/commons/csv/CSVPrinter.java b/src/main/java/org/apache/commons/csv/CSVPrinter.java\nindex 67a975a2..fe09c53c 100644\n--- a/src/main/java/org/apache/commons/csv/CSVPrinter.java\n+++ b/src/main/java/org/apache/commons/csv/CSVPrinter.java\n@@ -118,10 +118,10 @@ public final class CSVPrinter implements Flushable, Closeable {\n         if (!newRecord) {\n             out.append(format.getDelimiter());\n         }\n-        if (format.isQuoting()) {\n+        if (format.isQuoteCharacterSet()) {\n             // the original object is needed so can check for Number\n             printAndQuote(object, value, offset, len);\n-        } else if (format.isEscaping()) {\n+        } else if (format.isEscapeCharacterSet()) {\n             printAndEscape(value, offset, len);\n         } else {\n             out.append(value, offset, offset + len);\n@@ -138,7 +138,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n         final int end = offset + len;\n \n         final char delim = format.getDelimiter();\n-        final char escape = format.getEscape().charValue();\n+        final char escape = format.getEscapeCharacter().charValue();\n \n         while (pos < end) {\n             char c = value.charAt(pos);\n@@ -180,7 +180,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n         final int end = offset + len;\n \n         final char delimChar = format.getDelimiter();\n-        final char quoteChar = format.getQuoteChar().charValue();\n+        final char quoteChar = format.getQuoteCharacter().charValue();\n \n         QuoteMode quoteModePolicy = format.getQuoteMode();\n         if (quoteModePolicy == null) {\n@@ -297,13 +297,13 @@ public final class CSVPrinter implements Flushable, Closeable {\n      *             If an I/O error occurs\n      */\n     public void printComment(final String comment) throws IOException {\n-        if (!format.isCommentingEnabled()) {\n+        if (!format.isCommentStartCharacterSet()) {\n             return;\n         }\n         if (!newRecord) {\n             println();\n         }\n-        out.append(format.getCommentStart().charValue());\n+        out.append(format.getCommentStartCharacter().charValue());\n         out.append(SP);\n         for (int i = 0; i < comment.length(); i++) {\n             final char c = comment.charAt(i);\n@@ -315,7 +315,7 @@ public final class CSVPrinter implements Flushable, Closeable {\n                 //$FALL-THROUGH$ break intentionally excluded.\n             case LF:\n                 println();\n-                out.append(format.getCommentStart().charValue());\n+                out.append(format.getCommentStartCharacter().charValue());\n                 out.append(SP);\n                 break;\n             default:"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

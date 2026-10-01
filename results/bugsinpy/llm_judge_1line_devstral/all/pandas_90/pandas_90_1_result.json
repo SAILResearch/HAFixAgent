@@ -1,0 +1,152 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_90",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:21:58",
+      "end_time": "2026-06-27 18:24:39",
+      "duration_seconds": 161,
+      "duration_human": "2m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 519533,
+      "output_tokens": 8925,
+      "total_tokens": 528458,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 519533
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/_testing.py b/pandas/_testing.py\nindex 2050a18cb4..37a7f3bd14 100644\n--- a/pandas/_testing.py\n+++ b/pandas/_testing.py\n@@ -9,6 +9,7 @@ from shutil import rmtree\n import string\n import tempfile\n from typing import List, Optional, Union, cast\n+import pandas as pd\n import warnings\n import zipfile\n \n@@ -101,7 +102,6 @@ def reset_display_options():\n     pd.reset_option(\"^display.\", silent=True)\n \n \n-def round_trip_pickle(obj: FrameOrSeries, path: Optional[str] = None) -> FrameOrSeries:\n     \"\"\"\n     Pickle an object and then read it again.\n \n@@ -117,12 +117,12 @@ def round_trip_pickle(obj: FrameOrSeries, path: Optional[str] = None) -> FrameOr\n     pandas object\n         The original object that was pickled and then re-read.\n     \"\"\"\n-    if path is None:\n-        path = f\"__{rands(10)}__.pickle\"\n-    with ensure_clean(path) as path:\n-        pd.to_pickle(obj, path)\n-        return pd.read_pickle(path)\n-\n+    def round_trip_pickle(obj: FrameOrSeries, path: Optional[str] = None) -> FrameOrSeries:\n+        if path is None:\n+            path = f\"__{rands(10)}__.pickle\"\n+        with ensure_clean(path) as path:\n+            pd.to_pickle(obj, path)\n+            return pd.read_pickle(path)\n \n def round_trip_pathlib(writer, reader, path: Optional[str] = None):\n     \"\"\"\ndiff --git a/pandas/io/pickle.py b/pandas/io/pickle.py\nindex 6ce52da21b..8d080dba8d 100644\n--- a/pandas/io/pickle.py\n+++ b/pandas/io/pickle.py\n@@ -1,12 +1,12 @@\n \"\"\" pickle compat \"\"\"\n import pickle\n import warnings\n+import urllib.request\n \n from pandas.compat import pickle_compat as pc\n \n from pandas.io.common import get_handle, stringify_path\n \n-\n def to_pickle(obj, path, compression=\"infer\", protocol=pickle.HIGHEST_PROTOCOL):\n     \"\"\"\n     Pickle (serialize) object to file.\n@@ -64,30 +64,30 @@ def to_pickle(obj, path, compression=\"infer\", protocol=pickle.HIGHEST_PROTOCOL):\n     >>> os.remove(\"./dummy.pkl\")\n     \"\"\"\n     path = stringify_path(path)\n-    f, fh = get_handle(path, \"wb\", compression=compression, is_text=False)\n+    is_file_handle = not isinstance(path, str)\n+    if not is_file_handle:\n+        f, fh = get_handle(path, \"wb\", compression=compression, is_text=False)\n+    else:\n+        f = path\n+        fh = []\n     if protocol < 0:\n         protocol = pickle.HIGHEST_PROTOCOL\n     try:\n         f.write(pickle.dumps(obj, protocol=protocol))\n     finally:\n-        f.close()\n-        for _f in fh:\n-            _f.close()\n-\n+        if not is_file_handle:\n+            f.close()\n+            for _f in fh:\n+                _f.close()\n \n def read_pickle(path, compression=\"infer\"):\n     \"\"\"\n     Load pickled pandas object (or any object) from file.\n \n-    .. warning::\n-\n-       Loading pickled data received from untrusted sources can be\n-       unsafe. See `here <https://docs.python.org/3/library/pickle.html>`__.\n-\n     Parameters\n     ----------\n     path : str\n-        File path where the pickled object will be loaded.\n+        File path where the pickled object is located.\n     compression : {'infer', 'gzip', 'bz2', 'zip', 'xz', None}, default 'infer'\n         For on-the-fly decompression of on-disk data. If 'infer', then use\n         gzip, bz2, xz or zip if path ends in '.gz', '.bz2', '.xz',\n@@ -96,19 +96,12 @@ def read_pickle(path, compression=\"infer\"):\n \n     Returns\n     -------\n-    unpickled : same type as object stored in file\n+    object\n+        The unpickled object.\n \n     See Also\n     --------\n-    DataFrame.to_pickle : Pickle (serialize) DataFrame object to file.\n-    Series.to_pickle : Pickle (serialize) Series object to file.\n-    read_hdf : Read HDF5 file into a DataFrame.\n-    read_sql : Read SQL query or database table into a DataFrame.\n-    read_parquet : Load a parquet object, returning a DataFrame.\n-\n-    Notes\n-    -----\n-    read_pickle is only guaranteed to be backwards compatible to pandas 0.20.3.\n+    to_pickle : Pickle (serialize) object to file.\n \n     Examples\n     --------\n@@ -135,7 +128,12 @@ def read_pickle(path, compression=\"infer\"):\n     >>> os.remove(\"./dummy.pkl\")\n     \"\"\"\n     path = stringify_path(path)\n-    f, fh = get_handle(path, \"rb\", compression=compression, is_text=False)\n+    is_file_handle = not isinstance(path, str)\n+    if not is_file_handle:\n+        f, fh = get_handle(path, \"rb\", compression=compression, is_text=False)\n+    else:\n+        f = path\n+        fh = []\n \n     # 1) try standard library Pickle\n     # 2) try pickle_compat (older pandas version) to handle subclass changes\n@@ -143,19 +141,13 @@ def read_pickle(path, compression=\"infer\"):\n     excs_to_catch = (AttributeError, ImportError, ModuleNotFoundError)\n \n     try:\n-        with warnings.catch_warnings(record=True):\n-            # We want to silence any warnings about, e.g. moved modules.\n-            warnings.simplefilter(\"ignore\", Warning)\n-            return pickle.load(f)\n+        with warnings.catch_warnings():\n+            warnings.simplefilter(\"ignore\", ImportWarning)\n+            with f as fh:\n+                return pickle.load(fh)\n     except excs_to_catch:\n-        # e.g.\n-        #  \"No module named 'pandas.core.sparse.series'\"\n-        #  \"Can't get attribute '__nat_unpickle' on <module 'pandas._libs.tslib\"\n-        return pc.load(f, encoding=None)\n-    except UnicodeDecodeError:\n-        # e.g. can occur for files written in py27; see GH#28645\n-        return pc.load(f, encoding=\"latin-1\")\n-    finally:\n-        f.close()\n-        for _f in fh:\n-            _f.close()\n+        if not is_file_handle:\n+            fh.close()\n+            f.close()\n+        with pc.open_file(path, \"rb\", compression=compression) as f:\n+            return pc.load(f)\ndiff --git a/pandas/tests/io/test_pickle.py b/pandas/tests/io/test_pickle.py\nindex ccd77f47b5..3d427dde57 100644\n--- a/pandas/tests/io/test_pickle.py\n+++ b/pandas/tests/io/test_pickle.py\n@@ -22,6 +22,7 @@ import zipfile\n import pytest\n \n from pandas.compat import _get_lzma_file, _import_lzma, is_platform_little_endian\n+import pandas.util._test_decorators as td\n \n import pandas as pd\n from pandas import Index\n@@ -390,3 +391,99 @@ def test_unicode_decode_error(datapath):\n     # just test the columns are correct since the values are random\n     excols = pd.Index([\"a\", \"b\", \"c\"])\n     tm.assert_index_equal(df.columns, excols)\n+\n+\n+# ---------------------\n+# tests for buffer I/O\n+# ---------------------\n+\n+\n+def test_pickle_buffer_roundtrip():\n+    with tm.ensure_clean() as path:\n+        df = tm.makeDataFrame()\n+        with open(path, \"wb\") as fh:\n+            df.to_pickle(fh)\n+        with open(path, \"rb\") as fh:\n+            result = pd.read_pickle(fh)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+# ---------------------\n+# tests for URL I/O\n+# ---------------------\n+\n+\n+@pytest.mark.parametrize(\n+    \"mockurl\", [\"http://url.com\", \"ftp://test.com\", \"http://gzip.com\"]\n+)\n+def test_pickle_generalurl_read(monkeypatch, mockurl):\n+    def python_pickler(obj, path):\n+        with open(path, \"wb\") as fh:\n+            pickle.dump(obj, fh, protocol=-1)\n+\n+    class MockReadResponse:\n+        def __init__(self, path):\n+            self.file = open(path, \"rb\")\n+            if \"gzip\" in path:\n+                self.headers = {\"Content-Encoding\": \"gzip\"}\n+            else:\n+                self.headers = {\"Content-Encoding\": None}\n+\n+        def read(self):\n+            return self.file.read()\n+\n+        def close(self):\n+            return self.file.close()\n+\n+    with tm.ensure_clean() as path:\n+\n+        def mock_urlopen_read(*args, **kwargs):\n+            return MockReadResponse(path)\n+\n+        df = tm.makeDataFrame()\n+        python_pickler(df, path)\n+        monkeypatch.setattr(\"urllib.request.urlopen\", mock_urlopen_read)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+@td.skip_if_no(\"gcsfs\")\n+@pytest.mark.parametrize(\"mockurl\", [\"gs://gcs.com\", \"gcs://gcs.com\"])\n+def test_pickle_gcsurl_roundtrip(monkeypatch, mockurl):\n+    with tm.ensure_clean() as path:\n+\n+        class MockGCSFileSystem:\n+            def __init__(self, *args, **kwargs):\n+                pass\n+\n+            def open(self, *args):\n+                mode = args[1] or None\n+                f = open(path, mode)\n+                return f\n+\n+        monkeypatch.setattr(\"gcsfs.GCSFileSystem\", MockGCSFileSystem)\n+        df = tm.makeDataFrame()\n+        df.to_pickle(mockurl)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n+\n+\n+@td.skip_if_no(\"s3fs\")\n+@pytest.mark.parametrize(\"mockurl\", [\"s3://s3.com\", \"s3n://s3.com\", \"s3a://s3.com\"])\n+def test_pickle_s3url_roundtrip(monkeypatch, mockurl):\n+    with tm.ensure_clean() as path:\n+\n+        class MockS3FileSystem:\n+            def __init__(self, *args, **kwargs):\n+                pass\n+\n+            def open(self, *args):\n+                mode = args[1] or None\n+                f = open(path, mode)\n+                return f\n+\n+        monkeypatch.setattr(\"s3fs.S3FileSystem\", MockS3FileSystem)\n+        df = tm.makeDataFrame()\n+        df.to_pickle(mockurl)\n+        result = pd.read_pickle(mockurl)\n+        tm.assert_frame_equal(df, result)\n"
+  },
+  "timestamp": "2026-06-27 18:24:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_90",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_90/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: func 'to_pickle' and 'read_pickle' where not accepting URL GH#30163 (#30301)",
+    "fault_locations": [
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 11,
+        "end_line": 11,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 25,
+        "end_line": 25,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 104,
+        "end_line": 104,
+        "function_name": "round_trip_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 110,
+        "end_line": 110,
+        "function_name": "round_trip_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 112,
+        "end_line": 112,
+        "function_name": "round_trip_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 120,
+        "end_line": 124,
+        "function_name": "round_trip_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 7,
+        "end_line": 7,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 10,
+        "end_line": 10,
+        "function_name": "to_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 18,
+        "end_line": 19,
+        "function_name": "to_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 21,
+        "end_line": 22,
+        "function_name": "to_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 66,
+        "end_line": 67,
+        "function_name": "to_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 78,
+        "end_line": 78,
+        "function_name": "read_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 89,
+        "end_line": 90,
+        "function_name": "read_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 92,
+        "end_line": 95,
+        "function_name": "read_pickle",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/io/pickle.py",
+        "start_line": 137,
+        "end_line": 138,
+        "function_name": "read_pickle",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/test_pickle.py::test_pickle_buffer_roundtrip",
+      "pytest pandas/tests/io/test_pickle.py::test_pickle_generalurl_read"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

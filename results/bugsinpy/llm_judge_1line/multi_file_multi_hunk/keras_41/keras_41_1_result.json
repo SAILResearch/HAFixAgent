@@ -1,0 +1,158 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_41",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:44:47",
+      "end_time": "2026-03-23 08:30:12",
+      "duration_seconds": 2725,
+      "duration_human": "45m 25s"
+    },
+    "model_cost": 0.2873,
+    "model_calls": 41,
+    "token_usage": {
+      "input_tokens": 1790703,
+      "output_tokens": 63209,
+      "total_tokens": 1853912,
+      "cached_input_tokens": 822592,
+      "uncached_input_tokens": 968111
+    },
+    "agent_steps": 41,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/utils/data_utils.py b/keras/utils/data_utils.py\nindex ce1a60acd..00ca1cf94 100644\n--- a/keras/utils/data_utils.py\n+++ b/keras/utils/data_utils.py\n@@ -480,6 +480,8 @@ class OrderedEnqueuer(SequenceEnqueuer):\n         self.workers = 0\n         self.executor = None\n         self.queue = None\n+        self._exception_queue = None\n+        self._exception_queue = None\n         self.run_thread = None\n         self.stop_signal = None\n \n@@ -553,7 +555,7 @@ class OrderedEnqueuer(SequenceEnqueuer):\n                     yield inputs\n         except Exception as e:\n             self.stop()\n-            raise StopIteration(e)\n+            raise e\n \n     def _send_sequence(self):\n         \"\"\"Send current Sequence to all workers.\"\"\"\n@@ -615,6 +617,8 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n         self._threads = []\n         self._stop_event = None\n         self.queue = None\n+        self._exception_queue = None\n+        self._exception_queue = None\n         self.seed = seed\n \n     def start(self, workers=1, max_queue_size=10):\n@@ -636,16 +640,18 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n                         time.sleep(self.wait_time)\n                 except StopIteration:\n                     break\n-                except Exception:\n-                    self._stop_event.set()\n+                except Exception as e:\n+                    self._exception_queue.put(e); self._stop_event.set()\n                     raise\n \n         try:\n             if self._use_multiprocessing:\n                 self.queue = multiprocessing.Queue(maxsize=max_queue_size)\n+                self._exception_queue = multiprocessing.Queue()\n                 self._stop_event = multiprocessing.Event()\n             else:\n                 self.queue = queue.Queue()\n+                self._exception_queue = queue.Queue()\n                 self._stop_event = threading.Event()\n \n             for _ in range(workers):\n@@ -693,12 +699,41 @@ class GeneratorEnqueuer(SequenceEnqueuer):\n         self._threads = []\n         self._stop_event = None\n         self.queue = None\n+        self._exception_queue = None\n+        self._exception_queue = None\n \n     def get(self):\n         \"\"\"Creates a generator to extract data from the queue.\n \n         Skip the data if it is `None`.\n \n+        # Returns\n+            A generator\n+        \"\"\"\n+        while self.is_running():\n+            if not self.queue.empty():\n+                inputs = self.queue.get()\n+                if inputs is not None:\n+                    yield inputs\n+            else:\n+                all_finished = all([not thread.is_alive() for thread in self._threads])\n+                if all_finished and self.queue.empty():\n+                    if self._exception_queue is not None and not self._exception_queue.empty():\n+                        e = self._exception_queue.get()\n+                        raise e\n+                    raise StopIteration()\n+                else:\n+                    if self._exception_queue is not None and not self._exception_queue.empty():\n+                        e = self._exception_queue.get()\n+                        raise e\n+                    time.sleep(self.wait_time)\n+        if self._exception_queue is not None and not self._exception_queue.empty():\n+            e = self._exception_queue.get()\n+            raise e\n+        \"\"\"Creates a generator to extract data from the queue.\n+\n+        Skip the data if it is `None`.\n+\n         # Returns\n             A generator\n         \"\"\"\ndiff --git a/tests/keras/utils/data_utils_test.py b/tests/keras/utils/data_utils_test.py\nindex 753330e41..f83ea6ec7 100644\n--- a/tests/keras/utils/data_utils_test.py\n+++ b/tests/keras/utils/data_utils_test.py\n@@ -182,7 +182,7 @@ def test_generator_enqueuer_fail_threads():\n         FaultSequence()), use_multiprocessing=False)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \n@@ -191,7 +191,7 @@ def test_generator_enqueuer_fail_processes():\n         FaultSequence()), use_multiprocessing=True)\n     enqueuer.start(3, 10)\n     gen_output = enqueuer.get()\n-    with pytest.raises(StopIteration):\n+    with pytest.raises(IndexError):\n         next(gen_output)\n \n \ndiff --git a/tests/test_multiprocessing.py b/tests/test_multiprocessing.py\nindex 235c26a22..1e81a5a80 100644\n--- a/tests/test_multiprocessing.py\n+++ b/tests/test_multiprocessing.py\n@@ -241,13 +241,13 @@ def test_multiprocessing_fit_error():\n \n     samples = batch_size * (good_batches + 1)\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.fit_generator(\n             custom_generator(), samples, 1,\n             workers=4, use_multiprocessing=True,\n         )\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.fit_generator(\n             custom_generator(), samples, 1,\n             use_multiprocessing=False,\n@@ -270,13 +270,13 @@ def test_multiprocessing_evaluate_error():\n     model.add(Dense(1, input_shape=(2, )))\n     model.compile(loss='mse', optimizer='adadelta')\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.evaluate_generator(\n             custom_generator(), good_batches + 1, 1,\n             workers=4, use_multiprocessing=True,\n         )\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.evaluate_generator(\n             custom_generator(), good_batches + 1, 1,\n             use_multiprocessing=False,\n@@ -299,13 +299,13 @@ def test_multiprocessing_predict_error():\n     model.add(Dense(1, input_shape=(5,)))\n     model.compile(loss='mse', optimizer='adadelta')\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.predict_generator(\n             custom_generator(), good_batches * workers + 1, 1,\n             workers=workers, use_multiprocessing=True,\n         )\n \n-    with pytest.raises(StopIteration):\n+    with pytest.raises(RuntimeError):\n         model.predict_generator(\n             custom_generator(), good_batches + 1, 1,\n             use_multiprocessing=False,\n"
+  },
+  "timestamp": "2026-03-23 04:30:12 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_41",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_41/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Rethrow original exception in GeneratorEnqueuer. (#8485)",
+    "fault_locations": [
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 556,
+        "end_line": 556,
+        "function_name": "get",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 634,
+        "end_line": 634,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 639,
+        "end_line": 639,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 641,
+        "end_line": 641,
+        "function_name": "data_generator_task",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 645,
+        "end_line": 645,
+        "function_name": "start",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 689,
+        "end_line": 691,
+        "function_name": "stop",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/data_utils.py",
+        "start_line": 707,
+        "end_line": 709,
+        "function_name": "get",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 235,
+        "end_line": 235,
+        "function_name": "custom_generator",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 244,
+        "end_line": 244,
+        "function_name": "test_multiprocessing_fit_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 250,
+        "end_line": 250,
+        "function_name": "test_multiprocessing_fit_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 266,
+        "end_line": 266,
+        "function_name": "custom_generator",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 273,
+        "end_line": 273,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 275,
+        "end_line": 276,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 279,
+        "end_line": 279,
+        "function_name": "test_multiprocessing_evaluate_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 302,
+        "end_line": 302,
+        "function_name": "test_multiprocessing_predict_error",
+        "class_name": ""
+      },
+      {
+        "file": "tests/test_multiprocessing.py",
+        "start_line": 308,
+        "end_line": 308,
+        "function_name": "test_multiprocessing_predict_error",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/utils/data_utils_test.py::test_generator_enqueuer_fail_threads"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

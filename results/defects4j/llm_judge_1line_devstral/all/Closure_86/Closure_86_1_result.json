@@ -1,0 +1,68 @@
+{
+  "project_name": "Closure",
+  "bug_id": "86",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:41:16",
+      "end_time": "2026-06-26 18:49:27",
+      "duration_seconds": 491,
+      "duration_human": "8m 11s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 407585,
+      "output_tokens": 3018,
+      "total_tokens": 410603,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 407585
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex ff65495e6..28ab39547 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -174,6 +174,7 @@\n     <javac debug=\"true\" srcdir=\"${src.dir}\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn,/jsonml/\"\n+            encoding=\"UTF-8\"\n            >\n       <classpath refid=\"classpath.path\" />\n     </javac>\ndiff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java\nindex dd78f9004..00a9e642a 100644\n--- a/src/com/google/javascript/jscomp/NodeUtil.java\n+++ b/src/com/google/javascript/jscomp/NodeUtil.java\n@@ -2462,15 +2462,12 @@ public final class NodeUtil {\n         // TODO(nicksantos): This needs to be changed so that it\n         // returns true iff we're sure the value was never aliased from inside\n         // the constructor (similar to callHasLocalResult)\n-        return true;\n+        return callHasLocalResult(value) || isToStringMethodCall(value) || locals.apply(value);\n       case Token.FUNCTION:\n-      case Token.REGEXP:\n+        return callHasLocalResult(value) || isToStringMethodCall(value) || locals.apply(value);\n+      case Token.ARRAYLIT:\n       case Token.ARRAYLIT:\n       case Token.OBJECTLIT:\n-        // Literals objects with non-literal children are allowed.\n-        return true;\n-      case Token.IN:\n-        // TODO(johnlenz): should IN operator be included in #isSimpleOperator?\n         return true;\n       default:\n         // Other op force a local value:\n"
+  },
+  "timestamp": "2026-06-26 18:49:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_86",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_86",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "side-effects analysis incorrectly removing function calls with side effects\nSample Code:\r\n---\r\n/** @constructor */\r\nfunction Foo() {\r\n  var self = this;\r\n  window.setTimeout(function() {\r\n    window.location = self.location;\r\n  }, 0);\r\n}\r\n\r\nFoo.prototype.setLocation = function(loc) {\r\n  this.location = loc;\r\n};\r\n\r\n(new Foo()).setLocation('http://www.google.com/');\r\n---\r\n\r\nThe setLocation call will get removed in advanced mode.",
+    "commit_message": "Fix improper analysis of NEW, the bad way: by assuming NEW always returns a non-local result. Fixes issue 303.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+        "start_line": 2465,
+        "end_line": 2465,
+        "line_numbers": [
+          2465
+        ],
+        "function_name": "evaluatesToLocalValue",
+        "class_name": "MatchShallowStatement",
+        "filename": "NodeUtil.java",
+        "code_snippet": "  static boolean evaluatesToLocalValue(Node value, Predicate<Node> locals) {\n    switch (value.getType()) {\n      case Token.ASSIGN:\n        // A result that is aliased by a non-local name, is the effectively the\n        // same as returning a non-local name, but this doesn't matter if the\n        // value is immutable.\n        return NodeUtil.isImmutableValue(value.getLastChild())\n            || (locals.apply(value)\n                && evaluatesToLocalValue(value.getLastChild(), locals));\n      case Token.COMMA:\n        return evaluatesToLocalValue(value.getLastChild(), locals);\n      case Token.AND:\n      case Token.OR:\n        return evaluatesToLocalValue(value.getFirstChild(), locals)\n           && evaluatesToLocalValue(value.getLastChild(), locals);\n      case Token.HOOK:\n        return evaluatesToLocalValue(value.getFirstChild().getNext(), locals)\n           && evaluatesToLocalValue(value.getLastChild(), locals);\n      case Token.INC:\n      case Token.DEC:\n        if (value.getBooleanProp(Node.INCRDECR_PROP)) {\n          return evaluatesToLocalValue(value.getFirstChild(), locals);\n        } else {\n          return true;\n        }\n      case Token.THIS:\n        return locals.apply(value);\n      case Token.NAME:\n        return isImmutableValue(value) || locals.apply(value);\n      case Token.GETELEM:\n      case Token.GETPROP:\n        // There is no information about the locality of object properties.\n        return locals.apply(value);\n      case Token.CALL:\n        return callHasLocalResult(value)\n            || isToStringMethodCall(value)\n            || locals.apply(value);\n      case Token.NEW:\n        // TODO(nicksantos): This needs to be changed so that it\n        // returns true iff we're sure the value was never aliased from inside\n        // the constructor (similar to callHasLocalResult)\n        return true;\n      case Token.FUNCTION:\n      case Token.REGEXP:\n      case Token.ARRAYLIT:\n      case Token.OBJECTLIT:\n        // Literals objects with non-literal children are allowed.\n        return true;\n      case Token.IN:\n        // TODO(johnlenz): should IN operator be included in #isSimpleOperator?\n        return true;\n      default:\n        // Other op force a local value:\n        //  x = '' + g (x is now an local string)\n        //  x -= g (x is now an local number)\n        if (isAssignmentOp(value)\n            || isSimpleOperator(value)\n            || isImmutableValue(value)) {\n          return true;\n        }\n\n        throw new IllegalStateException(\n            \"Unexpected expression node\" + value +\n            \"\\n parent:\" + value.getParent());\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.NodeUtilTest::testLocalValue1",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testLocalizedSideEffects8",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testLocalizedSideEffects9",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testAnnotationInExterns_new4",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testAnnotationInExterns_new6",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testIssue303b",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testIssue303"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java\nindex 9049aae..dd78f90 100644\n--- a/src/com/google/javascript/jscomp/NodeUtil.java\n+++ b/src/com/google/javascript/jscomp/NodeUtil.java\n@@ -2462,7 +2462,7 @@ public final class NodeUtil {\n         // TODO(nicksantos): This needs to be changed so that it\n         // returns true iff we're sure the value was never aliased from inside\n         // the constructor (similar to callHasLocalResult)\n+        return false;\n-        return true;\n       case Token.FUNCTION:\n       case Token.REGEXP:\n       case Token.ARRAYLIT:",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

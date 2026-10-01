@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_83",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 23:34:20",
+      "end_time": "2026-06-29 23:36:38",
+      "duration_seconds": 138,
+      "duration_human": "2m 18s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 39,
+    "token_usage": {
+      "input_tokens": 668623,
+      "output_tokens": 3663,
+      "total_tokens": 672286,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 668623
+    },
+    "agent_steps": 39,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\nindex 4f4eb672a..ee253b8f5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n@@ -132,11 +132,8 @@ public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>\n                 }\n             }\n             // 05-May-2016, tatu: Unlike most usage, this seems legit, so...\n-            JsonMappingException e = ctxt.weirdStringException(text, _valueClass, msg);\n-            if (cause != null) {\n-                e.initCause(cause);\n-            }\n-            throw e;\n+            Object result = ctxt.handleWeirdStringValue(_valueClass, text, msg);\n+            return (T) result;\n             // nothing to do here, yet? We'll fail anyway\n         }\n         JsonToken t = p.getCurrentToken();\n"
+  },
+  "timestamp": "2026-06-29 23:36:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_83",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_83",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`FromStringDeserializer` ignores registered `DeserializationProblemHandler` for `java.util.UUID`\nCulprit appears to be [lines 155-161 of FromStringDeserializer](https://github.com/FasterXML/jackson-databind/blob/60ae6000d361f910ab0d7d269a5bac1fc66f4cd9/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java#L155-L161):\r\n\r\n```\r\n            // 05-May-2016, tatu: Unlike most usage, this seems legit, so...\r\n            JsonMappingException e = ctxt.weirdStringException(text, _valueClass, msg);\r\n            if (cause != null) {\r\n                e.initCause(cause);\r\n            }\r\n            throw e;\r\n            // nothing to do here, yet? We'll fail anyway\r\n```\r\nThe above lines appear to show that the exception will be thrown regardless of any problem handling logic.\r\n\r\nTest Case:\r\n\r\n```\r\nimport com.fasterxml.jackson.databind.DeserializationContext;\r\nimport com.fasterxml.jackson.databind.ObjectMapper;\r\nimport com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;\r\nimport org.junit.Test;\r\n\r\nimport java.io.IOException;\r\nimport java.util.UUID;\r\n\r\npublic class UUIDDeserializerTest {\r\n\r\n\r\n  @Test\r\n  public void itUsesDeserializationProblemHandlerProperly() throws IOException {\r\n    ObjectMapper mapper = new ObjectMapper().addHandler(new DeserializationProblemHandler() {\r\n      @Override\r\n      public Object handleWeirdStringValue(final DeserializationContext ctxt, final Class<?> targetType, final String valueToConvert, final String failureMsg) throws IOException {\r\n        return null;\r\n      }\r\n    });\r\n\r\n    mapper.readValue(\"{\\\"id\\\" : \\\"I am not a UUID\\\"}\", IdBean.class);\r\n\r\n\r\n\r\n  }\r\n\r\n  public static class IdBean {\r\n    private UUID id;\r\n\r\n    public UUID getId() {\r\n      return id;\r\n    }\r\n\r\n    public void setId(final UUID id) {\r\n      this.id = id;\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nThe handler handles the issue properly; but an exception is thrown anyway:\r\n\r\n```\r\nan not deserialize value of type java.util.UUID from String \"I am not a UUID\": not a valid textual representation\r\n at [Source: (String)\"{\"id\" : \"I am not a UUID\"}\"; line: 1, column: 9] (through reference chain: com.company.test.UUIDDeserializerTest$IdBean[\"id\"])\r\ncom.fasterxml.jackson.databind.exc.InvalidFormatException: Can not deserialize value of type java.util.UUID from String \"I am not a UUID\": not a valid textual representation\r\n at [Source: (String)\"{\"id\" : \"I am not a UUID\"}\"; line: 1, column: 9] (through reference chain: com.company.test.UUIDDeserializerTest$IdBean[\"id\"])\r\n\tat com.fasterxml.jackson.databind.exc.InvalidFormatException.from(InvalidFormatException.java:67)\r\n\tat com.fasterxml.jackson.databind.DeserializationContext.weirdStringException(DeserializationContext.java:1504)\r\n\tat com.fasterxml.jackson.databind.deser.std.FromStringDeserializer.deserialize(FromStringDeserializer.java:156)\r\n\tat com.fasterxml.jackson.databind.deser.impl.MethodProperty.deserializeAndSet(MethodProperty.java:127)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.vanillaDeserialize(BeanDeserializer.java:287)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:151)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3999)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:2980)\r\n```\r\n\n",
+    "commit_message": "Fix #1629",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 280,
+        "end_line": 280,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 281,
+        "end_line": 281,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 285,
+        "end_line": 285,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.filter.ProblemHandlerTest::testWeirdStringHandling"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 280,
+      "end_line": 280,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 281,
+      "end_line": 281,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 285,
+      "end_line": 285,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 10
+    }
+  ]
+}

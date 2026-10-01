@@ -1,0 +1,70 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_111",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 23:15:41",
+      "end_time": "2026-06-27 23:16:27",
+      "duration_seconds": 46,
+      "duration_human": "46.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 277853,
+      "output_tokens": 2298,
+      "total_tokens": 280151,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 277853
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/tests/indexing/test_categorical.py b/pandas/tests/indexing/test_categorical.py\nindex ab3b0ed13b..bc3ee1c59f 100644\n--- a/pandas/tests/indexing/test_categorical.py\n+++ b/pandas/tests/indexing/test_categorical.py\n@@ -12,7 +12,9 @@ from pandas import (\n     Index,\n     Interval,\n     Series,\n+    Timedelta,\n     Timestamp,\n+    conftest,\n )\n from pandas.api.types import CategoricalDtype as CDT\n import pandas.util.testing as tm\n@@ -80,6 +82,13 @@ class TestCategoricalIndex:\n         with pytest.raises(TypeError, match=msg):\n             df.loc[\"d\", \"C\"] = 10\n \n+        msg = (\n+            r\"cannot do label indexing on <class 'pandas\\.core\\.indexes\\.category\"\n+            r\"\\.CategoricalIndex'> with these indexers \\[1\\] of <class 'int'>\"\n+        )\n+        with pytest.raises(TypeError, match=msg):\n+            df.loc[1]\n+\n     def test_getitem_scalar(self):\n \n         cats = Categorical([Timestamp(\"12-31-1999\"), Timestamp(\"12-31-2000\")])\n@@ -754,3 +763,56 @@ class TestCategoricalIndex:\n         output = cur_index.map(mapper)\n         # Order of categories in output can be different\n         tm.assert_index_equal(expected, output)\n+\n+    @pytest.mark.parametrize(\n+        \"idx_values\",\n+        [\n+            # python types\n+            [1, 2, 3],\n+            [-1, -2, -3],\n+            [1.5, 2.5, 3.5],\n+            [-1.5, -2.5, -3.5],\n+            # numpy int/uint\n+            *[np.array([1, 2, 3], dtype=dtype) for dtype in conftest.ALL_INT_DTYPES],\n+            # numpy floats\n+            *[np.array([1.5, 2.5, 3.5], dtype=dtyp) for dtyp in conftest.FLOAT_DTYPES],\n+            # numpy object\n+            np.array([1, \"b\", 3.5], dtype=object),\n+            # pandas scalars\n+            [Interval(1, 4), Interval(4, 6), Interval(6, 9)],\n+            [Timestamp(2019, 1, 1), Timestamp(2019, 2, 1), Timestamp(2019, 3, 1)],\n+            [Timedelta(1, \"d\"), Timedelta(2, \"d\"), Timedelta(3, \"D\")],\n+            # pandas Integer arrays\n+            *[pd.array([1, 2, 3], dtype=dtype) for dtype in conftest.ALL_EA_INT_DTYPES],\n+            # other pandas arrays\n+            pd.IntervalIndex.from_breaks([1, 4, 6, 9]).array,\n+            pd.date_range(\"2019-01-01\", periods=3).array,\n+            pd.timedelta_range(start=\"1d\", periods=3).array,\n+        ],\n+    )\n+    def test_loc_with_non_string_categories(self, idx_values, ordered_fixture):\n+        # GH-17569\n+        cat_idx = CategoricalIndex(idx_values, ordered=ordered_fixture)\n+        df = DataFrame({\"A\": [\"foo\", \"bar\", \"baz\"]}, index=cat_idx)\n+\n+        # scalar selection\n+        result = df.loc[idx_values[0]]\n+        expected = Series([\"foo\"], index=[\"A\"], name=idx_values[0])\n+        tm.assert_series_equal(result, expected)\n+\n+        # list selection\n+        result = df.loc[idx_values[:2]]\n+        expected = DataFrame([\"foo\", \"bar\"], index=cat_idx[:2], columns=[\"A\"])\n+        tm.assert_frame_equal(result, expected)\n+\n+        # scalar assignment\n+        result = df.copy()\n+        result.loc[idx_values[0]] = \"qux\"\n+        expected = DataFrame({\"A\": [\"qux\", \"bar\", \"baz\"]}, index=cat_idx)\n+        tm.assert_frame_equal(result, expected)\n+\n+        # list assignment\n+        result = df.copy()\n+        result.loc[idx_values[:2], \"A\"] = [\"qux\", \"qux2\"]\n+        expected = DataFrame({\"A\": [\"qux\", \"qux2\", \"baz\"]}, index=cat_idx)\n+        tm.assert_frame_equal(result, expected)\ndiff --git a/pandas/tests/indexing/test_floats.py b/pandas/tests/indexing/test_floats.py\nindex 0a3b513ff0..cdacecc6c7 100644\n--- a/pandas/tests/indexing/test_floats.py\n+++ b/pandas/tests/indexing/test_floats.py\n@@ -100,7 +100,12 @@ class TestFloatIndexers:\n                         idxr(s)[3.0]\n \n                 # label based can be a TypeError or KeyError\n-                if s.index.inferred_type in [\"string\", \"unicode\", \"mixed\"]:\n+                if s.index.inferred_type in {\n+                    \"categorical\",\n+                    \"string\",\n+                    \"unicode\",\n+                    \"mixed\",\n+                }:\n                     error = KeyError\n                     msg = r\"^3$\"\n                 else:\n"
+  },
+  "timestamp": "2026-06-27 23:16:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_111",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_111/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: loc-indexing with a CategoricalIndex with non-string categories (#29922)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 2942,
+        "end_line": 2942,
+        "function_name": "_convert_scalar_indexer",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 2946,
+        "end_line": 2946,
+        "function_name": "_convert_scalar_indexer",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/category.py",
+        "start_line": 699,
+        "end_line": 701,
+        "function_name": "_convert_scalar_indexer",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_categorical.py::TestCategoricalIndex::test_loc_with_non_string_categories",
+      "pytest pandas/tests/indexing/test_floats.py::TestFloatIndexers::test_scalar_non_numeric"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

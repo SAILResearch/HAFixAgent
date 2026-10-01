@@ -1,0 +1,76 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_104",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 21:09:22",
+      "end_time": "2026-06-27 21:11:34",
+      "duration_seconds": 132,
+      "duration_human": "2m 12s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1180260,
+      "output_tokens": 4966,
+      "total_tokens": 1185226,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1180260
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 529d123d25..31ba0ea016 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -1939,8 +1939,10 @@ class GroupBy(_GroupBy):\n             #  which doesn't reorder the list-like `q` on the inner level.\n             order = np.roll(list(range(result.index.nlevels)), -1)\n             result = result.reorder_levels(order)\n+            \n+            # Ensure all quantiles are present by reindexing\n             result = result.reindex(q, level=-1)\n-\n+            \n             # fix order.\n             hi = len(q) * self.ngroups\n             arr = np.arange(0, hi, self.ngroups)\n@@ -1951,121 +1953,13 @@ class GroupBy(_GroupBy):\n                 arrays.append(arr2)\n \n             indices = np.concatenate(arrays)\n-            assert len(indices) == len(result)\n-            return result.take(indices)\n-\n-    @Substitution(name=\"groupby\")\n-    def ngroup(self, ascending: bool = True):\n-        \"\"\"\n-        Number each group from 0 to the number of groups - 1.\n-\n-        This is the enumerative complement of cumcount.  Note that the\n-        numbers given to the groups match the order in which the groups\n-        would be seen when iterating over the groupby object, not the\n-        order they are first observed.\n-\n-        Parameters\n-        ----------\n-        ascending : bool, default True\n-            If False, number in reverse, from number of group - 1 to 0.\n-\n-        Returns\n-        -------\n-        Series\n-            Unique numbers for each group.\n-\n-        See Also\n-        --------\n-        .cumcount : Number the rows in each group.\n-\n-        Examples\n-        --------\n-\n-        >>> df = pd.DataFrame({\"A\": list(\"aaabba\")})\n-        >>> df\n-           A\n-        0  a\n-        1  a\n-        2  a\n-        3  b\n-        4  b\n-        5  a\n-        >>> df.groupby('A').ngroup()\n-        0    0\n-        1    0\n-        2    0\n-        3    1\n-        4    1\n-        5    0\n-        dtype: int64\n-        >>> df.groupby('A').ngroup(ascending=False)\n-        0    1\n-        1    1\n-        2    1\n-        3    0\n-        4    0\n-        5    1\n-        dtype: int64\n-        >>> df.groupby([\"A\", [1,1,2,3,2,1]]).ngroup()\n-        0    0\n-        1    0\n-        2    1\n-        3    3\n-        4    2\n-        5    0\n-        dtype: int64\n-        \"\"\"\n-\n-        with _group_selection_context(self):\n-            index = self._selected_obj.index\n-            result = Series(self.grouper.group_info[0], index)\n-            if not ascending:\n-                result = self.ngroups - 1 - result\n-            return result\n-\n-    @Substitution(name=\"groupby\")\n-    def cumcount(self, ascending: bool = True):\n-        \"\"\"\n-        Number each item in each group from 0 to the length of that group - 1.\n-\n-        Essentially this is equivalent to\n-\n-        >>> self.apply(lambda x: pd.Series(np.arange(len(x)), x.index))\n-\n-        Parameters\n-        ----------\n-        ascending : bool, default True\n-            If False, number in reverse, from length of group - 1 to 0.\n-\n-        Returns\n-        -------\n-        Series\n-            Sequence number of each element within each group.\n-\n-        See Also\n-        --------\n-        .ngroup : Number the groups themselves.\n-\n-        Examples\n-        --------\n-\n-        >>> df = pd.DataFrame([['a'], ['a'], ['a'], ['b'], ['b'], ['a']],\n-        ...                   columns=['A'])\n-        >>> df\n-           A\n-        0  a\n-        1  a\n-        2  a\n-        3  b\n-        4  b\n-        5  a\n-        >>> df.groupby('A').cumcount()\n-        0    0\n-        1    1\n-        2    2\n-        3    0\n-        4    1\n-        5    3\n+            \n+            # Only take indices if result is not empty\n+            if len(result) > 0:\n+                return result.take(indices)\n+            else:\n+                # If result is empty after reindex, return empty result with correct structure\n+                return result\n         dtype: int64\n         >>> df.groupby('A').cumcount(ascending=False)\n         0    3\ndiff --git a/pandas/tests/groupby/test_function.py b/pandas/tests/groupby/test_function.py\nindex 4ca23c61ba..c41c9b4db0 100644\n--- a/pandas/tests/groupby/test_function.py\n+++ b/pandas/tests/groupby/test_function.py\n@@ -1398,6 +1398,35 @@ def test_quantile_array_multiple_levels():\n     tm.assert_frame_equal(result, expected)\n \n \n+@pytest.mark.parametrize(\"frame_size\", [(2, 3), (100, 10)])\n+@pytest.mark.parametrize(\"groupby\", [[0], [0, 1]])\n+@pytest.mark.parametrize(\"q\", [[0.5, 0.6]])\n+def test_groupby_quantile_with_arraylike_q_and_int_columns(frame_size, groupby, q):\n+    # GH30289\n+    nrow, ncol = frame_size\n+    df = pd.DataFrame(\n+        np.array([ncol * [_ % 4] for _ in range(nrow)]), columns=range(ncol)\n+    )\n+\n+    idx_levels = [list(range(min(nrow, 4)))] * len(groupby) + [q]\n+    idx_codes = [[x for x in range(min(nrow, 4)) for _ in q]] * len(groupby) + [\n+        list(range(len(q))) * min(nrow, 4)\n+    ]\n+    expected_index = pd.MultiIndex(\n+        levels=idx_levels, codes=idx_codes, names=groupby + [None]\n+    )\n+    expected_values = [\n+        [float(x)] * (ncol - len(groupby)) for x in range(min(nrow, 4)) for _ in q\n+    ]\n+    expected_columns = [x for x in range(ncol) if x not in groupby]\n+    expected = pd.DataFrame(\n+        expected_values, index=expected_index, columns=expected_columns\n+    )\n+    result = df.groupby(groupby).quantile(q)\n+\n+    tm.assert_frame_equal(result, expected)\n+\n+\n def test_quantile_raises():\n     df = pd.DataFrame(\n         [[\"foo\", \"a\"], [\"foo\", \"b\"], [\"foo\", \"c\"]], columns=[\"key\", \"val\"]\n"
+  },
+  "timestamp": "2026-06-27 21:11:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_104",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_104/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "Bug groupby quantile listlike q and int columns (#30485)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1940,
+        "end_line": 1942,
+        "function_name": "quantile",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1944,
+        "end_line": 1947,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1949,
+        "end_line": 1951,
+        "function_name": "quantile",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 1953,
+        "end_line": 1954,
+        "function_name": "quantile",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_function.py::test_groupby_quantile_with_arraylike_q_and_int_columns"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

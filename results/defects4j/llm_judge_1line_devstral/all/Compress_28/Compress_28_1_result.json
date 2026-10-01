@@ -1,0 +1,62 @@
+{
+  "project_name": "Compress",
+  "bug_id": "28",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:55:28",
+      "end_time": "2026-06-26 19:57:06",
+      "duration_seconds": 98,
+      "duration_human": "1m 38s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 366193,
+      "output_tokens": 4607,
+      "total_tokens": 370800,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 366193
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex fe2c1133..9b1ec5e2 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -388,7 +388,7 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n         int readNow = IOUtils.readFully(is, record);\n         count(readNow);\n         if (readNow != recordSize) {\n-            return null;\n+            throw new IOException(\"Truncated TAR archive\");\n         }\n \n         return record;\n"
+  },
+  "timestamp": "2026-06-26 19:57:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_28",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_28",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "TarArchiveInputStream silently finished when unexpected EOF occured\nI just found the following test case didn't raise an IOException as it used to be for a *tar trimmed on purpose* \n\n@Test\n  public void testCorruptedBzip2() throws IOException {\n    String archivePath = PathUtil.join(testdataDir, \"test.tar.bz2\");\n    TarArchiveInputStream input = null;\n    input = new TarArchiveInputStream(new BZip2CompressorInputStream(\n        GoogleFile.SYSTEM.newInputStream(archivePath), true));\n    ArchiveEntry nextMatchedEntry = input.getNextEntry();\n    while (nextMatchedEntry != null) {\n      logger.infofmt(\"Extracting %s\", nextMatchedEntry.getName());\n      String outputPath = PathUtil.join(\"/tmp/\", nextMatchedEntry.getName());\n      OutputStream out = new FileOutputStream(outputPath);\n      ByteStreams.copy(input, out);\n      out.close();\n      nextMatchedEntry = input.getNextEntry();\n    }\n  }",
+    "commit_message": "COMPRESS-279 detect a truncated tar archive and throw an exception",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+        "start_line": 583,
+        "end_line": 583,
+        "line_numbers": [
+          583
+        ],
+        "function_name": "read",
+        "class_name": "TarArchiveInputStream",
+        "filename": "TarArchiveInputStream.java",
+        "code_snippet": "    public int read(byte[] buf, int offset, int numToRead) throws IOException {\n    \tint totalRead = 0;\n\n        if (hasHitEOF || entryOffset >= entrySize) {\n            return -1;\n        }\n\n        if (currEntry == null) {\n            throw new IllegalStateException(\"No current tar entry\");\n        }\n\n        numToRead = Math.min(numToRead, available());\n        \n        totalRead = is.read(buf, offset, numToRead);\n        count(totalRead);\n        \n        if (totalRead == -1) {\n            hasHitEOF = true;\n        } else {\n            entryOffset += totalRead;\n        }\n\n        return totalRead;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::shouldThrowAnExceptionOnTruncatedEntries"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex 6f0c6a42..fe2c1133 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -580,14 +580,11 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n         numToRead = Math.min(numToRead, available());\n         \n         totalRead = is.read(buf, offset, numToRead);\n-        count(totalRead);\n         \n         if (totalRead == -1) {\n+            if (numToRead > 0) {\n+                throw new IOException(\"Truncated TAR archive\");\n+            }\n             hasHitEOF = true;\n         } else {\n+            count(totalRead);\n             entryOffset += totalRead;\n         }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

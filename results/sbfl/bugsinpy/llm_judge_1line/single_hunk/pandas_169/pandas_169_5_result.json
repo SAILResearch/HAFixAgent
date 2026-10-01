@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_169",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 21:08:05",
+      "end_time": "2026-06-17 21:20:34",
+      "duration_seconds": 749,
+      "duration_human": "12m 29s"
+    },
+    "model_cost": 0.1265,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 803744,
+      "output_tokens": 10869,
+      "total_tokens": 814613,
+      "cached_input_tokens": 351680,
+      "uncached_input_tokens": 452064
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/managers.py b/pandas/core/internals/managers.py\nindex 344d41ed26..4b6cc237ad 100644\n--- a/pandas/core/internals/managers.py\n+++ b/pandas/core/internals/managers.py\n@@ -149,7 +149,7 @@ class BlockManager(PandasObject):\n     def make_empty(self, axes=None):\n         \"\"\" return an empty BlockManager with the items axis of len 0 \"\"\"\n         if axes is None:\n-            axes = [ensure_index([])] + [ensure_index(a) for a in self.axes[1:]]\n+            axes = [self.axes[0].take([])] + [ensure_index(a) for a in self.axes[1:]]\n \n         # preserve dtype if possible\n         if self.ndim == 1:\n@@ -503,52 +503,27 @@ class BlockManager(PandasObject):\n             axes.append(axe)\n             blocks.append(block)\n \n-        # note that some DatetimeTZ, Categorical are always ndim==1\n-        ndim = {b.ndim for b in blocks}\n-        assert 0 not in ndim, ndim\n-\n-        if 2 in ndim:\n-\n-            new_axes = list(self.axes)\n-\n-            # multiple blocks that are reduced\n-            if len(blocks) > 1:\n-                new_axes[1] = axes[0]\n-\n-                # reset the placement to the original\n-                for b, sb in zip(blocks, self.blocks):\n-                    b.mgr_locs = sb.mgr_locs\n-\n+        # Handle empty blocks case (e.g., no numeric columns)\n+        if not blocks:\n+            from pandas import Float64Index, Index\n+            if is_list_like(qs):\n+                # Return empty BlockManager\n+                new_axes = list(self.axes)\n+                new_axes[axis] = Float64Index(qs)\n+                # Create empty columns index with preserved name\n+                new_axes[0] = Index([], name=self.axes[0].name)\n+                if transposed:\n+                    new_axes = new_axes[::-1]\n+                return self.__class__([], new_axes)\n             else:\n-                new_axes[axis] = Index(np.concatenate([ax.values for ax in axes]))\n-\n-            if transposed:\n-                new_axes = new_axes[::-1]\n-                blocks = [\n-                    b.make_block(b.values.T, placement=np.arange(b.shape[1]))\n-                    for b in blocks\n-                ]\n-\n-            return self.__class__(blocks, new_axes)\n-\n-        # single block, i.e. ndim == {1}\n-        values = concat_compat([b.values for b in blocks])\n-\n-        # compute the orderings of our original data\n-        if len(self.blocks) > 1:\n-\n-            indexer = np.empty(len(self.axes[0]), dtype=np.intp)\n-            i = 0\n-            for b in self.blocks:\n-                for j in b.mgr_locs:\n-                    indexer[j] = i\n-                    i = i + 1\n-\n-            values = values.take(indexer)\n-\n-        return SingleBlockManager(\n-            [make_block(values, ndim=1, placement=np.arange(len(values)))], axes[0]\n-        )\n+                # Return empty SingleBlockManager\n+                empty_arr = np.array([], dtype=np.float64)\n+                # Create empty index with preserved name\n+                empty_idx = Index([], name=self.axes[0].name)\n+                return SingleBlockManager(\n+                    [make_block(empty_arr, ndim=1, placement=np.arange(0))],\n+                    empty_idx\n+                )\n \n     def isna(self, func, **kwargs):\n         return self.apply(\"apply\", func=func, **kwargs)\ndiff --git a/pandas/tests/frame/test_quantile.py b/pandas/tests/frame/test_quantile.py\nindex 236cadf677..e5e881dece 100644\n--- a/pandas/tests/frame/test_quantile.py\n+++ b/pandas/tests/frame/test_quantile.py\n@@ -439,7 +439,7 @@ class TestDataFrameQuantile:\n         )\n         tm.assert_frame_equal(res, exp)\n \n-    def test_quantile_empty(self):\n+    def test_quantile_empty_no_rows(self):\n \n         # floats\n         df = DataFrame(columns=[\"a\", \"b\"], dtype=\"float64\")\n@@ -467,3 +467,17 @@ class TestDataFrameQuantile:\n \n         # FIXME (gives NaNs instead of NaT in 0.18.1 or 0.19.0)\n         # res = df.quantile(0.5, numeric_only=False)\n+\n+    def test_quantile_empty_no_columns(self):\n+        # GH#23925 _get_numeric_data may drop all columns\n+        df = pd.DataFrame(pd.date_range(\"1/1/18\", periods=5))\n+        df.columns.name = \"captain tightpants\"\n+        result = df.quantile(0.5)\n+        expected = pd.Series([], index=[], name=0.5)\n+        expected.index.name = \"captain tightpants\"\n+        tm.assert_series_equal(result, expected)\n+\n+        result = df.quantile([0.5])\n+        expected = pd.DataFrame([], index=[0.5], columns=[])\n+        expected.columns.name = \"captain tightpants\"\n+        tm.assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-17 21:20:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_169",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_169/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: fix+test quantile with empty DataFrame, closes #23925 (#27436)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/concat.py",
+        "start_line": 129,
+        "end_line": 129,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/dtypes/concat.py",
+        "start_line": 130,
+        "end_line": 130,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/dtypes/concat.py",
+        "start_line": 132,
+        "end_line": 132,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 293,
+        "end_line": 293,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 425,
+        "end_line": 425,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 430,
+        "end_line": 430,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 151,
+        "end_line": 151,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 152,
+        "end_line": 152,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 155,
+        "end_line": 155,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/test_quantile.py::TestDataFrameQuantile::test_quantile_empty_no_columns"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/concat.py",
+      "start_line": 129,
+      "end_line": 129,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/dtypes/concat.py",
+      "start_line": 130,
+      "end_line": 130,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/dtypes/concat.py",
+      "start_line": 132,
+      "end_line": 132,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 293,
+      "end_line": 293,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 425,
+      "end_line": 425,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 430,
+      "end_line": 430,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/internals/managers.py",
+      "start_line": 151,
+      "end_line": 151,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/internals/managers.py",
+      "start_line": 152,
+      "end_line": 152,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/internals/managers.py",
+      "start_line": 155,
+      "end_line": 155,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/internals/managers.py",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

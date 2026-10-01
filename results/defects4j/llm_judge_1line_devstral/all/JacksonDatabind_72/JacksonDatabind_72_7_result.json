@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "72",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 09:15:04",
+      "end_time": "2026-06-27 09:16:44",
+      "duration_seconds": 100,
+      "duration_human": "1m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 819119,
+      "output_tokens": 4190,
+      "total_tokens": 823309,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 819119
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\nindex 021a3cf46..db0598fb2 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\n@@ -44,6 +44,17 @@ public final class InnerClassProperty\n         super(delegate);\n         _delegate = delegate;\n         _creator = ctor;\n+        // Validate that non-static inner classes with @JsonCreator constructors are not allowed\n+        if (_creator != null) {\n+            Class<?> declaringClass = _creator.getDeclaringClass();\n+            Class<?> enclosingClass = ClassUtil.getOuterClass(declaringClass);\n+            if (enclosingClass != null && !java.lang.reflect.Modifier.isStatic(declaringClass.getModifiers())) {\n+                // Non-static inner class - check if it has @JsonCreator\n+                if (ClassUtil.hasCreatorAnnotation(_creator)) {\n+                    throw new IllegalArgumentException(\"Non-static inner class '\" + declaringClass.getName() + \"' cannot have @JsonCreator constructor without outer class instance\");\n+                }\n+            }\n+        }\n     }\n \n     /**\n@@ -162,6 +173,9 @@ public final class InnerClassProperty\n         if (_annotated != null) {\n             return this;\n         }\n+        if (_creator == null) {\n+            return this;\n+        }\n         return new InnerClassProperty(this, new AnnotatedConstructor(null, _creator, null, null));\n     }\n }\n"
+  },
+  "timestamp": "2026-06-27 09:16:45 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_72",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_72",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "ArrayIndexOutOfBoundsException on impossible non-static inner class constructor\nMinimal repro:\r\n\r\n```java\r\npublic class Something {\r\n    public InnerSomething a;\r\n\r\n    @JsonCreator\r\n    public Something(@JsonProperty(\"a\") InnerSomething a) {}\r\n\r\n    class InnerSomething {\r\n        @JsonCreator\r\n        public InnerSomething() {}\r\n    }\r\n\r\n}\r\n```\r\n\r\n```java\r\n        ObjectMapper mapper = new ObjectMapper();\r\n        String ser = mapper.writeValueAsString(new Something(null));\r\n        mapper.readValue(ser, Something.class);\r\n```\r\n\r\nFails like this:\r\n\r\n```\r\njava.lang.ArrayIndexOutOfBoundsException: -1\r\n\r\n\tat com.fasterxml.jackson.databind.deser.impl.PropertyValueBuffer.assignParameter(PropertyValueBuffer.java:210)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer._deserializeUsingPropertyBased(BeanDeserializer.java:380)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromObjectUsingNonDefault(BeanDeserializerBase.java:1123)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.deserializeFromObject(BeanDeserializer.java:298)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:133)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3807)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:2797)\r\n```\r\n\r\nValidation is missing for this impossible constructor. Works as expected when `InnerSomething` is static.\n",
+    "commit_message": "Fix #1501",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java",
+        "start_line": 167,
+        "end_line": 167,
+        "line_numbers": [
+          167
+        ],
+        "function_name": "",
+        "class_name": "InnerClassProperty",
+        "filename": "InnerClassProperty.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.creators.InnerClassCreatorTest::testIssue1501"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\nindex 4a9ca99b9..021a3cf46 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/InnerClassProperty.java\n@@ -90,8 +90,6 @@ public final class InnerClassProperty\n     @Override\n     public int getPropertyIndex() { return _delegate.getPropertyIndex(); }\n \n+    @Override\n+    public int getCreatorIndex() { return _delegate.getCreatorIndex(); }\n     \n     // // // BeanProperty impl\n     \n@@ -166,4 +164,4 @@ public final class InnerClassProperty\n         }\n         return new InnerClassProperty(this, new AnnotatedConstructor(null, _creator, null, null));\n     }\n+}\n\\ No newline at end of file\n-}",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

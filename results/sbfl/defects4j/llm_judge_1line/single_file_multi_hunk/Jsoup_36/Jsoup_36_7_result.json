@@ -1,0 +1,198 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_36",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 19:38:16",
+      "end_time": "2026-06-24 20:14:22",
+      "duration_seconds": 2166,
+      "duration_human": "36m 6s"
+    },
+    "model_cost": 0.2872,
+    "model_calls": 47,
+    "token_usage": {
+      "input_tokens": 1622559,
+      "output_tokens": 68953,
+      "total_tokens": 1691512,
+      "cached_input_tokens": 663616,
+      "uncached_input_tokens": 958943
+    },
+    "agent_steps": 47,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex f07173ce..5d08f3de 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -3,10 +3,13 @@ package org.jsoup.helper;\n import org.jsoup.nodes.Document;\n import org.jsoup.nodes.Element;\n import org.jsoup.parser.Parser;\n+import org.jsoup.helper.Validate;\n \n import java.io.*;\n import java.nio.ByteBuffer;\n import java.nio.charset.Charset;\n+import java.nio.charset.IllegalCharsetNameException;\n+import java.nio.charset.UnsupportedCharsetException;\n import java.util.regex.Matcher;\n import java.util.regex.Pattern;\n import java.util.Locale;\n@@ -16,7 +19,7 @@ import java.util.Locale;\n  *\n  */\n public class DataUtil {\n-    private static final Pattern charsetPattern = Pattern.compile(\"(?i)\\\\bcharset=\\\\s*\\\"?([^\\\\s;\\\"]*)\");\n+    private static final Pattern charsetPattern = Pattern.compile(\"(?i)\\\\bcharset=\\\\s*[\\\"']?([^\\\"'\\\\s;,]*)[\\\"']?\");\n     static final String defaultCharset = \"UTF-8\"; // used if not found in header or meta charset\n     private static final int bufferSize = 0x20000; // ~130K.\n \n@@ -28,37 +31,35 @@ public class DataUtil {\n      * @param charsetName character set of input\n      * @param baseUri base URI of document, to resolve relative links against\n      * @return Document\n-     * @throws IOException on IO error\n      */\n     public static Document load(File in, String charsetName, String baseUri) throws IOException {\n-        FileInputStream inStream = null;\n-        try {\n-            inStream = new FileInputStream(in);\n-            ByteBuffer byteData = readToByteBuffer(inStream);\n-            return parseByteData(byteData, charsetName, baseUri, Parser.htmlParser());\n-        } finally {\n-            if (inStream != null)\n-                inStream.close();\n-        }\n+        FileInputStream fis = new FileInputStream(in);\n+        return load(fis, charsetName, baseUri);\n     }\n \n     /**\n-     * Parses a Document from an input steam.\n+     * Parses a Document from an input steam, using the provided MIME type as a guide. The MIME type should be\n+     * an HTTP Content-Type header, and may contain a charset parameter. E.g. <code>text/html; charset=UTF-8</code>.\n      * @param in input stream to parse. You will need to close it.\n-     * @param charsetName character set of input\n+     * @param charsetName character set of input (optional)\n      * @param baseUri base URI of document, to resolve relative links against\n+     * @param contentType MIME type of input (optional)\n      * @return Document\n-     * @throws IOException on IO error\n+     * @throws IOException if the file could not be read\n      */\n-    public static Document load(InputStream in, String charsetName, String baseUri) throws IOException {\n+    public static Document load(InputStream in, String charsetName, String baseUri, String contentType) throws IOException {\n         ByteBuffer byteData = readToByteBuffer(in);\n-        return parseByteData(byteData, charsetName, baseUri, Parser.htmlParser());\n+        return parseByteData(byteData, charsetName, baseUri, contentType);\n+    }\n+\n+    public static Document load(InputStream in, String charsetName, String baseUri) throws IOException {\n+        return load(in, charsetName, baseUri, (String) null);\n     }\n \n     /**\n      * Parses a Document from an input steam, using the provided Parser.\n      * @param in input stream to parse. You will need to close it.\n-     * @param charsetName character set of input\n+     * @param charsetName character set of input (optional)\n      * @param baseUri base URI of document, to resolve relative links against\n      * @param parser alternate {@link Parser#xmlParser() parser} to use.\n      * @return Document\n@@ -69,14 +70,17 @@ public class DataUtil {\n         return parseByteData(byteData, charsetName, baseUri, parser);\n     }\n \n-    // reads bytes first into a buffer, then decodes with the appropriate charset. done this way to support\n-    // switching the chartset midstream when a meta http-equiv tag defines the charset.\n+    static Document parseByteData(ByteBuffer byteData, String charsetName, String baseUri, String contentType) {\n+        return parseByteData(byteData, charsetName, baseUri, Parser.htmlParser());\n+    }\n+\n     static Document parseByteData(ByteBuffer byteData, String charsetName, String baseUri, Parser parser) {\n         String docData;\n         Document doc = null;\n         if (charsetName == null) { // determine from meta. safe parse as UTF-8\n             // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n             docData = Charset.forName(defaultCharset).decode(byteData).toString();\n+            parser.setTrackErrors(10);\n             doc = parser.parseInput(docData, baseUri);\n             Element meta = doc.select(\"meta[http-equiv=content-type], meta[charset]\").first();\n             if (meta != null) { // if not found, will keep utf-8 as best attempt\n@@ -89,10 +93,18 @@ public class DataUtil {\n                 }\n \n                 if (foundCharset != null && foundCharset.length() != 0 && !foundCharset.equals(defaultCharset)) { // need to re-decode\n-                    charsetName = foundCharset;\n-                    byteData.rewind();\n-                    docData = Charset.forName(foundCharset).decode(byteData).toString();\n-                    doc = null;\n+                    // Validate charset name\n+                    try {\n+                        Charset.forName(foundCharset);\n+                        charsetName = foundCharset;\n+                        byteData.rewind();\n+                        docData = Charset.forName(foundCharset).decode(byteData).toString();\n+                        doc = null;\n+                    } catch (IllegalCharsetNameException e) {\n+                        // Invalid charset, keep using default\n+                    } catch (UnsupportedCharsetException e) {\n+                        // Invalid charset, keep using default\n+                    }\n                 }\n             }\n         } else { // specified by content type header (or by user on file load)\n@@ -114,7 +126,7 @@ public class DataUtil {\n \n     /**\n      * Read the input stream into a byte buffer.\n-     * @param inStream the input stream to read from\n+     * @param inStream the input stream to read from. You must close it.\n      * @param maxSize the maximum size in bytes to read from the stream. Set to 0 to be unlimited.\n      * @return the filled byte buffer\n      * @throws IOException if an exception occurs whilst reading from the input stream.\n@@ -123,24 +135,22 @@ public class DataUtil {\n         Validate.isTrue(maxSize >= 0, \"maxSize must be 0 (unlimited) or larger\");\n         final boolean capped = maxSize > 0;\n         byte[] buffer = new byte[bufferSize];\n-        ByteArrayOutputStream outStream = new ByteArrayOutputStream(bufferSize);\n+        ByteArrayOutputStream out = new ByteArrayOutputStream();\n         int read;\n         int remaining = maxSize;\n-\n         while (true) {\n             read = inStream.read(buffer);\n             if (read == -1) break;\n             if (capped) {\n                 if (read > remaining) {\n-                    outStream.write(buffer, 0, remaining);\n+                    out.write(buffer, 0, remaining);\n                     break;\n                 }\n                 remaining -= read;\n             }\n-            outStream.write(buffer, 0, read);\n+            out.write(buffer, 0, read);\n         }\n-        ByteBuffer byteData = ByteBuffer.wrap(outStream.toByteArray());\n-        return byteData;\n+        return ByteBuffer.wrap(out.toByteArray());\n     }\n \n     static ByteBuffer readToByteBuffer(InputStream inStream) throws IOException {\n@@ -158,10 +168,26 @@ public class DataUtil {\n         Matcher m = charsetPattern.matcher(contentType);\n         if (m.find()) {\n             String charset = m.group(1).trim();\n-                if (Charset.isSupported(charset)) return charset;\n+            if (charset.length() == 0) return null;\n+            // Remove duplicate \"charset=\" prefix if present\n+            if (charset.toLowerCase(Locale.ENGLISH).startsWith(\"charset=\")) {\n+                charset = charset.substring(\"charset=\".length());\n+            }\n+            try {\n+                Charset.forName(charset);\n+                return charset;\n+            } catch (IllegalCharsetNameException e) {\n+                return null;\n+            } catch (UnsupportedCharsetException e) {\n+                // Try converting to uppercase\n                 charset = charset.toUpperCase(Locale.ENGLISH);\n-                if (Charset.isSupported(charset)) return charset;\n-                // if our advanced charset matching fails.... we just take the default\n+                try {\n+                    Charset.forName(charset);\n+                    return charset;\n+                } catch (Exception e2) {\n+                    return null;\n+                }\n+            }\n         }\n         return null;\n     }\n"
+  },
+  "timestamp": "2026-06-24 20:14:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_36",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_36",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "More robust charset detection code\nWith the following HTML:\n\n```\n<html lang=\"en-US\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta http-equiv=\"Content-Type\" content=\"text/html; \" />\n</head>\n```\n\njsoup fails to parse the page with a IllegalCharsetNameException. I see that http-equiv=\"Content-Type\" has an invalid content-type but it would be possible to still parse it correctly by using the html5  <meta charset=\"UTF-8\">, i.e. jsoup could be more robust on this one.\n\nother domains which are not working but could be:\n9kuhkep.net\nwww.a-bright.org\n\nI use this code to parse the sites:\n\n```\nJsoup.connect(url).execute()\n```\n\n",
+    "commit_message": "Make http charset detection code more robust",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 157,
+        "end_line": 157,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 158,
+        "end_line": 158,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 159,
+        "end_line": 159,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 160,
+        "end_line": 160,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 161,
+        "end_line": 161,
+        "suspiciousness": 0.6804138174397717,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 19,
+        "end_line": 19,
+        "suspiciousness": 0.5619514869490164,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 118,
+        "end_line": 118,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 54,
+        "end_line": 54,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 55,
+        "end_line": 55,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 88,
+        "end_line": 88,
+        "suspiciousness": 0.2886751345948129,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::shouldCorrectCharsetForDuplicateCharsetString",
+      "org.jsoup.helper.DataUtilTest::shouldNotThrowExceptionOnEmptyCharset",
+      "org.jsoup.helper.DataUtilTest::testQuotedCharset",
+      "org.jsoup.helper.DataUtilTest::shouldSelectFirstCharsetOnWeirdMultileCharsetsInMetaTags",
+      "org.jsoup.helper.DataUtilTest::shouldReturnNullForIllegalCharsetNames",
+      "org.jsoup.integration.ParseTest::testBrokenHtml5CharsetWithASingleDoubleQuote"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 157,
+      "end_line": 157,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 158,
+      "end_line": 158,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 159,
+      "end_line": 159,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 160,
+      "end_line": 160,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 161,
+      "end_line": 161,
+      "suspiciousness": 0.6804138174397717,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 19,
+      "end_line": 19,
+      "suspiciousness": 0.5619514869490164,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 118,
+      "end_line": 118,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 54,
+      "end_line": 54,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 55,
+      "end_line": 55,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 88,
+      "end_line": 88,
+      "suspiciousness": 0.2886751345948129,
+      "rank": 10
+    }
+  ]
+}

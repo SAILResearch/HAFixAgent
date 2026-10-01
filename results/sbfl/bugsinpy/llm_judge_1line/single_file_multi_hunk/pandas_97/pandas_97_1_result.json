@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_97",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 16:50:39",
+      "end_time": "2026-06-17 16:58:00",
+      "duration_seconds": 441,
+      "duration_human": "7m 21s"
+    },
+    "model_cost": 0.067,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 493642,
+      "output_tokens": 7623,
+      "total_tokens": 501265,
+      "cached_input_tokens": 257152,
+      "uncached_input_tokens": 236490
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/timedeltas.py b/pandas/core/indexes/timedeltas.py\nindex 90967ffd02..bd3170da61 100644\n--- a/pandas/core/indexes/timedeltas.py\n+++ b/pandas/core/indexes/timedeltas.py\n@@ -257,7 +257,7 @@ class TimedeltaIndex(\n         this, other = self, other\n \n         if this._can_fast_union(other):\n-            return this._fast_union(other)\n+            return this._fast_union(other, sort=sort)\n         else:\n             result = Index._union(this, other, sort=sort)\n             if isinstance(result, TimedeltaIndex):\n@@ -265,16 +265,28 @@ class TimedeltaIndex(\n                     result._set_freq(\"infer\")\n             return result\n \n-    def _fast_union(self, other):\n+    def _fast_union(self, other, sort=None):\n         if len(other) == 0:\n             return self.view(type(self))\n \n         if len(self) == 0:\n             return other.view(type(self))\n \n-        # to make our life easier, \"sort\" the two ranges\n+        # Both are monotonic. Check if they are already\n+        # in the \"correct\" order\n         if self[0] <= other[0]:\n             left, right = self, other\n+        # not in the \"correct\" order and we don't want\n+        # to sort but want to remove overlaps\n+        elif sort is False:\n+            left, right = self, other\n+            left_start = left[0]\n+            loc = right.searchsorted(left_start, side=\"left\")\n+            right_chunk = right.values[:loc]\n+            dates = concat_compat((left.values, right_chunk))\n+            return self._shallow_copy(dates)\n+        # not in the \"correct\" order and we want\n+        # to sort\n         else:\n             left, right = other, self\n \n@@ -289,193 +301,6 @@ class TimedeltaIndex(\n             return self._shallow_copy(dates)\n         else:\n             return left\n-\n-    def _maybe_promote(self, other):\n-        if other.inferred_type == \"timedelta\":\n-            other = TimedeltaIndex(other)\n-        return self, other\n-\n-    def get_value(self, series, key):\n-        \"\"\"\n-        Fast lookup of value from 1-dimensional ndarray. Only use this if you\n-        know what you're doing\n-        \"\"\"\n-\n-        if _is_convertible_to_td(key):\n-            key = Timedelta(key)\n-            return self.get_value_maybe_box(series, key)\n-\n-        try:\n-            value = Index.get_value(self, series, key)\n-        except KeyError:\n-            try:\n-                loc = self._get_string_slice(key)\n-                return series[loc]\n-            except (TypeError, ValueError, KeyError):\n-                pass\n-\n-            try:\n-                return self.get_value_maybe_box(series, key)\n-            except (TypeError, ValueError, KeyError):\n-                raise KeyError(key)\n-        else:\n-            return com.maybe_box(self, value, series, key)\n-\n-    def get_value_maybe_box(self, series, key: Timedelta):\n-        values = self._engine.get_value(com.values_from_object(series), key)\n-        return com.maybe_box(self, values, series, key)\n-\n-    def get_loc(self, key, method=None, tolerance=None):\n-        \"\"\"\n-        Get integer location for requested label\n-\n-        Returns\n-        -------\n-        loc : int\n-        \"\"\"\n-        if is_list_like(key) or (isinstance(key, datetime) and key is not NaT):\n-            # GH#20464 datetime check here is to ensure we don't allow\n-            #   datetime objects to be incorrectly treated as timedelta\n-            #   objects; NaT is a special case because it plays a double role\n-            #   as Not-A-Timedelta\n-            raise TypeError\n-\n-        if isna(key):\n-            key = NaT\n-\n-        if tolerance is not None:\n-            # try converting tolerance now, so errors don't get swallowed by\n-            # the try/except clauses below\n-            tolerance = self._convert_tolerance(tolerance, np.asarray(key))\n-\n-        if _is_convertible_to_td(key) or key is NaT:\n-            key = Timedelta(key)\n-            return Index.get_loc(self, key, method, tolerance)\n-\n-        try:\n-            return Index.get_loc(self, key, method, tolerance)\n-        except (KeyError, ValueError, TypeError):\n-            try:\n-                return self._get_string_slice(key)\n-            except (TypeError, KeyError, ValueError):\n-                pass\n-\n-            try:\n-                stamp = Timedelta(key)\n-                return Index.get_loc(self, stamp, method, tolerance)\n-            except (KeyError, ValueError):\n-                raise KeyError(key)\n-\n-    def _maybe_cast_slice_bound(self, label, side, kind):\n-        \"\"\"\n-        If label is a string, cast it to timedelta according to resolution.\n-\n-        Parameters\n-        ----------\n-        label : object\n-        side : {'left', 'right'}\n-        kind : {'ix', 'loc', 'getitem'}\n-\n-        Returns\n-        -------\n-        label : object\n-        \"\"\"\n-        assert kind in [\"ix\", \"loc\", \"getitem\", None]\n-\n-        if isinstance(label, str):\n-            parsed = Timedelta(label)\n-            lbound = parsed.round(parsed.resolution_string)\n-            if side == \"left\":\n-                return lbound\n-            else:\n-                return lbound + to_offset(parsed.resolution_string) - Timedelta(1, \"ns\")\n-        elif is_integer(label) or is_float(label):\n-            self._invalid_indexer(\"slice\", label)\n-\n-        return label\n-\n-    def _get_string_slice(self, key):\n-        if is_integer(key) or is_float(key) or key is NaT:\n-            self._invalid_indexer(\"slice\", key)\n-        loc = self._partial_td_slice(key)\n-        return loc\n-\n-    def _partial_td_slice(self, key):\n-\n-        # given a key, try to figure out a location for a partial slice\n-        if not isinstance(key, str):\n-            return key\n-\n-        raise NotImplementedError\n-\n-    @Substitution(klass=\"TimedeltaIndex\")\n-    @Appender(_shared_docs[\"searchsorted\"])\n-    def searchsorted(self, value, side=\"left\", sorter=None):\n-        if isinstance(value, (np.ndarray, Index)):\n-            value = np.array(value, dtype=_TD_DTYPE, copy=False)\n-        else:\n-            value = Timedelta(value).asm8.view(_TD_DTYPE)\n-\n-        return self.values.searchsorted(value, side=side, sorter=sorter)\n-\n-    def is_type_compatible(self, typ) -> bool:\n-        return typ == self.inferred_type or typ == \"timedelta\"\n-\n-    @property\n-    def inferred_type(self) -> str:\n-        return \"timedelta64\"\n-\n-    def insert(self, loc, item):\n-        \"\"\"\n-        Make new Index inserting new item at location\n-\n-        Parameters\n-        ----------\n-        loc : int\n-        item : object\n-            If not either a Python datetime or a numpy integer-like, returned\n-            Index dtype will be object rather than datetime.\n-\n-        Returns\n-        -------\n-        new_index : Index\n-        \"\"\"\n-        # try to convert if possible\n-        if _is_convertible_to_td(item):\n-            try:\n-                item = Timedelta(item)\n-            except ValueError:\n-                # e.g. str that can't be parsed to timedelta\n-                pass\n-        elif is_scalar(item) and isna(item):\n-            # GH 18295\n-            item = self._na_value\n-\n-        freq = None\n-        if isinstance(item, Timedelta) or (is_scalar(item) and isna(item)):\n-\n-            # check freq can be preserved on edge cases\n-            if self.freq is not None:\n-                if (loc == 0 or loc == -len(self)) and item + self.freq == self[0]:\n-                    freq = self.freq\n-                elif (loc == len(self)) and item - self.freq == self[-1]:\n-                    freq = self.freq\n-            item = Timedelta(item).asm8.view(_TD_DTYPE)\n-\n-        try:\n-            new_tds = np.concatenate(\n-                (self[:loc].asi8, [item.view(np.int64)], self[loc:].asi8)\n-            )\n-            return self._shallow_copy(new_tds, freq=freq)\n-\n-        except (AttributeError, TypeError):\n-\n-            # fall back to object index\n-            if isinstance(item, str):\n-                return self.astype(object).insert(loc, item)\n-            raise TypeError(\"cannot insert TimedeltaIndex with incompatible label\")\n-\n-\n TimedeltaIndex._add_comparison_ops()\n TimedeltaIndex._add_logical_methods_disabled()\n \ndiff --git a/pandas/tests/indexes/timedeltas/test_setops.py b/pandas/tests/indexes/timedeltas/test_setops.py\nindex b2024d04ef..e6d5ca97a0 100644\n--- a/pandas/tests/indexes/timedeltas/test_setops.py\n+++ b/pandas/tests/indexes/timedeltas/test_setops.py\n@@ -22,6 +22,22 @@ class TestTimedeltaIndex:\n         i1.union(i2)  # Works\n         i2.union(i1)  # Fails with \"AttributeError: can't set attribute\"\n \n+    def test_union_sort_false(self):\n+        tdi = timedelta_range(\"1day\", periods=5)\n+\n+        left = tdi[3:]\n+        right = tdi[:3]\n+\n+        # Check that we are testing the desired code path\n+        assert left._can_fast_union(right)\n+\n+        result = left.union(right)\n+        tm.assert_index_equal(result, tdi)\n+\n+        result = left.union(right, sort=False)\n+        expected = pd.TimedeltaIndex([\"4 Days\", \"5 Days\", \"1 Days\", \"2 Day\", \"3 Days\"])\n+        tm.assert_index_equal(result, expected)\n+\n     def test_union_coverage(self):\n \n         idx = TimedeltaIndex([\"3d\", \"1d\", \"2d\"])\n"
+  },
+  "timestamp": "2026-06-17 16:58:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_97",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_97/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TimedeltaIndex.union with sort=False (#30701)",
+    "fault_locations": [
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 102,
+        "end_line": 102,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 106,
+        "end_line": 106,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/_config/config.py",
+        "start_line": 543,
+        "end_line": 543,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 672,
+        "end_line": 672,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 673,
+        "end_line": 673,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 674,
+        "end_line": 674,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 891,
+        "end_line": 891,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 893,
+        "end_line": 893,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/_testing.py",
+        "start_line": 895,
+        "end_line": 895,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/timedeltas/test_setops.py::TestTimedeltaIndex::test_union_sort_false"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 102,
+      "end_line": 102,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 106,
+      "end_line": 106,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/_config/config.py",
+      "start_line": 543,
+      "end_line": 543,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 672,
+      "end_line": 672,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 673,
+      "end_line": 673,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 674,
+      "end_line": 674,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 891,
+      "end_line": 891,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 893,
+      "end_line": 893,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/_testing.py",
+      "start_line": 895,
+      "end_line": 895,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "project_name": "Gson",
+  "bug_id": "18",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:48:03",
+      "end_time": "2026-06-26 21:50:01",
+      "duration_seconds": 118,
+      "duration_human": "1m 58s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 802003,
+      "output_tokens": 4613,
+      "total_tokens": 806616,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 802003
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex f86ad36f..7bffd56d 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -322,7 +322,7 @@ public final class $Gson$Types {\n     }\n \n     Type mapType = getSupertype(context, contextRawType, Map.class);\n-    // TODO: strip wildcards?\n+        if (mapType instanceof WildcardType) {\n     if (mapType instanceof ParameterizedType) {\n       ParameterizedType mapParameterizedType = (ParameterizedType) mapType;\n       return mapParameterizedType.getActualTypeArguments();\ndiff --git a/gson/src/test/java/com/google/gson/DefaultDateTypeAdapterTest.java b/gson/src/test/java/com/google/gson/DefaultDateTypeAdapterTest.java\nindex 511c39d5..bbaec66f 100644\n--- a/gson/src/test/java/com/google/gson/DefaultDateTypeAdapterTest.java\n+++ b/gson/src/test/java/com/google/gson/DefaultDateTypeAdapterTest.java\n@@ -69,17 +69,17 @@ public class DefaultDateTypeAdapterTest extends TestCase {\n     Locale defaultLocale = Locale.getDefault();\n     Locale.setDefault(Locale.FRANCE);\n     try {\n-      assertParsed(\"1 janv. 1970 \u00e0 00:00:00\", new DefaultDateTypeAdapter(Date.class));\n+      assertParsed(\"1 janv. 1970 ? 00:00:00\", new DefaultDateTypeAdapter(Date.class));\n       assertParsed(\"01/01/70\", new DefaultDateTypeAdapter(Date.class, DateFormat.SHORT));\n       assertParsed(\"1 janv. 1970\", new DefaultDateTypeAdapter(Date.class, DateFormat.MEDIUM));\n       assertParsed(\"1 janvier 1970\", new DefaultDateTypeAdapter(Date.class, DateFormat.LONG));\n       assertParsed(\"01/01/70 00:00\",\n           new DefaultDateTypeAdapter(DateFormat.SHORT, DateFormat.SHORT));\n-      assertParsed(\"1 janv. 1970 \u00e0 00:00:00\",\n+      assertParsed(\"1 janv. 1970 ? 00:00:00\",\n           new DefaultDateTypeAdapter(DateFormat.MEDIUM, DateFormat.MEDIUM));\n-      assertParsed(\"1 janvier 1970 \u00e0 00:00:00 UTC\",\n+      assertParsed(\"1 janvier 1970 ? 00:00:00 UTC\",\n           new DefaultDateTypeAdapter(DateFormat.LONG, DateFormat.LONG));\n-      assertParsed(\"jeudi 1 janvier 1970 \u00e0 00:00:00 Temps universel coordonn\u00e9\",\n+      assertParsed(\"jeudi 1 janvier 1970 ? 00:00:00 Temps universel coordonn?\",\n           new DefaultDateTypeAdapter(DateFormat.FULL, DateFormat.FULL));\n     } finally {\n       TimeZone.setDefault(defaultTimeZone);\ndiff --git a/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java b/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\nindex 169c37a5..d46e5c0f 100644\n--- a/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\n+++ b/gson/src/test/java/com/google/gson/functional/InternationalizationTest.java\n@@ -36,7 +36,7 @@ public class InternationalizationTest extends TestCase {\n \n   /*\n   public void testStringsWithRawChineseCharactersSerialization() throws Exception {\n-    String target = \"\u597d\u597d\u597d\";\n+    String target = \"???\";\n     String json = gson.toJson(target);\n     String expected = \"\\\"\\\\u597d\\\\u597d\\\\u597d\\\"\";\n     assertEquals(expected, json);\n@@ -44,7 +44,7 @@ public class InternationalizationTest extends TestCase {\n   */\n \n   public void testStringsWithRawChineseCharactersDeserialization() throws Exception {\n-    String expected = \"\u597d\u597d\u597d\";\n+    String expected = \"???\";\n     String json = \"\\\"\" + expected + \"\\\"\";\n     String actual = gson.fromJson(json, String.class);\n     assertEquals(expected, actual);\n"
+  },
+  "timestamp": "2026-06-26 21:50:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_18",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_18",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "Gson deserializes wildcards to LinkedHashMap\nThis issue is a successor to #1101.\r\n\r\nModels:\r\n```java\r\n// ? extends causes the issue\r\nclass BigClass { Map<String, ? extends List<SmallClass>> inBig; }\r\n\r\nclass SmallClass { String inSmall; }\r\n```\r\n\r\nJson:\r\n```json\r\n{\r\n  \"inBig\": {\r\n    \"key\": [\r\n      { \"inSmall\": \"hello\" }\r\n    ]\r\n  }\r\n}\r\n```\r\n\r\nGson call:\r\n```java\r\nSmallClass small = new Gson().fromJson(json, BigClass.class).inBig.get(\"inSmall\").get(0);\r\n```\r\n\r\nThis call will fail with a `ClassCastException` exception \u2013\r\n `com.google.gson.internal.LinkedTreeMap cannot be cast to Entry`. If we remove `? extends` then everything works fine.\n",
+    "commit_message": "fix issue #1107: resolve element type in wildcard collection types (#1146)",
+    "fault_locations": [],
+    "failing_tests": [
+      "com.google.gson.functional.CollectionTest::testIssue1107"
+    ],
+    "golden_patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex adea605f..f86ad36f 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -275,10 +275,7 @@ public final class $Gson$Types {\n    * @param supertype a superclass of, or interface implemented by, this.\n    */\n   static Type getSupertype(Type context, Class<?> contextRawType, Class<?> supertype) {\n+    if (context instanceof WildcardType) {\n       // wildcards are useless for resolving supertypes. As the upper bound has the same raw type, use it instead\n+      context = ((WildcardType)context).getUpperBounds()[0];\n+    }\n     checkArgument(supertype.isAssignableFrom(contextRawType));\n     return resolve(context, contextRawType,\n         $Gson$Types.getGenericSupertype(context, contextRawType, supertype));",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

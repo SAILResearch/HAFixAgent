@@ -1,0 +1,89 @@
+{
+  "project_name": "Closure",
+  "bug_id": "16",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 22:58:44",
+      "end_time": "2026-06-19 23:03:20",
+      "duration_seconds": 276,
+      "duration_human": "4m 36s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 632744,
+      "output_tokens": 5886,
+      "total_tokens": 638630,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 632744
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex 26fb23071..f32c0b8a0 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -454,6 +454,26 @@ class ScopedAliases implements HotSwapCompilerPass {\n       }\n     }\n \n+    /**\n+     * Recursively resolves a qualified name, checking if each part is an alias.\n+     */\n+    private String getFullyQualifiedAliasName(Node node) {\n+      if (node.isName()) {\n+        String name = node.getString();\n+        Var aliasVar = aliases.get(name);\n+        if (aliasVar != null) {\n+          return getFullyQualifiedAliasName(aliasVar.getInitialValue());\n+        }\n+        return name;\n+      } else if (node.isGetProp()) {\n+        String left = getFullyQualifiedAliasName(node.getFirstChild());\n+        String right = node.getLastChild().getString();\n+        return left + \".\" + right;\n+      } else {\n+        return node.getQualifiedName();\n+      }\n+    }\n+\n     private void fixTypeNode(Node typeNode) {\n       if (typeNode.isString()) {\n         String name = typeNode.getString();\n@@ -465,7 +485,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n         Var aliasVar = aliases.get(baseName);\n         if (aliasVar != null) {\n           Node aliasedNode = aliasVar.getInitialValue();\n-          aliasUsages.add(new AliasedTypeNode(typeNode, aliasedNode.getQualifiedName() + name.substring(endIndex)));\n+          aliasUsages.add(new AliasedTypeNode(typeNode, getFullyQualifiedAliasName(aliasedNode) + name.substring(endIndex)));\n         }\n       }\n \n"
+  },
+  "timestamp": "2026-06-19 23:03:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_16",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_16",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "JSCompiler does not recursively resolve typedefs\ngoog.provide('a.b.c');\r\n\r\ngoog.scope(function() {\r\nvar b = a.b;\r\nvar c = b.c;\r\n\r\n/** @typedef {string} */\r\nc.MyType;\r\n\r\n/** @param {c.MyType} x The variable. */\r\nc.myFunc = function(x) {};\r\n\r\n});\r\n\r\nresults in a compiler error.\r\n\r\ngiven that JSCompiler *does* recursively resolve other names, this appears to be a bug rather than an intended limitation.",
+    "commit_message": "When expanding goog.scope aliases in type expressions, do not expand the alias until previous aliases have been expanded. fixes issue 772",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 172,
+        "end_line": 172,
+        "line_numbers": [
+          172
+        ],
+        "function_name": "",
+        "class_name": "AliasedTypeNode",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 180,
+        "end_line": 180,
+        "line_numbers": [
+          180
+        ],
+        "function_name": "applyAlias",
+        "class_name": "AliasedTypeNode",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    public void applyAlias() {\n      typeReference.setString(aliasName);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 468,
+        "end_line": 468,
+        "line_numbers": [
+          468
+        ],
+        "function_name": "fixTypeNode",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void fixTypeNode(Node typeNode) {\n      if (typeNode.isString()) {\n        String name = typeNode.getString();\n        int endIndex = name.indexOf('.');\n        if (endIndex == -1) {\n          endIndex = name.length();\n        }\n        String baseName = name.substring(0, endIndex);\n        Var aliasVar = aliases.get(baseName);\n        if (aliasVar != null) {\n          Node aliasedNode = aliasVar.getInitialValue();\n          aliasUsages.add(new AliasedTypeNode(typeNode, aliasedNode.getQualifiedName() + name.substring(endIndex)));\n        }\n      }\n\n      for (Node child = typeNode.getFirstChild(); child != null;\n           child = child.getNext()) {\n        fixTypeNode(child);\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.IntegrationTest::testIssue772",
+      "com.google.javascript.jscomp.ScopedAliasesTest::testIssue772"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex e2f0538..26fb230 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -167,23 +167,17 @@ class ScopedAliases implements HotSwapCompilerPass {\n \n   private class AliasedTypeNode implements AliasUsage {\n     private final Node typeReference;\n+    private final Node aliasDefinition;\n     private final String aliasName;\n \n+    AliasedTypeNode(Node typeReference, Node aliasDefinition,\n-    AliasedTypeNode(Node typeReference,\n         String aliasName) {\n       this.typeReference = typeReference;\n+      this.aliasDefinition = aliasDefinition;\n       this.aliasName = aliasName;\n     }\n \n     @Override\n     public void applyAlias() {\n+      String typeName = typeReference.getString();\n+      String aliasExpanded =\n+          Preconditions.checkNotNull(aliasDefinition.getQualifiedName());\n+      Preconditions.checkState(typeName.startsWith(aliasName));\n+      typeReference.setString(typeName.replaceFirst(aliasName, aliasExpanded));\n-      typeReference.setString(aliasName);\n     }\n   }\n \n@@ -471,7 +465,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n         Var aliasVar = aliases.get(baseName);\n         if (aliasVar != null) {\n           Node aliasedNode = aliasVar.getInitialValue();\n+          aliasUsages.add(new AliasedTypeNode(typeNode, aliasedNode, baseName));\n-          aliasUsages.add(new AliasedTypeNode(typeNode, aliasedNode.getQualifiedName() + name.substring(endIndex)));\n         }\n       }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

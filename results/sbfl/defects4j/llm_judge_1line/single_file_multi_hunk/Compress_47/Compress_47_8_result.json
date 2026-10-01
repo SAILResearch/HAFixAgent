@@ -1,0 +1,193 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_47",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 04:38:59",
+      "end_time": "2026-06-25 04:46:02",
+      "duration_seconds": 424,
+      "duration_human": "7m 4s"
+    },
+    "model_cost": 0.0798,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 585028,
+      "output_tokens": 9862,
+      "total_tokens": 594890,
+      "cached_input_tokens": 304512,
+      "uncached_input_tokens": 280516
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex dd845b83..6930fcad 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -345,6 +345,10 @@ public ZipArchiveEntry getNextZipEntry() throws IOException {\n             }\n         } else if (m == ZipMethod.ENHANCED_DEFLATED) {\n             current.in = new Deflate64CompressorInputStream(in);\n+        } else if (m == ZipMethod.BZIP2 || m == ZipMethod.IMPLODING || m == ZipMethod.UNSHRINKING) {\n+            // These methods require known compressed size\n+            throw new UnsupportedZipFeatureException(UnsupportedZipFeatureException.Feature.METHOD,\n+                current.entry);\n         }\n \n         entriesRead++;\n@@ -412,7 +416,8 @@ public boolean canReadEntryData(final ArchiveEntry ae) {\n         if (ae instanceof ZipArchiveEntry) {\n             final ZipArchiveEntry ze = (ZipArchiveEntry) ae;\n             return ZipUtil.canHandleEntryData(ze)\n-                && supportsDataDescriptorFor(ze);\n+                && supportsDataDescriptorFor(ze)\n+                && compressedSizeIsKnownOrNotRequired(ze);\n         }\n         return false;\n     }\n@@ -802,10 +807,22 @@ private boolean supportsDataDescriptorFor(final ZipArchiveEntry entry) {\n                 || entry.getMethod() == ZipMethod.ENHANCED_DEFLATED.getCode();\n     }\n \n+\n     /**\n      * Whether the compressed size for the entry is either known or\n      * not required by the compression method being used.\n      */\n+    private boolean compressedSizeIsKnownOrNotRequired(final ZipArchiveEntry entry) {\n+        final int method = entry.getMethod();\n+        // STORED, DEFLATED and ENHANCED_DEFLATED methods can handle unknown compressed size\n+        // (they can read until end of stream or use data descriptors)\n+        if (method == ZipEntry.STORED || method == ZipEntry.DEFLATED ||\n+            method == ZipMethod.ENHANCED_DEFLATED.getCode()) {\n+            return true;\n+        }\n+        // For other methods, we need the compressed size to be known\n+        return entry.getCompressedSize() != ArchiveEntry.SIZE_UNKNOWN;\n+    }\n \n     /**\n      * Caches a stored entry that uses the data descriptor.\n"
+  },
+  "timestamp": "2026-06-25 04:46:02 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_47",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_47",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "ZipArchiveInputStream#getNextZipEntry should verify compressed size is known for bzip2, implode etc.\n{code}\r\n        if (current.entry.getCompressedSize() != ArchiveEntry.SIZE_UNKNOWN) {\r\n            if (current.entry.getMethod() == ZipMethod.UNSHRINKING.getCode()) {\r\n                current.in = new UnshrinkingInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            } else if (current.entry.getMethod() == ZipMethod.IMPLODING.getCode()) {\r\n                current.in = new ExplodingInputStream(\r\n                        current.entry.getGeneralPurposeBit().getSlidingDictionarySize(),\r\n                        current.entry.getGeneralPurposeBit().getNumberOfShannonFanoTrees(),\r\n                        new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            } else if (current.entry.getMethod() == ZipMethod.BZIP2.getCode()) {\r\n                current.in = new BZip2CompressorInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\r\n            }\r\n        }\r\n{code}\r\n\r\nnever sets {{current.in}} if the compressed size is unknown which probably leads to a NullPointerException in {{read}} later. We should fail early with a useful error message instead.",
+    "commit_message": "COMPRESS-436 sanity check compressed size is known for bzip etc",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+        "start_line": 335,
+        "end_line": 335,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 412,
+        "end_line": 412,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 413,
+        "end_line": 413,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 414,
+        "end_line": 414,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 415,
+        "end_line": 415,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+        "start_line": 311,
+        "end_line": 311,
+        "suspiciousness": 0.16666666666666666,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 798,
+        "end_line": 798,
+        "suspiciousness": 0.1543033499620919,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 802,
+        "end_line": 802,
+        "suspiciousness": 0.1543033499620919,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/GeneralPurposeBit.java",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.13483997249264842,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 549,
+        "end_line": 549,
+        "suspiciousness": 0.13245323570650439,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.ZipArchiveInputStreamTest::properlyMarksEntriesAsUnreadableIfUncompressedSizeIsUnknown"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+      "start_line": 335,
+      "end_line": 335,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 412,
+      "end_line": 412,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 413,
+      "end_line": 413,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 414,
+      "end_line": 414,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 415,
+      "end_line": 415,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+      "start_line": 311,
+      "end_line": 311,
+      "suspiciousness": 0.16666666666666666,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 798,
+      "end_line": 798,
+      "suspiciousness": 0.1543033499620919,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 802,
+      "end_line": 802,
+      "suspiciousness": 0.1543033499620919,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/GeneralPurposeBit.java",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.13483997249264842,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+      "start_line": 549,
+      "end_line": 549,
+      "suspiciousness": 0.13245323570650439,
+      "rank": 10
+    }
+  ]
+}

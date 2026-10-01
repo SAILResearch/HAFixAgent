@@ -1,0 +1,192 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_58",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 15:36:27",
+      "end_time": "2026-06-29 15:39:05",
+      "duration_seconds": 158,
+      "duration_human": "2m 38s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 527738,
+      "output_tokens": 4913,
+      "total_tokens": 532651,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 527738
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/Jsoup.java b/src/main/java/org/jsoup/Jsoup.java\nindex d25c1869..52b78a0e 100644\n--- a/src/main/java/org/jsoup/Jsoup.java\n+++ b/src/main/java/org/jsoup/Jsoup.java\n@@ -7,6 +7,8 @@ import org.jsoup.safety.Whitelist;\n import org.jsoup.helper.DataUtil;\n import org.jsoup.helper.HttpConnection;\n \n+import java.util.regex.*;\n+\n import java.io.File;\n import java.io.IOException;\n import java.io.InputStream;\n@@ -237,6 +239,34 @@ public class Jsoup {\n         return clean.body().html();\n     }\n \n+    /**\n+     * Check if the HTML contains any tags not allowed by the whitelist.\n+     * @param html HTML to check\n+     * @param whitelist whitelist to test against\n+     * @return true if disallowed tags found, false otherwise\n+     */\n+    /**\n+     * Check if the HTML contains any tags not allowed by the whitelist.\n+     * @param html HTML to check\n+     * @param whitelist whitelist to test against\n+     * @return true if disallowed tags found, false otherwise\n+     */\n+    private static boolean containsDisallowedTags(String html, Whitelist whitelist) {\n+        // Simple regex to find HTML tags\n+        Pattern pattern = Pattern.compile(\"<(/?)([a-zA-Z][a-zA-Z0-9]*)\", Pattern.CASE_INSENSITIVE);\n+        Matcher matcher = pattern.matcher(html);\n+        \n+        while (matcher.find()) {\n+            String tag = matcher.group(2).toLowerCase();\n+            if (!whitelist.isSafeTag(tag)) {\n+                return true; // Found disallowed tag\n+            }\n+        }\n+        return false; // No disallowed tags found\n+    }\n+        return false; // No disallowed tags found\n+    }\n+\n     /**\n      Test if the input body HTML has only tags and attributes allowed by the Whitelist. Useful for form validation.\n      <p>The input HTML should still be run through the cleaner to set up enforced attributes, and to tidy the output.\n@@ -247,6 +277,9 @@ public class Jsoup {\n      @see #clean(String, org.jsoup.safety.Whitelist) \n      */\n     public static boolean isValid(String bodyHtml, Whitelist whitelist) {\n+        if (containsDisallowedTags(bodyHtml, whitelist)) {\n+            return false;\n+        }\n         return new Cleaner(whitelist).isValid(parseBodyFragment(bodyHtml, \"\"));\n     }\n     \ndiff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java\nindex b8d08860..f126f56c 100644\n--- a/src/main/java/org/jsoup/safety/Whitelist.java\n+++ b/src/main/java/org/jsoup/safety/Whitelist.java\n@@ -482,7 +482,7 @@ public class Whitelist {\n      * @param tag test tag\n      * @return true if allowed\n      */\n-    protected boolean isSafeTag(String tag) {\n+    public boolean isSafeTag(String tag) {\n         return tagNames.contains(TagName.valueOf(tag));\n     }\n \n"
+  },
+  "timestamp": "2026-06-29 15:39:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_58",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_58",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Jsoup.isValid returns true even when htmlFragment includes tags not on whitelist\nCaused by Jsoup.isValid performing a destructive parse before testing for validity.  The html returned from parseBodyFragment is not what was passed in.\n\nAccording to documentation, html, head tags etc. should be specifically added to whitelist if they should be allowed.\n\nTest cases below.\n\n```\npackage jsoup;\n\nimport junit.framework.Assert;\nimport org.jsoup.Jsoup;\nimport org.jsoup.nodes.Document;\nimport org.jsoup.parser.Parser;\nimport org.jsoup.safety.Cleaner;\nimport org.jsoup.safety.Whitelist;\nimport org.junit.Test;\nimport org.junit.runner.RunWith;\nimport org.junit.runners.Parameterized;\n\nimport java.util.Arrays;\nimport java.util.Collection;\n\n@RunWith(Parameterized.class)\npublic class JsoupTest\n{\n    private String htmlFragment;\n\n    public JsoupTest(String htmlFragment)\n    {\n        this.htmlFragment = htmlFragment;\n    }\n\n    @Parameterized.Parameters\n    public static Collection<String[]> dirtyHtml()\n    {\n        String[][] htmlFragments = new String[][] { {\"<html></html>\"},\n                                                    {\"<head></head>\"},\n                                                    {\"<body></body>\"}\n        };\n\n        return Arrays.asList(htmlFragments);\n    }\n\n    @Test\n    public void emptyWhitelistReturnsFalseForAllTags()\n    {\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, new Whitelist()));\n    }\n\n    @Test\n    public void whitelistNoneReturnsFalseForAllTags()\n    {\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, Whitelist.none()));\n    }\n\n    @Test\n    public void typicalWhitelistReturnsFalseForNonIncludedTags()\n    {\n        Whitelist whitelist = new Whitelist();\n        whitelist.addTags(\"p\");\n\n        Assert.assertEquals(false, Jsoup.isValid(htmlFragment, whitelist));\n    }\n\n    @Test\n    public void codeFromSource()\n    {\n        Document dirty = Parser.parseBodyFragment(htmlFragment, \"\");\n        Cleaner cleaner = new Cleaner(Whitelist.none());\n\n        Assert.assertEquals(false, cleaner.isValid(dirty));\n    }\n\n}\n```\n\n",
+    "commit_message": "Update isValid and cleaner methods",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 74,
+        "end_line": 74,
+        "suspiciousness": 0.6666666666666666,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 76,
+        "end_line": 76,
+        "suspiciousness": 0.6666666666666666,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 77,
+        "end_line": 77,
+        "suspiciousness": 0.6666666666666666,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.6666666666666666,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+        "start_line": 513,
+        "end_line": 513,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+        "start_line": 514,
+        "end_line": 514,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+        "start_line": 515,
+        "end_line": 515,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+        "start_line": 516,
+        "end_line": 516,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 121,
+        "end_line": 121,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.safety.CleanerTest::testIsValidBodyHtml",
+      "org.jsoup.safety.CleanerTest::testIsValidDocument"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 74,
+      "end_line": 74,
+      "suspiciousness": 0.6666666666666666,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 76,
+      "end_line": 76,
+      "suspiciousness": 0.6666666666666666,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 77,
+      "end_line": 77,
+      "suspiciousness": 0.6666666666666666,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Cleaner.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.6666666666666666,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+      "start_line": 513,
+      "end_line": 513,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+      "start_line": 514,
+      "end_line": 514,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+      "start_line": 515,
+      "end_line": 515,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+      "start_line": 516,
+      "end_line": 516,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 121,
+      "end_line": 121,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 10
+    }
+  ]
+}

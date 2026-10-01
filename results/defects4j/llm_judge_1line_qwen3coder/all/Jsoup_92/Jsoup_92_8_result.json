@@ -1,0 +1,199 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "92",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 10:27:46",
+      "end_time": "2026-06-20 10:29:46",
+      "duration_seconds": 120,
+      "duration_human": "2m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 378548,
+      "output_tokens": 3205,
+      "total_tokens": 381753,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 378548
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 10:29:46 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_92",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_92",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Duplicated attribute parsing problem \nIn case there is duplicated tag attribute Jsoup parses the last one, but Chrome browser takes the first one.\r\n\r\n\n",
+    "commit_message": "On duplicate attributes, retain first not last instance",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Attributes.java",
+        "start_line": 118,
+        "end_line": 118,
+        "line_numbers": [
+          118
+        ],
+        "function_name": "add",
+        "class_name": "Attributes",
+        "filename": "Attributes.java",
+        "code_snippet": "    private void add(String key, String value) {\n        checkCapacity(size + 1);\n        keys[size] = key;\n        vals[size] = value;\n        size++;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Token.java",
+        "start_line": 116,
+        "end_line": 116,
+        "line_numbers": [
+          116
+        ],
+        "function_name": "newAttribute",
+        "class_name": "Tag",
+        "filename": "Token.java",
+        "code_snippet": "        final void newAttribute() {\n            if (attributes == null)\n                attributes = new Attributes();\n\n            if (pendingAttributeName != null) {\n                // the tokeniser has skipped whitespace control chars, but trimming could collapse to empty for other control codes, so verify here\n                pendingAttributeName = pendingAttributeName.trim();\n                if (pendingAttributeName.length() > 0) {\n                    String value;\n                    if (hasPendingAttributeValue)\n                        value = pendingAttributeValue.length() > 0 ? pendingAttributeValue.toString() : pendingAttributeValueS;\n                    else if (hasEmptyAttributeValue)\n                        value = \"\";\n                    else\n                        value = null;\n                    // note that we add, not put. So that the first is kept, and rest are deduped, once in a context where case sensitivity is known (the appropriate tree builder).\n                    attributes.put(pendingAttributeName, value);\n                }\n            }\n            pendingAttributeName = null;\n            hasEmptyAttributeValue = false;\n            hasPendingAttributeValue = false;\n            reset(pendingAttributeValue);\n            pendingAttributeValueS = null;\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.HtmlParserTest::retainsAttributesOfDifferentCaseIfSensitive",
+      "org.jsoup.parser.HtmlParserTest::dropsDuplicateAttributes",
+      "org.jsoup.parser.XmlTreeBuilderTest::dropsDuplicateAttributes"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/nodes/Attributes.java b/src/main/java/org/jsoup/nodes/Attributes.java\nindex 85dabcf..a716abc 100644\n--- a/src/main/java/org/jsoup/nodes/Attributes.java\n+++ b/src/main/java/org/jsoup/nodes/Attributes.java\n@@ -3,7 +3,6 @@ package org.jsoup.nodes;\n import org.jsoup.SerializationException;\n import org.jsoup.helper.Validate;\n import org.jsoup.internal.StringUtil;\n+import org.jsoup.parser.ParseSettings;\n \n import java.io.IOException;\n import java.util.AbstractMap;\n@@ -116,12 +115,11 @@ public class Attributes implements Iterable<Attribute>, Cloneable {\n      * Adds a new attribute. Will produce duplicates if the key already exists.\n      * @see Attributes#put(String, String)\n      */\n+    public Attributes add(String key, String value) {\n-    private void add(String key, String value) {\n         checkCapacity(size + 1);\n         keys[size] = key;\n         vals[size] = value;\n         size++;\n+        return this;\n     }\n \n     /**\n@@ -238,9 +236,6 @@ public class Attributes implements Iterable<Attribute>, Cloneable {\n     /**\n      * Test if this Attributes list is empty (size==0).\n      */\n+    public boolean isEmpty() {\n+        return size == 0;\n+    }\n \n     /**\n      Add all the attributes from the incoming set to this set.\n@@ -399,24 +394,6 @@ public class Attributes implements Iterable<Attribute>, Cloneable {\n      * @param settings case sensitivity\n      * @return number of removed dupes\n      */\n+    public int deduplicate(ParseSettings settings) {\n+        if (isEmpty())\n+            return 0;\n+        boolean preserve = settings.preserveAttributeCase();\n+        int dupes = 0;\n+        OUTER: for (int i = 0; i < keys.length; i++) {\n+            for (int j = i + 1; j < keys.length; j++) {\n+                if (keys[j] == null)\n+                    continue OUTER; // keys.length doesn't shrink when removing, so re-test\n+                if ((preserve && keys[i].equals(keys[j])) || (!preserve && keys[i].equalsIgnoreCase(keys[j]))) {\n+                    dupes++;\n+                    remove(j);\n+                    j--;\n+                }\n+            }\n+        }\n+        return dupes;\n+    }\n \n     private static class Dataset extends AbstractMap<String, String> {\n         private final Attributes attributes;\ndiff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\nindex 099859d..e51f5f3 100644\n--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n@@ -196,12 +196,6 @@ public class HtmlTreeBuilder extends TreeBuilder {\n \n     Element insert(final Token.StartTag startTag) {\n         // cleanup duplicate attributes:\n+        if (!startTag.attributes.isEmpty()) {\n+            int dupes = startTag.attributes.deduplicate(settings);\n+            if (dupes > 0) {\n+                error(\"Duplicate attribute\");\n+            }\n+        }\n \n         // handle empty unknown tags\n         // when the spec expects an empty tag, will directly hit insertEmpty, so won't generate this fake end tag.\ndiff --git a/src/main/java/org/jsoup/parser/ParseSettings.java b/src/main/java/org/jsoup/parser/ParseSettings.java\nindex 18c685a..1378978 100644\n--- a/src/main/java/org/jsoup/parser/ParseSettings.java\n+++ b/src/main/java/org/jsoup/parser/ParseSettings.java\n@@ -35,9 +35,6 @@ public class ParseSettings {\n     /**\n      * Returns true if preserving attribute case.\n      */\n+    public boolean preserveAttributeCase() {\n+        return preserveAttributeCase;\n+    }\n \n     /**\n      * Define parse settings.\ndiff --git a/src/main/java/org/jsoup/parser/Token.java b/src/main/java/org/jsoup/parser/Token.java\nindex ca26404..9b0b7c2 100644\n--- a/src/main/java/org/jsoup/parser/Token.java\n+++ b/src/main/java/org/jsoup/parser/Token.java\n@@ -113,7 +113,7 @@ abstract class Token {\n                     else\n                         value = null;\n                     // note that we add, not put. So that the first is kept, and rest are deduped, once in a context where case sensitivity is known (the appropriate tree builder).\n+                    attributes.add(pendingAttributeName, value);\n-                    attributes.put(pendingAttributeName, value);\n                 }\n             }\n             pendingAttributeName = null;\ndiff --git a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\nindex 7fbe251..01dbcef 100644\n--- a/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/XmlTreeBuilder.java\n@@ -75,7 +75,6 @@ public class XmlTreeBuilder extends TreeBuilder {\n     Element insert(Token.StartTag startTag) {\n         Tag tag = Tag.valueOf(startTag.name(), settings);\n         // todo: wonder if for xml parsing, should treat all tags as unknown? because it's not html.\n+        startTag.attributes.deduplicate(settings);\n \n         Element el = new Element(tag, baseUri, settings.normalizeAttributes(startTag.attributes));\n         insertNode(el);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Jonathan Hedley",
+        "commit_date": "2017-01-05 18:07:29",
+        "commit_message": "Check attribute name is not empty after trimming before creating attribute",
+        "commit_hash": "a623db776696c0e03f68e849147f6a0c57063c02"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "data",
+          "asStartTag",
+          "Character",
+          "nameAttr",
+          "name",
+          "isCharacter",
+          "Comment",
+          "asEndTag",
+          "reset",
+          "StartTag",
+          "isDoctype",
+          "isForceQuirks",
+          "normalName",
+          "asComment",
+          "ensureAttributeValue",
+          "setEmptyAttributeValue",
+          "appendAttributeName",
+          "tokenType",
+          "Token",
+          "isEOF",
+          "getSystemIdentifier",
+          "toString",
+          "newAttribute",
+          "isEndTag",
+          "getData",
+          "TokenType",
+          "EOF",
+          "Doctype",
+          "finaliseTag",
+          "getAttributes",
+          "isSelfClosing",
+          "asDoctype",
+          "getPubSysKey",
+          "isStartTag",
+          "asCharacter",
+          "appendTagName",
+          "appendAttributeValue",
+          "EndTag",
+          "getName",
+          "getPublicIdentifier",
+          "isComment"
+        ],
+        "functions_name_all_files": [
+          "data",
+          "asStartTag",
+          "setKey",
+          "Character",
+          "getKey",
+          "nameAttr",
+          "equals",
+          "name",
+          "isCharacter",
+          "Comment",
+          "asEndTag",
+          "reset",
+          "shouldCollapseAttribute",
+          "StartTag",
+          "isDoctype",
+          "isForceQuirks",
+          "normalName",
+          "asComment",
+          "ensureAttributeValue",
+          "isDataAttribute",
+          "setEmptyAttributeValue",
+          "createFromEncoded",
+          "appendAttributeName",
+          "tokenType",
+          "Token",
+          "isEOF",
+          "toString",
+          "getSystemIdentifier",
+          "newAttribute",
+          "isEndTag",
+          "getData",
+          "isBooleanAttribute",
+          "TokenType",
+          "EOF",
+          "Doctype",
+          "finaliseTag",
+          "getAttributes",
+          "isSelfClosing",
+          "getValue",
+          "asDoctype",
+          "html",
+          "getPubSysKey",
+          "isStartTag",
+          "asCharacter",
+          "setValue",
+          "clone",
+          "appendTagName",
+          "appendAttributeValue",
+          "Attribute",
+          "EndTag",
+          "getName",
+          "hashCode",
+          "getPublicIdentifier",
+          "isComment"
+        ],
+        "function_code_before": "        final void newAttribute() {\n            if (attributes == null)\n                attributes = new Attributes();\n\n            if (pendingAttributeName != null) {\n                Attribute attribute;\n                if (hasPendingAttributeValue)\n                    attribute = new Attribute(pendingAttributeName,\n                        pendingAttributeValue.length() > 0 ? pendingAttributeValue.toString() : pendingAttributeValueS);\n                else if (hasEmptyAttributeValue)\n                    attribute = new Attribute(pendingAttributeName, \"\");\n                else\n                    attribute = new BooleanAttribute(pendingAttributeName);\n                attributes.put(attribute);\n            }\n            pendingAttributeName = null;\n            hasEmptyAttributeValue = false;\n            hasPendingAttributeValue = false;\n            reset(pendingAttributeValue);\n            pendingAttributeValueS = null;\n        }",
+        "function_code_after": "        final void newAttribute() {\n            if (attributes == null)\n                attributes = new Attributes();\n\n            if (pendingAttributeName != null) {\n                // the tokeniser has skipped whitespace control chars, but trimming could collapse to empty for other control codes, so verify here\n                pendingAttributeName = pendingAttributeName.trim();\n                if (pendingAttributeName.length() > 0) {\n                    Attribute attribute;\n                    if (hasPendingAttributeValue)\n                        attribute = new Attribute(pendingAttributeName,\n                            pendingAttributeValue.length() > 0 ? pendingAttributeValue.toString() : pendingAttributeValueS);\n                    else if (hasEmptyAttributeValue)\n                        attribute = new Attribute(pendingAttributeName, \"\");\n                    else\n                        attribute = new BooleanAttribute(pendingAttributeName);\n                    attributes.put(attribute);\n                }\n            }\n            pendingAttributeName = null;\n            hasEmptyAttributeValue = false;\n            hasPendingAttributeValue = false;\n            reset(pendingAttributeValue);\n            pendingAttributeValueS = null;\n        }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/jsoup/nodes/Attribute.java",
+          "src/main/java/org/jsoup/parser/Token.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/jsoup/parser/Token.java": "diff --git a/src/main/java/org/jsoup/parser/Token.java b/src/main/java/org/jsoup/parser/Token.java\nindex 34baf196..af514321 100644\n--- a/src/main/java/org/jsoup/parser/Token.java\n+++ b/src/main/java/org/jsoup/parser/Token.java\n@@ -102,15 +102,19 @@ abstract class Token {\n                 attributes = new Attributes();\n \n             if (pendingAttributeName != null) {\n-                Attribute attribute;\n-                if (hasPendingAttributeValue)\n-                    attribute = new Attribute(pendingAttributeName,\n-                        pendingAttributeValue.length() > 0 ? pendingAttributeValue.toString() : pendingAttributeValueS);\n-                else if (hasEmptyAttributeValue)\n-                    attribute = new Attribute(pendingAttributeName, \"\");\n-                else\n-                    attribute = new BooleanAttribute(pendingAttributeName);\n-                attributes.put(attribute);\n+                // the tokeniser has skipped whitespace control chars, but trimming could collapse to empty for other control codes, so verify here\n+                pendingAttributeName = pendingAttributeName.trim();\n+                if (pendingAttributeName.length() > 0) {\n+                    Attribute attribute;\n+                    if (hasPendingAttributeValue)\n+                        attribute = new Attribute(pendingAttributeName,\n+                            pendingAttributeValue.length() > 0 ? pendingAttributeValue.toString() : pendingAttributeValueS);\n+                    else if (hasEmptyAttributeValue)\n+                        attribute = new Attribute(pendingAttributeName, \"\");\n+                    else\n+                        attribute = new BooleanAttribute(pendingAttributeName);\n+                    attributes.put(attribute);\n+                }\n             }\n             pendingAttributeName = null;\n             hasEmptyAttributeValue = false;"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

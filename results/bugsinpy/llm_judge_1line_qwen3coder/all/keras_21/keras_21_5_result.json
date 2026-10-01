@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_21",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-23 10:54:18",
+      "end_time": "2026-06-23 10:55:33",
+      "duration_seconds": 75,
+      "duration_human": "1m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 635642,
+      "output_tokens": 3320,
+      "total_tokens": 638962,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 635642
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/callbacks.py b/keras/callbacks.py\nindex 067169f3e..07b7028c0 100644\n--- a/keras/callbacks.py\n+++ b/keras/callbacks.py\n@@ -477,6 +477,10 @@ class EarlyStopping(Callback):\n         baseline: Baseline value for the monitored quantity to reach.\n             Training will stop if the model doesn't show improvement\n             over the baseline.\n+        restore_best_weights: whether to restore model weights from\n+            the epoch with the best value of the monitored quantity.\n+            If False, the model weights obtained at the last step of\n+            training are used.\n     \"\"\"\n \n     def __init__(self,\n@@ -485,7 +489,8 @@ class EarlyStopping(Callback):\n                  patience=0,\n                  verbose=0,\n                  mode='auto',\n-                 baseline=None):\n+                 baseline=None,\n+                 restore_best_weights=False):\n         super(EarlyStopping, self).__init__()\n \n         self.monitor = monitor\n@@ -496,6 +501,8 @@ class EarlyStopping(Callback):\n         self.wait = 0\n         self.stopped_epoch = 0\n \n+        self.restore_best_weights = restore_best_weights\n+        self.best_weights = None\n         if mode not in ['auto', 'min', 'max']:\n             warnings.warn('EarlyStopping mode %s is unknown, '\n                           'fallback to auto mode.' % mode,\n@@ -538,9 +545,11 @@ class EarlyStopping(Callback):\n         if self.monitor_op(current - self.min_delta, self.best):\n             self.best = current\n             self.wait = 0\n+            if self.restore_best_weights:\n+                self.best_weights = self.model.get_weights()\n         else:\n             self.wait += 1\n-            if self.wait >= self.patience:\n+                    self.model.set_weights(self.best_weights)\n                 self.stopped_epoch = epoch\n                 self.model.stop_training = True\n \ndiff --git a/tests/keras/test_callbacks.py b/tests/keras/test_callbacks.py\nindex 1eaba26fc..b3c98abc4 100644\n--- a/tests/keras/test_callbacks.py\n+++ b/tests/keras/test_callbacks.py\n@@ -267,6 +267,12 @@ def test_EarlyStopping_patience():\n         def __init__(self):\n             self.stop_training = False\n \n+        def get_weights(self):\n+            return []\n+\n+        def set_weights(self, weights):\n+            pass\n+\n     early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=2)\n     early_stop.model = DummyModel()\n \n@@ -292,6 +298,12 @@ def test_EarlyStopping_baseline():\n         def __init__(self):\n             self.stop_training = False\n \n+        def get_weights(self):\n+            return []\n+\n+        def set_weights(self, weights):\n+            pass\n+\n     def baseline_tester(acc_levels):\n         early_stop = callbacks.EarlyStopping(monitor='val_acc', baseline=0.75, patience=2)\n         early_stop.model = DummyModel()\n@@ -315,6 +327,84 @@ def test_EarlyStopping_baseline():\n     assert baseline_not_met == 2\n \n \n+@keras_test\n+def test_EarlyStopping_final_weights():\n+    class DummyModel(object):\n+        def __init__(self):\n+            self.stop_training = False\n+            self.weights = -1\n+\n+        def get_weights(self):\n+            return self.weights\n+\n+        def set_weights(self, weights):\n+            self.weights = weights\n+\n+        def set_weight_to_epoch(self, epoch):\n+            self.weights = epoch\n+\n+    early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=2)\n+    early_stop.model = DummyModel()\n+\n+    losses = [0.2, 0.15, 0.1, 0.11, 0.12]\n+\n+    epochs_trained = 0\n+    early_stop.on_train_begin()\n+\n+    for epoch in range(len(losses)):\n+        epochs_trained += 1\n+        early_stop.model.set_weight_to_epoch(epoch=epoch)\n+        early_stop.on_epoch_end(epoch, logs={'val_loss': losses[epoch]})\n+\n+        if early_stop.model.stop_training:\n+            break\n+\n+    # The best configuration is in the epoch 2 (loss = 0.1000),\n+    # so with patience=2 we need to end up at epoch 4\n+    assert early_stop.model.get_weights() == 4\n+\n+\n+@keras_test\n+def test_EarlyStopping_final_weights_when_restoring_model_weights():\n+    class DummyModel(object):\n+        def __init__(self):\n+            self.stop_training = False\n+            self.weights = -1\n+\n+        def get_weights(self):\n+            return self.weights\n+\n+        def set_weights(self, weights):\n+            self.weights = weights\n+\n+        def set_weight_to_epoch(self, epoch):\n+            self.weights = epoch\n+\n+    early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=2,\n+                                         restore_best_weights=True)\n+    early_stop.model = DummyModel()\n+\n+    losses = [0.2, 0.15, 0.1, 0.11, 0.12]\n+\n+    # The best configuration is in the epoch 2 (loss = 0.1000).\n+\n+    epochs_trained = 0\n+    early_stop.on_train_begin()\n+\n+    for epoch in range(len(losses)):\n+        epochs_trained += 1\n+        early_stop.model.set_weight_to_epoch(epoch=epoch)\n+        early_stop.on_epoch_end(epoch, logs={'val_loss': losses[epoch]})\n+\n+        if early_stop.model.stop_training:\n+            break\n+\n+    # The best configuration is in epoch 2 (loss = 0.1000),\n+    # and while patience = 2, we're restoring the best weights,\n+    # so we end up at the epoch with the best weights, i.e. epoch 2\n+    assert early_stop.model.get_weights() == 2\n+\n+\n @keras_test\n def test_LearningRateScheduler():\n     np.random.seed(1337)\n"
+  },
+  "timestamp": "2026-06-23 10:55:33 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_21",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_21/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "EarlyStopping: restore model weights corresponding to best value of monitored quantity (#10765)",
+    "fault_locations": [
+      {
+        "file": "keras/callbacks.py",
+        "start_line": 488,
+        "end_line": 488,
+        "function_name": "__init__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/test_callbacks.py::test_EarlyStopping_final_weights_when_restoring_model_weights"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

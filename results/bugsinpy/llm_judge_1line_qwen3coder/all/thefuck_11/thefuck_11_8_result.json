@@ -1,0 +1,55 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_11",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 19:40:56",
+      "end_time": "2026-06-20 20:01:00",
+      "duration_seconds": 1203,
+      "duration_human": "20m 3s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1594423,
+      "output_tokens": 49415,
+      "total_tokens": 1643838,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1594423
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/rules/test_git_push.py b/tests/rules/test_git_push.py\nindex 7531472..d665496 100644\n--- a/tests/rules/test_git_push.py\n+++ b/tests/rules/test_git_push.py\n@@ -23,5 +23,9 @@ def test_match(stderr):\n def test_get_new_command(stderr):\n     assert get_new_command(Command('git push', stderr=stderr))\\\n         == \"git push --set-upstream origin master\"\n+    assert get_new_command(Command('git push -u origin', stderr=stderr))\\\n+        == \"git push --set-upstream origin master\"\n+    assert get_new_command(Command('git push --set-upstream origin', stderr=stderr))\\\n+        == \"git push --set-upstream origin master\"\n     assert get_new_command(Command('git push --quiet', stderr=stderr))\\\n         == \"git push --set-upstream origin master --quiet\"\ndiff --git a/thefuck/rules/git_push.py b/thefuck/rules/git_push.py\nindex 86a2ea5..018ff15 100644\n--- a/thefuck/rules/git_push.py\n+++ b/thefuck/rules/git_push.py\n@@ -1,14 +1,44 @@\n+import re\n from thefuck.utils import replace_argument\n from thefuck.specific.git import git_support\n \n \n @git_support\n def match(command):\n-    return ('push' in command.script\n-            and 'set-upstream' in command.stderr)\n+    return ('push' in command.script_parts\n+            and 'git push --set-upstream' in command.output)\n+\n+\n+def _get_upstream_option_index(command_parts):\n+    if '--set-upstream' in command_parts:\n+        return command_parts.index('--set-upstream')\n+    elif '-u' in command_parts:\n+        return command_parts.index('-u')\n+    else:\n+        return None\n \n \n @git_support\n def get_new_command(command):\n-    push_upstream = command.stderr.split('\\n')[-3].strip().partition('git ')[2]\n-    return replace_argument(command.script, 'push', push_upstream)\n+    # If --set-upstream or -u are passed, remove it and its argument. This is\n+    # because the remaining arguments are concatenated onto the command suggested\n+    # by git, which includes --set-upstream and its argument\n+    command_parts = command.script_parts[:]\n+    upstream_option_index = _get_upstream_option_index(command_parts)\n+\n+    if upstream_option_index is not None:\n+        command_parts.pop(upstream_option_index)\n+\n+        # In case of `git push -u` we don't have next argument:\n+        if len(command_parts) > upstream_option_index:\n+            command_parts.pop(upstream_option_index)\n+    else:\n+        # the only non-qualified permitted options are the repository and refspec; git's\n+        # suggestion include them, so they won't be lost, but would be duplicated otherwise.\n+        push_idx = command_parts.index('push') + 1\n+        while len(command_parts) > push_idx and command_parts[len(command_parts) - 1][0] != '-':\n+            command_parts.pop(len(command_parts) - 1)\n+\n+    arguments = re.findall(r'git push (.*)', command.output)[-1].replace(\"'\", r\"\\'\").strip()\n+    return replace_argument(\" \".join(command_parts), 'push',\n+                            'push {}'.format(arguments))\n"
+  },
+  "timestamp": "2026-06-20 20:01:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_11",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_11/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Merge pull request #559 from josephfrazier/git-push-explicit-upstream",
+    "fault_locations": [
+      {
+        "file": "thefuck/rules/git_push.py",
+        "start_line": 14,
+        "end_line": 14,
+        "function_name": "get_new_command",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/rules/test_git_push.py::test_get_new_command"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

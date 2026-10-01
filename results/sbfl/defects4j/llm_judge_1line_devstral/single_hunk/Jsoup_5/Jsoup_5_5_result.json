@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_5",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 00:03:25",
+      "end_time": "2026-06-30 00:05:10",
+      "duration_seconds": 105,
+      "duration_human": "1m 45s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 429894,
+      "output_tokens": 4955,
+      "total_tokens": 434849,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 429894
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/Parser.java b/src/main/java/org/jsoup/parser/Parser.java\nindex e6ea8338..e374d2e8 100644\n--- a/src/main/java/org/jsoup/parser/Parser.java\n+++ b/src/main/java/org/jsoup/parser/Parser.java\n@@ -182,29 +182,42 @@ public class Parser {\n         tq.consumeWhitespace();\n         String key = tq.consumeAttributeKey();\n         String value = \"\";\n-        tq.consumeWhitespace();\n-        if (tq.matchChomp(\"=\")) {\n+        if (key.length() != 0) {\n             tq.consumeWhitespace();\n-\n-            if (tq.matchChomp(SQ)) {\n-                value = tq.chompTo(SQ);\n-            } else if (tq.matchChomp(DQ)) {\n-                value = tq.chompTo(DQ);\n-            } else {\n-                StringBuilder valueAccum = new StringBuilder();\n-                // no ' or \" to look for, so scan to end tag or space (or end of stream)\n-                while (!tq.matchesAny(\"<\", \"/>\", \">\") && !tq.matchesWhitespace() && !tq.isEmpty()) {\n-                    valueAccum.append(tq.consume());\n+            if (tq.matchChomp(\"=\")) {\n+                tq.consumeWhitespace();\n+\n+                if (tq.matchChomp(SQ)) {\n+                    value = tq.chompTo(SQ);\n+                } else if (tq.matchChomp(DQ)) {\n+                    value = tq.chompTo(DQ);\n+                } else {\n+                    StringBuilder valueAccum = new StringBuilder();\n+                    // no ' or \" to look for, so scan to end tag or space (or end of stream)\n+                    while (!tq.matchesAny(\"<\", \"/>\", \">\") && !tq.matchesWhitespace() && !tq.isEmpty()) {\n+                        valueAccum.append(tq.consume());\n+                    }\n+                    value = valueAccum.toString();\n                 }\n-                value = valueAccum.toString();\n+                tq.consumeWhitespace();\n             }\n-            tq.consumeWhitespace();\n-        }\n-        if (key.length() != 0)\n             return Attribute.createFromEncoded(key, value);\n-        else {\n-            tq.consume();\n-                \n+        } else {\n+            // Empty key - skip any equals sign and value\n+            if (tq.matchChomp(\"=\")) {\n+                tq.consumeWhitespace();\n+                if (tq.matchChomp(SQ)) {\n+                    tq.chompTo(SQ);\n+                } else if (tq.matchChomp(DQ)) {\n+                    tq.chompTo(DQ);\n+                } else {\n+                    // Skip unquoted value\n+                    while (!tq.matchesAny(\"<\", \"/>\", \">\") && !tq.matchesWhitespace() && !tq.isEmpty()) {\n+                        tq.consume();\n+                    }\n+                }\n+                tq.consumeWhitespace();\n+            }\n             return null;\n         }\n     }\ndiff --git a/src/main/java/org/jsoup/parser/TokenQueue.java b/src/main/java/org/jsoup/parser/TokenQueue.java\nindex f7088616..4ba50bad 100644\n--- a/src/main/java/org/jsoup/parser/TokenQueue.java\n+++ b/src/main/java/org/jsoup/parser/TokenQueue.java\n@@ -159,6 +159,8 @@ public class TokenQueue {\n      * @return first character on queue.\n      */\n     public Character consume() {\n+        if (isEmpty()) \n+            return null;\n         Character c = queue.charAt(pos);\n         pos++;\n         return c;\n"
+  },
+  "timestamp": "2026-06-30 00:05:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_5",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_5",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "StringIndexOutOfBoundsException when testing whether String content is valid HTML \nIf I try to parse a tag with an equals sign (an empty attribute) but without any single or double quotes around an attribute value, then I get a StringIndexOutOfBoundsException.  The stack trace is pasted below.\n\nAn example String would be \"<a =a\"\n\nThe following JUnit test case should not throw a StringIndexOutOfBoundsException:\n\nimport static org.junit.Assert.assertTrue;\nimport org.jsoup.Jsoup;\nimport org.jsoup.safety.Whitelist;\nimport org.junit.Test;\npublic class BadAttributeTest {\n    @Test\n    public void aTagWithABadAttributeIsValid() throws Exception {\n        assertTrue(Jsoup.isValid(\"<a =a\", Whitelist.relaxed()));\n    }\n}\n\njava.lang.StringIndexOutOfBoundsException: String index out of range: 13\n    at java.lang.String.charAt(String.java:686)\n    at org.jsoup.parser.TokenQueue.consume(TokenQueue.java:130)\n    at org.jsoup.parser.Parser.parseAttribute(Parser.java:207)\n    at org.jsoup.parser.Parser.parseStartTag(Parser.java:142)\n    at org.jsoup.parser.Parser.parse(Parser.java:91)\n    at org.jsoup.parser.Parser.parseBodyFragment(Parser.java:64)\n    at org.jsoup.Jsoup.parseBodyFragment(Jsoup.java:99)\n    at org.jsoup.Jsoup.isValid(Jsoup.java:155)\n\n",
+    "commit_message": "Fixed issue when parsing tags with keyless attributes.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 69,
+        "end_line": 69,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 70,
+        "end_line": 70,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 73,
+        "end_line": 73,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 74,
+        "end_line": 74,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 75,
+        "end_line": 75,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+        "start_line": 116,
+        "end_line": 116,
+        "suspiciousness": 0.9908673886137245,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 29,
+        "end_line": 29,
+        "suspiciousness": 0.9878783399072131,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 27,
+        "end_line": 27,
+        "suspiciousness": 0.9878783399072131,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/Parser.java",
+        "start_line": 30,
+        "end_line": 30,
+        "suspiciousness": 0.9878783399072131,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.ParserTest::parsesQuiteRoughAttributes"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/parser/Parser.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 69,
+      "end_line": 69,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 70,
+      "end_line": 70,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 73,
+      "end_line": 73,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 74,
+      "end_line": 74,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 75,
+      "end_line": 75,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/TokenQueue.java",
+      "start_line": 116,
+      "end_line": 116,
+      "suspiciousness": 0.9908673886137245,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Parser.java",
+      "start_line": 29,
+      "end_line": 29,
+      "suspiciousness": 0.9878783399072131,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Parser.java",
+      "start_line": 27,
+      "end_line": 27,
+      "suspiciousness": 0.9878783399072131,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/Parser.java",
+      "start_line": 30,
+      "end_line": 30,
+      "suspiciousness": 0.9878783399072131,
+      "rank": 10
+    }
+  ]
+}

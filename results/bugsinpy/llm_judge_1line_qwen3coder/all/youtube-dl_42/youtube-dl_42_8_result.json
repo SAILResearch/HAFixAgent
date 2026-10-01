@@ -1,0 +1,104 @@
+{
+  "project_name": "youtube-dl",
+  "bug_id": "youtube-dl_42",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 19:57:44",
+      "end_time": "2026-06-20 19:59:54",
+      "duration_seconds": 129,
+      "duration_human": "2m 9s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 46,
+    "token_usage": {
+      "input_tokens": 396300,
+      "output_tokens": 5093,
+      "total_tokens": 401393,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 396300
+    },
+    "agent_steps": 46,
+    "checkout_success": true,
+    "patch": "diff --git a/test/test_utils.py b/test/test_utils.py\nindex bee355ee0..a17483ada 100644\n--- a/test/test_utils.py\n+++ b/test/test_utils.py\n@@ -16,6 +16,7 @@ from youtube_dl.utils import (\n     DateRange,\n     encodeFilename,\n     find_xpath_attr,\n+    fix_xml_ampersands,\n     get_meta_content,\n     orderedSet,\n     parse_duration,\n@@ -200,5 +201,18 @@ class TestUtil(unittest.TestCase):\n         self.assertEqual(parse_duration('9:12:43'), 33163)\n         self.assertEqual(parse_duration('x:y'), None)\n \n+    def test_fix_xml_ampersands(self):\n+        self.assertEqual(\n+            fix_xml_ampersands('\"&x=y&z=a'), '\"&amp;x=y&amp;z=a')\n+        self.assertEqual(\n+            fix_xml_ampersands('\"&amp;x=y&wrong;&z=a'),\n+            '\"&amp;x=y&amp;wrong;&amp;z=a')\n+        self.assertEqual(\n+            fix_xml_ampersands('&amp;&apos;&gt;&lt;&quot;'),\n+            '&amp;&apos;&gt;&lt;&quot;')\n+        self.assertEqual(\n+            fix_xml_ampersands('&#1234;&#x1abC;'), '&#1234;&#x1abC;')\n+        self.assertEqual(fix_xml_ampersands('&#&#'), '&amp;#&amp;#')\n+\n if __name__ == '__main__':\n     unittest.main()\ndiff --git a/youtube_dl/extractor/clipsyndicate.py b/youtube_dl/extractor/clipsyndicate.py\nindex c60089ad3..445b40c8d 100644\n--- a/youtube_dl/extractor/clipsyndicate.py\n+++ b/youtube_dl/extractor/clipsyndicate.py\n@@ -3,7 +3,7 @@ import re\n from .common import InfoExtractor\n from ..utils import (\n     find_xpath_attr,\n-    fix_xml_all_ampersand,\n+    fix_xml_ampersands,\n )\n \n \n@@ -33,7 +33,7 @@ class ClipsyndicateIE(InfoExtractor):\n         pdoc = self._download_xml(\n             'http://eplayer.clipsyndicate.com/osmf/playlist?%s' % flvars,\n             video_id, u'Downloading video info',\n-            transform_source=fix_xml_all_ampersand) \n+            transform_source=fix_xml_ampersands) \n \n         track_doc = pdoc.find('trackList/track')\n         def find_param(name):\ndiff --git a/youtube_dl/extractor/metacritic.py b/youtube_dl/extractor/metacritic.py\nindex f3ff0e8bb..465ac4916 100644\n--- a/youtube_dl/extractor/metacritic.py\n+++ b/youtube_dl/extractor/metacritic.py\n@@ -4,7 +4,7 @@ import re\n \n from .common import InfoExtractor\n from ..utils import (\n-    fix_xml_all_ampersand,\n+    fix_xml_ampersands,\n )\n \n \n@@ -27,7 +27,7 @@ class MetacriticIE(InfoExtractor):\n         webpage = self._download_webpage(url, video_id)\n         # The xml is not well formatted, there are raw '&'\n         info = self._download_xml('http://www.metacritic.com/video_data?video=' + video_id,\n-            video_id, 'Downloading info xml', transform_source=fix_xml_all_ampersand)\n+            video_id, 'Downloading info xml', transform_source=fix_xml_ampersands)\n \n         clip = next(c for c in info.findall('playList/clip') if c.find('id').text == video_id)\n         formats = []\ndiff --git a/youtube_dl/extractor/mtv.py b/youtube_dl/extractor/mtv.py\nindex f1cf41e2d..c4fa16fb6 100644\n--- a/youtube_dl/extractor/mtv.py\n+++ b/youtube_dl/extractor/mtv.py\n@@ -5,6 +5,7 @@ from .common import InfoExtractor\n from ..utils import (\n     compat_urllib_parse,\n     ExtractorError,\n+    fix_xml_ampersands,\n )\n \n def _media_xml_tag(tag):\n@@ -83,12 +84,9 @@ class MTVServicesInfoExtractor(InfoExtractor):\n         video_id = self._id_from_uri(uri)\n         data = compat_urllib_parse.urlencode({'uri': uri})\n \n-        def fix_ampersand(s):\n-            \"\"\" Fix unencoded ampersand in XML \"\"\"\n-            return s.replace(u'& ', '&amp; ')\n         idoc = self._download_xml(\n             self._FEED_URL + '?' + data, video_id,\n-            u'Downloading info', transform_source=fix_ampersand)\n+            u'Downloading info', transform_source=fix_xml_ampersands)\n         return [self._get_video_info(item) for item in idoc.findall('.//item')]\n \n \ndiff --git a/youtube_dl/utils.py b/youtube_dl/utils.py\nindex 73fe1ad0a..70f284149 100644\n--- a/youtube_dl/utils.py\n+++ b/youtube_dl/utils.py\n@@ -1092,9 +1092,12 @@ def month_by_name(name):\n         return None\n \n \n-def fix_xml_all_ampersand(xml_str):\n+def fix_xml_ampersands(xml_str):\n     \"\"\"Replace all the '&' by '&amp;' in XML\"\"\"\n-    return xml_str.replace(u'&', u'&amp;')\n+    return re.sub(\n+        r'&(?!amp;|lt;|gt;|apos;|quot;|#x[0-9a-fA-F]{,4};|#[0-9]{,4};)',\n+        u'&amp;',\n+        xml_str)\n \n \n def setproctitle(title):\n"
+  },
+  "timestamp": "2026-06-20 19:59:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "youtube-dl",
+    "bug_id": "youtube-dl_42",
+    "repo_path": "/BugsInPy/framework/bin/temp/youtube-dl_42/youtube-dl",
+    "github_url": "https://github.com/ytdl-org/youtube-dl",
+    "description": "",
+    "commit_message": "Correct XML ampersand fixup",
+    "fault_locations": [
+      {
+        "file": "youtube_dl/extractor/clipsyndicate.py",
+        "start_line": 6,
+        "end_line": 6,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/extractor/clipsyndicate.py",
+        "start_line": 36,
+        "end_line": 36,
+        "function_name": "_real_extract",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/extractor/metacritic.py",
+        "start_line": 7,
+        "end_line": 7,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/extractor/metacritic.py",
+        "start_line": 30,
+        "end_line": 30,
+        "function_name": "_real_extract",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/extractor/mtv.py",
+        "start_line": 86,
+        "end_line": 88,
+        "function_name": "fix_ampersand",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/extractor/mtv.py",
+        "start_line": 91,
+        "end_line": 91,
+        "function_name": "_get_videos_info",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/utils.py",
+        "start_line": 1095,
+        "end_line": 1095,
+        "function_name": "fix_xml_all_ampersand",
+        "class_name": ""
+      },
+      {
+        "file": "youtube_dl/utils.py",
+        "start_line": 1097,
+        "end_line": 1097,
+        "function_name": "fix_xml_all_ampersand",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q test.test_utils.TestUtil.test_fix_xml_ampersands"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

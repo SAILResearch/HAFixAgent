@@ -1,0 +1,220 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "56",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 01:51:45",
+      "end_time": "2025-10-01 01:53:23",
+      "duration_seconds": 98,
+      "duration_human": "1m 38s"
+    },
+    "model_cost": 0.0118,
+    "model_calls": 12,
+    "token_usage": {
+      "input_tokens": 109372,
+      "output_tokens": 1637,
+      "total_tokens": 111009,
+      "cached_input_tokens": 92928,
+      "uncached_input_tokens": 16444
+    },
+    "agent_steps": 13,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\nindex c27ea729e..1be8e0d4a 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n@@ -228,13 +228,13 @@ public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>\n                 return Pattern.compile(value);\n             case STD_LOCALE:\n                 {\n-                    int ix = value.indexOf('_');\n+                    int ix = Math.max(value.indexOf('_'), value.indexOf('-'));\n                     if (ix < 0) { // single argument\n                         return new Locale(value);\n                     }\n                     String first = value.substring(0, ix);\n                     value = value.substring(ix+1);\n-                    ix = value.indexOf('_');\n+                    ix = Math.max(value.indexOf('_'), value.indexOf('-'));\n                     if (ix < 0) { // two pieces\n                         return new Locale(first, value);\n                     }\n"
+  },
+  "timestamp": "2025-09-30 21:53:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_56",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_56",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Deserializing locale assumes JDK separator (underscore), does not accept RFC specified (hyphen)\nWhen deserializing a locale Jackson currently uses the underscore character as the separator rather than the dash.  Specifically, in FromStringDeserializer.java line 234:\n\n```\nint ix = value.indexOf('_');\n```\n\nMany locale implementations use dash as the separator as per https://tools.ietf.org/html/rfc5646\n\nGiven the RFC states that only the characters a-z A-Z and - are valid it should be possible to leave the current code in for backward-compatibility but it should also check for  '-' as a separator.\n\n",
+    "commit_message": "Fix #1344",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java",
+        "start_line": 231,
+        "end_line": 231,
+        "line_numbers": [
+          231
+        ],
+        "function_name": "_deserialize",
+        "class_name": "Std",
+        "filename": "FromStringDeserializer.java",
+        "code_snippet": "        protected Object _deserialize(String value, DeserializationContext ctxt) throws IOException\n        {\n            switch (_kind) {\n            case STD_FILE:\n                return new File(value);\n            case STD_URL:\n                return new URL(value);\n            case STD_URI:\n                return URI.create(value);\n            case STD_CLASS:\n                try {\n                    return ctxt.findClass(value);\n                } catch (Exception e) {\n                    throw ctxt.instantiationException(_valueClass, ClassUtil.getRootCause(e));\n                }\n            case STD_JAVA_TYPE:\n                return ctxt.getTypeFactory().constructFromCanonical(value);\n            case STD_CURRENCY:\n                // will throw IAE if unknown:\n                return Currency.getInstance(value);\n            case STD_PATTERN:\n                // will throw IAE (or its subclass) if malformed\n                return Pattern.compile(value);\n            case STD_LOCALE:\n                {\n                    int ix = value.indexOf('_');\n                    if (ix < 0) { // single argument\n                        return new Locale(value);\n                    }\n                    String first = value.substring(0, ix);\n                    value = value.substring(ix+1);\n                    ix = value.indexOf('_');\n                    if (ix < 0) { // two pieces\n                        return new Locale(first, value);\n                    }\n                    String second = value.substring(0, ix);\n                    return new Locale(first, second, value.substring(ix+1));\n                }\n            case STD_CHARSET:\n                return Charset.forName(value);\n            case STD_TIME_ZONE:\n                return TimeZone.getTimeZone(value);\n            case STD_INET_ADDRESS:\n                return InetAddress.getByName(value);\n            case STD_INET_SOCKET_ADDRESS:\n                if (value.startsWith(\"[\")) {\n                    // bracketed IPv6 (with port number)\n\n                    int i = value.lastIndexOf(']');\n                    if (i == -1) {\n                        throw new InvalidFormatException(ctxt.getParser(),\n                                \"Bracketed IPv6 address must contain closing bracket\",\n                                value, InetSocketAddress.class);\n                    }\n\n                    int j = value.indexOf(':', i);\n                    int port = j > -1 ? Integer.parseInt(value.substring(j + 1)) : 0;\n                    return new InetSocketAddress(value.substring(0, i + 1), port);\n                } else {\n                    int ix = value.indexOf(':');\n                    if (ix >= 0 && value.indexOf(':', ix + 1) < 0) {\n                        // host:port\n                        int port = Integer.parseInt(value.substring(ix+1));\n                        return new InetSocketAddress(value.substring(0, ix), port);\n                    }\n                    // host or unbracketed IPv6, without port number\n                    return new InetSocketAddress(value, 0);\n                }\n            }\n            throw new IllegalArgumentException();\n        }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java",
+        "start_line": 237,
+        "end_line": 237,
+        "line_numbers": [
+          237
+        ],
+        "function_name": "_deserialize",
+        "class_name": "Std",
+        "filename": "FromStringDeserializer.java",
+        "code_snippet": "        protected Object _deserialize(String value, DeserializationContext ctxt) throws IOException\n        {\n            switch (_kind) {\n            case STD_FILE:\n                return new File(value);\n            case STD_URL:\n                return new URL(value);\n            case STD_URI:\n                return URI.create(value);\n            case STD_CLASS:\n                try {\n                    return ctxt.findClass(value);\n                } catch (Exception e) {\n                    throw ctxt.instantiationException(_valueClass, ClassUtil.getRootCause(e));\n                }\n            case STD_JAVA_TYPE:\n                return ctxt.getTypeFactory().constructFromCanonical(value);\n            case STD_CURRENCY:\n                // will throw IAE if unknown:\n                return Currency.getInstance(value);\n            case STD_PATTERN:\n                // will throw IAE (or its subclass) if malformed\n                return Pattern.compile(value);\n            case STD_LOCALE:\n                {\n                    int ix = value.indexOf('_');\n                    if (ix < 0) { // single argument\n                        return new Locale(value);\n                    }\n                    String first = value.substring(0, ix);\n                    value = value.substring(ix+1);\n                    ix = value.indexOf('_');\n                    if (ix < 0) { // two pieces\n                        return new Locale(first, value);\n                    }\n                    String second = value.substring(0, ix);\n                    return new Locale(first, second, value.substring(ix+1));\n                }\n            case STD_CHARSET:\n                return Charset.forName(value);\n            case STD_TIME_ZONE:\n                return TimeZone.getTimeZone(value);\n            case STD_INET_ADDRESS:\n                return InetAddress.getByName(value);\n            case STD_INET_SOCKET_ADDRESS:\n                if (value.startsWith(\"[\")) {\n                    // bracketed IPv6 (with port number)\n\n                    int i = value.lastIndexOf(']');\n                    if (i == -1) {\n                        throw new InvalidFormatException(ctxt.getParser(),\n                                \"Bracketed IPv6 address must contain closing bracket\",\n                                value, InetSocketAddress.class);\n                    }\n\n                    int j = value.indexOf(':', i);\n                    int port = j > -1 ? Integer.parseInt(value.substring(j + 1)) : 0;\n                    return new InetSocketAddress(value.substring(0, i + 1), port);\n                } else {\n                    int ix = value.indexOf(':');\n                    if (ix >= 0 && value.indexOf(':', ix + 1) < 0) {\n                        // host:port\n                        int port = Integer.parseInt(value.substring(ix+1));\n                        return new InetSocketAddress(value.substring(0, ix), port);\n                    }\n                    // host or unbracketed IPv6, without port number\n                    return new InetSocketAddress(value, 0);\n                }\n            }\n            throw new IllegalArgumentException();\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestJdkTypes::testLocale"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\nindex e27d6a9dc..c27ea729e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n@@ -228,13 +228,13 @@ public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>\n                 return Pattern.compile(value);\n             case STD_LOCALE:\n                 {\n+                    int ix = _firstHyphenOrUnderscore(value);\n-                    int ix = value.indexOf('_');\n                     if (ix < 0) { // single argument\n                         return new Locale(value);\n                     }\n                     String first = value.substring(0, ix);\n                     value = value.substring(ix+1);\n+                    ix = _firstHyphenOrUnderscore(value);\n-                    ix = value.indexOf('_');\n                     if (ix < 0) { // two pieces\n                         return new Locale(first, value);\n                     }\n@@ -289,15 +289,5 @@ public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>\n         }\n \n \n+        protected int _firstHyphenOrUnderscore(String str)\n+        {\n+            for (int i = 0, end = str.length(); i < end; ++i) {\n+                char c = str.charAt(i);\n+                if (c == '_' || c == '-') {\n+                    return i;\n+                }\n+            }\n+            return -1;\n+        }\n     }\n }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2014-01-01 15:56:19",
+        "commit_message": "Combine a bunch of simple \"from-string\" deserialziers",
+        "commit_hash": "845897f6970c70f35ddd880d538765ec5a2956f4"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "_deserialize",
+          "FromStringDeserializer",
+          "Std",
+          "findDeserializer",
+          "_deserializeEmbedded",
+          "deserialize"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "StringDeserializer",
+          "_fromBytes",
+          "FromStringDeserializer",
+          "UUIDDeserializer",
+          "deserializeWithType",
+          "_deserialize",
+          "mapObject",
+          "unwrappingDeserializer",
+          "PatternDeserializer",
+          "InetAddressDeserializer",
+          "deserialize",
+          "_long",
+          "handleNonArray",
+          "URIDeserializer",
+          "URLDeserializer",
+          "findDeserializer",
+          "CurrencyDeserializer",
+          "_deserializeEmbedded",
+          "deserializeFromObject",
+          "ThrowableDeserializer",
+          "createContextual",
+          "_int",
+          "FileDeserializer",
+          "Std",
+          "_parse",
+          "mapArray",
+          "LocaleDeserializer"
+        ],
+        "functions_name_modified_file": [
+          "_deserialize",
+          "FromStringDeserializer",
+          "Std",
+          "findDeserializer",
+          "_deserializeEmbedded",
+          "deserialize"
+        ],
+        "functions_name_all_files": [
+          "getContentDeserializer",
+          "ByteKD",
+          "_parseDouble",
+          "InetSocketAddressDeserializer",
+          "resolve",
+          "StringDeserializer",
+          "StringKD",
+          "LongKD",
+          "_fromBytes",
+          "FromStringDeserializer",
+          "_badFormat",
+          "TokenBufferDeserializer",
+          "StringCollectionDeserializer",
+          "UUIDDeserializer",
+          "JavaTypeDeserializer",
+          "_findCustomDeser",
+          "DoubleKD",
+          "withResolved",
+          "_parseLong",
+          "DateKD",
+          "deserializeWithType",
+          "_deserialize",
+          "byteFromChars",
+          "mapObject",
+          "deserializeKey",
+          "unwrappingDeserializer",
+          "_badChar",
+          "InetAddressDeserializer",
+          "UntypedObjectDeserializer",
+          "_withResolved",
+          "deserialize",
+          "_long",
+          "CharKD",
+          "JdkDeserializers",
+          "IntKD",
+          "handleNonArray",
+          "FloatKD",
+          "findDeserializer",
+          "shortFromChars",
+          "UuidKD",
+          "_deserializeEmbedded",
+          "StdKeyDeserializer",
+          "StringArrayDeserializer",
+          "deserializeFromObject",
+          "getKeyClass",
+          "getContentType",
+          "ThrowableDeserializer",
+          "CalendarKD",
+          "StringCtorKeyDeserializer",
+          "createContextual",
+          "DelegatingKD",
+          "createBufferInstance",
+          "find",
+          "_int",
+          "ShortKD",
+          "Std",
+          "_parseInt",
+          "StringFactoryKeyDeserializer",
+          "deserializeUsingCustom",
+          "intFromChars",
+          "LocaleKD",
+          "BoolKD",
+          "_parse",
+          "forType",
+          "mapArray",
+          "EnumKD"
+        ],
+        "function_code_before": "                T result = _deserialize(text, ctxt);\n                if (result != null) {\n                    return result;\n                }",
+        "function_code_after": "        protected Object _deserialize(String value, DeserializationContext ctxt) throws IOException\n        {\n            switch (_kind) {\n            case STD_FILE:\n                return new File(value);\n            case STD_URL:\n                return new URL(value);\n            case STD_URI:\n                return URI.create(value);\n            case STD_CURRENCY:\n                // will throw IAE if unknown:\n                return Currency.getInstance(value);\n            case STD_PATTERN:\n                // will throw IAE (or its subclass) if malformed\n                return Pattern.compile(value);\n            case STD_LOCALE:\n                {\n                    int ix = value.indexOf('_');\n                    if (ix < 0) { // single argument\n                        return new Locale(value);\n                    }\n                    String first = value.substring(0, ix);\n                    value = value.substring(ix+1);\n                    ix = value.indexOf('_');\n                    if (ix < 0) { // two pieces\n                        return new Locale(first, value);\n                    }\n                    String second = value.substring(0, ix);\n                    return new Locale(first, second, value.substring(ix+1));\n                }\n            }\n            throw new IllegalArgumentException();\n        }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/InetAddressDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/InetSocketAddressDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/JavaTypeDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/JdkDeserializers.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StdKeyDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StringDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/ThrowableDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/TokenBufferDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/UUIDDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\nindex 223b242f3..a234c22f0 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java\n@@ -1,24 +1,68 @@\n package com.fasterxml.jackson.databind.deser.std;\n \n import java.io.*;\n+import java.net.URI;\n+import java.net.URL;\n+import java.util.Currency;\n+import java.util.Locale;\n+import java.util.regex.Pattern;\n \n import com.fasterxml.jackson.core.*;\n-\n import com.fasterxml.jackson.databind.DeserializationContext;\n \n /**\n  * Base class for simple deserializers that only accept JSON String\n  * values as the source.\n  */\n-public abstract class FromStringDeserializer<T>\n-    extends StdScalarDeserializer<T>\n+@SuppressWarnings(\"serial\")\n+public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>\n {\n-    private static final long serialVersionUID = 1L;\n-\n+    public static Class<?>[] types() {\n+        return new Class<?>[] {\n+            URL.class,\n+            URI.class,\n+            File.class,\n+            Currency.class,\n+            Pattern.class,\n+            Locale.class,\n+        };\n+    }\n+    \n+    /*\n+    /**********************************************************\n+    /* Deserializer implementations\n+    /**********************************************************\n+     */\n+    \n     protected FromStringDeserializer(Class<?> vc) {\n         super(vc);\n     }\n \n+    /**\n+     * Factory method for trying to find a deserializer for one of supported\n+     * types that have simple from-String serialization.\n+     */\n+    public static Std findDeserializer(Class<?> rawType)\n+    {\n+        int kind = 0;\n+        if (rawType == File.class) {\n+            kind = Std.STD_FILE;\n+        } else if (rawType == URL.class) {\n+            kind = Std.STD_URL;\n+        } else if (rawType == URI.class) {\n+            kind = Std.STD_URI;\n+        } else if (rawType == Currency.class) {\n+            kind = Std.STD_CURRENCY;\n+        } else if (rawType == Pattern.class) {\n+            kind = Std.STD_PATTERN;\n+        } else if (rawType == Locale.class) {\n+            kind = Std.STD_LOCALE;\n+        } else {\n+            return null;\n+        }\n+        return new Std(rawType, kind);\n+    }\n+    \n     /*\n     /**********************************************************\n     /* Deserializer implementations\n@@ -27,8 +71,7 @@ public abstract class FromStringDeserializer<T>\n     \n     @SuppressWarnings(\"unchecked\")\n     @Override\n-    public final T deserialize(JsonParser jp, DeserializationContext ctxt)\n-        throws IOException, JsonProcessingException\n+    public final T deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n     {\n         // 22-Sep-2012, tatu: For 2.1, use this new method, may force coercion:\n         String text = jp.getValueAsString();\n@@ -61,15 +104,77 @@ public abstract class FromStringDeserializer<T>\n         throw ctxt.mappingException(_valueClass);\n     }\n         \n-    protected abstract T _deserialize(String value, DeserializationContext ctxt)\n-        throws IOException, JsonProcessingException;\n+    protected abstract T _deserialize(String value, DeserializationContext ctxt) throws IOException;\n \n-    protected T _deserializeEmbedded(Object ob, DeserializationContext ctxt)\n-        throws IOException, JsonProcessingException\n-    {\n+    protected T _deserializeEmbedded(Object ob, DeserializationContext ctxt) throws IOException {\n         // default impl: error out\n-        throw ctxt.mappingException(\"Don't know how to convert embedded Object of type \"\n-                +ob.getClass().getName()+\" into \"+_valueClass.getName());\n+        throw ctxt.mappingException(\"Don't know how to convert embedded Object of type \"+ob.getClass().getName()+\" into \"+_valueClass.getName());\n     }\n \n+    /*\n+    /**********************************************************\n+    /* A general-purpose implementation\n+    /**********************************************************\n+     */\n+\n+    /**\n+     * \"Chameleon\" deserializer that works on simple types that are deserialized\n+     * from a simple String.\n+     * \n+     * @since 2.4\n+     */\n+    public static class Std extends FromStringDeserializer<Object>\n+    {\n+        private static final long serialVersionUID = 1;\n+\n+        public final static int STD_FILE = 1;\n+        public final static int STD_URL = 2;\n+        public final static int STD_URI = 3;\n+        public final static int STD_CURRENCY = 4;\n+        public final static int STD_PATTERN = 5;\n+        public final static int STD_LOCALE = 6;\n+        \n+        protected final int _kind;\n+        \n+        protected Std(Class<?> valueType, int kind) {\n+            super(valueType);\n+            _kind = kind;\n+        }\n+\n+        @Override\n+        protected Object _deserialize(String value, DeserializationContext ctxt) throws IOException\n+        {\n+            switch (_kind) {\n+            case STD_FILE:\n+                return new File(value);\n+            case STD_URL:\n+                return new URL(value);\n+            case STD_URI:\n+                return URI.create(value);\n+            case STD_CURRENCY:\n+                // will throw IAE if unknown:\n+                return Currency.getInstance(value);\n+            case STD_PATTERN:\n+                // will throw IAE (or its subclass) if malformed\n+                return Pattern.compile(value);\n+            case STD_LOCALE:\n+                {\n+                    int ix = value.indexOf('_');\n+                    if (ix < 0) { // single argument\n+                        return new Locale(value);\n+                    }\n+                    String first = value.substring(0, ix);\n+                    value = value.substring(ix+1);\n+                    ix = value.indexOf('_');\n+                    if (ix < 0) { // two pieces\n+                        return new Locale(first, value);\n+                    }\n+                    String second = value.substring(0, ix);\n+                    return new Locale(first, second, value.substring(ix+1));\n+                }\n+            }\n+            throw new IllegalArgumentException();\n+        }\n+        \n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

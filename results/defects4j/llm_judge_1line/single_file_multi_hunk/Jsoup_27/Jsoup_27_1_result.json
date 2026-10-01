@@ -1,0 +1,63 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "27",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 16:41:02",
+      "end_time": "2025-09-30 16:46:22",
+      "duration_seconds": 320,
+      "duration_human": "5m 20s"
+    },
+    "model_cost": 0.0333,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 406974,
+      "output_tokens": 5027,
+      "total_tokens": 412001,
+      "cached_input_tokens": 394304,
+      "uncached_input_tokens": 12670
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex f978141e..304063b3 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -129,8 +129,16 @@ public class DataUtil {\n         Matcher m = charsetPattern.matcher(contentType);\n         if (m.find()) {\n             String charset = m.group(1).trim();\n-            charset = charset.toUpperCase(Locale.ENGLISH);\n-            return charset;\n+            \n+            try {\n+                if (Charset.isSupported(charset)) {\n+                    return charset;\n+                } else {\n+                    return null;\n+                }\n+            } catch (IllegalArgumentException e) {\n+                return null;\n+            }\n         }\n         return null;\n     }\n"
+  },
+  "timestamp": "2025-09-30 16:46:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_27",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_27",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Invalid HTTP-Response header leads to exception\nIn particular case a HTTP-Webpage responses with a invalid HTTP-Charset field (delivered UFT8 instead of UTF8).\nThis leads to an UnsupportedCharsetException in org.jsoup.helper.DataUtil at around Line 93(?) where :\n\n``` Java\n  Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n  docData = Charset.forName(charsetName).decode(byteData).toString();\n```\n\nI fixed it by wrapping a try catch statement around these two lines such that:\n\n``` Java\ntry{\n  Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n  docData = Charset.forName(charsetName).decode(byteData).toString();\n} catch(UnsupportedCharsetException e){\n  return parseByteData(byteData,(String)null,baseUri,parser);\n}\n```\n\nIt now falls back to the none charset argument assigned clause, and tries to detect the character set via HTML.\n\n",
+    "commit_message": "If the charset from the server is not supported, fail-back to UTF8.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 133,
+        "end_line": 133,
+        "line_numbers": [
+          133
+        ],
+        "function_name": "getCharsetFromContentType",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static String getCharsetFromContentType(String contentType) {\n        if (contentType == null) return null;\n        Matcher m = charsetPattern.matcher(contentType);\n        if (m.find()) {\n            String charset = m.group(1).trim();\n            charset = charset.toUpperCase(Locale.ENGLISH);\n            return charset;\n        }\n        return null;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::testCharset",
+      "org.jsoup.helper.DataUtilTest::testQuotedCharset"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex a4d4f51..f978141 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -129,9 +129,8 @@ public class DataUtil {\n         Matcher m = charsetPattern.matcher(contentType);\n         if (m.find()) {\n             String charset = m.group(1).trim();\n+            if (Charset.isSupported(charset)) return charset;\n             charset = charset.toUpperCase(Locale.ENGLISH);\n+            if (Charset.isSupported(charset)) return charset;\n-            return charset;\n         }\n         return null;\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

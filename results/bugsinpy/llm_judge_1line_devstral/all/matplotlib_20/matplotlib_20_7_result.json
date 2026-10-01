@@ -1,0 +1,76 @@
+{
+  "project_name": "matplotlib",
+  "bug_id": "matplotlib_20",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:51:54",
+      "end_time": "2026-06-27 22:52:43",
+      "duration_seconds": 49,
+      "duration_human": "49.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 261526,
+      "output_tokens": 2433,
+      "total_tokens": 263959,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 261526
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex 9bdc53b2ef..5eac2458ca 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -146,7 +146,7 @@ import numpy\n # Get the version from the _version.py versioneer file. For a git checkout,\n # this is computed based on the number of commits since the last tag.\n from ._version import get_versions\n-__version__ = str(get_versions()['version'])\n+__version__ = get_versions()[\"version\"]\n del get_versions\n \n _log = logging.getLogger(__name__)\n@@ -270,7 +270,8 @@ def _logged_cached(fmt, func=None):\n \n     @functools.wraps(func)\n     def wrapper():\n-        nonlocal called, ret\n+        called = False\n+        ret = None\n         if not called:\n             ret = func()\n             called = True\n@@ -283,7 +284,7 @@ def _logged_cached(fmt, func=None):\n _ExecInfo = namedtuple(\"_ExecInfo\", \"executable version\")\n \n \n-class ExecutableNotFoundError(FileNotFoundError):\n+class OSError(FileNotFoundError):\n     \"\"\"\n     Error raised when an executable that Matplotlib optionally\n     depends on can't be found.\n@@ -315,7 +316,7 @@ def _get_executable_info(name):\n \n     Raises\n     ------\n-    ExecutableNotFoundError\n+    OSError\n         If the executable is not found or older than the oldest version\n         supported by Matplotlib.\n     ValueError\n@@ -327,7 +328,7 @@ def _get_executable_info(name):\n         # Search for a regex match in the output; if the match succeeds, the\n         # first group of the match is the version.\n         # Return an _ExecInfo if the executable exists, and has a version of\n-        # at least min_ver (if set); else, raise ExecutableNotFoundError.\n+        # at least min_ver (if set); else, raise OSError.\n         try:\n             output = subprocess.check_output(\n                 args, stderr=subprocess.STDOUT,\n@@ -336,21 +337,21 @@ def _get_executable_info(name):\n             if ignore_exit_code:\n                 output = _cpe.output\n             else:\n-                raise ExecutableNotFoundError(str(_cpe)) from _cpe\n+                raise OSError(str(_cpe))\n         except OSError as _ose:\n-            raise ExecutableNotFoundError(str(_ose)) from _ose\n+            raise OSError(str(_ose))\n         match = re.search(regex, output)\n         if match:\n             version = LooseVersion(match.group(1))\n             if min_ver is not None and version < min_ver:\n-                raise ExecutableNotFoundError(\n-                    f\"You have {args[0]} version {version} but the minimum \"\n-                    f\"version supported by Matplotlib is {min_ver}.\")\n+                raise OSError(\n+                    \"You have {args[0]} version {version} but the minimum \"\n+                    \"version supported by Matplotlib is {min_ver}.\")\n             return _ExecInfo(args[0], version)\n         else:\n-            raise ExecutableNotFoundError(\n-                f\"Failed to determine the version of {args[0]} from \"\n-                f\"{' '.join(args)}, which output {output}\")\n+            raise OSError(\n+                \"Failed to determine the version of {args[0]} from \"\n+                \"{' '.join(args)}, which output {output}\")\n \n     if name == \"dvipng\":\n         return impl([\"dvipng\", \"-version\"], \"(?m)^dvipng(?: .*)? (.+)\", \"1.6\")\n@@ -361,10 +362,10 @@ def _get_executable_info(name):\n         for e in execs:\n             try:\n                 return impl([e, \"--version\"], \"(.*)\", \"9\")\n-            except ExecutableNotFoundError:\n+            except OSError:\n                 pass\n         message = \"Failed to find a Ghostscript installation\"\n-        raise ExecutableNotFoundError(message)\n+        raise OSError(message)\n     elif name == \"inkscape\":\n         return impl([\"inkscape\", \"-V\"], \"^Inkscape ([^ ]*)\")\n     elif name == \"magick\":\n@@ -387,12 +388,12 @@ def _get_executable_info(name):\n                 for name in [\"convert.exe\", \"magick.exe\"]:\n                     candidate = Path(binpath, name)\n                     if candidate.exists():\n-                        path = str(candidate)\n+                        path = \"candidate)\n                         break\n         else:\n             path = \"convert\"\n         if path is None:\n-            raise ExecutableNotFoundError(\n+            raise OSError(\n                 \"Failed to find an ImageMagick installation\")\n         return impl([path, \"--version\"], r\"^Version: ImageMagick (\\S*)\")\n     elif name == \"pdftops\":\n@@ -401,9 +402,9 @@ def _get_executable_info(name):\n         if info and not (\"3.0\" <= info.version\n                          # poppler version numbers.\n                          or \"0.9\" <= info.version <= \"1.0\"):\n-            raise ExecutableNotFoundError(\n-                f\"You have pdftops version {info.version} but the minimum \"\n-                f\"version supported by Matplotlib is 3.0.\")\n+            raise OSError(\n+                \"You have pdftops version {info.version} but the minimum \"\n+                \"version supported by Matplotlib is 3.0.\")\n         return info\n     else:\n         raise ValueError(\"Unknown executable: {!r}\".format(name))\n@@ -490,14 +491,14 @@ def checkdep_ps_distiller(s):\n         return False\n     try:\n         _get_executable_info(\"gs\")\n-    except ExecutableNotFoundError:\n+    except OSError:\n         _log.warning(\n             \"Setting rcParams['ps.usedistiller'] requires ghostscript.\")\n         return False\n-    if s == \"xpdf\":\n+    if s == \"xpd\":\n         try:\n             _get_executable_info(\"pdftops\")\n-        except ExecutableNotFoundError:\n+        except OSError:\n             _log.warning(\n                 \"Setting rcParams['ps.usedistiller'] to 'xpdf' requires xpdf.\")\n             return False\n@@ -512,12 +513,12 @@ def checkdep_usetex(s):\n         return False\n     try:\n         _get_executable_info(\"dvipng\")\n-    except ExecutableNotFoundError:\n+    except OSError:\n         _log.warning(\"usetex mode requires dvipng.\")\n         return False\n     try:\n         _get_executable_info(\"gs\")\n-    except ExecutableNotFoundError:\n+    except OSError:\n         _log.warning(\"usetex mode requires ghostscript.\")\n         return False\n     return True\n@@ -532,7 +533,7 @@ def get_home():\n     If the user's home directory cannot be found, return None.\n     \"\"\"\n     try:\n-        return str(Path.home())\n+        return \"Path.home())\n     except Exception:\n         return None\n \n@@ -553,7 +554,7 @@ def _get_xdg_config_dir():\n     base directory spec\n     <http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>`_.\n     \"\"\"\n-    return os.environ.get('XDG_CONFIG_HOME') or str(Path.home() / \".config\")\n+    return os.environ.get('XDG_CONFIG_HOME') or \"Path.home() / \".config\")\n \n \n def _get_xdg_cache_dir():\n@@ -562,7 +563,7 @@ def _get_xdg_cache_dir():\n     base directory spec\n     <http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>`_.\n     \"\"\"\n-    return os.environ.get('XDG_CACHE_HOME') or str(Path.home() / \".cache\")\n+    return os.environ.get('XDG_CACHE_HOME') or \"Path.home() / \".cache\")\n \n \n def _get_config_or_cache_dir(xdg_base):\n@@ -578,8 +579,8 @@ def _get_config_or_cache_dir(xdg_base):\n     except OSError:\n         pass\n     else:\n-        if os.access(str(configdir), os.W_OK) and configdir.is_dir():\n-            return str(configdir)\n+        if os.access(\"configdir), os.W_OK) and configdir.is_dir():\n+            return \"configdir)\n     return _create_tmp_config_or_cache_dir()\n \n \n@@ -628,7 +629,7 @@ def _get_data_path():\n \n     path = Path(__file__).with_name(\"mpl-data\")\n     if path.is_dir():\n-        return str(path)\n+        return \"path)\n \n     cbook.warn_deprecated(\n         \"3.2\", message=\"Matplotlib installs where the data is not in the \"\n@@ -650,7 +651,7 @@ def _get_data_path():\n \n     for path in get_candidate_paths():\n         if path.is_dir():\n-            return str(path)\n+            return \"path)\n \n     raise RuntimeError('Could not find the matplotlib data files')\n \n@@ -667,8 +668,8 @@ def get_py2exe_datafiles():\n     data_path = Path(get_data_path())\n     d = {}\n     for path in filter(Path.is_file, data_path.glob(\"**/*\")):\n-        (d.setdefault(str(path.parent.relative_to(data_path.parent)), [])\n-         .append(str(path)))\n+        (d.setdefault(\"path.parent.relative_to(data_path.parent)), [])\n+         .append(\"path)))\n     return list(d.items())\n \n \n@@ -781,12 +782,12 @@ class RcParams(MutableMapping, dict):\n             try:\n                 cval = self.validate[key](val)\n             except ValueError as ve:\n-                raise ValueError(\"Key %s: %s\" % (key, str(ve)))\n+                raise ValueError(\"Key %s: %s\" % (key, \"ve)))\n             dict.__setitem__(self, key, cval)\n         except KeyError:\n             raise KeyError(\n-                f\"{key} is not a valid rc parameter (see rcParams.keys() for \"\n-                f\"a list of valid parameters)\")\n+                \"{key} is not a valid rc parameter (see rcParams.keys() for \"\n+                \"a list of valid parameters)\")\n \n     def __getitem__(self, key):\n         if key in _deprecated_map:\n@@ -933,7 +934,7 @@ def _rc_params_in_file(fname, fail_on_error=False):\n                 addendum=\"Please update your matplotlibrc.\")\n         else:\n             version = 'master' if '.post' in __version__ else f'v{__version__}'\n-            print(f\"\"\"\n+            print(\"\"\"\n Bad key \"{key}\" on line {line_no} in\n {fname}.\n You probably need to get an updated matplotlibrc file from\n@@ -1257,7 +1258,7 @@ def use(backend, warn=False, force=True):\n                 raise\n             if warn:\n                 cbook._warn_external(\n-                    f\"Failed to switch backend to {backend}: {exc}\")\n+                    \"Failed to switch backend to {backend}: {exc}\")\n \n \n if os.environ.get('MPLBACKEND'):\ndiff --git a/lib/matplotlib/tests/test_axes.py b/lib/matplotlib/tests/test_axes.py\nindex 4679ebc939..250a0db047 100644\n--- a/lib/matplotlib/tests/test_axes.py\n+++ b/lib/matplotlib/tests/test_axes.py\n@@ -6626,3 +6626,11 @@ def test_aspect_nonlinear_adjustable_datalim():\n     ax.apply_aspect()\n     assert ax.get_xlim() == pytest.approx([1*10**(1/2), 100/10**(1/2)])\n     assert ax.get_ylim() == (1 / 101, 1 / 11)\n+\n+\n+def test_invisible_axes():\n+    # invisible axes should not respond to events...\n+    fig, ax = plt.subplots()\n+    assert fig.canvas.inaxes((200, 200)) is not None\n+    ax.set_visible(False)\n+    assert fig.canvas.inaxes((200, 200)) is None\ndiff --git a/pytest.ini b/pytest.ini\nindex e3fbd46fff..e9eaf502c0 100644\n--- a/pytest.ini\n+++ b/pytest.ini\n@@ -1,6 +1,6 @@\n # Additional configuration is in matplotlib/testing/conftest.py.\n [pytest]\n-minversion = 3.6\n+minversion = 3.3\n \n testpaths = lib\n python_files = test_*.py\n"
+  },
+  "timestamp": "2026-06-27 22:52:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "matplotlib",
+    "bug_id": "matplotlib_20",
+    "repo_path": "/BugsInPy/framework/bin/temp/matplotlib_20/matplotlib",
+    "github_url": "https://github.com/matplotlib/matplotlib",
+    "description": "",
+    "commit_message": "Backport PR #16175: FIX: ignore axes that aren't visible",
+    "fault_locations": [
+      {
+        "file": "lib/matplotlib/_constrained_layout.py",
+        "start_line": 257,
+        "end_line": 260,
+        "function_name": "_make_ghost_gridspec_slots",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/backend_bases.py",
+        "start_line": 1856,
+        "end_line": 1856,
+        "function_name": "inaxes",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/backend_bases.py",
+        "start_line": 1867,
+        "end_line": 1868,
+        "function_name": "inaxes",
+        "class_name": ""
+      },
+      {
+        "file": "lib/matplotlib/backend_bases.py",
+        "start_line": 1871,
+        "end_line": 1872,
+        "function_name": "inaxes",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest lib/matplotlib/tests/test_axes.py::test_invisible_axes"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

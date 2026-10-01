@@ -1,0 +1,192 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_28",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 10:50:20",
+      "end_time": "2026-06-29 10:54:19",
+      "duration_seconds": 240,
+      "duration_human": "4m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 44,
+    "token_usage": {
+      "input_tokens": 1088801,
+      "output_tokens": 11722,
+      "total_tokens": 1100523,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1088801
+    },
+    "agent_steps": 44,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/preprocessing/sequence.py b/keras/preprocessing/sequence.py\nindex 03906c04a..7bfe97a95 100644\n--- a/keras/preprocessing/sequence.py\n+++ b/keras/preprocessing/sequence.py\n@@ -326,9 +326,15 @@ class TimeseriesGenerator(Sequence):\n         self.reverse = reverse\n         self.batch_size = batch_size\n \n+        if self.start_index > self.end_index:\n+            raise ValueError('`start_index+length=%i > end_index=%i` '\n+                             'is disallowed, as no part of the sequence '\n+                             'would be left to be used as current step.'\n+                             % (self.start_index, self.end_index))\n+\n     def __len__(self):\n         return int(np.ceil(\n-            (self.end_index - self.start_index) /\n+            (self.end_index - self.start_index + 1) /\n             (self.batch_size * self.stride)))\n \n     def _empty_batch(self, num_rows):\n@@ -341,11 +347,11 @@ class TimeseriesGenerator(Sequence):\n     def __getitem__(self, index):\n         if self.shuffle:\n             rows = np.random.randint(\n-                self.start_index, self.end_index, size=self.batch_size)\n+                self.start_index, self.end_index + 1, size=self.batch_size)\n         else:\n             i = self.start_index + self.batch_size * self.stride * index\n             rows = np.arange(i, min(i + self.batch_size *\n-                                    self.stride, self.end_index), self.stride)\n+                                    self.stride, self.end_index + 1), self.stride)\n \n         samples, targets = self._empty_batch(len(rows))\n         for j, row in enumerate(rows):\ndiff --git a/tests/keras/preprocessing/sequence_test.py b/tests/keras/preprocessing/sequence_test.py\nindex b219baab6..c80a6536e 100644\n--- a/tests/keras/preprocessing/sequence_test.py\n+++ b/tests/keras/preprocessing/sequence_test.py\n@@ -1,5 +1,7 @@\n+from math import ceil\n+\n import numpy as np\n-from numpy.testing import assert_allclose\n+from numpy.testing import assert_allclose, assert_raises\n \n import pytest\n \n@@ -152,7 +154,7 @@ def test_TimeseriesGenerator():\n                                    length=10, sampling_rate=2,\n                                    start_index=10, end_index=30,\n                                    batch_size=2)\n-    assert len(data_gen) == 5\n+    assert len(data_gen) == 6\n     assert (np.allclose(data_gen[0][0],\n                         np.array([[[10], [12], [14], [16], [18]],\n                                   [[11], [13], [15], [17], [19]]])))\n@@ -165,13 +167,76 @@ def test_TimeseriesGenerator():\n                                    length=10, sampling_rate=2,\n                                    start_index=10, end_index=30,\n                                    batch_size=2)\n-\n-    assert len(data_gen) == 5\n+    assert len(data_gen) == 6\n     assert np.allclose(data_gen[0][0], np.array(\n         [np.array(data[10:19:2]), np.array(data[11:20:2])]))\n     assert (np.allclose(data_gen[0][1],\n                         np.array([targets[20], targets[21]])))\n \n+    with assert_raises(ValueError) as context:\n+        TimeseriesGenerator(data, targets, length=50)\n+    error = str(context.exception)\n+    assert '`start_index+length=50 > end_index=49` is disallowed' in error\n+\n+\n+def test_TimeSeriesGenerator_doesnt_miss_any_sample():\n+    x = np.array([[i] for i in range(10)])\n+\n+    for length in range(3, 10):\n+        g = TimeseriesGenerator(x, x,\n+                                length=length,\n+                                batch_size=1)\n+        expected = max(0, len(x) - length)\n+        actual = len(g)\n+\n+        assert expected == actual\n+\n+        if len(g) > 0:\n+            # All elements in range(length, 10) should be used as current step\n+            expected = np.arange(length, 10).reshape(-1, 1)\n+\n+            y = np.concatenate([g[ix][1] for ix in range(len(g))], axis=0)\n+            assert_allclose(y, expected)\n+\n+    x = np.array([[i] for i in range(23)])\n+\n+    strides = (1, 1, 5, 7, 3, 5, 3)\n+    lengths = (3, 3, 4, 3, 1, 3, 7)\n+    batch_sizes = (6, 6, 6, 5, 6, 6, 6)\n+    shuffles = (False, True, True, False, False, False, False)\n+\n+    for stride, length, batch_size, shuffle in zip(strides,\n+                                                   lengths,\n+                                                   batch_sizes,\n+                                                   shuffles):\n+        g = TimeseriesGenerator(x, x,\n+                                length=length,\n+                                sampling_rate=1,\n+                                stride=stride,\n+                                start_index=0,\n+                                end_index=None,\n+                                shuffle=shuffle,\n+                                reverse=False,\n+                                batch_size=batch_size)\n+        if shuffle:\n+            # all batches have the same size when shuffle is True.\n+            expected_sequences = ceil(\n+                (23 - length) / float(batch_size * stride)) * batch_size\n+        else:\n+            # last batch will be different if `(samples - length) / stride`\n+            # is not a multiple of `batch_size`.\n+            expected_sequences = ceil((23 - length) / float(stride))\n+\n+        expected_batches = ceil(expected_sequences / float(batch_size))\n+\n+        y = [g[ix][1] for ix in range(len(g))]\n+\n+        actual_sequences = sum(len(_y) for _y in y)\n+        actual_batches = len(y)\n+\n+        assert expected_sequences == actual_sequences\n+        assert expected_batches == actual_batches\n+\n \n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-29 10:54:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_28",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_28/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "fix TimeSeriesGenerator glitch (#9899)",
+    "fault_locations": [
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 316,
+        "end_line": 316,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 317,
+        "end_line": 317,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 318,
+        "end_line": 318,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 319,
+        "end_line": 319,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 320,
+        "end_line": 320,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 321,
+        "end_line": 321,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 322,
+        "end_line": 322,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 323,
+        "end_line": 323,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 324,
+        "end_line": 324,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "keras/preprocessing/sequence.py",
+        "start_line": 325,
+        "end_line": 325,
+        "suspiciousness": 0.952381,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/preprocessing/sequence_test.py::test_TimeSeriesGenerator_doesnt_miss_any_sample",
+      "pytest tests/keras/preprocessing/sequence_test.py::test_TimeseriesGenerator"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 316,
+      "end_line": 316,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 317,
+      "end_line": 317,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 318,
+      "end_line": 318,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 319,
+      "end_line": 319,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 320,
+      "end_line": 320,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 321,
+      "end_line": 321,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 322,
+      "end_line": 322,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 323,
+      "end_line": 323,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 324,
+      "end_line": 324,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "keras/preprocessing/sequence.py",
+      "start_line": 325,
+      "end_line": 325,
+      "suspiciousness": 0.952381,
+      "rank": 10
+    }
+  ]
+}

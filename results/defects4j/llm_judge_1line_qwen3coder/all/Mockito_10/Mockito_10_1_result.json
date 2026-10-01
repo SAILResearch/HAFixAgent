@@ -1,0 +1,114 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "10",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:00:54",
+      "end_time": "2026-06-20 00:14:35",
+      "duration_seconds": 820,
+      "duration_human": "13m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 608725,
+      "output_tokens": 3923,
+      "total_tokens": 612648,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 608725
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\nindex e2ded558e..f6c399578 100644\n--- a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\n+++ b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\n@@ -68,7 +68,7 @@ public class ReturnsDeepStubs implements Answer<Object>, Serializable {\n \n         // record deep stub answer\n         return recordDeepStubAnswer(\n-                newDeepStubMock(returnTypeGenericMetadata),\n+                newDeepStubMock(returnTypeGenericMetadata, invocation.getMock()),\n                 container\n         );\n     }\n@@ -84,21 +84,27 @@ public class ReturnsDeepStubs implements Answer<Object>, Serializable {\n      * @param parentMock The parent of the current deep stub mock.\n      * @return The mock\n      */\n-    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata) {\n+    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata, Object parentMock) {\n         return mockitoCore().mock(\n                 returnTypeGenericMetadata.rawType(),\n-                withSettingsUsing(returnTypeGenericMetadata)\n+                withSettingsUsing(returnTypeGenericMetadata, parentMock)\n         );\n     }\n \n-    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata) {\n-        MockSettings mockSettings = returnTypeGenericMetadata.hasRawExtraInterfaces() ?\n-                withSettings().extraInterfaces(returnTypeGenericMetadata.rawExtraInterfaces())\n-                : withSettings();\n-\n-        return mockSettings.serializable()\n-                .defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n-    }\n+    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata, Object parentMock) {\n+        MockSettings mockSettings = returnTypeGenericMetadata.hasRawExtraInterfaces() ?\n+                withSettings().extraInterfaces(returnTypeGenericMetadata.rawExtraInterfaces())\n+                : withSettings();\n+\n+        if (parentMock != null) {\n+            boolean parentIsSerializable = new MockUtil().getMockSettings(parentMock).isSerializable();\n+            if (parentIsSerializable) {\n+                return mockSettings.serializable()\n+                        .defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n+            }\n+        }\n+        return mockSettings.defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n+    }\n \n \n     private ReturnsDeepStubs returnsDeepStubsAnswerUsing(final GenericMetadataSupport returnTypeGenericMetadata) {\n"
+  },
+  "timestamp": "2026-06-20 00:14:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_10",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_10",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "RETURNS_DEEP_STUBS automatically tries to create serializable mocks\nI am just migrating from mockito 1.9.5 to 1.10.5\n\nThe following code runs fine with version 1.9.5. but breaks now:\n\n``` java\n\n  @Test\n  public void test() {\n    ToBeMocked mock = mock(ToBeMocked.class, RETURNS_DEEP_STUBS);\n    assertThat(mock.getSomething()).isNotNull();\n  }\n\n  public static class ToBeMocked {\n\n    NotSerializableReturnValue field1;\n\n    public ToBeMocked(NotSerializableReturnValue field1) {\n      this.field1 = field1;\n    }\n\n    public NotSerializableReturnValue getSomething() {\n      return field1;\n    }\n  }\n\n  public static class NotSerializableReturnValue {\n\n    String field1 = \"\";\n\n    public NotSerializableReturnValue(String field1) {\n      this.field1 = field1;\n    }\n\n    public String getSomething2() {\n      return field1;\n    }\n  }\n```\n\norg.mockito.exceptions.base.MockitoException: \nYou are using the setting 'withSettings().serializable()' however the type you are trying to mock 'NotSerializableReturnValue'\ndo not implement Serializable AND do not have a no-arg constructor.\n\n",
+    "commit_message": "Merge pull request #103 from mockito/fixes-issue-99",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java",
+        "start_line": 71,
+        "end_line": 71,
+        "line_numbers": [
+          71
+        ],
+        "function_name": "deepStub",
+        "class_name": "ReturnsDeepStubs",
+        "filename": "ReturnsDeepStubs.java",
+        "code_snippet": "    private Object deepStub(InvocationOnMock invocation, GenericMetadataSupport returnTypeGenericMetadata) throws Throwable {\n        InternalMockHandler<Object> handler = new MockUtil().getMockHandler(invocation.getMock());\n        InvocationContainerImpl container = (InvocationContainerImpl) handler.getInvocationContainer();\n\n        // matches invocation for verification\n        for (StubbedInvocationMatcher stubbedInvocationMatcher : container.getStubbedInvocations()) {\n            if (container.getInvocationForStubbing().matches(stubbedInvocationMatcher.getInvocation())) {\n                return stubbedInvocationMatcher.answer(invocation);\n            }\n        }\n\n        // record deep stub answer\n        return recordDeepStubAnswer(\n                newDeepStubMock(returnTypeGenericMetadata),\n                container\n        );\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java",
+        "start_line": 87,
+        "end_line": 87,
+        "line_numbers": [
+          87
+        ],
+        "function_name": "newDeepStubMock",
+        "class_name": "ReturnsDeepStubs",
+        "filename": "ReturnsDeepStubs.java",
+        "code_snippet": "    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata) {\n        return mockitoCore().mock(\n                returnTypeGenericMetadata.rawType(),\n                withSettingsUsing(returnTypeGenericMetadata)\n        );\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java",
+        "start_line": 90,
+        "end_line": 90,
+        "line_numbers": [
+          90
+        ],
+        "function_name": "newDeepStubMock",
+        "class_name": "ReturnsDeepStubs",
+        "filename": "ReturnsDeepStubs.java",
+        "code_snippet": "    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata) {\n        return mockitoCore().mock(\n                returnTypeGenericMetadata.rawType(),\n                withSettingsUsing(returnTypeGenericMetadata)\n        );\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java",
+        "start_line": 94,
+        "end_line": 94,
+        "line_numbers": [
+          94
+        ],
+        "function_name": "withSettingsUsing",
+        "class_name": "ReturnsDeepStubs",
+        "filename": "ReturnsDeepStubs.java",
+        "code_snippet": "    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata) {\n        MockSettings mockSettings = returnTypeGenericMetadata.hasRawExtraInterfaces() ?\n                withSettings().extraInterfaces(returnTypeGenericMetadata.rawExtraInterfaces())\n                : withSettings();\n\n        return mockSettings.serializable()\n                .defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java",
+        "start_line": 99,
+        "end_line": 99,
+        "line_numbers": [
+          99
+        ],
+        "function_name": "withSettingsUsing",
+        "class_name": "ReturnsDeepStubs",
+        "filename": "ReturnsDeepStubs.java",
+        "code_snippet": "    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata) {\n        MockSettings mockSettings = returnTypeGenericMetadata.hasRawExtraInterfaces() ?\n                withSettings().extraInterfaces(returnTypeGenericMetadata.rawExtraInterfaces())\n                : withSettings();\n\n        return mockSettings.serializable()\n                .defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockitousage.bugs.DeepStubsWronglyReportsSerializationProblemsTest::should_not_raise_a_mockito_exception_about_serialization_when_accessing_deep_stub"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\nindex 3bb7636..e2ded55 100644\n--- a/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\n+++ b/src/org/mockito/internal/stubbing/defaultanswers/ReturnsDeepStubs.java\n@@ -14,7 +14,6 @@ import org.mockito.internal.stubbing.StubbedInvocationMatcher;\n import org.mockito.internal.util.MockUtil;\n import org.mockito.internal.util.reflection.GenericMetadataSupport;\n import org.mockito.invocation.InvocationOnMock;\n+import org.mockito.mock.MockCreationSettings;\n import org.mockito.stubbing.Answer;\n \n import java.io.IOException;\n@@ -69,7 +68,7 @@ public class ReturnsDeepStubs implements Answer<Object>, Serializable {\n \n         // record deep stub answer\n         return recordDeepStubAnswer(\n+                newDeepStubMock(returnTypeGenericMetadata, invocation.getMock()),\n-                newDeepStubMock(returnTypeGenericMetadata),\n                 container\n         );\n     }\n@@ -85,26 +84,22 @@ public class ReturnsDeepStubs implements Answer<Object>, Serializable {\n      * @param parentMock The parent of the current deep stub mock.\n      * @return The mock\n      */\n+    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata, Object parentMock) {\n+        MockCreationSettings parentMockSettings = new MockUtil().getMockSettings(parentMock);\n-    private Object newDeepStubMock(GenericMetadataSupport returnTypeGenericMetadata) {\n         return mockitoCore().mock(\n                 returnTypeGenericMetadata.rawType(),\n+                withSettingsUsing(returnTypeGenericMetadata, parentMockSettings)\n-                withSettingsUsing(returnTypeGenericMetadata)\n         );\n     }\n \n+    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata, MockCreationSettings parentMockSettings) {\n-    private MockSettings withSettingsUsing(GenericMetadataSupport returnTypeGenericMetadata) {\n         MockSettings mockSettings = returnTypeGenericMetadata.hasRawExtraInterfaces() ?\n                 withSettings().extraInterfaces(returnTypeGenericMetadata.rawExtraInterfaces())\n                 : withSettings();\n \n+        return propagateSerializationSettings(mockSettings, parentMockSettings)\n-        return mockSettings.serializable()\n                 .defaultAnswer(returnsDeepStubsAnswerUsing(returnTypeGenericMetadata));\n     }\n \n+    private MockSettings propagateSerializationSettings(MockSettings mockSettings, MockCreationSettings parentMockSettings) {\n+        return mockSettings.serializable(parentMockSettings.getSerializableMode());\n+    }\n \n     private ReturnsDeepStubs returnsDeepStubsAnswerUsing(final GenericMetadataSupport returnTypeGenericMetadata) {\n         return new ReturnsDeepStubsSerializationFallback(returnTypeGenericMetadata);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

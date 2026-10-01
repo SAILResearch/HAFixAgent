@@ -1,0 +1,79 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_123",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 19:23:27",
+      "end_time": "2026-03-23 19:48:11",
+      "duration_seconds": 1484,
+      "duration_human": "24m 44s"
+    },
+    "model_cost": 0.1005,
+    "model_calls": 49,
+    "token_usage": {
+      "input_tokens": 650413,
+      "output_tokens": 57766,
+      "total_tokens": 708179,
+      "cached_input_tokens": 366016,
+      "uncached_input_tokens": 284397
+    },
+    "agent_steps": 49,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/numeric.py b/pandas/core/indexes/numeric.py\nindex 074cce085f..2c16577c3d 100644\n--- a/pandas/core/indexes/numeric.py\n+++ b/pandas/core/indexes/numeric.py\n@@ -43,9 +43,12 @@ class NumericIndex(Index):\n     \"\"\"\n \n     _is_numeric_dtype = True\n+    _default_dtype = None\n \n     def __new__(cls, data=None, dtype=None, copy=False, name=None, fastpath=None):\n \n+        if dtype is not None:\n+            cls._validate_dtype(dtype)\n         if fastpath is not None:\n             warnings.warn(\n                 \"The 'fastpath' keyword is deprecated, and will be \"\n@@ -80,6 +83,15 @@ class NumericIndex(Index):\n             name = data.name\n         return cls._simple_new(subarr, name=name)\n \n+\n+    @classmethod\n+    def _validate_dtype(cls, dtype):\n+        if cls._default_dtype is None:\n+            return\n+        if dtype is not None and not is_dtype_equal(dtype, cls._default_dtype):\n+            raise ValueError(\n+                f\"Incorrect `dtype` passed: expected {cls._default_dtype.__name__}, received {dtype}\"\n+            )\n     @Appender(_index_shared_docs[\"_maybe_cast_slice_bound\"])\n     def _maybe_cast_slice_bound(self, label, side, kind):\n         assert kind in [\"ix\", \"loc\", \"getitem\", None]\n@@ -235,6 +247,7 @@ class Int64Index(IntegerIndex):\n     _can_hold_na = False\n     _engine_type = libindex.Int64Engine\n     _default_dtype = np.int64\n+    _expected_dtype_string = \"signed integer\"\n \n     @property\n     def inferred_type(self) -> str:\n@@ -290,6 +303,7 @@ class UInt64Index(IntegerIndex):\n     _can_hold_na = False\n     _engine_type = libindex.UInt64Engine\n     _default_dtype = np.uint64\n+    _expected_dtype_string = \"unsigned integer\"\n \n     @property\n     def inferred_type(self) -> str:\n@@ -363,6 +377,7 @@ class Float64Index(NumericIndex):\n     _typ = \"float64index\"\n     _engine_type = libindex.Float64Engine\n     _default_dtype = np.float64\n+    _expected_dtype_string = \"float64\"\n \n     @property\n     def inferred_type(self) -> str:\ndiff --git a/pandas/core/indexes/range.py b/pandas/core/indexes/range.py\nindex d200ff6a71..8e92369df2 100644\n--- a/pandas/core/indexes/range.py\n+++ b/pandas/core/indexes/range.py\n@@ -165,11 +165,12 @@ class RangeIndex(Int64Index):\n \n     # --------------------------------------------------------------------\n \n-    @staticmethod\n-    def _validate_dtype(dtype):\n-        \"\"\" require dtype to be None or int64 \"\"\"\n+    @classmethod\n+    def _validate_dtype(cls, dtype):\n         if not (dtype is None or is_int64_dtype(dtype)):\n-            raise TypeError(\"Invalid to pass a non-int64 dtype to RangeIndex\")\n+            raise ValueError(\n+                f\"Incorrect `dtype` passed: expected signed integer, received {dtype}\"\n+            )\n \n     @cache_readonly\n     def _constructor(self):\ndiff --git a/pandas/tests/indexes/test_numeric.py b/pandas/tests/indexes/test_numeric.py\nindex e0f7b1d1ad..6ee1ce5c4f 100644\n--- a/pandas/tests/indexes/test_numeric.py\n+++ b/pandas/tests/indexes/test_numeric.py\n@@ -167,6 +167,23 @@ class TestFloat64Index(Numeric):\n         result = Index(np.array([np.nan]))\n         assert pd.isna(result.values).all()\n \n+    @pytest.mark.parametrize(\n+        \"index, dtype\",\n+        [\n+            (pd.Int64Index, \"float64\"),\n+            (pd.UInt64Index, \"categorical\"),\n+            (pd.Float64Index, \"datetime64\"),\n+            (pd.RangeIndex, \"float64\"),\n+        ],\n+    )\n+    def test_invalid_dtype(self, index, dtype):\n+        # GH 29539\n+        with pytest.raises(\n+            ValueError,\n+            match=rf\"Incorrect `dtype` passed: expected \\w+(?: \\w+)?, received {dtype}\",\n+        ):\n+            index([1, 2, 3], dtype=dtype)\n+\n     def test_constructor_invalid(self):\n \n         # invalid\ndiff --git a/pandas/tests/indexes/test_range.py b/pandas/tests/indexes/test_range.py\nindex fa64e1bacb..b60d3126da 100644\n--- a/pandas/tests/indexes/test_range.py\n+++ b/pandas/tests/indexes/test_range.py\n@@ -110,7 +110,10 @@ class TestRangeIndex(Numeric):\n         result = RangeIndex(index)\n         tm.assert_index_equal(result, index, exact=True)\n \n-        with pytest.raises(TypeError):\n+        with pytest.raises(\n+            ValueError,\n+            match=\"Incorrect `dtype` passed: expected signed integer, received float64\",\n+        ):\n             RangeIndex(index, dtype=\"float64\")\n \n     def test_constructor_range(self):\n@@ -140,7 +143,10 @@ class TestRangeIndex(Numeric):\n         expected = RangeIndex(1, 5, 2)\n         tm.assert_index_equal(result, expected, exact=True)\n \n-        with pytest.raises(TypeError):\n+        with pytest.raises(\n+            ValueError,\n+            match=\"Incorrect `dtype` passed: expected signed integer, received float64\",\n+        ):\n             Index(range(1, 5, 2), dtype=\"float64\")\n         msg = r\"^from_range\\(\\) got an unexpected keyword argument\"\n         with pytest.raises(TypeError, match=msg):\n@@ -178,7 +184,10 @@ class TestRangeIndex(Numeric):\n             RangeIndex(1.1, 10.2, 1.3)\n \n         # invalid passed type\n-        with pytest.raises(TypeError):\n+        with pytest.raises(\n+            ValueError,\n+            match=\"Incorrect `dtype` passed: expected signed integer, received float64\",\n+        ):\n             RangeIndex(1, 5, dtype=\"float64\")\n \n     @pytest.mark.parametrize(\n"
+  },
+  "timestamp": "2026-03-23 15:48:11 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_123",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_123/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "[BUG] Validate dtype when Int64Index, UInt64Index, or Float64Index are cons\u2026 (#29545)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 384,
+        "end_line": 384,
+        "function_name": "Index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/numeric.py",
+        "start_line": 48,
+        "end_line": 48,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/range.py",
+        "start_line": 17,
+        "end_line": 17,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/range.py",
+        "start_line": 168,
+        "end_line": 173,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/test_numeric.py::TestFloat64Index::test_invalid_dtype",
+      "pytest pandas/tests/indexes/test_range.py::TestRangeIndex::test_constructor_same",
+      "pytest pandas/tests/indexes/test_range.py::TestRangeIndex::test_constructor_range",
+      "pytest pandas/tests/indexes/test_range.py::TestRangeIndex::test_constructor_corner"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

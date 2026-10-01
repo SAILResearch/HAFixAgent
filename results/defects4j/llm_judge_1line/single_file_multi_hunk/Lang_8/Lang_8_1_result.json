@@ -1,0 +1,76 @@
+{
+  "project_name": "Lang",
+  "bug_id": "8",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 20:25:07",
+      "end_time": "2025-09-30 20:27:47",
+      "duration_seconds": 160,
+      "duration_human": "2m 40s"
+    },
+    "model_cost": 0.0103,
+    "model_calls": 22,
+    "token_usage": {
+      "input_tokens": 115318,
+      "output_tokens": 2275,
+      "total_tokens": 117593,
+      "cached_input_tokens": 109376,
+      "uncached_input_tokens": 5942
+    },
+    "agent_steps": 23,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\nindex 5c0edda2e..1f91b8138 100644\n--- a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\n+++ b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\n@@ -1131,11 +1131,12 @@ public class FastDatePrinter implements DatePrinter, Serializable {\n          */\n         @Override\n         public void appendTo(StringBuffer buffer, Calendar calendar) {\n-            if (zone.useDaylightTime()\n+            TimeZone tz = calendar.getTimeZone();\n+            if (tz.useDaylightTime()\n                     && calendar.get(Calendar.DST_OFFSET) != 0) {\n-                buffer.append(getTimeZoneDisplay(zone, true, mStyle, mLocale));\n+                buffer.append(getTimeZoneDisplay(tz, true, mStyle, mLocale));\n             } else {\n-                buffer.append(getTimeZoneDisplay(zone, false, mStyle, mLocale));\n+                buffer.append(getTimeZoneDisplay(tz, false, mStyle, mLocale));\n             }\n         }\n     }\n"
+  },
+  "timestamp": "2025-09-30 20:27:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_8",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_8",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "FastDateFormat's \"z\" pattern does not respect timezone of Calendar instances passed to format()\nThe work on LANG-462 has introduced a time zone formatting bug in FastDateFormat in commons-lang3.\n\nThe problem can be seen by this snippet:\n{code}\n// Always prints timezone name of machine's default timezone, ignoring TZ\n// set on calendar, even though the printed time itself respects calendar's TZ.\nCalendar myCal = Calendar.getInstance(TimeZone.getTimeZone(\"US/Central\"));\nSystem.out.println(FastDateFormat.getInstance(\"h:mma z\").format(myCal));\n{code}\n\nIf you happen to be in US/Central, this will print the right thing, but just try it with US/Eastern, US/Pacific, etc.  It will print the time in the correct timezone, but the timezone name at the end (the \"z\" pattern) will always be the system default timezone.  This is a regression against commons-lang 2.x.\n\nBasically, when the \"forced time zone\" code was removed, the TimeZoneNameRule class stopped respecting the Calendar instance's timezone, and instead now always uses the mTimeZone of the FastDateFormat instance itself (which is only supposed to be used when formatting timezone-less objects such as Date or long).\n\nThe removal of the forced time zone stuff is surely the right thing to do (it was a mess).  I think the fix is to change the TimeZoneNameRule inner class to not take a TimeZone instance, but rather to use the TimeZone on the Calendar instance passed into appendTo(), just like TimeZoneNumberRule does.  Presumably then for efficiency, one would use the getTimeZoneDisplay() package-static method to quickly retrieve the required timezone's display name.",
+    "commit_message": "LANG-818 FastDateFormat's \"z\" pattern does not respect timezone of Calendar instances passed to format()",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+        "start_line": 1098,
+        "end_line": 1098,
+        "line_numbers": [
+          1098
+        ],
+        "function_name": "",
+        "class_name": "TimeZoneNameRule",
+        "filename": "FastDatePrinter.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+        "start_line": 1112,
+        "end_line": 1112,
+        "line_numbers": [
+          1112
+        ],
+        "function_name": "",
+        "class_name": "TimeZoneNameRule",
+        "filename": "FastDatePrinter.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.time.FastDateFormat_PrinterTest::testCalendarTimezoneRespected",
+      "org.apache.commons.lang3.time.FastDatePrinterTest::testCalendarTimezoneRespected"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\nindex c952309..5c0edda 100644\n--- a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\n+++ b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java\n@@ -1095,6 +1095,7 @@ public class FastDatePrinter implements DatePrinter, Serializable {\n     private static class TimeZoneNameRule implements Rule {\n         private final Locale mLocale;\n         private final int mStyle;\n-        private final TimeZone zone;\n         private final String mStandard;\n         private final String mDaylight;\n \n@@ -1108,6 +1109,7 @@ public class FastDatePrinter implements DatePrinter, Serializable {\n         TimeZoneNameRule(TimeZone timeZone, Locale locale, int style) {\n             mLocale = locale;\n             mStyle = style;\n-            zone = timeZone;\n             \n             mStandard = getTimeZoneDisplay(timeZone, false, style, locale);\n             mDaylight = getTimeZoneDisplay(timeZone, true, style, locale);\n@@ -1129,7 +1131,6 @@ public class FastDatePrinter implements DatePrinter, Serializable {\n          */\n         @Override\n         public void appendTo(StringBuffer buffer, Calendar calendar) {\n+            TimeZone zone = calendar.getTimeZone();\n             if (zone.useDaylightTime()\n                     && calendar.get(Calendar.DST_OFFSET) != 0) {\n                 buffer.append(getTimeZoneDisplay(zone, true, mStyle, mLocale));",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

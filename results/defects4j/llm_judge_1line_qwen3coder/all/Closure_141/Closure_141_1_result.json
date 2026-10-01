@@ -1,0 +1,71 @@
+{
+  "project_name": "Closure",
+  "bug_id": "141",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:23:31",
+      "end_time": "2026-06-19 23:26:10",
+      "duration_seconds": 159,
+      "duration_human": "2m 39s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 624686,
+      "output_tokens": 3821,
+      "total_tokens": 628507,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 624686
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:26:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_141",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_141",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "The side effects of function1||function2 are not calculated\n<b>What steps will reproduce the problem?</b>\n1. Compile (Math.sin||Math.cos)(0)\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nEmpty output.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nThe closure-compiler web service at r114.\r\n\r\n<b>Please provide any additional information below.</b>\nAs a result of this issue goog.now() is considered to have side effects.",
+    "commit_message": "Tweak to allow chained initialization: new Node(Token.EXPR_RESULT, a).copyInformationFrom(a); (John) R=alan DELTA=10  (6 added, 0 deleted, 4 changed)",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PureFunctionIdentifier.java",
+        "start_line": 179,
+        "end_line": 181,
+        "line_numbers": [
+          179,
+          180,
+          181
+        ],
+        "function_name": "getCallableDefinitions",
+        "class_name": "PureFunctionIdentifier",
+        "filename": "PureFunctionIdentifier.java",
+        "code_snippet": "  private static Collection<Definition> getCallableDefinitions(\n      DefinitionProvider definitionProvider, Node name) {\n      List<Definition> result = Lists.newArrayList();\n\n      if (!NodeUtil.isGetProp(name) && !NodeUtil.isName(name)) {\n        return null;\n      }\n      Collection<Definition> decls =\n          definitionProvider.getDefinitionsReferencedAt(name);\n      if (decls == null) {\n        return null;\n      }\n\n      for (Definition current : decls) {\n        Node rValue = current.getRValue();\n        if ((rValue != null) && NodeUtil.isFunction(rValue)) {\n          result.add(current);\n        } else {\n          return null;\n        }\n      }\n\n      return result;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.ExpresssionDecomposerTest::testCanExposeExpression2",
+      "com.google.javascript.jscomp.ExpresssionDecomposerTest::testCanExposeExpression7",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testDecomposeAnonymousInCall",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testCallFunctionFOrGViaHookWithSideEffects",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testCallFunctionForGorH",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testCallFunctionFOrG",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testCallFunctionFOrGViaHook",
+      "com.google.javascript.jscomp.PureFunctionIdentifierTest::testCallFunctionFOrGWithSideEffects"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java\nindex aaf84703d..044bdd930 100644\n--- a/src/com/google/javascript/jscomp/NodeUtil.java\n+++ b/src/com/google/javascript/jscomp/NodeUtil.java\n@@ -599,11 +599,8 @@ public final class NodeUtil {\n       case Token.GETELEM:\n         return true;\n \n+      case Token.FUNCTION:\n         // Anonymous functions definitions are not changed by side-effects,\n         // and named functions are not part of expressions.\n+        Preconditions.checkState(NodeUtil.isAnonymousFunction(n));\n+        return false;\n     }\n \n     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\ndiff --git a/src/com/google/javascript/jscomp/PureFunctionIdentifier.java b/src/com/google/javascript/jscomp/PureFunctionIdentifier.java\nindex 894d65ba2..55afa6078 100644\n--- a/src/com/google/javascript/jscomp/PureFunctionIdentifier.java\n+++ b/src/com/google/javascript/jscomp/PureFunctionIdentifier.java\n@@ -174,9 +174,11 @@ class PureFunctionIdentifier implements CompilerPass {\n    */\n   private static Collection<Definition> getCallableDefinitions(\n       DefinitionProvider definitionProvider, Node name) {\n+    if (NodeUtil.isGetProp(name) || NodeUtil.isName(name)) {\n       List<Definition> result = Lists.newArrayList();\n \n-      if (!NodeUtil.isGetProp(name) && !NodeUtil.isName(name)) {\n-        return null;\n-      }\n       Collection<Definition> decls =\n           definitionProvider.getDefinitionsReferencedAt(name);\n       if (decls == null) {\n@@ -193,27 +195,6 @@ class PureFunctionIdentifier implements CompilerPass {\n       }\n \n       return result;\n+    } else if (name.getType() == Token.OR || name.getType() == Token.HOOK) {\n+      Node firstVal;\n+      if (name.getType() == Token.HOOK) {\n+        firstVal = name.getFirstChild().getNext();\n+      } else {\n+        firstVal = name.getFirstChild();\n+      }\n+\n+      Collection<Definition> defs1 = getCallableDefinitions(definitionProvider,\n+                                                            firstVal);\n+      Collection<Definition> defs2 = getCallableDefinitions(definitionProvider,\n+                                                            firstVal.getNext());\n+      if (defs1 != null && defs2 != null) {\n+        defs1.addAll(defs2);\n+        return defs1;\n+      } else {\n+        return null;\n+      }\n+    } else {\n+      return null;\n+    }\n   }\n \n   /**",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

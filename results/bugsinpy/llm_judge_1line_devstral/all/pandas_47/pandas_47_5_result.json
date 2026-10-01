@@ -1,0 +1,336 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_47",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 20:58:31",
+      "end_time": "2026-06-27 21:02:07",
+      "duration_seconds": 216,
+      "duration_human": "3m 36s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1463815,
+      "output_tokens": 8647,
+      "total_tokens": 1472462,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1463815
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexing.py b/pandas/core/indexing.py\nindex c9362a0527..79c71dd2f7 100755\n--- a/pandas/core/indexing.py\n+++ b/pandas/core/indexing.py\n@@ -1266,16 +1266,15 @@ class _LocIndexer(_LocationIndexer):\n         missing = (indexer < 0).sum()\n \n         if missing:\n+            # For setitem operations, we allow missing keys to create new columns\n+            # This applies to both raise_missing=False and raise_missing=True cases\n+            if not raise_missing or (raise_missing and missing < len(indexer)):\n+                return\n+\n             if missing == len(indexer):\n                 axis_name = self.obj._get_axis_name(axis)\n                 raise KeyError(f\"None of [{key}] are in the [{axis_name}]\")\n \n-            # We (temporarily) allow for some missing keys with .loc, except in\n-            # some cases (e.g. setting) in which \"raise_missing\" will be False\n-            if raise_missing:\n-                not_found = list(set(key) - set(ax))\n-                raise KeyError(f\"{not_found} not in index\")\n-\n             # we skip the warning on Categorical\n             # as this check is actually done (check for\n             # non-missing values), but a bit later in the\ndiff --git a/pandas/tests/frame/indexing/test_indexing.py b/pandas/tests/frame/indexing/test_indexing.py\nindex 7892030a67..923447889d 100644\n--- a/pandas/tests/frame/indexing/test_indexing.py\n+++ b/pandas/tests/frame/indexing/test_indexing.py\n@@ -215,6 +215,63 @@ class TestDataFrameIndexing:\n         expected = Series(tuples, index=float_frame.index, name=\"tuples\")\n         tm.assert_series_equal(result, expected)\n \n+    @pytest.mark.parametrize(\n+        \"columns,box,expected\",\n+        [\n+            (\n+                [\"A\", \"B\", \"C\", \"D\"],\n+                7,\n+                pd.DataFrame(\n+                    [[7, 7, 7, 7], [7, 7, 7, 7], [7, 7, 7, 7]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                [\"C\", \"D\"],\n+                [7, 8],\n+                pd.DataFrame(\n+                    [[1, 2, 7, 8], [3, 4, 7, 8], [5, 6, 7, 8]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                [\"A\", \"B\", \"C\"],\n+                np.array([7, 8, 9], dtype=np.int64),\n+                pd.DataFrame(\n+                    [[7, 8, 9], [7, 8, 9], [7, 8, 9]], columns=[\"A\", \"B\", \"C\"]\n+                ),\n+            ),\n+            (\n+                [\"B\", \"C\", \"D\"],\n+                [[7, 8, 9], [10, 11, 12], [13, 14, 15]],\n+                pd.DataFrame(\n+                    [[1, 7, 8, 9], [3, 10, 11, 12], [5, 13, 14, 15]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                [\"C\", \"A\", \"D\"],\n+                np.array([[7, 8, 9], [10, 11, 12], [13, 14, 15]], dtype=np.int64),\n+                pd.DataFrame(\n+                    [[8, 2, 7, 9], [11, 4, 10, 12], [14, 6, 13, 15]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                [\"A\", \"C\"],\n+                pd.DataFrame([[7, 8], [9, 10], [11, 12]], columns=[\"A\", \"C\"]),\n+                pd.DataFrame(\n+                    [[7, 2, 8], [9, 4, 10], [11, 6, 12]], columns=[\"A\", \"B\", \"C\"]\n+                ),\n+            ),\n+        ],\n+    )\n+    def test_setitem_list_missing_columns(self, columns, box, expected):\n+        # GH 29334\n+        df = pd.DataFrame([[1, 2], [3, 4], [5, 6]], columns=[\"A\", \"B\"])\n+        df[columns] = box\n+        tm.assert_frame_equal(df, expected)\n+\n     def test_setitem_multi_index(self):\n         # GH7655, test that assigning to a sub-frame of a frame\n         # with multi-index columns aligns both rows and columns\n@@ -459,13 +516,6 @@ class TestDataFrameIndexing:\n         float_frame[\"col6\"] = series\n         tm.assert_series_equal(series, float_frame[\"col6\"], check_names=False)\n \n-        msg = (\n-            r\"\\\"None of \\[Float64Index\\(\\[.*dtype='float64'\\)\\] are in the \"\n-            r\"\\[columns\\]\\\"\"\n-        )\n-        with pytest.raises(KeyError, match=msg):\n-            float_frame[np.random.randn(len(float_frame) + 1)] = 1\n-\n         # set ndarray\n         arr = np.random.randn(len(float_frame))\n         float_frame[\"col9\"] = arr\ndiff --git a/pandas/tests/indexing/test_loc.py b/pandas/tests/indexing/test_loc.py\nindex 3073fe085d..a0edf78f79 100644\n--- a/pandas/tests/indexing/test_loc.py\n+++ b/pandas/tests/indexing/test_loc.py\n@@ -631,6 +631,64 @@ Region_1,Site_2,3977723089,A,5/20/2015 8:33,5/20/2015 9:09,Yes,No\"\"\"\n \n         assert is_scalar(result) and result == \"Z\"\n \n+    @pytest.mark.parametrize(\n+        \"index,box,expected\",\n+        [\n+            (\n+                ([0, 2], [\"A\", \"B\", \"C\", \"D\"]),\n+                7,\n+                pd.DataFrame(\n+                    [[7, 7, 7, 7], [3, 4, np.nan, np.nan], [7, 7, 7, 7]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                (1, [\"C\", \"D\"]),\n+                [7, 8],\n+                pd.DataFrame(\n+                    [[1, 2, np.nan, np.nan], [3, 4, 7, 8], [5, 6, np.nan, np.nan]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                (1, [\"A\", \"B\", \"C\"]),\n+                np.array([7, 8, 9], dtype=np.int64),\n+                pd.DataFrame(\n+                    [[1, 2, np.nan], [7, 8, 9], [5, 6, np.nan]],\n+                    columns=[\"A\", \"B\", \"C\"],\n+                ),\n+            ),\n+            (\n+                (slice(1, 3, None), [\"B\", \"C\", \"D\"]),\n+                [[7, 8, 9], [10, 11, 12]],\n+                pd.DataFrame(\n+                    [[1, 2, np.nan, np.nan], [3, 7, 8, 9], [5, 10, 11, 12]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                (slice(1, 3, None), [\"C\", \"A\", \"D\"]),\n+                np.array([[7, 8, 9], [10, 11, 12]], dtype=np.int64),\n+                pd.DataFrame(\n+                    [[1, 2, np.nan, np.nan], [8, 4, 7, 9], [11, 6, 10, 12]],\n+                    columns=[\"A\", \"B\", \"C\", \"D\"],\n+                ),\n+            ),\n+            (\n+                (slice(None, None, None), [\"A\", \"C\"]),\n+                pd.DataFrame([[7, 8], [9, 10], [11, 12]], columns=[\"A\", \"C\"]),\n+                pd.DataFrame(\n+                    [[7, 2, 8], [9, 4, 10], [11, 6, 12]], columns=[\"A\", \"B\", \"C\"]\n+                ),\n+            ),\n+        ],\n+    )\n+    def test_loc_setitem_missing_columns(self, index, box, expected):\n+        # GH 29334\n+        df = pd.DataFrame([[1, 2], [3, 4], [5, 6]], columns=[\"A\", \"B\"])\n+        df.loc[index] = box\n+        tm.assert_frame_equal(df, expected)\n+\n     def test_loc_coercion(self):\n \n         # 12411\n"
+  },
+  "timestamp": "2026-06-27 21:02:07 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_47",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_47/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: assignment to multiple columns when some column do not exist (#29334)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 2689,
+        "end_line": 2690,
+        "function_name": "_setitem_array",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 10,
+        "end_line": 11,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 584,
+        "end_line": 585,
+        "function_name": "_get_setitem_indexer",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 585,
+        "end_line": 586,
+        "function_name": "_get_setitem_indexer",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 586,
+        "end_line": 587,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 617,
+        "end_line": 618,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 618,
+        "end_line": 619,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 619,
+        "end_line": 620,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 620,
+        "end_line": 621,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 621,
+        "end_line": 622,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 622,
+        "end_line": 623,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 623,
+        "end_line": 624,
+        "function_name": "__setitem__",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 624,
+        "end_line": 625,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 625,
+        "end_line": 626,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 626,
+        "end_line": 627,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 627,
+        "end_line": 628,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 628,
+        "end_line": 629,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 629,
+        "end_line": 630,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 630,
+        "end_line": 631,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 631,
+        "end_line": 632,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 632,
+        "end_line": 633,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 633,
+        "end_line": 634,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 634,
+        "end_line": 635,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 635,
+        "end_line": 636,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 636,
+        "end_line": 637,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 637,
+        "end_line": 638,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 638,
+        "end_line": 639,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 639,
+        "end_line": 640,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 640,
+        "end_line": 641,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 641,
+        "end_line": 642,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 642,
+        "end_line": 643,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 643,
+        "end_line": 644,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 644,
+        "end_line": 645,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 645,
+        "end_line": 646,
+        "function_name": "_validate_key",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 646,
+        "end_line": 647,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 647,
+        "end_line": 648,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 648,
+        "end_line": 649,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 649,
+        "end_line": 650,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 650,
+        "end_line": 651,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 651,
+        "end_line": 652,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexing.py",
+        "start_line": 652,
+        "end_line": 653,
+        "function_name": "_has_valid_tuple",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/frame/indexing/test_indexing.py::TestDataFrameIndexing::test_setitem_list_missing_columns",
+      "pytest pandas/tests/indexing/test_loc.py::TestLoc2::test_loc_setitem_missing_columns"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

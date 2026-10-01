@@ -1,0 +1,67 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_40",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 10:24:19",
+      "end_time": "2026-03-23 10:46:12",
+      "duration_seconds": 1313,
+      "duration_human": "21m 53s"
+    },
+    "model_cost": 0.0421,
+    "model_calls": 7,
+    "token_usage": {
+      "input_tokens": 165946,
+      "output_tokens": 39652,
+      "total_tokens": 205598,
+      "cached_input_tokens": 70208,
+      "uncached_input_tokens": 95738
+    },
+    "agent_steps": 7,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/layers/recurrent.py b/keras/layers/recurrent.py\nindex a94d06231..91117a6fb 100644\n--- a/keras/layers/recurrent.py\n+++ b/keras/layers/recurrent.py\n@@ -394,10 +394,10 @@ class RNN(Layer):\n         if isinstance(input_shape, list):\n             input_shape = input_shape[0]\n \n-        if hasattr(self.cell.state_size, '__len__'):\n+        if hasattr(self.cell.state_size, \"__len__\") and not (self.cell.state_size and hasattr(self.cell.state_size[0], \"__len__\")):\n             output_dim = self.cell.state_size[0]\n         else:\n-            output_dim = self.cell.state_size\n+            output_dim = self.cell.state_size[-1][0] if hasattr(self.cell.state_size, \"__len__\") and self.cell.state_size and hasattr(self.cell.state_size[0], \"__len__\") else self.cell.state_size\n \n         if self.return_sequences:\n             output_shape = (input_shape[0], input_shape[1], output_dim)\n@@ -405,7 +405,7 @@ class RNN(Layer):\n             output_shape = (input_shape[0], output_dim)\n \n         if self.return_state:\n-            state_shape = [(input_shape[0], output_dim) for _ in self.states]\n+            state_shape = [(input_shape[0], dim) for cell_state_size in (reversed(self.cell.state_size) if hasattr(self.cell.state_size, \"__len__\") and self.cell.state_size and hasattr(self.cell.state_size[0], \"__len__\") else [self.cell.state_size]) for dim in (cell_state_size if hasattr(cell_state_size, \"__len__\") else [cell_state_size])]\n             return [output_shape] + state_shape\n         else:\n             return output_shape\ndiff --git a/tests/keras/layers/recurrent_test.py b/tests/keras/layers/recurrent_test.py\nindex 074219c16..dd784c234 100644\n--- a/tests/keras/layers/recurrent_test.py\n+++ b/tests/keras/layers/recurrent_test.py\n@@ -596,6 +596,20 @@ def test_stacked_rnn_attributes():\n     assert layer.get_losses_for(x) == [y]\n \n \n+@keras_test\n+def test_stacked_rnn_compute_output_shape():\n+    cells = [recurrent.LSTMCell(3),\n+             recurrent.LSTMCell(6)]\n+    layer = recurrent.RNN(cells, return_state=True, return_sequences=True)\n+    output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))\n+    expected_output_shape = [(None, timesteps, 6),\n+                             (None, 6),\n+                             (None, 6),\n+                             (None, 3),\n+                             (None, 3)]\n+    assert output_shape == expected_output_shape\n+\n+\n @rnn_test\n def test_batch_size_equal_one(layer_class):\n     inputs = Input(batch_shape=(1, timesteps, embedding_dim))\n"
+  },
+  "timestamp": "2026-03-23 06:46:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_40",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_40/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix stacked rnn compute output shape (#8833)\nmesg: ttyname failed: Inappropriate ioctl for device",
+    "fault_locations": [
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 398,
+        "end_line": 398,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 400,
+        "end_line": 400,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 408,
+        "end_line": 408,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/recurrent_test.py::test_stacked_rnn_compute_output_shape"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

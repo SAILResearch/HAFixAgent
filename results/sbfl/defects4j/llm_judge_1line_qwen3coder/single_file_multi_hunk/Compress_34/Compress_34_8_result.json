@@ -1,0 +1,193 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_34",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 07:33:33",
+      "end_time": "2026-06-29 07:35:48",
+      "duration_seconds": 135,
+      "duration_human": "2m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 854272,
+      "output_tokens": 5384,
+      "total_tokens": 859656,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 854272
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\nindex 14aebab1..e325b564 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\n@@ -55,6 +55,7 @@ import static org.apache.commons.compress.archivers.zip.ZipUtil.unsignedIntToSig\n  */\n public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {\n     private static final ZipShort HEADER_ID = new ZipShort(0x7875);\n+    private static final ZipShort ZERO = new ZipShort(0);\n     private static final BigInteger ONE_THOUSAND = BigInteger.valueOf(1000);\n     private static final long serialVersionUID = 1L;\n \n@@ -143,7 +144,7 @@ public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {\n      * @return a <code>ZipShort</code> for the length of the data of this extra field\n      */\n     public ZipShort getCentralDirectoryLength() {\n-        return getLocalFileDataLength();\n+        return ZERO;\n     }\n \n     /**\n"
+  },
+  "timestamp": "2026-06-29 07:35:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_34",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_34",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Exception in X7875_NewUnix.parseFromLocalFileData when parsing 0-sized \"ux\" local entry\nWhen trying to detect content type of a zip file with Tika 1.10 (which uses Commons Compress 1.9 internally) in manner like this:\n\n{code}\n        byte[] content = ... // whole zip file.\n        String name = \"TR_01.ZIP\";\n        Tika tika = new Tika();\n        return tika.detect(content, name);\n{code}\n\nit throws an exception:\n\n{code}\njava.lang.ArrayIndexOutOfBoundsException: 13\n\tat org.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromLocalFileData(X7875_NewUnix.java:199)\n\tat org.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromCentralDirectoryData(X7875_NewUnix.java:220)\n\tat org.apache.commons.compress.archivers.zip.ExtraFieldUtils.parse(ExtraFieldUtils.java:174)\n\tat org.apache.commons.compress.archivers.zip.ZipArchiveEntry.setCentralDirectoryExtra(ZipArchiveEntry.java:476)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.readCentralDirectoryEntry(ZipFile.java:575)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.populateFromCentralDirectory(ZipFile.java:492)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:216)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:192)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:153)\n\tat org.apache.tika.parser.pkg.ZipContainerDetector.detectZipFormat(ZipContainerDetector.java:141)\n\tat org.apache.tika.parser.pkg.ZipContainerDetector.detect(ZipContainerDetector.java:88)\n\tat org.apache.tika.detect.CompositeDetector.detect(CompositeDetector.java:77)\n\tat org.apache.tika.Tika.detect(Tika.java:155)\n\tat org.apache.tika.Tika.detect(Tika.java:183)\n\tat org.apache.tika.Tika.detect(Tika.java:223)\n{code}\n\nThe zip file does contain two .jpg images and is not a \"special\" (JAR, Openoffice, ... ) zip file.\n\nUnfortunately, the contents of the zip file is confidential and so I cannot attach it to this ticket as it is, although I can provide the parameters supplied to\norg.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromLocalFileData(X7875_NewUnix.java:199) as caught by the debugger:\n\n{code}\ndata = {byte[13]@2103}\n 0 = 85\n 1 = 84\n 2 = 5\n 3 = 0\n 4 = 7\n 5 = -112\n 6 = -108\n 7 = 51\n 8 = 85\n 9 = 117\n 10 = 120\n 11 = 0\n 12 = 0\noffset = 13\nlength = 0\n{code}\n\nThis data comes from the local zip entry for the first file, it seems the method tries to read more bytes than is actually available in the buffer.\n\nIt seems that first 9 bytes of the buffer are 'UT' extended field with timestamp, followed by 0-sized 'ux' field (bytes 9-12) that is supposed to contain UID/GID - according to infozip's doc the 0-size is common for global dictionary, but the local dictionary should contain complete data. In this case for some reason it does contain 0-sized data.\n\nNote that 7zip and unzip can unzip the file without even a warning, so Commons Compress should be also able to handle that file correctly without choking on that exception.",
+    "commit_message": "COMPRESS-321 X7875_NewUnix doesn't handle centra directory correctly",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 123,
+        "end_line": 123,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 146,
+        "end_line": 146,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 95,
+        "end_line": 95,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 105,
+        "end_line": 105,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 113,
+        "end_line": 113,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 114,
+        "end_line": 114,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+        "start_line": 136,
+        "end_line": 136,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+        "start_line": 137,
+        "end_line": 137,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+        "start_line": 155,
+        "end_line": 155,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest::testParseReparse"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 123,
+      "end_line": 123,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 146,
+      "end_line": 146,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 95,
+      "end_line": 95,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 105,
+      "end_line": 105,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 113,
+      "end_line": 113,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+      "start_line": 114,
+      "end_line": 114,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+      "start_line": 136,
+      "end_line": 136,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+      "start_line": 137,
+      "end_line": 137,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+      "start_line": 155,
+      "end_line": 155,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 10
+    }
+  ]
+}

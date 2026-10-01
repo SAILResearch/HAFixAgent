@@ -1,0 +1,198 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "JacksonCore_24",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-16 23:43:03",
+      "end_time": "2026-06-16 23:51:57",
+      "duration_seconds": 534,
+      "duration_human": "8m 54s"
+    },
+    "model_cost": 0.1404,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 939975,
+      "output_tokens": 6984,
+      "total_tokens": 946959,
+      "cached_input_tokens": 430400,
+      "uncached_input_tokens": 509575
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\nindex 1e52b9e0..cbe00d08 100644\n--- a/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n+++ b/src/main/java/com/fasterxml/jackson/core/base/ParserBase.java\n@@ -884,7 +884,7 @@ public abstract class ParserBase extends ParserMinimalBase\n             // Let's verify it's lossless conversion by simple roundtrip\n             int result = (int) _numberLong;\n             if (((long) result) != _numberLong) {\n-                _reportError(\"Numeric value (\"+getText()+\") out of range of int\");\n+                reportOverflowInt();\n             }\n             _numberInt = result;\n         } else if ((_numTypesValid & NR_BIGINT) != 0) {\ndiff --git a/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java b/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\nindex c83ade9c..008dd1e7 100644\n--- a/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\n+++ b/src/main/java/com/fasterxml/jackson/core/base/ParserMinimalBase.java\n@@ -562,8 +562,9 @@ public abstract class ParserMinimalBase extends JsonParser\n \n     // @since 2.10\n     protected void reportOverflowInt(String numDesc) throws IOException {\n-        _reportError(String.format(\"Numeric value (%s) out of range of int (%d - %s)\",\n-                _longIntegerDesc(numDesc), Integer.MIN_VALUE, Integer.MAX_VALUE));\n+        _reportInputCoercion(String.format(\"Numeric value (%s) out of range of int (%d - %s)\",\n+                _longIntegerDesc(numDesc), Integer.MIN_VALUE, Integer.MAX_VALUE),\n+                _currToken, Integer.TYPE);\n     }\n \n     // @since 2.10\n@@ -579,8 +580,9 @@ public abstract class ParserMinimalBase extends JsonParser\n \n     // @since 2.10\n     protected void reportOverflowLong(String numDesc) throws IOException {\n-        _reportError(String.format(\"Numeric value (%s) out of range of long (%d - %s)\",\n-                _longIntegerDesc(numDesc), Long.MIN_VALUE, Long.MAX_VALUE));\n+        _reportInputCoercion(String.format(\"Numeric value (%s) out of range of long (%d - %s)\",\n+                _longIntegerDesc(numDesc), Long.MIN_VALUE, Long.MAX_VALUE),\n+                _currToken, Long.TYPE);\n     }\n \n     // @since 2.10\ndiff --git a/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java b/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java\ndeleted file mode 100644\nindex 8d24bf41..00000000\n--- a/src/test/java/com/fasterxml/jackson/core/json/JsonReadContextTest.java\n+++ /dev/null\n@@ -1,58 +0,0 @@\n-package com.fasterxml.jackson.core.json;\n-\n-import com.fasterxml.jackson.core.JsonGenerator;\n-import com.fasterxml.jackson.core.JsonParseException;\n-import com.fasterxml.jackson.core.JsonProcessingException;\n-\n-import org.junit.Test;\n-\n-import static org.junit.Assert.*;\n-\n-/**\n- * Unit tests for class {@link JsonReadContext}.\n- *\n- * @date 2017-08-01\n- * @see JsonReadContext\n- *\n- **/\n-public class JsonReadContextTest{\n-\n-  @Test(expected = JsonParseException.class)\n-  public void testSetCurrentNameTwiceWithSameNameRaisesJsonParseException() throws JsonProcessingException {\n-      DupDetector dupDetector = DupDetector.rootDetector((JsonGenerator) null);\n-      JsonReadContext jsonReadContext = new JsonReadContext((JsonReadContext) null, dupDetector, 2441, 2441, 2441);\n-      jsonReadContext.setCurrentName(\"4'Du>icate field'\");\n-      jsonReadContext.setCurrentName(\"4'Du>icate field'\");\n-  }\n-\n-  @Test\n-  public void testSetCurrentName() throws JsonProcessingException {\n-      JsonReadContext jsonReadContext = JsonReadContext.createRootContext(0, 0, (DupDetector) null);\n-      jsonReadContext.setCurrentName(\"asd / \\\" \u20ac < - _\");\n-\n-      assertEquals(\"asd / \\\" \u20ac < - _\", jsonReadContext.getCurrentName());\n-\n-      jsonReadContext.setCurrentName(null);\n-\n-      assertNull(jsonReadContext.getCurrentName());\n-  }\n-\n-  @Test\n-  public void testReset() {\n-      DupDetector dupDetector = DupDetector.rootDetector((JsonGenerator) null);\n-      JsonReadContext jsonReadContext = JsonReadContext.createRootContext(dupDetector);\n-\n-      assertTrue(jsonReadContext.inRoot());\n-      assertEquals(\"root\", jsonReadContext.typeDesc());\n-      assertEquals(1, jsonReadContext.getStartLocation(jsonReadContext).getLineNr());\n-      assertEquals(0, jsonReadContext.getStartLocation(jsonReadContext).getColumnNr());\n-\n-      jsonReadContext.reset(200, 500, 200);\n-\n-      assertFalse(jsonReadContext.inRoot());\n-      assertEquals(\"?\", jsonReadContext.typeDesc());\n-      assertEquals(500, jsonReadContext.getStartLocation(jsonReadContext).getLineNr());\n-      assertEquals(200, jsonReadContext.getStartLocation(jsonReadContext).getColumnNr());\n-  }\n-\n-}\n\\ No newline at end of file\ndiff --git a/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java b/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java\ndeleted file mode 100644\nindex e94e4edb..00000000\n--- a/src/test/java/com/fasterxml/jackson/core/json/RawValueWithSurrogatesTest.java\n+++ /dev/null\n@@ -1,89 +0,0 @@\n-package com.fasterxml.jackson.core.json;\n-\n-import java.io.ByteArrayOutputStream;\n-import com.fasterxml.jackson.core.JsonFactory;\n-import com.fasterxml.jackson.core.JsonGenerator;\n-\n-public class RawValueWithSurrogatesTest\n-    extends com.fasterxml.jackson.core.BaseTest\n-{\n-    final String SURROGATES_307;\n-    {\n-        // This one fails:\n-        String msg =\"{'xxxxxxx':{'xxxx':'xxxxxxxxx','xx':'xxxxxxxxxxxxxxxxxxx','xxxxxxxxx':'xxxx://xxxxxxx.xxx',\"\n-+\"'xxxxxx':{'xxxx':'xxxxxxxxxxx','xxxxxxxx':{'xxxxxxxxxxx':'xx','xxxxxxxxxx':'xx-xx'}},\"\n-+\"'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'}]},\"\n-+\"'xxxxxxxxxxx':[{'xxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'\"\n-+\",'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':\"\n-+\"[{'xxxxxx':3,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':24,'xxxxxx':4,'xxxx':'xxxxx'}},{'xxxxxx':0,'xxxxxx':123,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':123,'xxxxxx':1,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':1,'xxxxxx':123,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},\"\n-+\"{'xxxxxx':x,'xxxxxx':123,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,\"\n-+\"'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d',\"\n-+\"'xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]}]}\";\n-        // This one works:\n-// String msg =\"{'xxx':{'xxxx':'xxxxxxxxx','xx':'xxxxxxxxxxxxxxxxxxx','xxxxxxxxx':'xxxx://xxxxxxx.xxx','xxxxxx':{'xxxx':'xxxxxxxxxxx','xxxxxxxx':{'xxxxxxxxxxx':'xx','xxxxxxxxxx':'xx-xx'}},'xxxxx':[{'xxxx':'xxxx','xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d'}]},'xxxxxxxxxxx':[{'xxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]},{'xxxxxxxxxxx':'xxxxx','xxxxxxxx':[{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xx,'xxxxxx':x,'xxxx':'xxxxx'}},{'xxxxxx':x,'xxxxxx':xxx,'xxxx':'xx xxxxxxxxxxx: xxxxxxx xxxxxx xxxxxxxxxxxxx xxxxx xxxxxx. xxxxx xxxxxx xxxxx xxxxx. xx xxx xx xxxx xxx xxxx. xxxx xxxxx xxx xxxxxxxx xxxxx xxxxxx xxxxxxx\ud83d\ude06\ud83d\udc4d','xxxxxx':{'xxxxxx':xxx,'xxxxxx':x,'xxxx':'xxxxx'}}]}]}\";\n-\n-        SURROGATES_307 = aposToQuotes(msg);\n-    }\n-\n-    private final JsonFactory JSON_F = new JsonFactory();\n-\n-    // for [jackson-core#307]\n-    public void testRawWithSurrogatesString() throws Exception {\n-        _testRawWithSurrogatesString(false);\n-    }\n-\n-    // for [jackson-core#307]\n-    public void testRawWithSurrogatesCharArray() throws Exception {\n-        _testRawWithSurrogatesString(true);\n-    }\n-\n-    private void _testRawWithSurrogatesString(boolean useCharArray) throws Exception\n-    {\n-        // boundaries are not exact, may vary, so use this:\n-\n-        final int OFFSET = 3;\n-        final int COUNT = 100;\n-\n-        for (int i = OFFSET; i < COUNT; ++i) {\n-            StringBuilder sb = new StringBuilder(1000);\n-            for (int j = 0; j < i; ++j) {\n-                sb.append(' ');\n-            }\n-            sb.append(SURROGATES_307);\n-            final String text = sb.toString();\n-            ByteArrayOutputStream out = new ByteArrayOutputStream(1000);\n-            JsonGenerator g = JSON_F.createGenerator(out);\n-            if (useCharArray) {\n-                char[] ch = text.toCharArray();\n-                g.writeRawValue(ch, OFFSET, ch.length - OFFSET);\n-            } else {\n-                g.writeRawValue(text, OFFSET, text.length() - OFFSET);\n-            }\n-            g.close();\n-            byte[] b = out.toByteArray();\n-            assertNotNull(b);\n-        }\n-    }\n-}\ndiff --git a/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java b/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java\ndeleted file mode 100644\nindex 31b7f2f4..00000000\n--- a/src/test/java/com/fasterxml/jackson/core/util/RequestPayloadTest.java\n+++ /dev/null\n@@ -1,41 +0,0 @@\n-package com.fasterxml.jackson.core.util;\n-\n-import org.junit.Test;\n-\n-import static org.junit.Assert.*;\n-\n-/**\n- * Unit tests for class {@link RequestPayload}.\n- *\n- * @see RequestPayload\n- **/\n-public class RequestPayloadTest {\n-  @SuppressWarnings(\"unused\")\n-  @Test(expected = IllegalArgumentException.class)\n-  public void testFailsToCreateTakingCharSequenceThrowsIllegalArgumentExceptionOne() {\n-      new RequestPayload(null);\n-  }\n-\n-  @SuppressWarnings(\"unused\")\n-  @Test(expected = IllegalArgumentException.class)\n-  public void testFailsToCreateTakingCharSequenceThrowsIllegalArgumentExceptionTwo() {\n-      new RequestPayload(null, \"UTF-8\");\n-  }\n-\n-  @Test\n-  public void testCreateTakingCharSequenceAndCallsGetRawPayload() {\n-    CharSequence charSequence = new String();\n-\n-    RequestPayload requestPayload = new RequestPayload(charSequence);\n-    assertEquals(\"\", requestPayload.getRawPayload());\n-  }\n-\n-  @Test\n-  public void testCreateTaking2ArgumentsAndCallsGetRawPayload() {\n-    byte[] byteArray = new byte[5];\n-    RequestPayload requestPayload = new RequestPayload(byteArray, \"/ _ \\\" \u20ac\");\n-\n-    assertSame(byteArray, requestPayload.getRawPayload());\n-  }\n-\n-}\n\\ No newline at end of file\n"
+  },
+  "timestamp": "2026-06-16 23:51:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_24",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_24",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "Add new exception type `InputCoercionException` to be used for failed coercions like overflow for `int`\nCurrently problems like overflow for numeric type (when JSON number value exceeds range of requested target type like `int`) simply use `JsonParseException` to indicate the problem (both at streaming and databind level).\r\n\r\nBut it would be better if we could use more targeted exception, to let calling application potentially handle problems differently. We can also add some metadata about type of failure, such as initial token type and expected target type.\r\nIt is also true that coercion failures -- where we start from valid JSON value, but fail to convert into desired target type -- are not parse (decode) problems at all, but rather mismatch problems.\r\n\r\nSo let's add something like `InputCoercionException`, which extends `JsonProcessingException`, but not `JsonParseException`.\r\n\r\nWith 3.x we may want to tackle other problems: for example, lack of context for \"lower level\" `JsonProcessingException`s (compared to `JsonMappingException`)\r\n\r\n\r\n\n",
+    "commit_message": "Fix #508",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 165,
+        "end_line": 165,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 171,
+        "end_line": 171,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 177,
+        "end_line": 177,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+        "start_line": 179,
+        "end_line": 179,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 7,
+        "end_line": 7,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 10,
+        "end_line": 10,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 11,
+        "end_line": 11,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 12,
+        "end_line": 12,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 13,
+        "end_line": 13,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+        "start_line": 28,
+        "end_line": 28,
+        "suspiciousness": 0.12171612389003691,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.json.async.AsyncNumberCoercionTest::testToLongFailing",
+      "com.fasterxml.jackson.core.json.async.AsyncNumberCoercionTest::testToIntFailing",
+      "com.fasterxml.jackson.core.read.NumberCoercionTest::testToLongFailing",
+      "com.fasterxml.jackson.core.read.NumberCoercionTest::testToIntFailing",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testMaliciousLongOverflow",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testSimpleLongOverflow",
+      "com.fasterxml.jackson.core.read.NumberOverflowTest::testMaliciousIntOverflow",
+      "com.fasterxml.jackson.core.read.NumberParsingTest::testSimpleLong"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 165,
+      "end_line": 165,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 171,
+      "end_line": 171,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 177,
+      "end_line": 177,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/JsonFactory.java",
+      "start_line": 179,
+      "end_line": 179,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 7,
+      "end_line": 7,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 10,
+      "end_line": 10,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 11,
+      "end_line": 11,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 12,
+      "end_line": 12,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 13,
+      "end_line": 13,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+      "start_line": 28,
+      "end_line": 28,
+      "suspiciousness": 0.12171612389003691,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_76",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 19:04:08",
+      "end_time": "2026-06-30 19:06:08",
+      "duration_seconds": 121,
+      "duration_human": "2m 1s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 512780,
+      "output_tokens": 5194,
+      "total_tokens": 517974,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 512780
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/construction.py b/pandas/core/internals/construction.py\nindex 798386825d..6005a4e9ce 100644\n--- a/pandas/core/internals/construction.py\n+++ b/pandas/core/internals/construction.py\n@@ -585,7 +585,37 @@ def _convert_object_array(content, columns, coerce_float=False, dtype=None):\n     # provide soft conversion of object dtypes\n     def convert(arr):\n         if dtype != object and dtype != np.object:\n-            arr = lib.maybe_convert_objects(arr, try_float=coerce_float)\n+            # Only try to convert to float if coerce_float is True\n+            # and the values can be safely converted without overflow\n+            if coerce_float:\n+                # First try to convert to int64 to preserve large integers\n+                try:\n+                    arr = lib.maybe_convert_objects(arr, try_float=False)\n+                    # Check if we have integer-like strings that are too large for float64\n+                    if arr.dtype == object:\n+                        # Try to convert to int64 first\n+                        try:\n+                            arr_int = arr.astype(\"int64\")\n+                            # Check if conversion to float64 would lose precision\n+                            try:\n+                                arr_float = arr_int.astype(\"float64\")\n+                                if not np.array_equal(arr_int, arr_float):\n+                                    # Large integer that would overflow, keep as int64\n+                                    arr = arr_int\n+                                else:\n+                                    arr = arr_float\n+                            except (OverflowError, ValueError):\n+                                # Keep as int64 if float conversion fails\n+                                arr = arr_int\n+                        except (ValueError, OverflowError):\n+                            # If int64 conversion fails, try original float conversion\n+                            arr = lib.maybe_convert_objects(arr, try_float=True)\n+                    else:\n+                        arr = lib.maybe_convert_objects(arr, try_float=True)\n+                except Exception:\n+                    arr = lib.maybe_convert_objects(arr, try_float=False)\n+            else:\n+                arr = lib.maybe_convert_objects(arr, try_float=False)\n             arr = maybe_cast_to_datetime(arr, dtype)\n         return arr\n \ndiff --git a/pandas/io/json/_json.py b/pandas/io/json/_json.py\nindex ae6ae70cba..4f47360a81 100644\n--- a/pandas/io/json/_json.py\n+++ b/pandas/io/json/_json.py\n@@ -934,17 +934,34 @@ class Parser:\n                     pass\n \n         # don't coerce 0-len data\n+        # dont coerce 0-len data\n         if len(data) and (data.dtype == \"float\" or data.dtype == \"object\"):\n \n             # coerce ints if we can\n             try:\n-                new_data = data.astype(\"int64\")\n-                if (new_data == data).all():\n-                    data = new_data\n-                    result = True\n-            except (TypeError, ValueError):\n+                # First check if values can be safely converted to int64\n+                # by trying a sample conversion\n+                if data.dtype == \"object\":\n+                    # For object arrays, check if all values are integer-like\n+                    # and can fit in int64 range\n+                    try:\n+                        # Try to convert to int64 with a safe check\n+                        new_data = data.astype(\"int64\", errors=\"ignore\")\n+                        # Only proceed if all values were successfully converted\n+                        if new_data.dtype == \"int64\" and not new_data.isna().any():\n+                            if (new_data == data).all():\n+                                data = new_data\n+                                result = True\n+                    except (TypeError, ValueError, OverflowError):\n+                        pass\n+                else:\n+                    # For float arrays, proceed with normal conversion\n+                    new_data = data.astype(\"int64\")\n+                    if (new_data == data).all():\n+                        data = new_data\n+                        result = True\n+            except (TypeError, ValueError, OverflowError):\n                 pass\n-\n         # coerce ints to 64\n         if data.dtype == \"int\":\n \n@@ -952,7 +969,7 @@ class Parser:\n             try:\n                 data = data.astype(\"int64\")\n                 result = True\n-            except (TypeError, ValueError):\n+            except (TypeError, ValueError, OverflowError):\n                 pass\n \n         return data, result\ndiff --git a/pandas/tests/io/json/test_pandas.py b/pandas/tests/io/json/test_pandas.py\nindex bb873c71e8..638bcaa21b 100644\n--- a/pandas/tests/io/json/test_pandas.py\n+++ b/pandas/tests/io/json/test_pandas.py\n@@ -1640,3 +1640,10 @@ DataFrame\\\\.index values are different \\\\(100\\\\.0 %\\\\)\n         with tm.assert_produces_warning(FutureWarning):\n             result = read_json(expected.to_json(), numpy=True)\n             tm.assert_frame_equal(result, expected)\n+\n+    def test_frame_int_overflow(self):\n+        # GH 30320\n+        encoded_json = json.dumps([{\"col\": \"31900441201190696999\"}, {\"col\": \"Text\"}])\n+        expected = DataFrame({\"col\": [\"31900441201190696999\", \"Text\"]})\n+        result = read_json(encoded_json)\n+        tm.assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-30 19:06:09 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_76",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_76/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Integer Overflow in read_json with big number in string (#30329)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 351,
+        "end_line": 351,
+        "suspiciousness": 0.20875,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 352,
+        "end_line": 352,
+        "suspiciousness": 0.20875,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 363,
+        "end_line": 363,
+        "suspiciousness": 0.20875,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 364,
+        "end_line": 364,
+        "suspiciousness": 0.20875,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 367,
+        "end_line": 367,
+        "suspiciousness": 0.20875,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 372,
+        "end_line": 372,
+        "suspiciousness": 0.20875,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 380,
+        "end_line": 380,
+        "suspiciousness": 0.20875,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 350,
+        "end_line": 350,
+        "suspiciousness": 0.204255,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 560,
+        "end_line": 560,
+        "suspiciousness": 0.133046,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 561,
+        "end_line": 561,
+        "suspiciousness": 0.133046,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/json/test_pandas.py::TestPandasContainer::test_frame_int_overflow"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 351,
+      "end_line": 351,
+      "suspiciousness": 0.20875,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 352,
+      "end_line": 352,
+      "suspiciousness": 0.20875,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 363,
+      "end_line": 363,
+      "suspiciousness": 0.20875,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 364,
+      "end_line": 364,
+      "suspiciousness": 0.20875,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 367,
+      "end_line": 367,
+      "suspiciousness": 0.20875,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 372,
+      "end_line": 372,
+      "suspiciousness": 0.20875,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 380,
+      "end_line": 380,
+      "suspiciousness": 0.20875,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 350,
+      "end_line": 350,
+      "suspiciousness": 0.204255,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 560,
+      "end_line": 560,
+      "suspiciousness": 0.133046,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 561,
+      "end_line": 561,
+      "suspiciousness": 0.133046,
+      "rank": 10
+    }
+  ]
+}

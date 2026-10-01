@@ -1,0 +1,55 @@
+{
+  "project_name": "fastapi",
+  "bug_id": "fastapi_7",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 00:35:02",
+      "end_time": "2026-06-28 00:35:20",
+      "duration_seconds": 18,
+      "duration_human": "18.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 15,
+    "token_usage": {
+      "input_tokens": 55546,
+      "output_tokens": 638,
+      "total_tokens": 56184,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 55546
+    },
+    "agent_steps": 15,
+    "checkout_success": true,
+    "patch": "diff --git a/fastapi/exception_handlers.py b/fastapi/exception_handlers.py\nindex cda2f8c7..a68db084 100644\n--- a/fastapi/exception_handlers.py\n+++ b/fastapi/exception_handlers.py\n@@ -1,4 +1,5 @@\n from fastapi.exceptions import RequestValidationError\n+from fastapi.encoders import jsonable_encoder\n from starlette.exceptions import HTTPException\n from starlette.requests import Request\n from starlette.responses import JSONResponse\n@@ -19,5 +20,5 @@ async def request_validation_exception_handler(\n     request: Request, exc: RequestValidationError\n ) -> JSONResponse:\n     return JSONResponse(\n-        status_code=HTTP_422_UNPROCESSABLE_ENTITY, content={\"detail\": exc.errors()}\n+        status_code=HTTP_422_UNPROCESSABLE_ENTITY, content=jsonable_encoder({\"detail\": exc.errors()})\n     )\ndiff --git a/tests/test_multi_body_errors.py b/tests/test_multi_body_errors.py\nindex ef07c2a8..5824cda2 100644\n--- a/tests/test_multi_body_errors.py\n+++ b/tests/test_multi_body_errors.py\n@@ -1,7 +1,8 @@\n+from decimal import Decimal\n from typing import List\n \n from fastapi import FastAPI\n-from pydantic import BaseModel\n+from pydantic import BaseModel, condecimal\n from starlette.testclient import TestClient\n \n app = FastAPI()\n@@ -9,7 +10,7 @@ app = FastAPI()\n \n class Item(BaseModel):\n     name: str\n-    age: int\n+    age: condecimal(gt=Decimal(0.0))\n \n \n @app.post(\"/items/\")\n@@ -67,7 +68,7 @@ openapi_schema = {\n                 \"type\": \"object\",\n                 \"properties\": {\n                     \"name\": {\"title\": \"Name\", \"type\": \"string\"},\n-                    \"age\": {\"title\": \"Age\", \"type\": \"integer\"},\n+                    \"age\": {\"title\": \"Age\", \"exclusiveMinimum\": 0.0, \"type\": \"number\"},\n                 },\n             },\n             \"ValidationError\": {\n@@ -99,6 +100,17 @@ openapi_schema = {\n     },\n }\n \n+single_error = {\n+    \"detail\": [\n+        {\n+            \"ctx\": {\"limit_value\": 0.0},\n+            \"loc\": [\"body\", \"item\", 0, \"age\"],\n+            \"msg\": \"ensure this value is greater than 0\",\n+            \"type\": \"value_error.number.not_gt\",\n+        }\n+    ]\n+}\n+\n multiple_errors = {\n     \"detail\": [\n         {\n@@ -108,8 +120,8 @@ multiple_errors = {\n         },\n         {\n             \"loc\": [\"body\", \"item\", 0, \"age\"],\n-            \"msg\": \"value is not a valid integer\",\n-            \"type\": \"type_error.integer\",\n+            \"msg\": \"value is not a valid decimal\",\n+            \"type\": \"type_error.decimal\",\n         },\n         {\n             \"loc\": [\"body\", \"item\", 1, \"name\"],\n@@ -118,8 +130,8 @@ multiple_errors = {\n         },\n         {\n             \"loc\": [\"body\", \"item\", 1, \"age\"],\n-            \"msg\": \"value is not a valid integer\",\n-            \"type\": \"type_error.integer\",\n+            \"msg\": \"value is not a valid decimal\",\n+            \"type\": \"type_error.decimal\",\n         },\n     ]\n }\n@@ -137,7 +149,13 @@ def test_put_correct_body():\n     assert response.json() == {\"item\": [{\"name\": \"Foo\", \"age\": 5}]}\n \n \n-def test_put_incorrect_body():\n+def test_jsonable_encoder_requiring_error():\n+    response = client.post(\"/items/\", json=[{\"name\": \"Foo\", \"age\": -1.0}])\n+    assert response.status_code == 422\n+    assert response.json() == single_error\n+\n+\n+def test_put_incorrect_body_multiple():\n     response = client.post(\"/items/\", json=[{\"age\": \"five\"}, {\"age\": \"six\"}])\n     assert response.status_code == 422\n     assert response.json() == multiple_errors\n"
+  },
+  "timestamp": "2026-06-28 00:35:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "fastapi",
+    "bug_id": "fastapi_7",
+    "repo_path": "/BugsInPy/framework/bin/temp/fastapi_7/fastapi",
+    "github_url": "https://github.com/tiangolo/fastapi",
+    "description": "",
+    "commit_message": ":bug: Fix issue with exotic pydantic error serialization (#748)",
+    "fault_locations": [
+      {
+        "file": "fastapi/exception_handlers.py",
+        "start_line": 22,
+        "end_line": 22,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_multi_body_errors.py::test_jsonable_encoder_requiring_error"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

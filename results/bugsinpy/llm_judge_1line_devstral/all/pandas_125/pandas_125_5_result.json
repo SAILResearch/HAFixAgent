@@ -1,0 +1,532 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_125",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 21:15:44",
+      "end_time": "2026-06-27 21:20:41",
+      "duration_seconds": 297,
+      "duration_human": "4m 57s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1141046,
+      "output_tokens": 16466,
+      "total_tokens": 1157512,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1141046
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 53689b6bc2..fd8683bcb6 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -2415,6 +2415,91 @@ class Categorical(ExtensionArray, PandasObject):\n \n         return concat_categorical(to_concat)\n \n+    \n+\n+    \n+    def replace(self, to_replace=None, value=None, inplace=False):\n+        \"\"\"\n+        Return a new Categorical with replaced values.\n+\n+        Parameters\n+        ----------\n+        to_replace : scalar, list-like, or dict\n+            Value or list-like of values to replace.\n+        value : scalar, list-like, or dict\n+            Value or list-like of values to use as replacement.\n+        inplace : bool, default False\n+            Whether to modify the data in place.\n+\n+        Returns\n+        -------\n+        Categorical\n+            Categorical with replaced values.\n+        \"\"\"\n+        from pandas.core.dtypes.missing import isna\n+        \n+        if inplace:\n+            raise NotImplementedError(\"inplace=True is not supported for Categorical.replace\")\n+            \n+        # Handle the simple case of replacing values within existing categories\n+        if to_replace is None and value is None:\n+            return self.copy()\n+            \n+        # Convert to_replace and value to appropriate format\n+        if hasattr(to_replace, \"__iter__\") and not isinstance(to_replace, str):\n+            to_replace_list = list(to_replace)\n+        else:\n+            to_replace_list = [to_replace] if to_replace is not None else []\n+            \n+        # Handle value parameter\n+        if value is None:\n+            replacement_value = None\n+        elif hasattr(value, \"__iter__\") and not isinstance(value, str):\n+            replacement_value = list(value)\n+        else:\n+            replacement_value = value\n+        \n+        # Create new codes array\n+        new_codes = self._codes.copy()\n+        \n+        # Replace the values\n+        for i, val in enumerate(to_replace_list):\n+            if isna(val):\n+                # Replace NaN values\n+                mask = new_codes == -1\n+            else:\n+                # Replace specific values\n+                try:\n+                    code = self.categories.get_loc(val)\n+                    mask = new_codes == code\n+                except KeyError:\n+                    # Value not in categories, skip it\n+                    continue\n+            \n+            if mask.any():\n+                if replacement_value is None:\n+                    new_codes[mask] = -1  # Set to NaN\n+                elif isinstance(replacement_value, list) and i < len(replacement_value):\n+                    new_val = replacement_value[i]\n+                    if isna(new_val):\n+                        new_codes[mask] = -1\n+                    elif new_val in self.categories:\n+                        new_codes[mask] = self.categories.get_loc(new_val)\n+                    else:\n+                        # Value not in categories, leave as is\n+                        pass\n+                else:\n+                    new_val = replacement_value\n+                    if isna(new_val):\n+                        new_codes[mask] = -1\n+                    elif new_val in self.categories:\n+                        new_codes[mask] = self.categories.get_loc(new_val)\n+                    else:\n+                        # Value not in categories, leave as is\n+                        pass\n+        \n+        return self._constructor(new_codes, dtype=self.dtype)\n+\n     def isin(self, values):\n         \"\"\"\n         Check whether `values` are contained in Categorical.\ndiff --git a/pandas/tests/arrays/categorical/test_algos.py b/pandas/tests/arrays/categorical/test_algos.py\nindex 1a48ccf85f..e076015c5f 100644\n--- a/pandas/tests/arrays/categorical/test_algos.py\n+++ b/pandas/tests/arrays/categorical/test_algos.py\n@@ -59,6 +59,24 @@ def test_isin_cats():\n     tm.assert_numpy_array_equal(expected, result)\n \n \n+@pytest.mark.parametrize(\n+    \"to_replace, value, result\",\n+    [(\"b\", \"c\", [\"a\", \"c\"]), (\"c\", \"d\", [\"a\", \"b\"]), (\"b\", None, [\"a\", None])],\n+)\n+def test_replace(to_replace, value, result):\n+    # GH 26988\n+    cat = pd.Categorical([\"a\", \"b\"])\n+    expected = pd.Categorical(result)\n+    result = cat.replace(to_replace, value)\n+    tm.assert_categorical_equal(result, expected)\n+    if to_replace == \"b\":  # the \"c\" test is supposed to be unchanged\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_categorical_equal(cat, expected)\n+    cat.replace(to_replace, value, inplace=True)\n+    tm.assert_categorical_equal(cat, expected)\n+\n+\n @pytest.mark.parametrize(\"empty\", [[], pd.Series(), np.array([])])\n def test_isin_empty(empty):\n     s = pd.Categorical([\"a\", \"b\"])\ndiff --git a/pandas/tests/frame/test_replace.py b/pandas/tests/frame/test_replace.py\nindex c30efa1212..60b601b57e 100644\n--- a/pandas/tests/frame/test_replace.py\n+++ b/pandas/tests/frame/test_replace.py\n@@ -1296,6 +1296,24 @@ class TestDataFrameReplace:\n         expected = DataFrame(expected)\n         tm.assert_frame_equal(result, expected)\n \n+    @pytest.mark.parametrize(\n+        \"replace_dict, final_data\",\n+        [({\"a\": 1, \"b\": 1}, [[3, 3], [2, 2]]), ({\"a\": 1, \"b\": 2}, [[3, 1], [2, 3]])],\n+    )\n+    def test_categorical_replace_with_dict(self, replace_dict, final_data):\n+        # GH 26988\n+        df = DataFrame([[1, 1], [2, 2]], columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected = DataFrame(final_data, columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected[\"a\"] = expected[\"a\"].cat.set_categories([1, 2, 3])\n+        expected[\"b\"] = expected[\"b\"].cat.set_categories([1, 2, 3])\n+        result = df.replace(replace_dict, 3)\n+        tm.assert_frame_equal(result, expected)\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_frame_equal(df, expected)\n+        df.replace(replace_dict, 3, inplace=True)\n+        tm.assert_frame_equal(df, expected)\n+\n     @pytest.mark.parametrize(\n         \"df, to_replace, exp\",\n         [\n"
+  },
+  "timestamp": "2026-06-27 21:20:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_125",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_125/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG-26988 implement replace for categorical blocks (#27026)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2472,
+        "end_line": 2473,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2473,
+        "end_line": 2474,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2474,
+        "end_line": 2475,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2475,
+        "end_line": 2476,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2476,
+        "end_line": 2477,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2477,
+        "end_line": 2478,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2478,
+        "end_line": 2479,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2479,
+        "end_line": 2480,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2480,
+        "end_line": 2481,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2481,
+        "end_line": 2482,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2482,
+        "end_line": 2483,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2483,
+        "end_line": 2484,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2484,
+        "end_line": 2485,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2485,
+        "end_line": 2486,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2486,
+        "end_line": 2487,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2487,
+        "end_line": 2488,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2488,
+        "end_line": 2489,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2489,
+        "end_line": 2490,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2490,
+        "end_line": 2491,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2491,
+        "end_line": 2492,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2492,
+        "end_line": 2493,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2493,
+        "end_line": 2494,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2494,
+        "end_line": 2495,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2495,
+        "end_line": 2496,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2496,
+        "end_line": 2497,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2497,
+        "end_line": 2498,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2498,
+        "end_line": 2499,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2499,
+        "end_line": 2500,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2500,
+        "end_line": 2501,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2501,
+        "end_line": 2502,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2502,
+        "end_line": 2503,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2503,
+        "end_line": 2504,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2504,
+        "end_line": 2505,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2505,
+        "end_line": 2506,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2506,
+        "end_line": 2507,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2507,
+        "end_line": 2508,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2508,
+        "end_line": 2509,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2509,
+        "end_line": 2510,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2510,
+        "end_line": 2511,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2511,
+        "end_line": 2512,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2512,
+        "end_line": 2513,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2513,
+        "end_line": 2514,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2514,
+        "end_line": 2515,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2515,
+        "end_line": 2516,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 2516,
+        "end_line": 2517,
+        "function_name": "CategoricalAccessor",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2926,
+        "end_line": 2927,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2927,
+        "end_line": 2928,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2928,
+        "end_line": 2929,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2929,
+        "end_line": 2930,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2930,
+        "end_line": 2931,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2931,
+        "end_line": 2932,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2932,
+        "end_line": 2933,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2933,
+        "end_line": 2934,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2934,
+        "end_line": 2935,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2935,
+        "end_line": 2936,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2936,
+        "end_line": 2937,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2937,
+        "end_line": 2938,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2938,
+        "end_line": 2939,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2939,
+        "end_line": 2940,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2940,
+        "end_line": 2941,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2941,
+        "end_line": 2942,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2942,
+        "end_line": 2943,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2943,
+        "end_line": 2944,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2944,
+        "end_line": 2945,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2945,
+        "end_line": 2946,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2946,
+        "end_line": 2947,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2947,
+        "end_line": 2948,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2948,
+        "end_line": 2949,
+        "function_name": "get_block_type",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2949,
+        "end_line": 2950,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_algos.py::test_replace",
+      "pytest pandas/tests/frame/test_replace.py::TestDataFrameReplace::test_categorical_replace_with_dict"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "project_name": "Compress",
+  "bug_id": "32",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:56:46",
+      "end_time": "2026-06-19 23:59:25",
+      "duration_seconds": 160,
+      "duration_human": "2m 40s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 490657,
+      "output_tokens": 3404,
+      "total_tokens": 494061,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 490657
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex c5570071..41acf2af 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -498,11 +498,11 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n             } else if (\"linkpath\".equals(key)){\n                 currEntry.setLinkName(val);\n             } else if (\"gid\".equals(key)){\n-                currEntry.setGroupId(Integer.parseInt(val));\n+                currEntry.setGroupId(Long.parseLong(val));\n             } else if (\"gname\".equals(key)){\n                 currEntry.setGroupName(val);\n             } else if (\"uid\".equals(key)){\n-                currEntry.setUserId(Integer.parseInt(val));\n+                currEntry.setUserId(Long.parseLong(val));\n             } else if (\"uname\".equals(key)){\n                 currEntry.setUserName(val);\n             } else if (\"size\".equals(key)){\n"
+  },
+  "timestamp": "2026-06-19 23:59:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_32",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_32",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "TarArchiveInputStream rejects uid or gid >= 0x80000000\nA POSIX-format archive that came from sysdiagnose produces NumberFormatException[1] when I try to read it with TarArchiveInputStream.\n\nThe relevant part of the .tar file looks like this:\n\n   18 uid=429496729\n\nThat's the uid of 'nobody' on Mac OS (on Mac OS, uid_t is 'unsigned int').\n\nPOSIX doesn't say anything about the width of the uid extended header[2], so I assume the tar file is okay. GNU tar doesn't have trouble with it.\n\nThe relevant code, in applyPaxHeadersToCurrentEntry:\n\n            } else if (\"gid\".equals(key)){\n                currEntry.setGroupId(Integer.parseInt(val));\n...\n            } else if (\"uid\".equals(key)){\n                currEntry.setUserId(Integer.parseInt(val));\n\nuid_t and gid_t are typically unsigned 32-bit integers, so these should presumably use Long.parseLong to handle integers with the top bit set (and TarArchiveEntry would need some modifications to handle large uid and gid, too).\n\n[1] java.lang.NumberFormatException: For input string: \"4294967294\"\n        at java.lang.NumberFormatException.forInputString(NumberFormatException.java:65)\n        at java.lang.Integer.parseInt(Integer.java:495)\n        at java.lang.Integer.parseInt(Integer.java:527)\n        at org.apache.commons.compress.archivers.tar.TarArchiveInputStream.applyPaxHeadersToCurrentEntry(TarArchiveInputStream.java:488)\n        at org.apache.commons.compress.archivers.tar.TarArchiveInputStream.paxHeaders(TarArchiveInputStream.java:415)\n        at org.apache.commons.compress.archivers.tar.TarArchiveInputStream.getNextTarEntry(TarArchiveInputStream.java:295)\n\n[2] http://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13_03\nuid\nThe user ID of the file owner, expressed as a decimal number using digits from the ISO/IEC 646:1991 standard. This record shall override the uid field in the following header block(s). When used in write or copy mode, pax shall include a uid extended header record for each file whose owner ID is greater than 2097151 (octal 7777777).",
+    "commit_message": "COMPRESS-314 read group/user ids > 0x80000000 from (posix) tars",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+        "start_line": 501,
+        "end_line": 501,
+        "line_numbers": [
+          501
+        ],
+        "function_name": "applyPaxHeadersToCurrentEntry",
+        "class_name": "TarArchiveInputStream",
+        "filename": "TarArchiveInputStream.java",
+        "code_snippet": "    private void applyPaxHeadersToCurrentEntry(Map<String, String> headers) {\n        /*\n         * The following headers are defined for Pax.\n         * atime, ctime, charset: cannot use these without changing TarArchiveEntry fields\n         * mtime\n         * comment\n         * gid, gname\n         * linkpath\n         * size\n         * uid,uname\n         * SCHILY.devminor, SCHILY.devmajor: don't have setters/getters for those\n         */\n        for (Entry<String, String> ent : headers.entrySet()){\n            String key = ent.getKey();\n            String val = ent.getValue();\n            if (\"path\".equals(key)){\n                currEntry.setName(val);\n            } else if (\"linkpath\".equals(key)){\n                currEntry.setLinkName(val);\n            } else if (\"gid\".equals(key)){\n                currEntry.setGroupId(Integer.parseInt(val));\n            } else if (\"gname\".equals(key)){\n                currEntry.setGroupName(val);\n            } else if (\"uid\".equals(key)){\n                currEntry.setUserId(Integer.parseInt(val));\n            } else if (\"uname\".equals(key)){\n                currEntry.setUserName(val);\n            } else if (\"size\".equals(key)){\n                currEntry.setSize(Long.parseLong(val));\n            } else if (\"mtime\".equals(key)){\n                currEntry.setModTime((long) (Double.parseDouble(val) * 1000));\n            } else if (\"SCHILY.devminor\".equals(key)){\n                currEntry.setDevMinor(Integer.parseInt(val));\n            } else if (\"SCHILY.devmajor\".equals(key)){\n                currEntry.setDevMajor(Integer.parseInt(val));\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+        "start_line": 505,
+        "end_line": 505,
+        "line_numbers": [
+          505
+        ],
+        "function_name": "applyPaxHeadersToCurrentEntry",
+        "class_name": "TarArchiveInputStream",
+        "filename": "TarArchiveInputStream.java",
+        "code_snippet": "    private void applyPaxHeadersToCurrentEntry(Map<String, String> headers) {\n        /*\n         * The following headers are defined for Pax.\n         * atime, ctime, charset: cannot use these without changing TarArchiveEntry fields\n         * mtime\n         * comment\n         * gid, gname\n         * linkpath\n         * size\n         * uid,uname\n         * SCHILY.devminor, SCHILY.devmajor: don't have setters/getters for those\n         */\n        for (Entry<String, String> ent : headers.entrySet()){\n            String key = ent.getKey();\n            String val = ent.getValue();\n            if (\"path\".equals(key)){\n                currEntry.setName(val);\n            } else if (\"linkpath\".equals(key)){\n                currEntry.setLinkName(val);\n            } else if (\"gid\".equals(key)){\n                currEntry.setGroupId(Integer.parseInt(val));\n            } else if (\"gname\".equals(key)){\n                currEntry.setGroupName(val);\n            } else if (\"uid\".equals(key)){\n                currEntry.setUserId(Integer.parseInt(val));\n            } else if (\"uname\".equals(key)){\n                currEntry.setUserName(val);\n            } else if (\"size\".equals(key)){\n                currEntry.setSize(Long.parseLong(val));\n            } else if (\"mtime\".equals(key)){\n                currEntry.setModTime((long) (Double.parseDouble(val) * 1000));\n            } else if (\"SCHILY.devminor\".equals(key)){\n                currEntry.setDevMinor(Integer.parseInt(val));\n            } else if (\"SCHILY.devmajor\".equals(key)){\n                currEntry.setDevMajor(Integer.parseInt(val));\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::shouldReadBigGid"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex 41acf2af..c5570071 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -498,11 +498,11 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n             } else if (\"linkpath\".equals(key)){\n                 currEntry.setLinkName(val);\n             } else if (\"gid\".equals(key)){\n+                currEntry.setGroupId(Long.parseLong(val));\n-                currEntry.setGroupId(Integer.parseInt(val));\n             } else if (\"gname\".equals(key)){\n                 currEntry.setGroupName(val);\n             } else if (\"uid\".equals(key)){\n+                currEntry.setUserId(Long.parseLong(val));\n-                currEntry.setUserId(Integer.parseInt(val));\n             } else if (\"uname\".equals(key)){\n                 currEntry.setUserName(val);\n             } else if (\"size\".equals(key)){",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

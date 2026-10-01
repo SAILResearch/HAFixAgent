@@ -1,0 +1,196 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_42",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 01:21:33",
+      "end_time": "2026-06-26 01:34:39",
+      "duration_seconds": 786,
+      "duration_human": "13m 6s"
+    },
+    "model_cost": 0.1027,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 844283,
+      "output_tokens": 13188,
+      "total_tokens": 857471,
+      "cached_input_tokens": 483776,
+      "uncached_input_tokens": 360507
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/_testing.py b/pandas/_testing.py\nindex d473b453d7..086b3ce0b9 100644\n--- a/pandas/_testing.py\n+++ b/pandas/_testing.py\n@@ -1015,8 +1015,32 @@ def assert_extension_array_equal(\n     A mask of missing values is computed for each and checked to match.\n     The remaining all-valid values are cast to object dtype and checked.\n     \"\"\"\n+    from pandas.core.arrays import ExtensionArray\n+    import numpy as np\n+    \n     assert isinstance(left, ExtensionArray), \"left is not an ExtensionArray\"\n-    assert isinstance(right, ExtensionArray), \"right is not an ExtensionArray\"\n+    \n+    # When check_dtype=False, we allow comparing with non-ExtensionArray\n+    if not isinstance(right, ExtensionArray):\n+        if check_dtype:\n+            raise AssertionError(\"right is not an ExtensionArray\")\n+        # Compare values directly when check_dtype=False\n+        left_valid = np.asarray(left.astype(object))\n+        right_valid = np.asarray(right, dtype=object)\n+        \n+        if check_exact:\n+            assert_numpy_array_equal(left_valid, right_valid, obj=\"ExtensionArray\")\n+        else:\n+            _testing.assert_almost_equal(\n+                left_valid,\n+                right_valid,\n+                check_dtype=False,\n+                check_less_precise=check_less_precise,\n+                obj=\"ExtensionArray\",\n+            )\n+        return\n+    \n+    # Both are ExtensionArrays\n     if check_dtype:\n         assert_attr_equal(\"dtype\", left, right, obj=\"ExtensionArray\")\n \n@@ -1043,7 +1067,6 @@ def assert_extension_array_equal(\n             obj=\"ExtensionArray\",\n         )\n \n-\n # This could be refactored to use the NDFrame.equals method\n def assert_series_equal(\n     left,\n@@ -1171,10 +1194,10 @@ def assert_series_equal(\n             obj=str(obj),\n         )\n     elif is_extension_array_dtype(left.dtype) or is_extension_array_dtype(right.dtype):\n-        assert_extension_array_equal(left._values, right._values)\n+        assert_extension_array_equal(left._values, right._values, check_dtype=check_dtype, check_less_precise=check_less_precise, check_exact=check_exact)\n     elif needs_i8_conversion(left.dtype) or needs_i8_conversion(right.dtype):\n         # DatetimeArray or TimedeltaArray\n-        assert_extension_array_equal(left._values, right._values)\n+        assert_extension_array_equal(left._values, right._values, check_dtype=check_dtype, check_less_precise=check_less_precise, check_exact=check_exact)\n     else:\n         _testing.assert_almost_equal(\n             left._values,\ndiff --git a/pandas/tests/util/test_assert_frame_equal.py b/pandas/tests/util/test_assert_frame_equal.py\nindex 3090343ba2..4bcf7087c2 100644\n--- a/pandas/tests/util/test_assert_frame_equal.py\n+++ b/pandas/tests/util/test_assert_frame_equal.py\n@@ -1,5 +1,6 @@\n import pytest\n \n+import pandas as pd\n from pandas import DataFrame\n import pandas._testing as tm\n \n@@ -218,3 +219,41 @@ def test_frame_equal_unicode(df1, df2, msg, by_blocks_fixture, obj_fixture):\n     msg = msg.format(obj=obj_fixture)\n     with pytest.raises(AssertionError, match=msg):\n         tm.assert_frame_equal(df1, df2, by_blocks=by_blocks_fixture, obj=obj_fixture)\n+\n+\n+def test_assert_frame_equal_extension_dtype_mismatch():\n+    # https://github.com/pandas-dev/pandas/issues/32747\n+    left = DataFrame({\"a\": [1, 2, 3]}, dtype=\"Int64\")\n+    right = left.astype(int)\n+\n+    msg = (\n+        \"Attributes of DataFrame\\\\.iloc\\\\[:, 0\\\\] \"\n+        '\\\\(column name=\"a\"\\\\) are different\\n\\n'\n+        'Attribute \"dtype\" are different\\n'\n+        \"\\\\[left\\\\]:  Int64\\n\"\n+        \"\\\\[right\\\\]: int[32|64]\"\n+    )\n+\n+    tm.assert_frame_equal(left, right, check_dtype=False)\n+\n+    with pytest.raises(AssertionError, match=msg):\n+        tm.assert_frame_equal(left, right, check_dtype=True)\n+\n+\n+def test_assert_frame_equal_interval_dtype_mismatch():\n+    # https://github.com/pandas-dev/pandas/issues/32747\n+    left = DataFrame({\"a\": [pd.Interval(0, 1)]}, dtype=\"interval\")\n+    right = left.astype(object)\n+\n+    msg = (\n+        \"Attributes of DataFrame\\\\.iloc\\\\[:, 0\\\\] \"\n+        '\\\\(column name=\"a\"\\\\) are different\\n\\n'\n+        'Attribute \"dtype\" are different\\n'\n+        \"\\\\[left\\\\]:  interval\\\\[int64\\\\]\\n\"\n+        \"\\\\[right\\\\]: object\"\n+    )\n+\n+    tm.assert_frame_equal(left, right, check_dtype=False)\n+\n+    with pytest.raises(AssertionError, match=msg):\n+        tm.assert_frame_equal(left, right, check_dtype=True)\ndiff --git a/pandas/tests/util/test_assert_series_equal.py b/pandas/tests/util/test_assert_series_equal.py\nindex 2550b32446..49f5489a2e 100644\n--- a/pandas/tests/util/test_assert_series_equal.py\n+++ b/pandas/tests/util/test_assert_series_equal.py\n@@ -1,5 +1,6 @@\n import pytest\n \n+import pandas as pd\n from pandas import Categorical, DataFrame, Series\n import pandas._testing as tm\n \n@@ -196,6 +197,40 @@ ordered=False\\\\)\"\"\"\n         _assert_series_equal_both(s1, s2, check_categorical=check_categorical)\n \n \n+def test_assert_series_equal_extension_dtype_mismatch():\n+    # https://github.com/pandas-dev/pandas/issues/32747\n+    left = Series(pd.array([1, 2, 3], dtype=\"Int64\"))\n+    right = left.astype(int)\n+\n+    msg = \"\"\"Attributes of Series are different\n+\n+Attribute \"dtype\" are different\n+\\\\[left\\\\]:  Int64\n+\\\\[right\\\\]: int[32|64]\"\"\"\n+\n+    tm.assert_series_equal(left, right, check_dtype=False)\n+\n+    with pytest.raises(AssertionError, match=msg):\n+        tm.assert_series_equal(left, right, check_dtype=True)\n+\n+\n+def test_assert_series_equal_interval_dtype_mismatch():\n+    # https://github.com/pandas-dev/pandas/issues/32747\n+    left = Series([pd.Interval(0, 1)], dtype=\"interval\")\n+    right = left.astype(object)\n+\n+    msg = \"\"\"Attributes of Series are different\n+\n+Attribute \"dtype\" are different\n+\\\\[left\\\\]:  interval\\\\[int64\\\\]\n+\\\\[right\\\\]: object\"\"\"\n+\n+    tm.assert_series_equal(left, right, check_dtype=False)\n+\n+    with pytest.raises(AssertionError, match=msg):\n+        tm.assert_series_equal(left, right, check_dtype=True)\n+\n+\n def test_series_equal_series_type():\n     class MySeries(Series):\n         pass\n"
+  },
+  "timestamp": "2026-06-26 01:34:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_42",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_42/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Respect check_dtype in assert_series_equal (#32757)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 961,
+        "end_line": 961,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 966,
+        "end_line": 966,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 967,
+        "end_line": 967,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 968,
+        "end_line": 968,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 969,
+        "end_line": 969,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 970,
+        "end_line": 970,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 996,
+        "end_line": 996,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 998,
+        "end_line": 998,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/construction.py",
+        "start_line": 440,
+        "end_line": 440,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/construction.py",
+        "start_line": 551,
+        "end_line": 551,
+        "suspiciousness": 0.952381,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/util/test_assert_frame_equal.py::test_assert_frame_equal_extension_dtype_mismatch",
+      "pytest pandas/tests/util/test_assert_frame_equal.py::test_assert_frame_equal_interval_dtype_mismatch",
+      "pytest pandas/tests/util/test_assert_series_equal.py::test_assert_series_equal_extension_dtype_mismatch",
+      "pytest pandas/tests/util/test_assert_series_equal.py::test_assert_series_equal_interval_dtype_mismatch"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 961,
+      "end_line": 961,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 966,
+      "end_line": 966,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 967,
+      "end_line": 967,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 968,
+      "end_line": 968,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 969,
+      "end_line": 969,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 970,
+      "end_line": 970,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 996,
+      "end_line": 996,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 998,
+      "end_line": 998,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/construction.py",
+      "start_line": 440,
+      "end_line": 440,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/construction.py",
+      "start_line": 551,
+      "end_line": 551,
+      "suspiciousness": 0.952381,
+      "rank": 10
+    }
+  ]
+}

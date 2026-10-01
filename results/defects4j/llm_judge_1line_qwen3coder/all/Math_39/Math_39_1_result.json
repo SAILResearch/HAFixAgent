@@ -1,0 +1,62 @@
+{
+  "project_name": "Math",
+  "bug_id": "39",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:49:16",
+      "end_time": "2026-06-20 00:53:24",
+      "duration_seconds": 247,
+      "duration_human": "4m 7s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1049917,
+      "output_tokens": 4630,
+      "total_tokens": 1054547,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1049917
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\nindex 13ced27d7..f2005a148 100644\n--- a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n+++ b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n@@ -248,6 +248,12 @@ public abstract class EmbeddedRungeKuttaIntegrator\n \n         stepSize = hNew;\n \n+        // step adjustment near bounds\n+        if ((forward && (stepStart + stepSize > t)) ||\n+            ((! forward) && (stepStart + stepSize < t))) {\n+          stepSize = t - stepStart;\n+        }\n+\n         // next stages\n         for (int k = 1; k < stages; ++k) {\n \n"
+  },
+  "timestamp": "2026-06-20 00:53:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_39",
+    "repo_path": "/defects4j/framework/bin/temp/Math_39",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "too large first step with embedded Runge-Kutta integrators (Dormand-Prince 8(5,3) ...)\nAdaptive step size integrators compute the first step size by themselves if it is not provided.\nFor embedded Runge-Kutta type, this step size is not checked against the integration range, so if the integration range is extremely short, this step size may evaluate the function out of the range (and in fact it tries afterward to go back, and fails to stop). Gragg-Bulirsch-Stoer integrators do not have this problem, the step size is checked and truncated if needed.",
+    "commit_message": "Check first step size in embedded Runge-Kutta integrators.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java",
+        "start_line": 249,
+        "end_line": 249,
+        "line_numbers": [
+          249
+        ],
+        "function_name": "integrate",
+        "class_name": "EmbeddedRungeKuttaIntegrator",
+        "filename": "EmbeddedRungeKuttaIntegrator.java",
+        "code_snippet": "  public void integrate(final ExpandableStatefulODE equations, final double t)\n      throws MathIllegalStateException, MathIllegalArgumentException {\n\n    sanityChecks(equations, t);\n    setEquations(equations);\n    final boolean forward = t > equations.getTime();\n\n    // create some internal working arrays\n    final double[] y0  = equations.getCompleteState();\n    final double[] y = y0.clone();\n    final int stages = c.length + 1;\n    final double[][] yDotK = new double[stages][y.length];\n    final double[] yTmp    = y0.clone();\n    final double[] yDotTmp = new double[y.length];\n\n    // set up an interpolator sharing the integrator arrays\n    final RungeKuttaStepInterpolator interpolator = (RungeKuttaStepInterpolator) prototype.copy();\n    interpolator.reinitialize(this, yTmp, yDotK, forward,\n                              equations.getPrimaryMapper(), equations.getSecondaryMappers());\n    interpolator.storeTime(equations.getTime());\n\n    // set up integration control objects\n    stepStart         = equations.getTime();\n    double  hNew      = 0;\n    boolean firstTime = true;\n    initIntegration(equations.getTime(), y0, t);\n\n    // main integration loop\n    isLastStep = false;\n    do {\n\n      interpolator.shift();\n\n      // iterate over step size, ensuring local normalized error is smaller than 1\n      double error = 10;\n      while (error >= 1.0) {\n\n        if (firstTime || !fsal) {\n          // first stage\n          computeDerivatives(stepStart, y, yDotK[0]);\n        }\n\n        if (firstTime) {\n          final double[] scale = new double[mainSetDimension];\n          if (vecAbsoluteTolerance == null) {\n              for (int i = 0; i < scale.length; ++i) {\n                scale[i] = scalAbsoluteTolerance + scalRelativeTolerance * FastMath.abs(y[i]);\n              }\n          } else {\n              for (int i = 0; i < scale.length; ++i) {\n                scale[i] = vecAbsoluteTolerance[i] + vecRelativeTolerance[i] * FastMath.abs(y[i]);\n              }\n          }\n          hNew = initializeStep(forward, getOrder(), scale,\n                                stepStart, y, yDotK[0], yTmp, yDotK[1]);\n          firstTime = false;\n        }\n\n        stepSize = hNew;\n\n        // next stages\n        for (int k = 1; k < stages; ++k) {\n\n          for (int j = 0; j < y0.length; ++j) {\n            double sum = a[k-1][0] * yDotK[0][j];\n            for (int l = 1; l < k; ++l) {\n              sum += a[k-1][l] * yDotK[l][j];\n            }\n            yTmp[j] = y[j] + stepSize * sum;\n          }\n\n          computeDerivatives(stepStart + c[k-1] * stepSize, yTmp, yDotK[k]);\n\n        }\n\n        // estimate the state at the end of the step\n        for (int j = 0; j < y0.length; ++j) {\n          double sum    = b[0] * yDotK[0][j];\n          for (int l = 1; l < stages; ++l) {\n            sum    += b[l] * yDotK[l][j];\n          }\n          yTmp[j] = y[j] + stepSize * sum;\n        }\n\n        // estimate the error at the end of the step\n        error = estimateError(yDotK, y, yTmp, stepSize);\n        if (error >= 1.0) {\n          // reject the step and attempt to reduce error by stepsize control\n          final double factor =\n              FastMath.min(maxGrowth,\n                           FastMath.max(minReduction, safety * FastMath.pow(error, exp)));\n          hNew = filterStep(stepSize * factor, forward, false);\n        }\n\n      }\n\n      // local error is small enough: accept the step, trigger events and step handlers\n      interpolator.storeTime(stepStart + stepSize);\n      System.arraycopy(yTmp, 0, y, 0, y0.length);\n      System.arraycopy(yDotK[stages - 1], 0, yDotTmp, 0, y0.length);\n      stepStart = acceptStep(interpolator, y, yDotTmp, t);\n      System.arraycopy(y, 0, yTmp, 0, y.length);\n\n      if (!isLastStep) {\n\n          // prepare next step\n          interpolator.storeTime(stepStart);\n\n          if (fsal) {\n              // save the last evaluation for the next step\n              System.arraycopy(yDotTmp, 0, yDotK[0], 0, y0.length);\n          }\n\n          // stepsize control for next step\n          final double factor =\n              FastMath.min(maxGrowth, FastMath.max(minReduction, safety * FastMath.pow(error, exp)));\n          final double  scaledH    = stepSize * factor;\n          final double  nextT      = stepStart + scaledH;\n          final boolean nextIsLast = forward ? (nextT >= t) : (nextT <= t);\n          hNew = filterStep(scaledH, forward, nextIsLast);\n\n          final double  filteredNextT      = stepStart + hNew;\n          final boolean filteredNextIsLast = forward ? (filteredNextT >= t) : (filteredNextT <= t);\n          if (filteredNextIsLast) {\n              hNew = t - stepStart;\n          }\n\n      }\n\n    } while (!isLastStep);\n\n    // dispatch results\n    equations.setTime(stepStart);\n    equations.setCompleteState(y);\n\n    resetInternalState();\n\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.ode.nonstiff.DormandPrince853IntegratorTest::testTooLargeFirstStep"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\nindex d2bbf67..13ced27 100644\n--- a/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n+++ b/src/main/java/org/apache/commons/math/ode/nonstiff/EmbeddedRungeKuttaIntegrator.java\n@@ -247,15 +247,6 @@ public abstract class EmbeddedRungeKuttaIntegrator\n         }\n \n         stepSize = hNew;\n+        if (forward) {\n+            if (stepStart + stepSize >= t) {\n+                stepSize = t - stepStart;\n+            }\n+        } else {\n+            if (stepStart + stepSize <= t) {\n+                stepSize = t - stepStart;\n+            }\n+        }\n \n         // next stages\n         for (int k = 1; k < stages; ++k) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

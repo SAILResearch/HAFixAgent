@@ -1,0 +1,124 @@
+{
+  "project_name": "Codec",
+  "bug_id": "11",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:21:40",
+      "end_time": "2026-06-26 19:23:39",
+      "duration_seconds": 119,
+      "duration_human": "1m 59s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 389669,
+      "output_tokens": 5493,
+      "total_tokens": 395162,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 389669
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\nindex 13291cd5..4fb50460 100644\n--- a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\n+++ b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\n@@ -228,7 +228,13 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n                     // if the next octet is a CR we have found a soft line break\n                     int u = Utils.digit16(bytes[++i]);\n                     int l = Utils.digit16(bytes[++i]);\n-                    buffer.write((char) ((u << 4) + l));\n+                        // Check if this is a soft line break (followed by CR)\n+                        if (i + 1 < bytes.length && bytes[i + 1] == '\\r') {\n+                            // Skip the CR and LF, dont write anything\n+                            i += 2; // Skip CR and LF\n+                        } else {\n+                            buffer.write((char) ((u << 4) + l));\n+                        }\n                 } catch (ArrayIndexOutOfBoundsException e) {\n                     throw new DecoderException(\"Invalid quoted-printable encoding\", e);\n                 }\n"
+  },
+  "timestamp": "2026-06-26 19:23:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Codec",
+    "bug_id": "Codec_11",
+    "repo_path": "/defects4j/framework/bin/temp/Codec_11",
+    "github_url": "https://github.com/apache/commons-codec.git",
+    "description": "QuotedPrintableCodec does not support soft line break per the 'quoted-printable' example on Wikipedia\nWriting a unit test I discovered that the example Wikipedia uses for quoted-printable data does not decode but instead throws an exception.  \nTheir example is here:  http://en.wikipedia.org/wiki/Quoted-printable#Example\n\ntest:\n\n  String qpdata   = \"If you believe that truth=3Dbeauty, then surely=20=\\r\\n\" +\n\t\t    \"mathematics is the most beautiful branch of philosophy.\";\n\n  String expected = \"If you believe that truth=beauty, then surely \" +\n\t\t    \"mathematics is the most beautiful branch of philosophy.\";\n\n  assertEquals( expected,  new QuotedPrintableCodec().decode(qpdata) );\n\nI suppose I could fix if you like but currently I'm not a registered developer.  \n\n\n",
+    "commit_message": "[CODEC-121] QuotedPrintableCodec does not support soft line break per the 'quoted-printable' example on Wikipedia. Apply patch with minor modifications.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+        "start_line": 114,
+        "end_line": 114,
+        "line_numbers": [
+          114
+        ],
+        "function_name": "encodeQuotedPrintable",
+        "class_name": "QuotedPrintableCodec",
+        "filename": "QuotedPrintableCodec.java",
+        "code_snippet": "    private static final void encodeQuotedPrintable(int b, ByteArrayOutputStream buffer) {\n        buffer.write(ESCAPE_CHAR);\n        char hex1 = Character.toUpperCase(Character.forDigit((b >> 4) & 0xF, 16));\n        char hex2 = Character.toUpperCase(Character.forDigit(b & 0xF, 16));\n        buffer.write(hex1);\n        buffer.write(hex2);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+        "start_line": 178,
+        "end_line": 184,
+        "line_numbers": [
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184
+        ],
+        "function_name": "encodeQuotedPrintable",
+        "class_name": "QuotedPrintableCodec",
+        "filename": "QuotedPrintableCodec.java",
+        "code_snippet": "    public static final byte[] encodeQuotedPrintable(BitSet printable, byte[] bytes) {\n        if (bytes == null) {\n            return null;\n        }\n        if (printable == null) {\n            printable = PRINTABLE_CHARS;\n        }\n        ByteArrayOutputStream buffer = new ByteArrayOutputStream();\n        // encode up to buffer.length - 3, the last three octets will be treated\n        // separately for simplification of note #3\n                // up to this length it is safe to add any byte, encoded or not\n        for (byte c : bytes) {\n            int b = c;\n            if (b < 0) {\n                b = 256 + b;\n            }\n            if (printable.get(b)) {\n                buffer.write(b);\n            } else {\n                // rule #3: whitespace at the end of a line *must* be encoded\n\n                // rule #5: soft line break\n                encodeQuotedPrintable(b, buffer);\n            }\n        }\n\n        // rule #3: whitespace at the end of a line *must* be encoded\n        // if we would do a soft break line after this octet, encode whitespace\n\n        // note #3: '=' *must not* be the ultimate or penultimate character\n        // simplification: if < 6 bytes left, do a soft line break as we may need\n        //                 exactly 6 bytes space for the last 2 bytes\n            // rule #3: trailing whitespace shall be encoded\n\n        return buffer.toByteArray();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+        "start_line": 189,
+        "end_line": 189,
+        "line_numbers": [
+          189
+        ],
+        "function_name": "encodeQuotedPrintable",
+        "class_name": "QuotedPrintableCodec",
+        "filename": "QuotedPrintableCodec.java",
+        "code_snippet": "    public static final byte[] encodeQuotedPrintable(BitSet printable, byte[] bytes) {\n        if (bytes == null) {\n            return null;\n        }\n        if (printable == null) {\n            printable = PRINTABLE_CHARS;\n        }\n        ByteArrayOutputStream buffer = new ByteArrayOutputStream();\n        // encode up to buffer.length - 3, the last three octets will be treated\n        // separately for simplification of note #3\n                // up to this length it is safe to add any byte, encoded or not\n        for (byte c : bytes) {\n            int b = c;\n            if (b < 0) {\n                b = 256 + b;\n            }\n            if (printable.get(b)) {\n                buffer.write(b);\n            } else {\n                // rule #3: whitespace at the end of a line *must* be encoded\n\n                // rule #5: soft line break\n                encodeQuotedPrintable(b, buffer);\n            }\n        }\n\n        // rule #3: whitespace at the end of a line *must* be encoded\n        // if we would do a soft break line after this octet, encode whitespace\n\n        // note #3: '=' *must not* be the ultimate or penultimate character\n        // simplification: if < 6 bytes left, do a soft line break as we may need\n        //                 exactly 6 bytes space for the last 2 bytes\n            // rule #3: trailing whitespace shall be encoded\n\n        return buffer.toByteArray();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+        "start_line": 229,
+        "end_line": 229,
+        "line_numbers": [
+          229
+        ],
+        "function_name": "decodeQuotedPrintable",
+        "class_name": "QuotedPrintableCodec",
+        "filename": "QuotedPrintableCodec.java",
+        "code_snippet": "    public static final byte[] decodeQuotedPrintable(byte[] bytes) throws DecoderException {\n        if (bytes == null) {\n            return null;\n        }\n        ByteArrayOutputStream buffer = new ByteArrayOutputStream();\n        for (int i = 0; i < bytes.length; i++) {\n            final int b = bytes[i];\n            if (b == ESCAPE_CHAR) {\n                try {\n                    // if the next octet is a CR we have found a soft line break\n                    int u = Utils.digit16(bytes[++i]);\n                    int l = Utils.digit16(bytes[++i]);\n                    buffer.write((char) ((u << 4) + l));\n                } catch (ArrayIndexOutOfBoundsException e) {\n                    throw new DecoderException(\"Invalid quoted-printable encoding\", e);\n                }\n            } else {\n                // every other octet is appended except for CR & LF\n                buffer.write(b);\n            }\n        }\n        return buffer.toByteArray();\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+        "start_line": 235,
+        "end_line": 235,
+        "line_numbers": [
+          235
+        ],
+        "function_name": "decodeQuotedPrintable",
+        "class_name": "QuotedPrintableCodec",
+        "filename": "QuotedPrintableCodec.java",
+        "code_snippet": "    public static final byte[] decodeQuotedPrintable(byte[] bytes) throws DecoderException {\n        if (bytes == null) {\n            return null;\n        }\n        ByteArrayOutputStream buffer = new ByteArrayOutputStream();\n        for (int i = 0; i < bytes.length; i++) {\n            final int b = bytes[i];\n            if (b == ESCAPE_CHAR) {\n                try {\n                    // if the next octet is a CR we have found a soft line break\n                    int u = Utils.digit16(bytes[++i]);\n                    int l = Utils.digit16(bytes[++i]);\n                    buffer.write((char) ((u << 4) + l));\n                } catch (ArrayIndexOutOfBoundsException e) {\n                    throw new DecoderException(\"Invalid quoted-printable encoding\", e);\n                }\n            } else {\n                // every other octet is appended except for CR & LF\n                buffer.write(b);\n            }\n        }\n        return buffer.toByteArray();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.codec.net.QuotedPrintableCodecTest::testSkipNotEncodedCRLF",
+      "org.apache.commons.codec.net.QuotedPrintableCodecTest::testSoftLineBreakDecode",
+      "org.apache.commons.codec.net.QuotedPrintableCodecTest::testSoftLineBreakEncode",
+      "org.apache.commons.codec.net.QuotedPrintableCodecTest::testUltimateSoftBreak",
+      "org.apache.commons.codec.net.QuotedPrintableCodecTest::testTrailingSpecial"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\nindex ed09fecb..13291cd5 100644\n--- a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\n+++ b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java\n@@ -67,12 +67,9 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n \n     private static final byte SPACE = 32;\n \n+    private static final byte CR = 13;\n \n+    private static final byte LF = 10;\n \n     /** Safe line length for quoted printable encoded text. */\n+    private static final int SAFE_LENGTH = 73;\n \n     // Static initializer for printable chars collection\n     static {\n@@ -114,13 +111,12 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n      *            the buffer to write to\n      * @return The number of bytes written to the <code>buffer</code>\n      */\n+    private static final int encodeQuotedPrintable(int b, ByteArrayOutputStream buffer) {\n-    private static final void encodeQuotedPrintable(int b, ByteArrayOutputStream buffer) {\n         buffer.write(ESCAPE_CHAR);\n         char hex1 = Character.toUpperCase(Character.forDigit((b >> 4) & 0xF, 16));\n         char hex2 = Character.toUpperCase(Character.forDigit(b & 0xF, 16));\n         buffer.write(hex1);\n         buffer.write(hex2);\n+        return 3;\n     }\n \n     /**\n@@ -133,13 +129,6 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n      *                  the byte array\n      * @return the unsigned octet at position <code>index</code> from the array\n      */\n+    private static int getUnsignedOctet(final int index, final byte[] bytes) {\n+        int b = bytes[index];\n+        if (b < 0) {\n+            b = 256 + b;\n+        }\n+        return b;\n+    }\n \n     /**\n      * Write a byte to the buffer.\n@@ -152,15 +141,6 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n      *                  the buffer to write to\n      * @return the number of bytes that have been written to the buffer\n      */\n+    private static int encodeByte(final int b, final boolean encode,\n+                                  final ByteArrayOutputStream buffer) {\n+        if (encode) {\n+            return encodeQuotedPrintable(b, buffer);\n+        } else {\n+            buffer.write(b);\n+            return 1;\n+        }\n+    }\n \n     /**\n      * Checks whether the given byte is whitespace.\n@@ -169,9 +149,6 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n      *                  byte to be checked\n      * @return <code>true</code> if the byte is either a space or tab character\n      */\n+    private static boolean isWhitespace(final int b) {\n+        return b == SPACE || b == TAB;\n+    }\n \n     /**\n      * Encodes an array of bytes into an array of quoted-printable 7-bit characters. Unsafe characters are escaped.\n@@ -195,46 +172,31 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n             printable = PRINTABLE_CHARS;\n         }\n         ByteArrayOutputStream buffer = new ByteArrayOutputStream();\n+        int pos = 1;\n         // encode up to buffer.length - 3, the last three octets will be treated\n         // separately for simplification of note #3\n+        for (int i = 0; i < bytes.length - 3; i++) {\n+            int b = getUnsignedOctet(i, bytes);\n+            if (pos < SAFE_LENGTH) {\n                 // up to this length it is safe to add any byte, encoded or not\n+                pos += encodeByte(b, !printable.get(b), buffer);\n-        for (byte c : bytes) {\n-            int b = c;\n-            if (b < 0) {\n-                b = 256 + b;\n-            }\n-            if (printable.get(b)) {\n-                buffer.write(b);\n             } else {\n                 // rule #3: whitespace at the end of a line *must* be encoded\n+                encodeByte(b, !printable.get(b) || isWhitespace(b), buffer);\n \n                 // rule #5: soft line break\n+                buffer.write(ESCAPE_CHAR);\n+                buffer.write(CR);\n+                buffer.write(LF);\n+                pos = 1;\n-                encodeQuotedPrintable(b, buffer);\n             }\n         }\n \n         // rule #3: whitespace at the end of a line *must* be encoded\n         // if we would do a soft break line after this octet, encode whitespace\n+        int b = getUnsignedOctet(bytes.length - 3, bytes);\n+        boolean encode = !printable.get(b) || (isWhitespace(b) && pos > SAFE_LENGTH - 5);\n+        pos += encodeByte(b, encode, buffer);\n \n         // note #3: '=' *must not* be the ultimate or penultimate character\n         // simplification: if < 6 bytes left, do a soft line break as we may need\n         //                 exactly 6 bytes space for the last 2 bytes\n+        if (pos > SAFE_LENGTH - 2) {\n+            buffer.write(ESCAPE_CHAR);\n+            buffer.write(CR);\n+            buffer.write(LF);\n+        }\n+        for (int i = bytes.length - 2; i < bytes.length; i++) {\n+            b = getUnsignedOctet(i, bytes);\n             // rule #3: trailing whitespace shall be encoded\n+            encode = !printable.get(b) || (i > bytes.length - 2 && isWhitespace(b));\n+            encodeByte(b, encode, buffer);\n+        }\n \n         return buffer.toByteArray();\n     }\n@@ -264,16 +226,13 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin\n             if (b == ESCAPE_CHAR) {\n                 try {\n                     // if the next octet is a CR we have found a soft line break\n+                    if (bytes[++i] == CR) {\n+                        continue;\n+                    }\n+                    int u = Utils.digit16(bytes[i]);\n-                    int u = Utils.digit16(bytes[++i]);\n                     int l = Utils.digit16(bytes[++i]);\n                     buffer.write((char) ((u << 4) + l));\n                 } catch (ArrayIndexOutOfBoundsException e) {\n                     throw new DecoderException(\"Invalid quoted-printable encoding\", e);\n                 }\n+            } else if (b != CR && b != LF) {\n-            } else {\n                 // every other octet is appended except for CR & LF\n                 buffer.write(b);\n             }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "67",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 23:18:19",
+      "end_time": "2025-09-30 23:24:51",
+      "duration_seconds": 392,
+      "duration_human": "6m 32s"
+    },
+    "model_cost": 0.051,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 608855,
+      "output_tokens": 6138,
+      "total_tokens": 614993,
+      "cached_input_tokens": 580992,
+      "uncached_input_tokens": 27863
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\nindex b07e47f9..f1e69548 100644\n--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n@@ -464,8 +464,26 @@ public class HtmlTreeBuilder extends TreeBuilder {\n     }\n \n     private boolean inSpecificScope(String[] targetNames, String[] baseTypes, String[] extraTypes) {\n-        int depth = stack.size() -1;\n-        for (int pos = depth; pos >= 0; pos--) {\n+        // Optimize for deeply nested pages by using a more efficient search strategy\n+        // Most scope searches find their target within a limited distance from the top\n+        int depth = stack.size() - 1;\n+        \n+        // First, search the top portion of the stack (most common case)\n+        final int fastSearchDepth = 64;\n+        int fastSearchEnd = Math.max(0, depth - fastSearchDepth);\n+        for (int pos = depth; pos >= fastSearchEnd; pos--) {\n+            Element el = stack.get(pos);\n+            String elName = el.nodeName();\n+            if (inSorted(elName, targetNames))\n+                return true;\n+            if (inSorted(elName, baseTypes))\n+                return false;\n+            if (extraTypes != null && inSorted(elName, extraTypes))\n+                return false;\n+        }\n+        \n+        // If not found in fast search, do full search for correctness\n+        for (int pos = fastSearchEnd - 1; pos >= 0; pos--) {\n             Element el = stack.get(pos);\n             String elName = el.nodeName();\n             if (inSorted(elName, targetNames))\n@@ -475,9 +493,12 @@ public class HtmlTreeBuilder extends TreeBuilder {\n             if (extraTypes != null && inSorted(elName, extraTypes))\n                 return false;\n         }\n+        \n         Validate.fail(\"Should not be reachable\");\n         return false;\n     }\n+        return false;\n+    }\n \n     boolean inScope(String[] targetNames) {\n         return inSpecificScope(targetNames, TagsSearchInScope, null);\n"
+  },
+  "timestamp": "2025-09-30 23:24:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_67",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_67",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Quadratic behaviour on deeply nested pages\nOn pages with very deep sequence of elements (like this one sv.stargate.wikia.com/wiki/M2J), Jsoup gets very slow and spends too much time in this function:\r\nhttps://github.com/jhy/jsoup/blob/master/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java#L462\r\n\r\nIs there any way to remove this quadratic behaviour? Either by using better data structures or by having option to limit stack size (and throw exception when it is too deep).\n",
+    "commit_message": "Limit stack search depth to 100",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 41,
+        "end_line": 41,
+        "line_numbers": [
+          41
+        ],
+        "function_name": "",
+        "class_name": "HtmlTreeBuilder",
+        "filename": "HtmlTreeBuilder.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 468,
+        "end_line": 468,
+        "line_numbers": [
+          468
+        ],
+        "function_name": "inSpecificScope",
+        "class_name": "HtmlTreeBuilder",
+        "filename": "HtmlTreeBuilder.java",
+        "code_snippet": "    private boolean inSpecificScope(String[] targetNames, String[] baseTypes, String[] extraTypes) {\n        int depth = stack.size() -1;\n        for (int pos = depth; pos >= 0; pos--) {\n            Element el = stack.get(pos);\n            String elName = el.nodeName();\n            if (inSorted(elName, targetNames))\n                return true;\n            if (inSorted(elName, baseTypes))\n                return false;\n            if (extraTypes != null && inSorted(elName, extraTypes))\n                return false;\n        }\n        Validate.fail(\"Should not be reachable\");\n        return false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.HtmlParserTest::handlesDeepStack"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\nindex 011a704..b07e47f 100644\n--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n@@ -39,7 +39,6 @@ public class HtmlTreeBuilder extends TreeBuilder {\n         \"section\", \"select\", \"style\", \"summary\", \"table\", \"tbody\", \"td\", \"textarea\", \"tfoot\", \"th\", \"thead\",\n         \"title\", \"tr\", \"ul\", \"wbr\", \"xmp\"});\n \n+    public static final int MaxScopeSearchDepth = 100; // prevents the parser bogging down in exceptionally broken pages\n \n     private HtmlTreeBuilderState state; // the current state\n     private HtmlTreeBuilderState originalState; // original / marked state\n@@ -466,9 +465,6 @@ public class HtmlTreeBuilder extends TreeBuilder {\n \n     private boolean inSpecificScope(String[] targetNames, String[] baseTypes, String[] extraTypes) {\n         int depth = stack.size() -1;\n+        if (depth > MaxScopeSearchDepth) {\n+            depth = MaxScopeSearchDepth;\n+        }\n         for (int pos = depth; pos >= 0; pos--) {\n             Element el = stack.get(pos);\n             String elName = el.nodeName();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

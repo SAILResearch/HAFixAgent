@@ -1,0 +1,90 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_103",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 01:47:28",
+      "end_time": "2026-06-28 01:52:55",
+      "duration_seconds": 328,
+      "duration_human": "5m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1452585,
+      "output_tokens": 5606,
+      "total_tokens": 1458191,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1452585
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex 6b110a0c80..bb94cab98b 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -809,7 +809,10 @@ class SeriesGroupBy(GroupBy):\n                     periods=periods, fill_method=fill_method, limit=limit, freq=freq\n                 )\n             )\n-        filled = getattr(self, fill_method)(limit=limit)\n+        if fill_method is not None:\n+            filled = getattr(self, fill_method)(limit=limit)\n+        else:\n+            filled = self.obj\n         fill_grp = filled.groupby(self.grouper.codes)\n         shifted = fill_grp.shift(periods=periods, freq=freq)\n \ndiff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 0edf1c9571..549ea84363 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -2362,14 +2362,18 @@ class GroupBy(_GroupBy):\n                     axis=axis,\n                 )\n             )\n-        filled = getattr(self, fill_method)(limit=limit)\n-        fill_grp = filled.groupby(self.grouper.codes)\n-        shifted = fill_grp.shift(periods=periods, freq=freq)\n+        if fill_method is not None:\n+            # Apply fill method to the underlying data and re-group\n+            filled_obj = getattr(self.obj, fill_method)(limit=limit)\n+            # Exclude the grouping columns from the result\n+            grouping_cols = [g.name for g in self.grouper.groupings if g.name is not None]\n+            filled = filled_obj[filled_obj.columns.difference(grouping_cols, sort=False)].groupby(self.grouper.codes).obj\n+        else:\n+            # When fill_method is None, exclude grouping columns\n+            grouping_cols = [g.name for g in self.grouper.groupings if g.name is not None]\n+            filled = self.obj[self.obj.columns.difference(grouping_cols, sort=False)].groupby(self.grouper.codes).obj\n+        shifted = filled.shift(periods=periods, freq=freq)\n         return (filled / shifted) - 1\n-\n-    @Substitution(name=\"groupby\")\n-    @Substitution(see_also=_common_see_also)\n-    def head(self, n=5):\n         \"\"\"\n         Return first n rows of each group.\n \ndiff --git a/pandas/tests/groupby/test_transform.py b/pandas/tests/groupby/test_transform.py\nindex dde71ee511..f8546ea636 100644\n--- a/pandas/tests/groupby/test_transform.py\n+++ b/pandas/tests/groupby/test_transform.py\n@@ -877,27 +877,19 @@ def test_pad_stable_sorting(fill_method):\n         ),\n     ],\n )\n-@pytest.mark.parametrize(\n-    \"periods,fill_method,limit\",\n-    [\n-        (1, \"ffill\", None),\n-        (1, \"ffill\", 1),\n-        (1, \"bfill\", None),\n-        (1, \"bfill\", 1),\n-        (-1, \"ffill\", None),\n-        (-1, \"ffill\", 1),\n-        (-1, \"bfill\", None),\n-        (-1, \"bfill\", 1),\n-    ],\n-)\n+@pytest.mark.parametrize(\"periods\", [1, -1])\n+@pytest.mark.parametrize(\"fill_method\", [\"ffill\", \"bfill\", None])\n+@pytest.mark.parametrize(\"limit\", [None, 1])\n def test_pct_change(test_series, freq, periods, fill_method, limit):\n-    # GH  21200, 21621\n+    # GH  21200, 21621, 30463\n     vals = [3, np.nan, np.nan, np.nan, 1, 2, 4, 10, np.nan, 4]\n     keys = [\"a\", \"b\"]\n     key_v = np.repeat(keys, len(vals))\n     df = DataFrame({\"key\": key_v, \"vals\": vals * 2})\n \n-    df_g = getattr(df.groupby(\"key\"), fill_method)(limit=limit)\n+    df_g = df\n+    if fill_method is not None:\n+        df_g = getattr(df.groupby(\"key\"), fill_method)(limit=limit)\n     grp = df_g.groupby(df.key)\n \n     expected = grp[\"vals\"].obj / grp[\"vals\"].shift(periods) - 1\n"
+  },
+  "timestamp": "2026-06-28 01:52:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_103",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_103/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TypeError in groupby pct_change when fill_method is None (#30532)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 811,
+        "end_line": 812,
+        "function_name": "pct_change",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 812,
+        "end_line": 813,
+        "function_name": "pct_change",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 813,
+        "end_line": 814,
+        "function_name": "pct_change",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2364,
+        "end_line": 2365,
+        "function_name": "pct_change",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2365,
+        "end_line": 2366,
+        "function_name": "pct_change",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/groupby.py",
+        "start_line": 2366,
+        "end_line": 2367,
+        "function_name": "pct_change",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_transform.py::test_pct_change"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

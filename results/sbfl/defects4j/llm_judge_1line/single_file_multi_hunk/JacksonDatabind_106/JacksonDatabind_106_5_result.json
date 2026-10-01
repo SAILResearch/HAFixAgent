@@ -1,0 +1,194 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_106",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 09:59:59",
+      "end_time": "2026-06-24 10:10:23",
+      "duration_seconds": 624,
+      "duration_human": "10m 24s"
+    },
+    "model_cost": 0.1012,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 862963,
+      "output_tokens": 6028,
+      "total_tokens": 868991,
+      "cached_input_tokens": 497152,
+      "uncached_input_tokens": 365811
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\nindex 2e2b10041..74cfee5cf 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java\n@@ -305,12 +305,18 @@ public class TreeTraversingParser extends ParserMinimalBase\n     @Override\n     public int getIntValue() throws IOException {\n         final NumericNode node = (NumericNode) currentNumericNode();\n+        if (!node.canConvertToInt()) {\n+            throw _constructError(\"Numeric value (\"+node.numberValue()+\") out of range of int\");\n+        }\n         return node.intValue();\n     }\n \n     @Override\n     public long getLongValue() throws IOException {\n         final NumericNode node = (NumericNode) currentNumericNode();\n+        if (!node.canConvertToLong()) {\n+            throw _constructError(\"Numeric value (\"+node.numberValue()+\") out of range of long\");\n+        }\n         return node.longValue();\n     }\n \ndiff --git a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\ndeleted file mode 100644\nindex 397db2fa4..000000000\n--- a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n+++ /dev/null\n@@ -1,191 +0,0 @@\n-package com.fasterxml.jackson.databind.introspect;\n-\n-import com.fasterxml.jackson.annotation.JsonCreator;\n-import com.fasterxml.jackson.databind.*;\n-import com.fasterxml.jackson.databind.cfg.MapperConfig;\n-\n-/**\n- * Tests Scala-style JVM naming patterns for properties.\n- *\n- * Scala uses identifiers that are legal JVM names, but not legal Java names:\n- *\n- * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n- *     <li><code>prop</code> for getters</li>\n- *     <li><code>prop_=</code> for setters</li>\n- * </ul>\n- *\n- * Scala sources turn property accesses into method calls in most cases; the\n- * backing field and the particulars of the method names are implementation details.\n- *\n- * Since I can't reproduce them in Java, I've substituted legal but uncommonly\n- * used characters as placeholders.\n- */\n-public class TestScalaLikeImplicitProperties extends BaseMapTest\n-{\n-    static class NameMangler extends JacksonAnnotationIntrospector\n-    {\n-        private static final long serialVersionUID = 1L;\n-\n-        @Override\n-        public String findImplicitPropertyName(AnnotatedMember member) {\n-            String name = null;\n-            if (member instanceof AnnotatedField) {\n-                name = member.getName();\n-                if (name.endsWith(\"\u203f\")) {\n-                    return name.substring(0, name.length()-1);\n-                }\n-            } else if (member instanceof AnnotatedMethod) {\n-                name = member.getName();\n-                if (name.endsWith(\"_\u2040\")) {\n-                    return name.substring(0, name.length()-2);\n-                }\n-                if (!name.startsWith(\"get\") && !name.startsWith(\"set\")) {\n-                    return name;\n-                }\n-            } else if (member instanceof AnnotatedParameter) {\n-                // A placeholder for legitimate property name detection\n-                // such as what the JDK8 module provides\n-                return \"prop\";\n-            }\n-            return null;\n-        }\n-\n-        /* Deprecated since 2.9\n-        @Override\n-        public boolean hasCreatorAnnotation(Annotated a) {\n-            return (a instanceof AnnotatedConstructor);\n-        }\n-        */\n-\n-        @Override\n-        public JsonCreator.Mode findCreatorAnnotation(MapperConfig<?> config, Annotated a) {\n-            // A placeholder for legitimate creator detection.\n-            // In Scala, all primary constructors should be creators,\n-            // but I can't obtain a reference to the AnnotatedClass from the\n-            // AnnotatedConstructor, so it's simulated here.\n-            return (a instanceof AnnotatedConstructor)\n-                    ? JsonCreator.Mode.DEFAULT : null;\n-        }\n-    }\n-\n-    static class ValProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-\n-        public ValProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class ValWithBeanProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n-\n-        public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-\n-        public VarProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarWithBeanProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n-\n-        public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class GetterSetterProperty\n-    {\n-        // Different name to represent an arbitrary implementation, not necessarily local to this class.\n-        private String _prop_impl = \"get/set\";\n-        public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n-\n-        // Getter/Setters are typically not in the constructor because they are implemented\n-        // by the end user, not the compiler. They should be detected similar to 'bean-style'\n-        // getProp/setProp pairs.\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Test methods\n-    /**********************************************************\n-     */\n-\n-    public void testValProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValProperty(\"val\")));\n-    }\n-\n-    public void testValWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValWithBeanProperty(\"val\")));\n-    }\n-\n-\n-    public void testVarProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarProperty(\"var\")));\n-        VarProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testVarWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarWithBeanProperty(\"var\")));\n-        VarWithBeanProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarWithBeanProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testGetterSetterProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"get/set\\\"}\", m.writeValueAsString(new GetterSetterProperty()));\n-        GetterSetterProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", GetterSetterProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Helper methods\n-    /**********************************************************\n-     */\n-    \n-    private ObjectMapper manglingMapper()\n-    {\n-        ObjectMapper m = new ObjectMapper();\n-        m.setAnnotationIntrospector(new NameMangler());\n-        return m;\n-    }\n-}\n"
+  },
+  "timestamp": "2026-06-24 10:10:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_106",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_106",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`TreeTraversingParser` does not check int bounds\nSimilar to https://github.com/FasterXML/jackson-databind/issues/1729, [TreeTraversingParser](https://github.com/FasterXML/jackson-databind/blob/2.9/src/main/java/com/fasterxml/jackson/databind/node/TreeTraversingParser.java#L311) does not perform bounds checks on _some_ JSON values bound to ints.\r\n\r\nUsing Jackson version 2.9.7, here are several comparisons generated with the following code:\r\n```java\r\n  public static class IntClass {\r\n    public int x;\r\n\r\n    @Override\r\n    public String toString() {\r\n      return String.valueOf(x);\r\n    }\r\n  }\r\n\r\n  ObjectMapper mapper  = new ObjectMapper();\r\n  void readAndPrint(String _example) {\r\n    String fromTree;\r\n    try {\r\n      JsonNode tree = mapper.readTree(_example);\r\n      fromTree = mapper.readerFor(IntClass.class).readValue(tree).toString();\r\n    } catch (IOException _e) {\r\n      fromTree = _e.getClass().getSimpleName();\r\n    }\r\n\r\n    String fromString;\r\n    try {\r\n      fromString = mapper.readerFor(IntClass.class).readValue(_example).toString();\r\n    } catch (IOException _e) {\r\n      fromString = _e.getClass().getSimpleName();\r\n    }\r\n\r\n    System.out.printf(\"|%30s | %30s | %-30s|\\n\", _example, fromTree, fromString);\r\n  }\r\n\r\n  @Test\r\n  public void compareFromTree() {\r\n    System.out.printf(\"|%30s | %30s | %-30s|\\n\", \"json input\", \"read from tree\", \"read from string\");\r\n    System.out.println(\"|-------------------------------|--------------------------------|-------------------------------|\");\r\n    readAndPrint(\"{\\\"x\\\": 0}\");\r\n    // etc.\r\n  }\r\n```\r\n\r\n|                    json input |                 read from tree | read from string              |\r\n|-------------------------------|--------------------------------|-------------------------------|\r\n|                      {\"x\": 0} |                              0 | 0                             |\r\n|                     {\"x\": 10} |                             10 | 10                            |\r\n|                    {\"x\": 1e4} |                          10000 | 10000                         |\r\n|                   {\"x\": 1e10} |                     2147483647 | JsonMappingException          |\r\n|                   {\"x\": 1e-1} |                              0 | 0                             |\r\n|             {\"x\": 2147483648} |                    -2147483648 | JsonMappingException          |\r\n|             {\"x\": 2147483649} |                    -2147483647 | JsonMappingException          |\r\n|            {\"x\": -2147483649} |                     2147483647 | JsonMappingException          |\r\n|            {\"x\": -4294967295} |                              1 | JsonMappingException          |\r\n|                    {\"x\": 0.1} |                              0 | 0                             |\r\n|                    {\"x\": 1.9} |                              1 | 1                             |\r\n|     {\"x\": 1.9999999999999999} |                              2 | 2                             |\r\n|                   {\"x\": true} |       MismatchedInputException | MismatchedInputException      |\r\n|                     {\"x\": {}} |       MismatchedInputException | MismatchedInputException      |\r\n|                     {\"x\": []} |       MismatchedInputException | MismatchedInputException      |\r\n|                    {\"x\": [0]} |       MismatchedInputException | MismatchedInputException      |\r\n|                    {\"x\": \"0\"} |                              0 | 0                             |\r\n|                   {\"x\": \"10\"} |                             10 | 10                            |\r\n|                  {\"x\": \"1e4\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                 {\"x\": \"1e10\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                 {\"x\": \"1e-1\"} |         InvalidFormatException | InvalidFormatException        |\r\n|           {\"x\": \"2147483648\"} |         InvalidFormatException | InvalidFormatException        |\r\n|           {\"x\": \"2147483649\"} |         InvalidFormatException | InvalidFormatException        |\r\n|          {\"x\": \"-2147483649\"} |         InvalidFormatException | InvalidFormatException        |\r\n|          {\"x\": \"-4294967295\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                  {\"x\": \"0.1\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                  {\"x\": \"1.9\"} |         InvalidFormatException | InvalidFormatException        |\r\n|   {\"x\": \"1.9999999999999999\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                 {\"x\": \"true\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                   {\"x\": \"{}\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                   {\"x\": \"[]\"} |         InvalidFormatException | InvalidFormatException        |\r\n|                  {\"x\": \"[0]\"} |         InvalidFormatException | InvalidFormatException        |\r\n\r\nWithout digging further into the code, it appears if the JSON value is numeric, `TreeTraversingParser` silently overflows. Maybe this is expected behavior, but to me the inconsistency between reading from a non-tree (reader/string/file, etc) versus directly from a tree seems like a bug. At the very least, it makes it less convenient to do manipulations on a JSON document before binding.\r\n\r\nI would expect an exception thrown for the all but the first three examples above, but I do understand there are use-cases for coercing values. Even so, I would expect the coercion logic to be \r\n- consistent between the parsers (or clearly documented otherwise)\r\n- consistent between quoted and unquoted values\r\n\r\nI'm also curious about the expected behavior when converting non-integral values. Why is `true` `MismatchedInput`, but `0.1` is converted? Similarly, why are `0.1`, `1e4`, and `1e-1` acceptable, but not when in quotes, even though `\"10\"` and other quote integers are acceptable? \r\n\r\nThanks for all your hard work on this. I hope this issue doesn't come off as condescending. For our specific use case, we read the value as a tree, validating it against a schema, then using Jackson to bind the tree to an object. While it's true that we can specify type, minimum, and maximum values in the schema, it is prone to mistakes, and there's not necessarily a reason to tie the schema to the language implementation, provided things like overflow consistently result in an exception. Thus, I'm trying to better understand the expectations and limits Jackson has when using the tree parser.\n",
+    "commit_message": "Fix #2189",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 286,
+        "end_line": 286,
+        "suspiciousness": 0.9997505923393059,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 287,
+        "end_line": 287,
+        "suspiciousness": 0.9997505923393059,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 291,
+        "end_line": 291,
+        "suspiciousness": 0.9997505923393059,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9997505923393059,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9943132188200635,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.TestTreeTraversingParser::testNumberOverflowLong",
+      "com.fasterxml.jackson.databind.node.TestTreeTraversingParser::testNumberOverflowInt"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 286,
+      "end_line": 286,
+      "suspiciousness": 0.9997505923393059,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 287,
+      "end_line": 287,
+      "suspiciousness": 0.9997505923393059,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 291,
+      "end_line": 291,
+      "suspiciousness": 0.9997505923393059,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9997505923393059,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9943132188200635,
+      "rank": 10
+    }
+  ]
+}

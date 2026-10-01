@@ -1,0 +1,126 @@
+{
+  "project_name": "black",
+  "bug_id": "black_6",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 18:19:11",
+      "end_time": "2026-06-20 18:23:40",
+      "duration_seconds": 269,
+      "duration_human": "4m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 693464,
+      "output_tokens": 8605,
+      "total_tokens": 702069,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 693464
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex c96d205..c5a9625 100644\n--- a/black.py\n+++ b/black.py\n@@ -48,6 +48,7 @@ from blib2to3 import pygram, pytree\n from blib2to3.pgen2 import driver, token\n from blib2to3.pgen2.grammar import Grammar\n from blib2to3.pgen2.parse import ParseError\n+from blib2to3.pgen2.tokenize import TokenizerConfig\n \n \n __version__ = \"19.3b0\"\n@@ -136,19 +137,28 @@ class Feature(Enum):\n     NUMERIC_UNDERSCORES = 3\n     TRAILING_COMMA_IN_CALL = 4\n     TRAILING_COMMA_IN_DEF = 5\n+    # The following two feature-flags are mutually exclusive, and exactly one should be\n+    # set for every version of python.\n+    ASYNC_IS_VALID_IDENTIFIER = 6\n+    ASYNC_IS_RESERVED_KEYWORD = 7\n \n \n VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {\n-    TargetVersion.PY27: set(),\n-    TargetVersion.PY33: {Feature.UNICODE_LITERALS},\n-    TargetVersion.PY34: {Feature.UNICODE_LITERALS},\n-    TargetVersion.PY35: {Feature.UNICODE_LITERALS, Feature.TRAILING_COMMA_IN_CALL},\n+    TargetVersion.PY27: {Feature.ASYNC_IS_VALID_IDENTIFIER},\n+    TargetVersion.PY33: {Feature.UNICODE_LITERALS, Feature.ASYNC_IS_VALID_IDENTIFIER},\n+    TargetVersion.PY34: {Feature.UNICODE_LITERALS, Feature.ASYNC_IS_VALID_IDENTIFIER},\n+    TargetVersion.PY35: {\n+        Feature.UNICODE_LITERALS,\n+        Feature.TRAILING_COMMA_IN_CALL,\n+        Feature.ASYNC_IS_VALID_IDENTIFIER,\n+    },\n     TargetVersion.PY36: {\n         Feature.UNICODE_LITERALS,\n         Feature.F_STRINGS,\n         Feature.NUMERIC_UNDERSCORES,\n         Feature.TRAILING_COMMA_IN_CALL,\n         Feature.TRAILING_COMMA_IN_DEF,\n+        Feature.ASYNC_IS_VALID_IDENTIFIER,\n     },\n     TargetVersion.PY37: {\n         Feature.UNICODE_LITERALS,\n@@ -156,6 +166,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {\n         Feature.NUMERIC_UNDERSCORES,\n         Feature.TRAILING_COMMA_IN_CALL,\n         Feature.TRAILING_COMMA_IN_DEF,\n+        Feature.ASYNC_IS_RESERVED_KEYWORD,\n     },\n     TargetVersion.PY38: {\n         Feature.UNICODE_LITERALS,\n@@ -163,6 +174,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {\n         Feature.NUMERIC_UNDERSCORES,\n         Feature.TRAILING_COMMA_IN_CALL,\n         Feature.TRAILING_COMMA_IN_DEF,\n+        Feature.ASYNC_IS_RESERVED_KEYWORD,\n     },\n }\n \n@@ -191,6 +203,12 @@ class FileMode:\n         return \".\".join(parts)\n \n \n+@dataclass(frozen=True)\n+class ParserConfig:\n+    grammar: Grammar\n+    tokenizer_config: TokenizerConfig = TokenizerConfig()\n+\n+\n def supports_feature(target_versions: Set[TargetVersion], feature: Feature) -> bool:\n     return all(feature in VERSION_TO_FEATURES[version] for version in target_versions)\n \n@@ -748,20 +766,56 @@ def decode_bytes(src: bytes) -> Tuple[FileContent, Encoding, NewLine]:\n         return tiow.read(), encoding, newline\n \n \n-def get_grammars(target_versions: Set[TargetVersion]) -> List[Grammar]:\n+def get_parser_configs(target_versions: Set[TargetVersion]) -> List[ParserConfig]:\n     if not target_versions:\n         # No target_version specified, so try all grammars.\n         return [\n-            pygram.python_grammar_no_print_statement_no_exec_statement,\n-            pygram.python_grammar_no_print_statement,\n-            pygram.python_grammar,\n+            # Python 3.7+\n+            ParserConfig(\n+                pygram.python_grammar_no_print_statement_no_exec_statement,\n+                TokenizerConfig(async_is_reserved_keyword=True),\n+            ),\n+            # Python 3.0-3.6\n+            ParserConfig(\n+                pygram.python_grammar_no_print_statement_no_exec_statement,\n+                TokenizerConfig(async_is_reserved_keyword=False),\n+            ),\n+            # Python 2.7 with future print_function import\n+            ParserConfig(pygram.python_grammar_no_print_statement),\n+            # Python 2.7\n+            ParserConfig(pygram.python_grammar),\n         ]\n     elif all(version.is_python2() for version in target_versions):\n         # Python 2-only code, so try Python 2 grammars.\n-        return [pygram.python_grammar_no_print_statement, pygram.python_grammar]\n+        return [\n+            # Python 2.7 with future print_function import\n+            ParserConfig(pygram.python_grammar_no_print_statement),\n+            # Python 2.7\n+            ParserConfig(pygram.python_grammar),\n+        ]\n     else:\n         # Python 3-compatible code, so only try Python 3 grammar.\n-        return [pygram.python_grammar_no_print_statement_no_exec_statement]\n+        configs = []\n+        # If we have to parse both, try to parse async as a keyword first\n+        if not supports_feature(target_versions, Feature.ASYNC_IS_VALID_IDENTIFIER):\n+            # Python 3.7+\n+            configs.append(\n+                ParserConfig(\n+                    pygram.python_grammar_no_print_statement_no_exec_statement,\n+                    TokenizerConfig(async_is_reserved_keyword=True),\n+                )\n+            )\n+        if not supports_feature(target_versions, Feature.ASYNC_IS_RESERVED_KEYWORD):\n+            # Python 3.0-3.6\n+            configs.append(\n+                ParserConfig(\n+                    pygram.python_grammar_no_print_statement_no_exec_statement,\n+                    TokenizerConfig(async_is_reserved_keyword=False),\n+                )\n+            )\n+        # At least one of the above branches must have been taken, because every Python\n+        # version has exactly one of the two 'ASYNC_IS_*' flags\n+        return configs\n \n \n def lib2to3_parse(src_txt: str, target_versions: Iterable[TargetVersion] = ()) -> Node:\n@@ -769,8 +823,12 @@ def lib2to3_parse(src_txt: str, target_versions: Iterable[TargetVersion] = ()) -\n     if src_txt[-1:] != \"\\n\":\n         src_txt += \"\\n\"\n \n-    for grammar in get_grammars(set(target_versions)):\n-        drv = driver.Driver(grammar, pytree.convert)\n+    for parser_config in get_parser_configs(set(target_versions)):\n+        drv = driver.Driver(\n+            parser_config.grammar,\n+            pytree.convert,\n+            tokenizer_config=parser_config.tokenizer_config,\n+        )\n         try:\n             result = drv.parse_string(src_txt, True)\n             break\ndiff --git a/blib2to3/pgen2/driver.py b/blib2to3/pgen2/driver.py\nindex 63b60bb..e681b52 100644\n--- a/blib2to3/pgen2/driver.py\n+++ b/blib2to3/pgen2/driver.py\n@@ -29,12 +29,19 @@ from . import grammar, parse, token, tokenize, pgen\n \n class Driver(object):\n \n-    def __init__(self, grammar, convert=None, logger=None):\n+    def __init__(\n+        self,\n+        grammar,\n+        convert=None,\n+        logger=None,\n+        tokenizer_config=tokenize.TokenizerConfig(),\n+    ):\n         self.grammar = grammar\n         if logger is None:\n             logger = logging.getLogger(__name__)\n         self.logger = logger\n         self.convert = convert\n+        self.tokenizer_config = tokenizer_config\n \n     def parse_tokens(self, tokens, debug=False):\n         \"\"\"Parse a series of tokens and return the syntax tree.\"\"\"\n@@ -97,7 +104,7 @@ class Driver(object):\n \n     def parse_stream_raw(self, stream, debug=False):\n         \"\"\"Parse a stream and return the syntax tree.\"\"\"\n-        tokens = tokenize.generate_tokens(stream.readline)\n+        tokens = tokenize.generate_tokens(stream.readline, config=self.tokenizer_config)\n         return self.parse_tokens(tokens, debug)\n \n     def parse_stream(self, stream, debug=False):\n@@ -111,7 +118,10 @@ class Driver(object):\n \n     def parse_string(self, text, debug=False):\n         \"\"\"Parse a string and return the syntax tree.\"\"\"\n-        tokens = tokenize.generate_tokens(io.StringIO(text).readline)\n+        tokens = tokenize.generate_tokens(\n+            io.StringIO(text).readline,\n+            config=self.tokenizer_config,\n+        )\n         return self.parse_tokens(tokens, debug)\n \n     def _partially_consume_prefix(self, prefix, column):\ndiff --git a/blib2to3/pgen2/tokenize.py b/blib2to3/pgen2/tokenize.py\nindex 1f51ff0..6bef07a 100644\n--- a/blib2to3/pgen2/tokenize.py\n+++ b/blib2to3/pgen2/tokenize.py\n@@ -31,6 +31,7 @@ __credits__ = \\\n \n import re\n from codecs import BOM_UTF8, lookup\n+from attr import dataclass\n from blib2to3.pgen2.token import *\n \n from . import token\n@@ -137,6 +138,10 @@ single_quoted = (\n \n tabsize = 8\n \n+@dataclass(frozen=True)\n+class TokenizerConfig:\n+    async_is_reserved_keyword: bool = False\n+\n class TokenError(Exception): pass\n \n class StopTokenizing(Exception): pass\n@@ -334,7 +339,7 @@ def untokenize(iterable):\n     ut = Untokenizer()\n     return ut.untokenize(iterable)\n \n-def generate_tokens(readline):\n+def generate_tokens(readline, config: TokenizerConfig = TokenizerConfig()):\n     \"\"\"\n     The generate_tokens() generator requires one argument, readline, which\n     must be a callable object which provides the same interface as the\n@@ -356,6 +361,10 @@ def generate_tokens(readline):\n     contline = None\n     indents = [0]\n \n+    # If we know we're parsing 3.7+, we can unconditionally parse `async` and\n+    # `await` as keywords.\n+    async_is_reserved_keyword = config.async_is_reserved_keyword\n+\n     # 'stashed' and 'async_*' are used for async/await parsing\n     stashed = None\n     async_def = False\n@@ -506,7 +515,7 @@ def generate_tokens(readline):\n                         yield (STRING, token, spos, epos, line)\n                 elif initial.isidentifier():               # ordinary name\n                     if token in ('async', 'await'):\n-                        if async_def:\n+                        if async_is_reserved_keyword or async_def:\n                             yield (ASYNC if token == 'async' else AWAIT,\n                                    token, spos, epos, line)\n                             continue\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 59343ef..0ea4ac5 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -502,8 +502,24 @@ class BlackTestCase(unittest.TestCase):\n         self.assertFormatEqual(expected, actual)\n         black.assert_stable(source, actual, mode)\n \n+    @patch(\"black.dump_to_file\", dump_to_stderr)\n+    def test_async_as_identifier(self) -> None:\n+        source_path = (THIS_DIR / \"data\" / \"async_as_identifier.py\").resolve()\n+        source, expected = read_data(\"async_as_identifier\")\n+        actual = fs(source)\n+        self.assertFormatEqual(expected, actual)\n+        major, minor = sys.version_info[:2]\n+        if major < 3 or (major <= 3 and minor < 7):\n+            black.assert_equivalent(source, actual)\n+        black.assert_stable(source, actual, black.FileMode())\n+        # ensure black can parse this when the target is 3.6\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py36\"])\n+        # but not on 3.7, because async/await is no longer an identifier\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py37\"], exit_code=123)\n+\n     @patch(\"black.dump_to_file\", dump_to_stderr)\n     def test_python37(self) -> None:\n+        source_path = (THIS_DIR / \"data\" / \"python37.py\").resolve()\n         source, expected = read_data(\"python37\")\n         actual = fs(source)\n         self.assertFormatEqual(expected, actual)\n@@ -511,6 +527,10 @@ class BlackTestCase(unittest.TestCase):\n         if major > 3 or (major == 3 and minor >= 7):\n             black.assert_equivalent(source, actual)\n         black.assert_stable(source, actual, black.FileMode())\n+        # ensure black can parse this when the target is 3.7\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py37\"])\n+        # but not on 3.6, because we use async as a reserved keyword\n+        self.invokeBlack([str(source_path), \"--target-version\", \"py36\"], exit_code=123)\n \n     @patch(\"black.dump_to_file\", dump_to_stderr)\n     def test_fmtonoff(self) -> None:\n"
+  },
+  "timestamp": "2026-06-20 18:23:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_6/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Add support for always tokenizing async/await as keywords",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 142,
+        "end_line": 145,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 751,
+        "end_line": 751,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 755,
+        "end_line": 757,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 761,
+        "end_line": 761,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 764,
+        "end_line": 764,
+        "function_name": "get_grammars",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 772,
+        "end_line": 773,
+        "function_name": "lib2to3_parse",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 32,
+        "end_line": 32,
+        "function_name": "__init__",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 100,
+        "end_line": 100,
+        "function_name": "parse_stream_raw",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/driver.py",
+        "start_line": 114,
+        "end_line": 114,
+        "function_name": "parse_string",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/tokenize.py",
+        "start_line": 337,
+        "end_line": 337,
+        "function_name": "generate_tokens",
+        "class_name": ""
+      },
+      {
+        "file": "blib2to3/pgen2/tokenize.py",
+        "start_line": 509,
+        "end_line": 509,
+        "function_name": "generate_tokens",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_async_as_identifier",
+      "python -m unittest -q tests.test_black.BlackTestCase.test_python37"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

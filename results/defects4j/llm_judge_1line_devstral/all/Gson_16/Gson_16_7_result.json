@@ -1,0 +1,49 @@
+{
+  "project_name": "Gson",
+  "bug_id": "16",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 09:49:36",
+      "end_time": "2026-06-27 09:51:20",
+      "duration_seconds": 104,
+      "duration_human": "1m 44s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 960833,
+      "output_tokens": 4605,
+      "total_tokens": 965438,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 960833
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex 17ed0ff2..4aac5685 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -335,10 +335,10 @@ public final class $Gson$Types {\n \n   private static Type resolve(Type context, Class<?> contextRawType, Type toResolve,\n                               Collection<TypeVariable> visitedTypeVariables) {\n-    // this implementation is made a little more complicated in an attempt to avoid object-creation\n     while (true) {\n       if (toResolve instanceof TypeVariable) {\n         TypeVariable<?> typeVariable = (TypeVariable<?>) toResolve;\n+        visitedTypeVariables.add(typeVariable);\n           // cannot reduce due to infinite recursion\n         toResolve = resolveTypeVariable(context, contextRawType, typeVariable);\n         if (toResolve == typeVariable) {\n@@ -407,6 +407,34 @@ public final class $Gson$Types {\n     }\n   }\n \n+  \n+  private static boolean containsTypeVariable(Type type, TypeVariable<?> typeVariable) {\n+    if (type == typeVariable) {\n+      return true;\n+    } else if (type instanceof ParameterizedType) {\n+      ParameterizedType p = (ParameterizedType) type;\n+      for (Type arg : p.getActualTypeArguments()) {\n+        if (containsTypeVariable(arg, typeVariable)) {\n+          return true;\n+        }\n+      }\n+      return false;\n+    } else if (type instanceof WildcardType) {\n+      WildcardType w = (WildcardType) type;\n+      for (Type bound : w.getUpperBounds()) {\n+        if (containsTypeVariable(bound, typeVariable)) {\n+          return true;\n+        }\n+      }\n+      for (Type bound : w.getLowerBounds()) {\n+        if (containsTypeVariable(bound, typeVariable)) {\n+          return true;\n+        }\n+      }\n+      return false;\n+    }\n+    return false;\n+  }\n   static Type resolveTypeVariable(Type context, Class<?> contextRawType, TypeVariable<?> unknown) {\n     Class<?> declaredByRaw = declaringClassOf(unknown);\n \n@@ -418,10 +446,13 @@ public final class $Gson$Types {\n     Type declaredBy = getGenericSupertype(context, contextRawType, declaredByRaw);\n     if (declaredBy instanceof ParameterizedType) {\n       int index = indexOf(declaredByRaw.getTypeParameters(), unknown);\n-      return ((ParameterizedType) declaredBy).getActualTypeArguments()[index];\n+      // Check if the resolved type contains the same type variable to prevent infinite recursion\n+      Type resolvedType = ((ParameterizedType) declaredBy).getActualTypeArguments()[index];\n+      if (containsTypeVariable(resolvedType, unknown)) {\n     }\n-\n-    return unknown;\n+      }\n+      return resolvedType;\n+      return unknown;\n   }\n \n   private static int indexOf(Object[] array, Object toFind) {\n"
+  },
+  "timestamp": "2026-06-27 09:51:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_16",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_16",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "Fix StackOverflowError on resolving types with TypeVariable recursion\nSample failing code:\r\n  private static class TestType<X> {\r\n    TestType<? super X> superType;\r\n  }\r\n  ...\r\n  new Gson().getAdapter(TestType.class);\n",
+    "commit_message": "Fix StackOverflowError on resolving types with TypeVariable recursion (#1128)",
+    "fault_locations": [],
+    "failing_tests": [
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testRecursiveTypeVariablesResolve12",
+      "com.google.gson.internal.bind.RecursiveTypesResolveTest::testRecursiveTypeVariablesResolve1"
+    ],
+    "golden_patch": "diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\nindex f66ac157..17ed0ff2 100644\n--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n+++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java\n@@ -339,12 +339,7 @@ public final class $Gson$Types {\n     while (true) {\n       if (toResolve instanceof TypeVariable) {\n         TypeVariable<?> typeVariable = (TypeVariable<?>) toResolve;\n+        if (visitedTypeVariables.contains(typeVariable)) {\n           // cannot reduce due to infinite recursion\n+          return toResolve;\n+        } else {\n+          visitedTypeVariables.add(typeVariable);\n+        }\n         toResolve = resolveTypeVariable(context, contextRawType, typeVariable);\n         if (toResolve == typeVariable) {\n           return toResolve;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

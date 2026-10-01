@@ -1,0 +1,92 @@
+{
+  "project_name": "Closure",
+  "bug_id": "29",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:10:53",
+      "end_time": "2026-06-26 22:13:05",
+      "duration_seconds": 132,
+      "duration_human": "2m 12s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 308174,
+      "output_tokens": 2486,
+      "total_tokens": 310660,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 308174
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-26 22:13:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_29",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_29",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "closure compiler screws up a perfectly valid isFunction() implementation\nhi, this function does not get compiled correctly via google closure compiler\r\n\r\n isFunction = function(functionToCheck) {\r\n    var getType;\r\n    getType = {}; //just an object\r\n    return functionToCheck &amp;&amp; getType.toString.apply(functionToCheck) === '[object Function]';\r\n  };\r\n\r\ngets compiled into \r\n\r\nisFunction = function(a) {\r\n  return a &amp;&amp; &quot;[object Function]&quot; === (void 0).apply(a)\r\n};\r\n\r\nto make it work, we have to use an array instead of an object (even though we just want to call the object toString method)\r\n\r\n  isFunction = function(functionToCheck) {\r\n    var getType;\r\n    getType = []; //not it's an array \r\n    return functionToCheck &amp;&amp; getType.toString.apply(functionToCheck) === '[object Function]';\r\n  };\r\n\r\ngets compiled into\r\n\r\nisFunction = function(a) {\r\n  var b;\r\n  b = [];\r\n  return a &amp;&amp; &quot;[object Function]&quot; === b.toString.apply(a)\r\n};\r\n\r\nand it does what it should do. \r\n\r\ni wasted an hour to find that bug. bugs me. great tool otherwise.",
+    "commit_message": "don't try to inline properties that we don't recognize, because they may be prototype properties. This isn't a perfect fix, but should get most cases. Fixes issue 724",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/InlineObjectLiterals.java",
+        "start_line": 156,
+        "end_line": 156,
+        "line_numbers": [
+          156
+        ],
+        "function_name": "isInlinableObject",
+        "class_name": "InliningBehavior",
+        "filename": "InlineObjectLiterals.java",
+        "code_snippet": "    private boolean isInlinableObject(List<Reference> refs) {\n      boolean ret = false;\n      for (Reference ref : refs) {\n        Node name = ref.getNode();\n        Node parent = ref.getParent();\n        Node gramps = ref.getGrandparent();\n\n        // Ignore indirect references, like x.y (except x.y(), since\n        // the function referenced by y might reference 'this').\n        //\n        if (parent.isGetProp()) {\n          Preconditions.checkState(parent.getFirstChild() == name);\n          // A call target maybe using the object as a 'this' value.\n          if (gramps.isCall()\n              && gramps.getFirstChild() == parent) {\n            return false;\n          }\n\n          // NOTE(nicksantos): This pass's object-splitting algorithm has\n          // a blind spot. It assumes that if a property isn't defined on an\n          // object, then the value is undefined. This is not true, because\n          // Object.prototype can have arbitrary properties on it.\n          //\n          // We short-circuit this problem by bailing out if we see a reference\n          // to a property that isn't defined on the object literal. This\n          // isn't a perfect algorithm, but it should catch most cases.\n          continue;\n        }\n\n        // Only rewrite VAR declarations or simple assignment statements\n        if (!isVarOrAssignExprLhs(name)) {\n           return false;\n        }\n\n        Node val = ref.getAssignedValue();\n        if (val == null) {\n          // A var with no assignment.\n          continue;\n        }\n\n        // We're looking for object literal assignments only.\n        if (!val.isObjectLit()) {\n          return false;\n        }\n\n        // Make sure that the value is not self-refential. IOW,\n        // disallow things like x = {b: x.a}.\n        //\n        // TODO: Only exclude unorderable self-referential\n        // assignments. i.e. x = {a: x.b, b: x.a} is not orderable,\n        // but x = {a: 1, b: x.a} is.\n        //\n        // Also, ES5 getters/setters aren't handled by this pass.\n        for (Node child = val.getFirstChild(); child != null;\n             child = child.getNext()) {\n          if (child.isGetterDef() ||\n              child.isSetterDef()) {\n            // ES5 get/set not supported.\n            return false;\n          }\n\n\n          Node childVal = child.getFirstChild();\n          // Check if childVal is the parent of any of the passed in\n          // references, as that is how self-referential assignments\n          // will happen.\n          for (Reference t : refs) {\n            Node refNode = t.getParent();\n            while (!NodeUtil.isStatementBlock(refNode)) {\n              if (refNode == childVal) {\n                // There's a self-referential assignment\n                return false;\n              }\n              refNode = refNode.getParent();\n            }\n          }\n        }\n\n\n        // We have found an acceptable object literal assignment. As\n        // long as there are no other assignments that mess things up,\n        // we can inline.\n        ret = true;\n      }\n      return ret;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/InlineObjectLiterals.java",
+        "start_line": 181,
+        "end_line": 181,
+        "line_numbers": [
+          181
+        ],
+        "function_name": "isInlinableObject",
+        "class_name": "InliningBehavior",
+        "filename": "InlineObjectLiterals.java",
+        "code_snippet": "    private boolean isInlinableObject(List<Reference> refs) {\n      boolean ret = false;\n      for (Reference ref : refs) {\n        Node name = ref.getNode();\n        Node parent = ref.getParent();\n        Node gramps = ref.getGrandparent();\n\n        // Ignore indirect references, like x.y (except x.y(), since\n        // the function referenced by y might reference 'this').\n        //\n        if (parent.isGetProp()) {\n          Preconditions.checkState(parent.getFirstChild() == name);\n          // A call target maybe using the object as a 'this' value.\n          if (gramps.isCall()\n              && gramps.getFirstChild() == parent) {\n            return false;\n          }\n\n          // NOTE(nicksantos): This pass's object-splitting algorithm has\n          // a blind spot. It assumes that if a property isn't defined on an\n          // object, then the value is undefined. This is not true, because\n          // Object.prototype can have arbitrary properties on it.\n          //\n          // We short-circuit this problem by bailing out if we see a reference\n          // to a property that isn't defined on the object literal. This\n          // isn't a perfect algorithm, but it should catch most cases.\n          continue;\n        }\n\n        // Only rewrite VAR declarations or simple assignment statements\n        if (!isVarOrAssignExprLhs(name)) {\n           return false;\n        }\n\n        Node val = ref.getAssignedValue();\n        if (val == null) {\n          // A var with no assignment.\n          continue;\n        }\n\n        // We're looking for object literal assignments only.\n        if (!val.isObjectLit()) {\n          return false;\n        }\n\n        // Make sure that the value is not self-refential. IOW,\n        // disallow things like x = {b: x.a}.\n        //\n        // TODO: Only exclude unorderable self-referential\n        // assignments. i.e. x = {a: x.b, b: x.a} is not orderable,\n        // but x = {a: 1, b: x.a} is.\n        //\n        // Also, ES5 getters/setters aren't handled by this pass.\n        for (Node child = val.getFirstChild(); child != null;\n             child = child.getNext()) {\n          if (child.isGetterDef() ||\n              child.isSetterDef()) {\n            // ES5 get/set not supported.\n            return false;\n          }\n\n\n          Node childVal = child.getFirstChild();\n          // Check if childVal is the parent of any of the passed in\n          // references, as that is how self-referential assignments\n          // will happen.\n          for (Reference t : refs) {\n            Node refNode = t.getParent();\n            while (!NodeUtil.isStatementBlock(refNode)) {\n              if (refNode == childVal) {\n                // There's a self-referential assignment\n                return false;\n              }\n              refNode = refNode.getParent();\n            }\n          }\n        }\n\n\n        // We have found an acceptable object literal assignment. As\n        // long as there are no other assignments that mess things up,\n        // we can inline.\n        ret = true;\n      }\n      return ret;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/InlineObjectLiterals.java",
+        "start_line": 224,
+        "end_line": 224,
+        "line_numbers": [
+          224
+        ],
+        "function_name": "isInlinableObject",
+        "class_name": "InliningBehavior",
+        "filename": "InlineObjectLiterals.java",
+        "code_snippet": "    private boolean isInlinableObject(List<Reference> refs) {\n      boolean ret = false;\n      for (Reference ref : refs) {\n        Node name = ref.getNode();\n        Node parent = ref.getParent();\n        Node gramps = ref.getGrandparent();\n\n        // Ignore indirect references, like x.y (except x.y(), since\n        // the function referenced by y might reference 'this').\n        //\n        if (parent.isGetProp()) {\n          Preconditions.checkState(parent.getFirstChild() == name);\n          // A call target maybe using the object as a 'this' value.\n          if (gramps.isCall()\n              && gramps.getFirstChild() == parent) {\n            return false;\n          }\n\n          // NOTE(nicksantos): This pass's object-splitting algorithm has\n          // a blind spot. It assumes that if a property isn't defined on an\n          // object, then the value is undefined. This is not true, because\n          // Object.prototype can have arbitrary properties on it.\n          //\n          // We short-circuit this problem by bailing out if we see a reference\n          // to a property that isn't defined on the object literal. This\n          // isn't a perfect algorithm, but it should catch most cases.\n          continue;\n        }\n\n        // Only rewrite VAR declarations or simple assignment statements\n        if (!isVarOrAssignExprLhs(name)) {\n           return false;\n        }\n\n        Node val = ref.getAssignedValue();\n        if (val == null) {\n          // A var with no assignment.\n          continue;\n        }\n\n        // We're looking for object literal assignments only.\n        if (!val.isObjectLit()) {\n          return false;\n        }\n\n        // Make sure that the value is not self-refential. IOW,\n        // disallow things like x = {b: x.a}.\n        //\n        // TODO: Only exclude unorderable self-referential\n        // assignments. i.e. x = {a: x.b, b: x.a} is not orderable,\n        // but x = {a: 1, b: x.a} is.\n        //\n        // Also, ES5 getters/setters aren't handled by this pass.\n        for (Node child = val.getFirstChild(); child != null;\n             child = child.getNext()) {\n          if (child.isGetterDef() ||\n              child.isSetterDef()) {\n            // ES5 get/set not supported.\n            return false;\n          }\n\n\n          Node childVal = child.getFirstChild();\n          // Check if childVal is the parent of any of the passed in\n          // references, as that is how self-referential assignments\n          // will happen.\n          for (Reference t : refs) {\n            Node refNode = t.getParent();\n            while (!NodeUtil.isStatementBlock(refNode)) {\n              if (refNode == childVal) {\n                // There's a self-referential assignment\n                return false;\n              }\n              refNode = refNode.getParent();\n            }\n          }\n        }\n\n\n        // We have found an acceptable object literal assignment. As\n        // long as there are no other assignments that mess things up,\n        // we can inline.\n        ret = true;\n      }\n      return ret;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.InlineObjectLiteralsTest::testObject10",
+      "com.google.javascript.jscomp.InlineObjectLiteralsTest::testObject12",
+      "com.google.javascript.jscomp.InlineObjectLiteralsTest::testObject22",
+      "com.google.javascript.jscomp.InlineObjectLiteralsTest::testIssue724",
+      "com.google.javascript.jscomp.IntegrationTest::testIssue724"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/InlineObjectLiterals.java b/src/com/google/javascript/jscomp/InlineObjectLiterals.java\nindex 8c3159d..9f5c607 100644\n--- a/src/com/google/javascript/jscomp/InlineObjectLiterals.java\n+++ b/src/com/google/javascript/jscomp/InlineObjectLiterals.java\n@@ -154,7 +154,6 @@ class InlineObjectLiterals implements CompilerPass {\n      */\n     private boolean isInlinableObject(List<Reference> refs) {\n       boolean ret = false;\n+      Set<String> validProperties = Sets.newHashSet();\n       for (Reference ref : refs) {\n         Node name = ref.getNode();\n         Node parent = ref.getParent();\n@@ -179,14 +178,6 @@ class InlineObjectLiterals implements CompilerPass {\n           // We short-circuit this problem by bailing out if we see a reference\n           // to a property that isn't defined on the object literal. This\n           // isn't a perfect algorithm, but it should catch most cases.\n+          String propName = parent.getLastChild().getString();\n+          if (!validProperties.contains(propName)) {\n+            if (NodeUtil.isVarOrSimpleAssignLhs(parent, gramps)) {\n+              validProperties.add(propName);\n+            } else {\n+              return false;\n+            }\n+          }\n           continue;\n         }\n \n@@ -222,7 +213,6 @@ class InlineObjectLiterals implements CompilerPass {\n             return false;\n           }\n \n+          validProperties.add(child.getString());\n \n           Node childVal = child.getFirstChild();\n           // Check if childVal is the parent of any of the passed in",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

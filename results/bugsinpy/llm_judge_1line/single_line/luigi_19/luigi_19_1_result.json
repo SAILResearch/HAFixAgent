@@ -1,0 +1,53 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_19",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "mesg: ttyname failed: Inappropriate ioctl for device\n",
+    "timing": {
+      "start_time": "2026-03-23 07:47:46",
+      "end_time": "2026-03-23 08:34:04",
+      "duration_seconds": 2778,
+      "duration_human": "46m 18s"
+    },
+    "model_cost": 0.068,
+    "model_calls": 11,
+    "token_usage": {
+      "input_tokens": 223400,
+      "output_tokens": 96985,
+      "total_tokens": 320385,
+      "cached_input_tokens": 118976,
+      "uncached_input_tokens": 104424
+    },
+    "agent_steps": 11,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex cf0d8c40..5b3a3f0a 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -389,12 +389,6 @@ class SimpleTaskState(object):\n         if config:\n             self.set_status(task, FAILED, config)\n             task.failures.clear()\n-\n-    def set_status(self, task, new_status, config=None):\n-        if new_status == FAILED:\n-            assert config is not None\n-\n-        if new_status == DISABLED and task.status == RUNNING:\n             return\n \n         if task.status == DISABLED:\n@@ -412,9 +406,9 @@ class SimpleTaskState(object):\n                 new_status = DISABLED\n                 notifications.send_error_email(\n                     'Luigi Scheduler: DISABLED {task} due to excessive failures'.format(task=task.id),\n-                    '{task} failed {failures} times in the last {window} seconds, so it is being '\n-                    'disabled for {persist} seconds'.format(\n-                        failures=config.disable_failures,\n+        if new_status == FAILED and task.can_disable() and not (task.status == DISABLED and task.scheduler_disable_time is None):\n+            task.add_failure()\n+            if task.has_excessive_failures():\n                         task=task.id,\n                         window=config.disable_window,\n                         persist=config.disable_persist,\ndiff --git a/test/central_planner_test.py b/test/central_planner_test.py\nindex 522a77c9..f2e8029c 100644\n--- a/test/central_planner_test.py\n+++ b/test/central_planner_test.py\n@@ -650,6 +650,31 @@ class CentralPlannerTest(unittest.TestCase):\n         self.sch.add_task(worker=WORKER, task_id='A')\n         self.assertEqual(self.sch.get_work(worker=WORKER)['task_id'], 'A')\n \n+    def test_automatic_re_enable(self):\n+        self.sch = CentralPlannerScheduler(disable_failures=2, disable_persist=100)\n+        self.setTime(0)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=FAILED)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=FAILED)\n+\n+        # should be disabled now\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+        # re-enables after 100 seconds\n+        self.setTime(101)\n+        self.assertEqual(FAILED, self.sch.task_list('', '')['A']['status'])\n+\n+    def test_automatic_re_enable_with_one_failure_allowed(self):\n+        self.sch = CentralPlannerScheduler(disable_failures=1, disable_persist=100)\n+        self.setTime(0)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=FAILED)\n+\n+        # should be disabled now\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+        # re-enables after 100 seconds\n+        self.setTime(101)\n+        self.assertEqual(FAILED, self.sch.task_list('', '')['A']['status'])\n+\n     def test_disable_by_worker(self):\n         self.sch.add_task(worker=WORKER, task_id='A', status=DISABLED)\n         self.assertEqual(len(self.sch.task_list('DISABLED', '')), 1)\n"
+  },
+  "timestamp": "2026-03-23 04:34:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_19",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_19/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Fixes a bug with auto-reenable when disable_failures is 1",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 408,
+        "end_line": 408,
+        "function_name": "set_status",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/central_planner_test.py::CentralPlannerTest::test_automatic_re_enable_with_one_failure_allowed"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null
+}

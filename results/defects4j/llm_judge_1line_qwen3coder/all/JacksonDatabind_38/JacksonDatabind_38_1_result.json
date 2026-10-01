@@ -1,0 +1,91 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "38",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:19:05",
+      "end_time": "2026-06-20 00:20:43",
+      "duration_seconds": 99,
+      "duration_human": "1m 39s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1020727,
+      "output_tokens": 3379,
+      "total_tokens": 1024106,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1020727
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:20:44 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_38",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_38",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "(2.7-regress) Handling of deprecated `SimpleType.construct()` too minimalistic\n(note: spun from https://github.com/FasterXML/jackson/issues/48)\n\nDue to changes in type resolution, most direct construction methods in `JavaType` sub-classes can not be fully supported. Failure modes are typically with complex cases (and expected to be rare), with one exception: use of `SimpleType.construct(Class)`, because:\n1. This is mostly used for complex types, and not just \"well-known\" interfaces like `List`, `Map`; so actual access to at least immediate fields is necessary (and similarly lack of super-type info is problematic), and\n2. Its usage is likely to be wide-spread, despite existence of preferable methods (`TypeFactory`)\n3. Since refactoring of type resolution was not anticipated early enough in advance, deprecation of methods we want to move users away from could not be done in 2.6, as it should have been (in perfect case)\n\nExact reasoning behind problems is quite complicated: but the fundamental reason is that `TypeFactory` has all the logic to do the generic resolution; `JavaType` has (and should have) very little if any. Since no reference to the factory is passed via constructors/factory methods, they can not properly delegate resolution tasks. This is why direct calls should only be made with all necessary, pre-resolved information; passing `JavaType`s for elements, not `Class`.\nInability to resolve things means that super-types can not be properly resolved, for example. Handling of fields, methods will also be inexact wrt generic types.\n\nThe first immediate problem is something that should be addressable: introspection by POJO deserializer builder does not find any fields or methods. It should be possible to at least find them, even if type resolution for generic types will not work well. This should be acceptable for the common (and reported) case of constructing element types for `Collection`s and `Map`s: generic parameterization will not be accessible anyway.\n\nThere are other potential issues to address as best we can, but first things first.\n\n",
+    "commit_message": "Fix #1102",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java",
+        "start_line": 50,
+        "end_line": 50,
+        "line_numbers": [
+          50
+        ],
+        "function_name": "construct",
+        "class_name": "CollectionType",
+        "filename": "CollectionType.java",
+        "code_snippet": "    public static CollectionType construct(Class<?> rawType, JavaType elemT) {\n        // First: may need to fabricate TypeBindings (needed for refining into\n        // concrete collection types, as per [databind#1102])\n        return new CollectionType(rawType, null,\n                // !!! TODO: Wrong, does have supertypes, but:\n                _bogusSuperClass(rawType), null, elemT,\n                null, null, false);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/MapType.java",
+        "start_line": 48,
+        "end_line": 48,
+        "line_numbers": [
+          48
+        ],
+        "function_name": "construct",
+        "class_name": "MapType",
+        "filename": "MapType.java",
+        "code_snippet": "    public static MapType construct(Class<?> rawType, JavaType keyT, JavaType valueT)\n    {\n        // First: may need to fabricate TypeBindings (needed for refining into\n        // concrete collection types, as per [databind#1102])\n        // !!! TODO: Wrong, does have supertypes\n        return new MapType(rawType, null, _bogusSuperClass(rawType), null,\n                keyT, valueT, null, null, false);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 116,
+        "end_line": 117,
+        "line_numbers": [
+          116,
+          117
+        ],
+        "function_name": "construct",
+        "class_name": "SimpleType",
+        "filename": "SimpleType.java",
+        "code_snippet": "    public static SimpleType construct(Class<?> cls)\n    {\n        /* Let's add sanity checks, just to ensure no\n         * Map/Collection entries are constructed\n         */\n        if (Map.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Map (class: \"+cls.getName()+\")\");\n        }\n        if (Collection.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Collection (class: \"+cls.getName()+\")\");\n        }\n        // ... and while we are at it, not array types either\n        if (cls.isArray()) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for an array (class: \"+cls.getName()+\")\");\n        }\n        return new SimpleType(cls, TypeBindings.emptyBindings(),\n                _bogusSuperClass(cls), null, null, null, false);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testExplicitMapType",
+      "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testExplicitCollectionType",
+      "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testPOJOSubType"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java b/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java\nindex e0a785672..39c103822 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java\n@@ -1,6 +1,5 @@\n package com.fasterxml.jackson.databind.type;\n \n+import java.lang.reflect.TypeVariable;\n \n import com.fasterxml.jackson.databind.JavaType;\n \n@@ -48,14 +47,7 @@ public final class CollectionType\n     public static CollectionType construct(Class<?> rawType, JavaType elemT) {\n         // First: may need to fabricate TypeBindings (needed for refining into\n         // concrete collection types, as per [databind#1102])\n+        TypeVariable<?>[] vars = rawType.getTypeParameters();\n+        TypeBindings bindings;\n+        if ((vars == null) || (vars.length != 1)) {\n+            bindings = TypeBindings.emptyBindings();\n+        } else {\n+            bindings = TypeBindings.create(rawType, elemT);\n+        }\n+        return new CollectionType(rawType, bindings,\n-        return new CollectionType(rawType, null,\n                 // !!! TODO: Wrong, does have supertypes, but:\n                 _bogusSuperClass(rawType), null, elemT,\n                 null, null, false);\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/type/MapType.java b/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\nindex e71abb683..a11767f44 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/MapType.java\n@@ -1,6 +1,5 @@\n package com.fasterxml.jackson.databind.type;\n \n+import java.lang.reflect.TypeVariable;\n \n import com.fasterxml.jackson.databind.JavaType;\n \n@@ -45,15 +44,8 @@ public final class MapType extends MapLikeType\n     {\n         // First: may need to fabricate TypeBindings (needed for refining into\n         // concrete collection types, as per [databind#1102])\n+        TypeVariable<?>[] vars = rawType.getTypeParameters();\n+        TypeBindings bindings;\n+        if ((vars == null) || (vars.length != 2)) {\n+            bindings = TypeBindings.emptyBindings();\n+        } else {\n+            bindings = TypeBindings.create(rawType, keyT, valueT);\n+        }\n         // !!! TODO: Wrong, does have supertypes\n+        return new MapType(rawType, bindings, _bogusSuperClass(rawType), null,\n-        return new MapType(rawType, null, _bogusSuperClass(rawType), null,\n                 keyT, valueT, null, null, false);\n     }\n \ndiff --git a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\nindex 1174710df..ceb0117a7 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java\n@@ -113,9 +113,8 @@ public class SimpleType // note: until 2.6 was final\n         if (cls.isArray()) {\n             throw new IllegalArgumentException(\"Can not construct SimpleType for an array (class: \"+cls.getName()+\")\");\n         }\n+        TypeBindings b = TypeBindings.emptyBindings();\n+        return new SimpleType(cls, b,\n+                _buildSuperClass(cls.getSuperclass(), b), null, null, null, false);\n-        return new SimpleType(cls, TypeBindings.emptyBindings(),\n-                _bogusSuperClass(cls), null, null, null, false);\n     }\n \n     @Override\n@@ -249,18 +248,6 @@ public class SimpleType // note: until 2.6 was final\n      * \n      * @since 2.7 -- remove when not needed (2.8?)\n      */\n+    private static JavaType _buildSuperClass(Class<?> superClass, TypeBindings b)\n+    {\n+        if (superClass == null) {\n+            return null;\n+        }\n+        if (superClass == Object.class) {\n+            return TypeFactory.unknownType();\n+        }\n+        JavaType superSuper = _buildSuperClass(superClass.getSuperclass(), b);\n+        return new SimpleType(superClass, b,\n+                superSuper, null, null, null, false);\n+    }\n \n     /*\n     /**********************************************************",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

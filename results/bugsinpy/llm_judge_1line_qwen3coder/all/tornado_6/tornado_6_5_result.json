@@ -1,0 +1,63 @@
+{
+  "project_name": "tornado",
+  "bug_id": "tornado_6",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:07:55",
+      "end_time": "2026-06-20 16:10:08",
+      "duration_seconds": 133,
+      "duration_human": "2m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 679827,
+      "output_tokens": 3540,
+      "total_tokens": 683367,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 679827
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/tornado/test/asyncio_test.py b/tornado/test/asyncio_test.py\nindex 37f2f6e1..a7c75649 100644\n--- a/tornado/test/asyncio_test.py\n+++ b/tornado/test/asyncio_test.py\n@@ -122,6 +122,44 @@ class AsyncIOLoopTest(AsyncTestCase):\n             42)\n \n \n+@unittest.skipIf(asyncio is None, \"asyncio module not present\")\n+class LeakTest(unittest.TestCase):\n+    def setUp(self):\n+        # Trigger a cleanup of the mapping so we start with a clean slate.\n+        AsyncIOLoop().close()\n+        # If we don't clean up after ourselves other tests may fail on\n+        # py34.\n+        self.orig_policy = asyncio.get_event_loop_policy()\n+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())\n+\n+    def tearDown(self):\n+        asyncio.get_event_loop().close()\n+        asyncio.set_event_loop_policy(self.orig_policy)\n+\n+    def test_ioloop_close_leak(self):\n+        orig_count = len(IOLoop._ioloop_for_asyncio)\n+        for i in range(10):\n+            # Create and close an AsyncIOLoop using Tornado interfaces.\n+            loop = AsyncIOLoop()\n+            loop.close()\n+        new_count = len(IOLoop._ioloop_for_asyncio) - orig_count\n+        self.assertEqual(new_count, 0)\n+\n+    def test_asyncio_close_leak(self):\n+        orig_count = len(IOLoop._ioloop_for_asyncio)\n+        for i in range(10):\n+            # Create and close an AsyncIOMainLoop using asyncio interfaces.\n+            loop = asyncio.new_event_loop()\n+            loop.call_soon(IOLoop.current)\n+            loop.call_soon(loop.stop)\n+            loop.run_forever()\n+            loop.close()\n+        new_count = len(IOLoop._ioloop_for_asyncio) - orig_count\n+        # Because the cleanup is run on new loop creation, we have one\n+        # dangling entry in the map (but only one).\n+        self.assertEqual(new_count, 1)\n+\n+\n @unittest.skipIf(asyncio is None, \"asyncio module not present\")\n class AnyThreadEventLoopPolicyTest(unittest.TestCase):\n     def setUp(self):\n"
+  },
+  "timestamp": "2026-06-20 16:10:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "tornado",
+    "bug_id": "tornado_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/tornado_6/tornado",
+    "github_url": "https://github.com/tornadoweb/tornado",
+    "description": "",
+    "commit_message": "asyncio: Fix a leak when event loops are created and destroyed",
+    "fault_locations": [
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 50,
+        "end_line": 50,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "tornado/ioloop.py",
+        "start_line": 188,
+        "end_line": 188,
+        "function_name": "IOLoop",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tornado.test.asyncio_test.LeakTest.test_ioloop_close_leak",
+      "python -m unittest -q tornado.test.asyncio_test.LeakTest.test_asyncio_close_leak"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

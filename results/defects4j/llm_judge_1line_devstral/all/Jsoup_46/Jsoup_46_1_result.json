@@ -1,0 +1,62 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "46",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 19:31:53",
+      "end_time": "2026-06-26 19:32:35",
+      "duration_seconds": 42,
+      "duration_human": "42.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 25,
+    "token_usage": {
+      "input_tokens": 118883,
+      "output_tokens": 1788,
+      "total_tokens": 120671,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 118883
+    },
+    "agent_steps": 25,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex 6ccb84ed..2a385213 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -114,8 +114,12 @@ public class Entities {\n                     case 0xA0:\n                         if (escapeMode != EscapeMode.xhtml)\n                             accum.append(\"&nbsp;\");\n-                        else\n-                            accum.append(c);\n+                        else {\n+                            if (canEncode(coreCharset, c, encoder))\n+                                accum.append(c);\n+                            else\n+                                accum.append(\"&#x\").append(Integer.toHexString(codePoint)).append(\";\");\n+                        }\n                         break;\n                     case '<':\n                         if (!inAttribute)\n"
+  },
+  "timestamp": "2026-06-26 19:32:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_46",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_46",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "EscapeMode.xhtml no longer falls back to numeric escapes - Can cause '?' replacement in output\nI've been using EscapeMode.xhtml with JSoup to avoid encoding things which don't (from my perspective) need to be encoded, like egrave in a UTF-8 document for example.\n\nWhile upgrading from JSoup 1.7.2 to 1.8.1 however, I've noticed a problem with a shift-jis related test I have. Here's a simplified/reduced version.\n\n```\npackage test;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.InputStream;\nimport java.nio.charset.Charset;\n\nimport org.jsoup.Jsoup;\nimport org.jsoup.nodes.Document;\nimport org.jsoup.nodes.Entities.EscapeMode;\nimport org.junit.Assert;\nimport org.junit.Test;\n\npublic class ShiftJisTest {\n\n    @Test\n    public void testShiftJisRoundtrip() throws Exception {\n        String input = \n            \"<html>\"\n          +   \"<head>\"\n          +     \"<meta http-equiv=\\\"content-type\\\" content=\\\"text/html; charset=Shift_JIS\\\" />\"\n          +   \"</head>\"\n          +   \"<body>\"\n          +     \"before&nbsp;after\"\n          +   \"</body>\"\n          + \"</html>\";\n        InputStream is = new ByteArrayInputStream(input.getBytes(Charset.forName(\"ASCII\")));\n\n        Document doc = Jsoup.parse(is, null, \"http://example.com\");\n        doc.outputSettings().escapeMode(EscapeMode.xhtml);\n\n        String output = new String(doc.html().getBytes(doc.outputSettings().charset()), doc.outputSettings().charset());\n\n        System.out.println(output);\n\n        Assert.assertFalse(\"Should not have contained a '?'.\", output.contains(\"?\"));\n        Assert.assertTrue(\"Should have contained a '&#xa0;' or a '&nbsp;'.\", \n            output.contains(\"&#xa0;\") || output.contains(\"&nbsp;\"));\n    }\n\n}\n```\n\nUnder JSoup 1.7.2, the body of the output in this test is \"before&#xa0;after\" (which looks as expected when rendered in Firefox), where as under 1.8.1 it is \"before?after\".\n\nI assume the issue here is that I've asked JSoup to escape only XHTML characters (i.e. not nbsp), and it's producing a charset where (I assume) there's no character to represent 'non-breaking space'.\n\nThe upshot of this is that, as a result of upgrading JSoup, I end up with '?' replaced in for what used to be shown as a non breaking space.\n\nIt seems like the old behaviour was to fall back to providing an escaped numeric character (odd if there's no valid character for that in Shift_JIS, but it still rendered correctly). From my perspective, the old behaviour was better - Is there any way it can be reinstated (or an escape mode provided for it)?\n\nObviously using EscapeMode.base instead of EscapeMode.xhtml is a possible workaround, however I would really prefer not to have characters unnecessarily escaped if possible.\n\n",
+    "commit_message": "Fixed &nbsp; for XHTML in Shift_JS",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 118,
+        "end_line": 118,
+        "line_numbers": [
+          118
+        ],
+        "function_name": "escape",
+        "class_name": "Entities",
+        "filename": "Entities.java",
+        "code_snippet": "    static void escape(StringBuilder accum, String string, Document.OutputSettings out,\n                       boolean inAttribute, boolean normaliseWhite, boolean stripLeadingWhite) {\n\n        boolean lastWasWhite = false;\n        boolean reachedNonWhite = false;\n        final EscapeMode escapeMode = out.escapeMode();\n        final CharsetEncoder encoder = out.encoder();\n        final CoreCharset coreCharset = CoreCharset.byName(encoder.charset().name());\n        final Map<Character, String> map = escapeMode.getMap();\n        final int length = string.length();\n\n        int codePoint;\n        for (int offset = 0; offset < length; offset += Character.charCount(codePoint)) {\n            codePoint = string.codePointAt(offset);\n\n            if (normaliseWhite) {\n                if (StringUtil.isWhitespace(codePoint)) {\n                    if ((stripLeadingWhite && !reachedNonWhite) || lastWasWhite)\n                        continue;\n                    accum.append(' ');\n                    lastWasWhite = true;\n                    continue;\n                } else {\n                    lastWasWhite = false;\n                    reachedNonWhite = true;\n                }\n            }\n            // surrogate pairs, split implementation for efficiency on single char common case (saves creating strings, char[]):\n            if (codePoint < Character.MIN_SUPPLEMENTARY_CODE_POINT) {\n                final char c = (char) codePoint;\n                // html specific and required escapes:\n                switch (c) {\n                    case '&':\n                        accum.append(\"&amp;\");\n                        break;\n                    case 0xA0:\n                        if (escapeMode != EscapeMode.xhtml)\n                            accum.append(\"&nbsp;\");\n                        else\n                            accum.append(c);\n                        break;\n                    case '<':\n                        if (!inAttribute)\n                            accum.append(\"&lt;\");\n                        else\n                            accum.append(c);\n                        break;\n                    case '>':\n                        if (!inAttribute)\n                            accum.append(\"&gt;\");\n                        else\n                            accum.append(c);\n                        break;\n                    case '\"':\n                        if (inAttribute)\n                            accum.append(\"&quot;\");\n                        else\n                            accum.append(c);\n                        break;\n                    default:\n                        if (canEncode(coreCharset, c, encoder))\n                            accum.append(c);\n                        else if (map.containsKey(c))\n                            accum.append('&').append(map.get(c)).append(';');\n                        else\n                            accum.append(\"&#x\").append(Integer.toHexString(codePoint)).append(';');\n                }\n            } else {\n                final String c = new String(Character.toChars(codePoint));\n                if (encoder.canEncode(c)) // uses fallback encoder for simplicity\n                    accum.append(c);\n                else\n                    accum.append(\"&#x\").append(Integer.toHexString(codePoint)).append(';');\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.DocumentTest::testShiftJisRoundtrip"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java\nindex ad80489..6ccb84e 100644\n--- a/src/main/java/org/jsoup/nodes/Entities.java\n+++ b/src/main/java/org/jsoup/nodes/Entities.java\n@@ -115,7 +115,7 @@ public class Entities {\n                         if (escapeMode != EscapeMode.xhtml)\n                             accum.append(\"&nbsp;\");\n                         else\n+                            accum.append(\"&#xa0;\");\n-                            accum.append(c);\n                         break;\n                     case '<':\n                         if (!inAttribute)",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

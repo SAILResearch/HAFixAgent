@@ -1,0 +1,154 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_41",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 10:22:53",
+      "end_time": "2026-03-24 10:37:40",
+      "duration_seconds": 887,
+      "duration_human": "14m 47s"
+    },
+    "model_cost": 0.0785,
+    "model_calls": 44,
+    "token_usage": {
+      "input_tokens": 478311,
+      "output_tokens": 28401,
+      "total_tokens": 506712,
+      "cached_input_tokens": 230592,
+      "uncached_input_tokens": 247719
+    },
+    "agent_steps": 44,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py\nindex ce3c34d330..838a113660 100644\n--- a/pandas/core/internals/blocks.py\n+++ b/pandas/core/internals/blocks.py\n@@ -1634,12 +1634,21 @@ class ExtensionBlock(Block):\n             return self.values\n \n     def should_store(self, value):\n-        return isinstance(value, self._holder)\n-\n+        if not isinstance(value, self._holder):\n+            return False\n+        if hasattr(value, \"dtype\") and hasattr(self.values, \"dtype\"):\n+            from pandas.core.dtypes.common import is_dtype_equal\n+            return is_dtype_equal(value.dtype, self.dtype)\n+        return True\n     def set(self, locs, values, check=False):\n         assert locs.tolist() == [0]\n+        if (hasattr(self.values, \"dtype\") and hasattr(values, \"dtype\") and\n+            hasattr(self.values, \"__setitem__\")):\n+            from pandas.core.dtypes.common import is_dtype_equal\n+            if is_dtype_equal(self.values.dtype, values.dtype):\n+                self.values[:] = values\n+                return\n         self.values = values\n-\n     def putmask(\n         self, mask, new, align=True, inplace=False, axis=0, transpose=False,\n     ):\ndiff --git a/pandas/tests/indexing/test_iloc.py b/pandas/tests/indexing/test_iloc.py\nindex f6b9e9a44b..9664f8d721 100644\n--- a/pandas/tests/indexing/test_iloc.py\n+++ b/pandas/tests/indexing/test_iloc.py\n@@ -694,6 +694,17 @@ class TestiLoc2:\n         result = s.iloc[np.array(0)]\n         assert result == 1\n \n+    def test_iloc_setitem_categorical_updates_inplace(self):\n+        # Mixed dtype ensures we go through take_split_path in setitem_with_indexer\n+        cat = pd.Categorical([\"A\", \"B\", \"C\"])\n+        df = pd.DataFrame({1: cat, 2: [1, 2, 3]})\n+\n+        # This should modify our original values in-place\n+        df.iloc[:, 0] = cat[::-1]\n+\n+        expected = pd.Categorical([\"C\", \"B\", \"A\"])\n+        tm.assert_categorical_equal(cat, expected)\n+\n \n class TestILocSetItemDuplicateColumns:\n     def test_iloc_setitem_scalar_duplicate_columns(self):\ndiff --git a/pandas/tests/internals/test_internals.py b/pandas/tests/internals/test_internals.py\nindex deffeb0a18..bbf968aef4 100644\n--- a/pandas/tests/internals/test_internals.py\n+++ b/pandas/tests/internals/test_internals.py\n@@ -1189,6 +1189,23 @@ class TestCanHoldElement:\n             tm.assert_series_equal(result, expected)\n \n \n+class TestShouldStore:\n+    def test_should_store_categorical(self):\n+        cat = pd.Categorical([\"A\", \"B\", \"C\"])\n+        df = pd.DataFrame(cat)\n+        blk = df._data.blocks[0]\n+\n+        # matching dtype\n+        assert blk.should_store(cat)\n+        assert blk.should_store(cat[:-1])\n+\n+        # different dtype\n+        assert not blk.should_store(cat.as_ordered())\n+\n+        # ndarray instead of Categorical\n+        assert not blk.should_store(np.asarray(cat))\n+\n+\n @pytest.mark.parametrize(\n     \"typestr, holder\",\n     [\n"
+  },
+  "timestamp": "2026-03-24 06:37:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_41",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_41/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: ExtensionBlock.set not setting values inplace (#32831)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 343,
+        "end_line": 343,
+        "function_name": "set",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 345,
+        "end_line": 347,
+        "function_name": "set",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 796,
+        "end_line": 796,
+        "function_name": "setitem",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 1636,
+        "end_line": 1636,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 1639,
+        "end_line": 1639,
+        "function_name": "set",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 1641,
+        "end_line": 1641,
+        "function_name": "set",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 1752,
+        "end_line": 1752,
+        "function_name": "setitem",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2058,
+        "end_line": 2058,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2076,
+        "end_line": 2076,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2095,
+        "end_line": 2095,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2242,
+        "end_line": 2244,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2247,
+        "end_line": 2251,
+        "function_name": "set",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2484,
+        "end_line": 2486,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2528,
+        "end_line": 2528,
+        "function_name": "should_store",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/blocks.py",
+        "start_line": 2620,
+        "end_line": 2620,
+        "function_name": "should_store",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexing/test_iloc.py::TestiLoc2::test_iloc_setitem_categorical_updates_inplace",
+      "pytest pandas/tests/internals/test_internals.py::TestShouldStore::test_should_store_categorical"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

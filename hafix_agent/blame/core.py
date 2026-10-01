@@ -1144,6 +1144,20 @@ def extract_blame_context(patch_content: str, docker_env, work_dir: str,
                         class_name = fault_location.get('class_name')
                         break
 
+            # Fallback: detect enclosing function from source if not in fault_locations
+            if not function_name and line.file_path:
+                try:
+                    file_ext = Path(line.file_path).suffix
+                    source_result = docker_env.execute(f"cd {work_dir} && cat {line.file_path}")
+                    if source_result.get('returncode') == 0 and source_result.get('output'):
+                        function_name = find_function_containing_line(
+                            source_result['output'], line.line_number, file_ext
+                        )
+                        if function_name:
+                            print(f"Detected enclosing function '{function_name}' for {line.file_path}:{line.line_number}")
+                except Exception as e:
+                    print(f"Could not detect enclosing function: {e}")
+
             history_context = extract_all_history_context(
                 docker_env,
                 work_dir,

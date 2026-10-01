@@ -1,0 +1,191 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_65",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 00:22:37",
+      "end_time": "2026-06-17 00:42:13",
+      "duration_seconds": 1176,
+      "duration_human": "19m 36s"
+    },
+    "model_cost": 0.0836,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 612634,
+      "output_tokens": 31232,
+      "total_tokens": 643866,
+      "cached_input_tokens": 350464,
+      "uncached_input_tokens": 262170
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\nindex 6ada343a..8b54dfc5 100644\n--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n+++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java\n@@ -367,7 +367,7 @@ public class HtmlTreeBuilder extends TreeBuilder {\n     private void clearStackToContext(String... nodeNames) {\n         for (int pos = stack.size() -1; pos >= 0; pos--) {\n             Element next = stack.get(pos);\n-            if (StringUtil.in(next.nodeName(), nodeNames) || next.nodeName().equals(\"html\"))\n+            if (StringUtil.in(next.nodeName(), nodeNames) || next.nodeName().equals(\"html\") || StringUtil.in(next.nodeName(), \"template\", \"script\", \"style\", \"noscript\"))\n                 break;\n             else\n                 stack.remove(pos);\ndiff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilderState.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilderState.java\nindex aaf60415..e1ecff34 100644\n--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilderState.java\n+++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilderState.java\n@@ -839,7 +839,7 @@ enum HtmlTreeBuilderState {\n                     boolean processed = tb.processEndTag(\"table\");\n                     if (processed) // only ignored if in fragment\n                         return tb.process(t);\n-                } else if (StringUtil.in(name, \"style\", \"script\")) {\n+                } else if (StringUtil.in(name, \"style\", \"script\", \"template\", \"noscript\")) {\n                     return tb.process(t, InHead);\n                 } else if (name.equals(\"input\")) {\n                     if (!startTag.attributes.get(\"type\").equalsIgnoreCase(\"hidden\")) {\n@@ -1043,6 +1043,8 @@ enum HtmlTreeBuilderState {\n                         return tb.process(startTag);\n                     } else if (StringUtil.in(name, \"caption\", \"col\", \"colgroup\", \"tbody\", \"tfoot\", \"thead\")) {\n                         return exitTableBody(t, tb);\n+                    } else if (StringUtil.in(name, \"template\", \"script\", \"style\", \"noscript\")) {\n+                        tb.insert(startTag);\n                     } else\n                         return anythingElse(t, tb);\n                     break;\n@@ -1100,6 +1102,9 @@ enum HtmlTreeBuilderState {\n                     tb.insertMarkerToFormattingElements();\n                 } else if (StringUtil.in(name, \"caption\", \"col\", \"colgroup\", \"tbody\", \"tfoot\", \"thead\", \"tr\")) {\n                     return handleMissingTr(t, tb);\n+                } else if (StringUtil.in(name, \"template\", \"script\", \"style\", \"noscript\")) {\n+                    tb.insert(startTag);\n+                    // stay in InRow state\n                 } else {\n                     return anythingElse(t, tb);\n                 }\n@@ -1124,6 +1129,8 @@ enum HtmlTreeBuilderState {\n                     }\n                     tb.processEndTag(\"tr\");\n                     return tb.process(t);\n+                } else if (name.equals(\"template\")) {\n+                    tb.popStackToClose(name);\n                 } else if (StringUtil.in(name, \"body\", \"caption\", \"col\", \"colgroup\", \"html\", \"td\", \"th\")) {\n                     tb.error(this);\n                     return false;\n@@ -1166,6 +1173,8 @@ enum HtmlTreeBuilderState {\n                     tb.popStackToClose(name);\n                     tb.clearFormattingElementsToLastMarker();\n                     tb.transition(InRow);\n+                } else if (name.equals(\"template\")) {\n+                    tb.popStackToClose(name);\n                 } else if (StringUtil.in(name, \"body\", \"caption\", \"col\", \"colgroup\", \"html\")) {\n                     tb.error(this);\n                     return false;\n"
+  },
+  "timestamp": "2026-06-17 00:42:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_65",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_65",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Parser error on <template> inside <tr>\nI've been experimenting with jsoup as a validator for TensorBoard code and I encountered a bug.\r\n\r\nIf I have code like this:\r\n\r\n```html\r\n          <tr>\r\n            <th></th>\r\n            <th>Name</th>\r\n            <template is=\"dom-if\" if=\"{{smoothingEnabled}}\">\r\n              <th>Smoothed</th>\r\n            </template>   \r\n            <th>Value</th>\r\n            <th>Step</th>\r\n            <th>Time</th>\r\n            <th>Relative</th>\r\n          </tr>\r\n```\r\n\r\nI get errors like this:\r\n\r\nERROR: tensorflow/tensorboard/components/vz_line_chart/vz-line-chart.html (offset 1282): Unexpected token [StartTag] when in state [InTable]\r\nERROR: tensorflow/tensorboard/components/vz_line_chart/vz-line-chart.html (offset 1338): Unexpected token [EndTag] when in state [InTable]\r\nERROR: tensorflow/tensorboard/components/vz_line_chart/vz-line-chart.html (offset 1338): Unexpected token [EndTag] when in state [InBody]\r\n\r\nPlease note that those offset numbers point to the `<template>` tags.\r\n\r\nTemplate tag is legal here because https://www.w3.org/TR/html5/tabular-data.html#the-tr-element says content model for `tr` is \"Zero or more td, th, and script-supporting elements\" and `template` is a script supporting element.\n",
+    "commit_message": "allow template inside thead/tbody/tr. Fixes #807 (#901)",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 123,
+        "end_line": 123,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 124,
+        "end_line": 124,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 126,
+        "end_line": 126,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 127,
+        "end_line": 127,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Entities.java",
+        "start_line": 128,
+        "end_line": 128,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 373,
+        "end_line": 373,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 267,
+        "end_line": 267,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 697,
+        "end_line": 697,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 698,
+        "end_line": 698,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+        "start_line": 699,
+        "end_line": 699,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.parser.HtmlParserTest::testTemplateInsideTable"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 123,
+      "end_line": 123,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 124,
+      "end_line": 124,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 126,
+      "end_line": 126,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 127,
+      "end_line": 127,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Entities.java",
+      "start_line": 128,
+      "end_line": 128,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 373,
+      "end_line": 373,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 267,
+      "end_line": 267,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 697,
+      "end_line": 697,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 698,
+      "end_line": 698,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+      "start_line": 699,
+      "end_line": 699,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

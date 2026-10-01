@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "96",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:14:52",
+      "end_time": "2026-06-19 23:17:49",
+      "duration_seconds": 178,
+      "duration_human": "2m 58s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 473840,
+      "output_tokens": 3626,
+      "total_tokens": 477466,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 473840
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex a0ae2f363..34239e8db 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -56,7 +56,7 @@\n            >\n       <classpath refid=\"classpath.path\" />\n     </javac>\n-    <javac debug=\"true\" srcdir=\"${src.dir}\"\n+    <javac debug=\"true\" srcdir=\"${src.dir}\" encoding=\"UTF-8\"\n            destdir=\"${classes.dir}\"\n            excludes=\".svn\"\n            >\n"
+  },
+  "timestamp": "2026-06-19 23:17:49 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_96",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_96",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Missing type-checks for var_args notation\n<b>What steps will reproduce the problem?</b>\n1. Compile this:\r\n//-------------------------------------\r\n// ==ClosureCompiler==\r\n// @compilation_level SIMPLE_OPTIMIZATIONS\r\n// @warning_level VERBOSE\r\n// @output_file_name default.js\r\n// @formatting pretty_print\r\n// ==/ClosureCompiler==\r\n\r\n/**\r\n* @param {...string} var_args\r\n*/\r\nfunction foo(var_args) {\r\n    return arguments.length;\r\n}\r\n\r\nfoo('hello'); // no warning - ok\r\nfoo(123); // warning - ok\r\nfoo('hello', 123); // no warning! error.\r\n//-------------------------------------\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nShould get a type-mismatch warning for the second parameter in the third foo() call.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nBoth online compiler and the 20100616 release.\r\n\r\n<b>Please provide any additional information below.</b>\nSeems like the type-checker treats 'var_args' as a single param and thus fails to type check the subsequent parameters.\r\n\r\n// Fredrik",
+    "commit_message": "check var_args properly Fixes issue 229.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1409,
+        "end_line": 1409,
+        "line_numbers": [
+          1409
+        ],
+        "function_name": "visitParameterList",
+        "class_name": "TypeCheck",
+        "filename": "TypeCheck.java",
+        "code_snippet": "  private void visitParameterList(NodeTraversal t, Node call,\n      FunctionType functionType) {\n    Iterator<Node> arguments = call.children().iterator();\n    arguments.next(); // skip the function name\n\n    Iterator<Node> parameters = functionType.getParameters().iterator();\n    int ordinal = 0;\n    Node parameter = null;\n    Node argument = null;\n    while (arguments.hasNext() &&\n           parameters.hasNext()) {\n      // If there are no parameters left in the list, then the while loop\n      // above implies that this must be a var_args function.\n        parameter = parameters.next();\n      argument = arguments.next();\n      ordinal++;\n\n      validator.expectArgumentMatchesParameter(t, argument,\n          getJSType(argument), getJSType(parameter), call, ordinal);\n    }\n\n    int numArgs = call.getChildCount() - 1;\n    int minArgs = functionType.getMinArguments();\n    int maxArgs = functionType.getMaxArguments();\n    if (minArgs > numArgs || maxArgs < numArgs) {\n      report(t, call, WRONG_ARGUMENT_COUNT,\n              validator.getReadableJSTypeName(call.getFirstChild(), false),\n              String.valueOf(numArgs), String.valueOf(minArgs),\n              maxArgs != Integer.MAX_VALUE ?\n              \" and no more than \" + maxArgs + \" argument(s)\" : \"\");\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testFunctionArguments16"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java\nindex b05fbc4..8077e0d 100644\n--- a/src/com/google/javascript/jscomp/TypeCheck.java\n+++ b/src/com/google/javascript/jscomp/TypeCheck.java\n@@ -1406,13 +1406,10 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {\n     Node parameter = null;\n     Node argument = null;\n     while (arguments.hasNext() &&\n+           (parameters.hasNext() ||\n+            parameter != null && parameter.isVarArgs())) {\n-           parameters.hasNext()) {\n       // If there are no parameters left in the list, then the while loop\n       // above implies that this must be a var_args function.\n+      if (parameters.hasNext()) {\n         parameter = parameters.next();\n+      }\n       argument = arguments.next();\n       ordinal++;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

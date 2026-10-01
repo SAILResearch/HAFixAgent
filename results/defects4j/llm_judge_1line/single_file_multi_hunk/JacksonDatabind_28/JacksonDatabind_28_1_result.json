@@ -1,0 +1,77 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "28",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 19:28:15",
+      "end_time": "2025-09-30 19:31:39",
+      "duration_seconds": 204,
+      "duration_human": "3m 24s"
+    },
+    "model_cost": 0.0164,
+    "model_calls": 24,
+    "token_usage": {
+      "input_tokens": 171406,
+      "output_tokens": 2541,
+      "total_tokens": 173947,
+      "cached_input_tokens": 155584,
+      "uncached_input_tokens": 15822
+    },
+    "agent_steps": 25,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\nindex 264ed2051..510fca5fe 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\n@@ -100,6 +100,9 @@ public class JsonNodeDeserializer\n             }\n             // 23-Sep-2015, tatu: Ugh. We may also be given END_OBJECT (similar to FIELD_NAME),\n             //    if caller has advanced to the first token of Object, but for empty Object\n+            if (p.getCurrentToken() == JsonToken.END_OBJECT) {\n+                return ctxt.getNodeFactory().objectNode();\n+            }\n             if (p.getCurrentToken() == JsonToken.FIELD_NAME) {\n                 return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n             }\n"
+  },
+  "timestamp": "2025-09-30 19:31:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_28",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_28",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Deserialization from \"{}\" to ObjectNode field causes \"out of END_OBJECT token\" error\nI found that deserializing from an empty object (`{}`) to ObjectNode field in a class field fails.\n\nHere is the minimum code to reproduce:\n\n``` java\npublic class Main\n{\n    public static class MyValue\n    {\n        private final ObjectNode object;\n\n        @JsonCreator\n        public MyValue(ObjectNode object) { this.object = object; }\n\n        @JsonValue\n        public ObjectNode getObject() { return object; }\n    }\n\n    public static void main(String[] args)\n            throws Exception\n    {\n        ObjectMapper om = new ObjectMapper();\n\n        ObjectNode object = new ObjectNode(JsonNodeFactory.instance);\n\n        String json = om.writeValueAsString(object);\n        System.out.println(\"json: \"+json);\n\n        ObjectNode de1 = om.readValue(json, ObjectNode.class);  // this works\n        System.out.println(\"Deserialized to ObjectNode: \"+de1);\n\n        MyValue de2 = om.readValue(json, MyValue.class);  // but this throws exception\n        System.out.println(\"Deserialized to MyValue: \"+de2);\n    }\n}\n```\n\nResult is:\n\n```\njson: {}\nDeserialized to ObjectNode: {}\nException in thread \"main\" com.fasterxml.jackson.databind.JsonMappingException: Can not deserialize instance of com.fasterxml.jackson.databind.node.ObjectNode out of END_OBJECT token\n at [Source: {}; line: 1, column: 2]\n        at com.fasterxml.jackson.databind.JsonMappingException.from(JsonMappingException.java:148)\n        at com.fasterxml.jackson.databind.DeserializationContext.mappingException(DeserializationContext.java:854)\n        at com.fasterxml.jackson.databind.DeserializationContext.mappingException(DeserializationContext.java:850)\n        at com.fasterxml.jackson.databind.deser.std.JsonNodeDeserializer$ObjectDeserializer.deserialize(JsonNodeDeserializer.java:104)\n        at com.fasterxml.jackson.databind.deser.std.JsonNodeDeserializer$ObjectDeserializer.deserialize(JsonNodeDeserializer.java:83)\n        at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromObjectUsingNonDefault(BeanDeserializerBase.java:1095)\n        at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserializeFromObject(BeanDeserializer.java:294)\n        at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:131)\n        at com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3731)\n        at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:2724)\n        at Main.main(Main.java:35)\n```\n\nIf the object is not empty (e.g. `{\"k\":\"v\"}`), it works:\n\n``` java\n        ...\n        ObjectNode object = new ObjectNode(JsonNodeFactory.instance);\n        object.put(\"k\", \"v\");  // added\n        ...\n```\n\n```\njson: {\"k\":\"v\"}\nDeserialized to ObjectNode: {\"k\":\"v\"}\nDeserialized to MyValue: io.digdag.cli.Main$MyValue@17550481\n```\n\nEnvironment:\n- jackson-core 2.6.2\n- jackson-databind 2.6.2\n- Java 8 (`Java(TM) SE Runtime Environment (build 1.8.0_20-b26)`)\n\n",
+    "commit_message": "Fix #941",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java",
+        "start_line": 97,
+        "end_line": 98,
+        "line_numbers": [
+          97,
+          98
+        ],
+        "function_name": "deserialize",
+        "class_name": "ObjectDeserializer",
+        "filename": "JsonNodeDeserializer.java",
+        "code_snippet": "        public ObjectNode deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n        {\n            if (p.getCurrentToken() == JsonToken.START_OBJECT) {\n                p.nextToken();\n                return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n            }\n            // 23-Sep-2015, tatu: Ugh. We may also be given END_OBJECT (similar to FIELD_NAME),\n            //    if caller has advanced to the first token of Object, but for empty Object\n            if (p.getCurrentToken() == JsonToken.FIELD_NAME) {\n                return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n            }\n            throw ctxt.mappingException(ObjectNode.class);\n         }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java",
+        "start_line": 103,
+        "end_line": 104,
+        "line_numbers": [
+          103,
+          104
+        ],
+        "function_name": "deserialize",
+        "class_name": "ObjectDeserializer",
+        "filename": "JsonNodeDeserializer.java",
+        "code_snippet": "        public ObjectNode deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n        {\n            if (p.getCurrentToken() == JsonToken.START_OBJECT) {\n                p.nextToken();\n                return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n            }\n            // 23-Sep-2015, tatu: Ugh. We may also be given END_OBJECT (similar to FIELD_NAME),\n            //    if caller has advanced to the first token of Object, but for empty Object\n            if (p.getCurrentToken() == JsonToken.FIELD_NAME) {\n                return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n            }\n            throw ctxt.mappingException(ObjectNode.class);\n         }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.TestObjectNode::testIssue941"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\nindex d5eb01709..264ed2051 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/JsonNodeDeserializer.java\n@@ -94,13 +94,14 @@ public class JsonNodeDeserializer\n         @Override\n         public ObjectNode deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n         {\n+            if (p.isExpectedStartObjectToken() || p.hasToken(JsonToken.FIELD_NAME)) {\n-            if (p.getCurrentToken() == JsonToken.START_OBJECT) {\n-                p.nextToken();\n                 return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n             }\n             // 23-Sep-2015, tatu: Ugh. We may also be given END_OBJECT (similar to FIELD_NAME),\n             //    if caller has advanced to the first token of Object, but for empty Object\n+            if (p.hasToken(JsonToken.END_OBJECT)) {\n+                return ctxt.getNodeFactory().objectNode();\n-            if (p.getCurrentToken() == JsonToken.FIELD_NAME) {\n-                return deserializeObject(p, ctxt, ctxt.getNodeFactory());\n             }\n             throw ctxt.mappingException(ObjectNode.class);\n          }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

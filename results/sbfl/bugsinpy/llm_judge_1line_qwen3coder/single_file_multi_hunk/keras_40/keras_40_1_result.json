@@ -1,0 +1,191 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_40",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 10:54:33",
+      "end_time": "2026-06-29 11:10:02",
+      "duration_seconds": 930,
+      "duration_human": "15m 30s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 45,
+    "token_usage": {
+      "input_tokens": 725644,
+      "output_tokens": 6650,
+      "total_tokens": 732294,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 725644
+    },
+    "agent_steps": 45,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/layers/recurrent.py b/keras/layers/recurrent.py\nindex a94d06231..3dd52d55f 100644\n--- a/keras/layers/recurrent.py\n+++ b/keras/layers/recurrent.py\n@@ -405,7 +405,27 @@ class RNN(Layer):\n             output_shape = (input_shape[0], output_dim)\n \n         if self.return_state:\n-            state_shape = [(input_shape[0], output_dim) for _ in self.states]\n+            # Check if cell is a StackedRNNCells\n+            if isinstance(self.cell, StackedRNNCells):\n+                # For stacked RNNs, we need to get the output dimension\n+                # for each cell's states\n+                state_shape = []\n+                # Iterate through cells in reverse order (same as state_size)\n+                for cell in self.cell.cells[::-1]:\n+                    if hasattr(cell.state_size, '__len__'):\n+                        cell_output_dim = cell.state_size[0]\n+                    else:\n+                        cell_output_dim = cell.state_size\n+                    # Determine number of states for this cell\n+                    if hasattr(cell.state_size, '__len__'):\n+                        num_states = len(cell.state_size)\n+                    else:\n+                        num_states = 1\n+                    # Create state shapes with the correct dimension\n+                    for _ in range(num_states):\n+                        state_shape.append((input_shape[0], cell_output_dim))\n+            else:\n+                state_shape = [(input_shape[0], output_dim) for _ in self.states]\n             return [output_shape] + state_shape\n         else:\n             return output_shape\n@@ -415,7 +435,22 @@ class RNN(Layer):\n             mask = mask[0]\n         output_mask = mask if self.return_sequences else None\n         if self.return_state:\n-            state_mask = [None for _ in self.states]\n+            # Check if cell is a StackedRNNCells\n+            if isinstance(self.cell, StackedRNNCells):\n+                # For stacked RNNs, we need to create masks for each cell's states\n+                state_mask = []\n+                # Iterate through cells in reverse order (same as state_size)\n+                for cell in self.cell.cells[::-1]:\n+                    # Determine number of states for this cell\n+                    if hasattr(cell.state_size, '__len__'):\n+                        num_states = len(cell.state_size)\n+                    else:\n+                        num_states = 1\n+                    # Create masks for each state\n+                    for _ in range(num_states):\n+                        state_mask.append(None)\n+            else:\n+                state_mask = [None for _ in self.states]\n             return [output_mask] + state_mask\n         else:\n             return output_mask\ndiff --git a/tests/keras/layers/recurrent_test.py b/tests/keras/layers/recurrent_test.py\nindex 074219c16..dd784c234 100644\n--- a/tests/keras/layers/recurrent_test.py\n+++ b/tests/keras/layers/recurrent_test.py\n@@ -596,6 +596,20 @@ def test_stacked_rnn_attributes():\n     assert layer.get_losses_for(x) == [y]\n \n \n+@keras_test\n+def test_stacked_rnn_compute_output_shape():\n+    cells = [recurrent.LSTMCell(3),\n+             recurrent.LSTMCell(6)]\n+    layer = recurrent.RNN(cells, return_state=True, return_sequences=True)\n+    output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))\n+    expected_output_shape = [(None, timesteps, 6),\n+                             (None, 6),\n+                             (None, 6),\n+                             (None, 3),\n+                             (None, 3)]\n+    assert output_shape == expected_output_shape\n+\n+\n @rnn_test\n def test_batch_size_equal_one(layer_class):\n     inputs = Input(batch_shape=(1, timesteps, embedding_dim))\n"
+  },
+  "timestamp": "2026-06-29 11:10:02 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_40",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_40/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Fix stacked rnn compute output shape (#8833)",
+    "fault_locations": [
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 66,
+        "end_line": 66,
+        "suspiciousness": 0.47619,
+        "rank": 1
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 355,
+        "end_line": 355,
+        "suspiciousness": 0.392235,
+        "rank": 2
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.392235,
+        "rank": 3
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 44,
+        "end_line": 44,
+        "suspiciousness": 0.392235,
+        "rank": 4
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 47,
+        "end_line": 47,
+        "suspiciousness": 0.392235,
+        "rank": 5
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 51,
+        "end_line": 51,
+        "suspiciousness": 0.392235,
+        "rank": 6
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 52,
+        "end_line": 52,
+        "suspiciousness": 0.392235,
+        "rank": 7
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 63,
+        "end_line": 63,
+        "suspiciousness": 0.392235,
+        "rank": 8
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 64,
+        "end_line": 64,
+        "suspiciousness": 0.392235,
+        "rank": 9
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 65,
+        "end_line": 65,
+        "suspiciousness": 0.392235,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/recurrent_test.py::test_stacked_rnn_compute_output_shape"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 66,
+      "end_line": 66,
+      "suspiciousness": 0.47619,
+      "rank": 1
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 355,
+      "end_line": 355,
+      "suspiciousness": 0.392235,
+      "rank": 2
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.392235,
+      "rank": 3
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 44,
+      "end_line": 44,
+      "suspiciousness": 0.392235,
+      "rank": 4
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 47,
+      "end_line": 47,
+      "suspiciousness": 0.392235,
+      "rank": 5
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 51,
+      "end_line": 51,
+      "suspiciousness": 0.392235,
+      "rank": 6
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 52,
+      "end_line": 52,
+      "suspiciousness": 0.392235,
+      "rank": 7
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 63,
+      "end_line": 63,
+      "suspiciousness": 0.392235,
+      "rank": 8
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 64,
+      "end_line": 64,
+      "suspiciousness": 0.392235,
+      "rank": 9
+    },
+    {
+      "file": "keras/layers/recurrent.py",
+      "start_line": 65,
+      "end_line": 65,
+      "suspiciousness": 0.392235,
+      "rank": 10
+    }
+  ]
+}

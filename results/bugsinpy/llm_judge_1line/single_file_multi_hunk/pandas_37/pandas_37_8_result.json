@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_37",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 10:17:59",
+      "end_time": "2026-03-24 10:31:14",
+      "duration_seconds": 795,
+      "duration_human": "13m 15s"
+    },
+    "model_cost": 0.0574,
+    "model_calls": 40,
+    "token_usage": {
+      "input_tokens": 324558,
+      "output_tokens": 25877,
+      "total_tokens": 350435,
+      "cached_input_tokens": 151360,
+      "uncached_input_tokens": 173198
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/string_.py b/pandas/core/arrays/string_.py\nindex f82790ac4c..b9fa1be9d3 100644\n--- a/pandas/core/arrays/string_.py\n+++ b/pandas/core/arrays/string_.py\n@@ -13,7 +13,7 @@ from pandas.core.dtypes.inference import is_array_like\n \n from pandas import compat\n from pandas.core import ops\n-from pandas.core.arrays import PandasArray\n+from pandas.core.arrays.numpy_ import PandasArray\n from pandas.core.construction import extract_array\n from pandas.core.indexers import check_array_indexer\n from pandas.core.missing import isna\n@@ -271,6 +271,44 @@ class StringArray(PandasArray):\n             if copy:\n                 return self.copy()\n             return self\n+        \n+        # For extension dtypes, we need to handle conversion properly\n+        # Check if it's an extension dtype\n+        from pandas.api.types import is_extension_array_dtype\n+        \n+        if is_extension_array_dtype(dtype):\n+            # Get the constructor for the extension array\n+            cls = dtype.construct_array_type()\n+            # Convert each element\n+            result = []\n+            mask = self.isna()\n+            for i, val in enumerate(self._ndarray):\n+                if mask[i]:\n+                    # Use the NA value for the target dtype\n+                    result.append(dtype.na_value)\n+                else:\n+                    # Convert the string to the target type\n+                    # For integer conversion\n+                    if hasattr(dtype, 'numpy_dtype'):\n+                        np_dtype = dtype.numpy_dtype\n+                        if np.issubdtype(np_dtype, np.integer):\n+                            result.append(int(val))\n+                        elif np.issubdtype(np_dtype, np.floating):\n+                            result.append(float(val))\n+                        elif np_dtype == np.bool_:\n+                            result.append(bool(val))\n+                        else:\n+                            result.append(val)\n+                    else:\n+                        # Try to convert\n+                        try:\n+                            result.append(dtype.type(val))\n+                        except (ValueError, TypeError):\n+                            result.append(val)\n+            \n+            # Create the extension array\n+            return cls._from_sequence(result, dtype=dtype, copy=False)\n+        \n         return super().astype(dtype, copy)\n \n     def _reduce(self, name, skipna=True, **kwargs):\ndiff --git a/pandas/tests/arrays/string_/test_string.py b/pandas/tests/arrays/string_/test_string.py\nindex 5e2f14af34..fe770eed84 100644\n--- a/pandas/tests/arrays/string_/test_string.py\n+++ b/pandas/tests/arrays/string_/test_string.py\n@@ -214,6 +214,14 @@ def test_from_sequence_no_mutate(copy):\n     tm.assert_numpy_array_equal(a, original)\n \n \n+def test_astype_int():\n+    arr = pd.array([\"1\", pd.NA, \"3\"], dtype=\"string\")\n+\n+    result = arr.astype(\"Int64\")\n+    expected = pd.array([1, pd.NA, 3], dtype=\"Int64\")\n+    tm.assert_extension_array_equal(result, expected)\n+\n+\n @pytest.mark.parametrize(\"skipna\", [True, False])\n @pytest.mark.xfail(reason=\"Not implemented StringArray.sum\")\n def test_reduce(skipna):\n"
+  },
+  "timestamp": "2026-03-24 06:31:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_37",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_37/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: implement astype from string dtype to nullable int dtype (#33062)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/string_.py",
+        "start_line": 16,
+        "end_line": 16,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/string_/test_string.py::test_astype_int"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

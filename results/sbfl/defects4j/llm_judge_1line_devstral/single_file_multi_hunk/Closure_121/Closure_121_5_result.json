@@ -1,0 +1,193 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_121",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 19:32:41",
+      "end_time": "2026-06-29 19:39:22",
+      "duration_seconds": 401,
+      "duration_human": "6m 41s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 768599,
+      "output_tokens": 7205,
+      "total_tokens": 775804,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 768599
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\nindex f89f10c0e..c8b172dc3 100644\n--- a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n+++ b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n@@ -321,6 +321,16 @@ class ReferenceCollectingCallback implements ScopedCallback,\n       }\n \n       Preconditions.checkState(references.get(0).isDeclaration());\n+\n+      // Check if there are any recursive function calls between initialization and references.\n+      // If there are, the variable might be modified by the recursive call.\n+      for (int i = 1; i < size; i++) {\n+        Reference ref = references.get(i);\n+        if (hasRecursiveCallBetween(init, ref)) {\n+          return false;\n+        }\n+      }\n+\n       BasicBlock initBlock = init.getBasicBlock();\n       for (int i = 1; i < size; i++) {\n         if (!initBlock.provablyExecutesBefore(\n@@ -332,6 +342,46 @@ class ReferenceCollectingCallback implements ScopedCallback,\n       return true;\n     }\n \n+    /**\n+     * Checks if there are any recursive function calls between two references.\n+     * A recursive call is one where the function calls itself.\n+     */\n+    private boolean hasRecursiveCallBetween(Reference initRef, Reference ref) {\n+      // Get the function name from the scope\n+      String functionName = null;\n+      Scope scope = initRef.getSymbol().scope;\n+      if (scope != null && scope.isFunctionScope()) {\n+        Node functionNode = scope.getFunctionNode();\n+        if (functionNode != null && functionNode.isFunction()) {\n+          Node functionNameNode = functionNode.getFirstChild();\n+          if (functionNameNode != null && functionNameNode.isName()) {\n+            functionName = functionNameNode.getString();\n+          }\n+        }\n+      }\n+\n+      if (functionName == null) {\n+        return false;\n+      }\n+\n+      // Check siblings after initRef.getNode() up to ref.getNode() for function calls\n+      Node current = initRef.getNode().getNext();\n+      while (current != null && current != ref.getNode()) {\n+        if (current.isCall()) {\n+          Node calledFunction = current.getFirstChild();\n+          if (calledFunction != null && calledFunction.isName()) {\n+            String calledName = calledFunction.getString();\n+            if (calledName.equals(functionName)) {\n+              return true; // Recursive call found\n+            }\n+          }\n+        }\n+        current = current.getNext();\n+      }\n+\n+      return false;\n+    }\n+\n     /**\n      * Whether the variable is escaped into an inner scope.\n      */\n"
+  },
+  "timestamp": "2026-06-29 19:39:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_121",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_121",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Overzealous optimization confuses variables\nThe following code:\r\n\r\n\t// ==ClosureCompiler==\r\n\t// @compilation_level ADVANCED_OPTIMIZATIONS\r\n\t// ==/ClosureCompiler==\r\n\tvar uid;\r\n\tfunction reset() {\r\n\t\tuid = Math.random();\r\n\t}\r\n\tfunction doStuff() {\r\n\t\treset();\r\n\t\tvar _uid = uid;\r\n\r\n\t\tif (uid &lt; 0.5) {\r\n\t\t\tdoStuff();\r\n\t\t}\r\n\r\n\t\tif (_uid !== uid) {\r\n\t\t\tthrow 'reset() was called';\r\n\t\t}\r\n\t}\r\n\tdoStuff();\r\n\r\n...gets optimized to:\r\n\r\n\tvar a;function b(){a=Math.random();0.5&gt;a&amp;&amp;b();if(a!==a)throw&quot;reset() was called&quot;;}b();\r\n\r\nNotice how _uid gets optimized away and (uid!==_uid) becomes (a!==a) even though doStuff() might have been called and uid's value may have changed and become different from _uid.\r\n\r\nAs an aside, replacing the declaration with &quot;var _uid = +uid;&quot; fixes it, as does adding an extra &quot;uid = _uid&quot; after &quot;var _uid = uid&quot;.",
+    "commit_message": "Fix inlining bug in https://code.google.com/p/closure-compiler/issues/detail?id=1053 ------------- Created by MOE: http://code.google.com/p/moe-java MOE_MIGRATED_REVID=50726739",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1430,
+        "end_line": 1430,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1431,
+        "end_line": 1431,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1432,
+        "end_line": 1432,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1433,
+        "end_line": 1433,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1434,
+        "end_line": 1434,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1446,
+        "end_line": 1446,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1459,
+        "end_line": 1459,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+        "start_line": 1397,
+        "end_line": 1397,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+        "start_line": 2185,
+        "end_line": 2185,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+        "start_line": 1223,
+        "end_line": 1223,
+        "suspiciousness": 0.4082482904638631,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.InlineVariablesTest::testExternalIssue1053"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1430,
+      "end_line": 1430,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1431,
+      "end_line": 1431,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1432,
+      "end_line": 1432,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1433,
+      "end_line": 1433,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1434,
+      "end_line": 1434,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1446,
+      "end_line": 1446,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1459,
+      "end_line": 1459,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/IRFactory.java",
+      "start_line": 1397,
+      "end_line": 1397,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+      "start_line": 2185,
+      "end_line": 2185,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+      "start_line": 1223,
+      "end_line": 1223,
+      "suspiciousness": 0.4082482904638631,
+      "rank": 10
+    }
+  ]
+}

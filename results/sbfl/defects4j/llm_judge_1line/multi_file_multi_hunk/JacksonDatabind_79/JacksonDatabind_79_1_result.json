@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_79",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-23 23:08:37",
+      "end_time": "2026-06-23 23:29:54",
+      "duration_seconds": 1277,
+      "duration_human": "21m 17s"
+    },
+    "model_cost": 0.1559,
+    "model_calls": 16,
+    "token_usage": {
+      "input_tokens": 681471,
+      "output_tokens": 51257,
+      "total_tokens": 732728,
+      "cached_input_tokens": 181760,
+      "uncached_input_tokens": 499711
+    },
+    "agent_steps": 16,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex d74a2e99f..f65a3a127 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -574,13 +574,6 @@ public class JacksonAnnotationIntrospector\n     }\n \n     @Override\n-    public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n-        JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n-        if (ref != null) {\n-            objectIdInfo = objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n-        }\n-        return objectIdInfo;\n-    }\n \n     /*\n     /**********************************************************\n@@ -804,122 +797,28 @@ public class JacksonAnnotationIntrospector\n \n     @Override\n     public void findAndAddVirtualProperties(MapperConfig<?> config, AnnotatedClass ac,\n-            List<BeanPropertyWriter> properties) {\n-        JsonAppend ann = _findAnnotation(ac, JsonAppend.class);\n-        if (ann == null) {\n-            return;\n-        }\n-        final boolean prepend = ann.prepend();\n-        JavaType propType = null;\n-\n-        // First: any attribute-backed properties?\n-        JsonAppend.Attr[] attrs = ann.attrs();\n-        for (int i = 0, len = attrs.length; i < len; ++i) {\n-            if (propType == null) {\n-                propType = config.constructType(Object.class);\n-            }\n-            BeanPropertyWriter bpw = _constructVirtualProperty(attrs[i],\n-                    config, ac, propType);\n-            if (prepend) {\n-                properties.add(i, bpw);\n-            } else {\n-                properties.add(bpw);\n+    @Override\n+    public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n+        JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n+        if (ref == null && ann instanceof AnnotatedMember) {\n+            // Also check the type of the member for class-level annotation\n+            AnnotatedMember member = (AnnotatedMember) ann;\n+            JavaType type = member.getType();\n+            if (type != null) {\n+                Class<?> rawClass = type.getRawClass();\n+                ref = rawClass.getAnnotation(JsonIdentityReference.class);\n             }\n         }\n-\n-        // Then: general-purpose virtual properties?\n-        JsonAppend.Prop[] props = ann.props();\n-        for (int i = 0, len = props.length; i < len; ++i) {\n-            BeanPropertyWriter bpw = _constructVirtualProperty(props[i],\n-                    config, ac);\n-            if (prepend) {\n-                properties.add(i, bpw);\n+        if (ref != null) {\n+            boolean alwaysAsId = ref.alwaysAsId();\n+            if (objectIdInfo == null) {\n+                objectIdInfo = new ObjectIdInfo(PropertyName.NO_NAME, null, null, null, alwaysAsId);\n             } else {\n-                properties.add(bpw);\n+                objectIdInfo = objectIdInfo.withAlwaysAsId(alwaysAsId);\n             }\n         }\n+        return objectIdInfo;\n     }\n-\n-    protected BeanPropertyWriter _constructVirtualProperty(JsonAppend.Attr attr,\n-            MapperConfig<?> config, AnnotatedClass ac, JavaType type)\n-    {\n-        PropertyMetadata metadata = attr.required() ?\n-                    PropertyMetadata.STD_REQUIRED : PropertyMetadata.STD_OPTIONAL;\n-        // could add Index, Description in future, if those matter\n-        String attrName = attr.value();\n-\n-        // allow explicit renaming; if none, default to attribute name\n-        PropertyName propName = _propertyName(attr.propName(), attr.propNamespace());\n-        if (!propName.hasSimpleName()) {\n-            propName = PropertyName.construct(attrName);\n-        }\n-        // now, then, we need a placeholder for member (no real Field/Method):\n-        AnnotatedMember member = new VirtualAnnotatedMember(ac, ac.getRawType(),\n-                attrName, type.getRawClass());\n-        // and with that and property definition\n-        SimpleBeanPropertyDefinition propDef = SimpleBeanPropertyDefinition.construct(config,\n-                member, propName, metadata, attr.include());\n-        // can construct the property writer\n-        return AttributePropertyWriter.construct(attrName, propDef,\n-                ac.getAnnotations(), type);\n-    }\n-\n-    protected BeanPropertyWriter _constructVirtualProperty(JsonAppend.Prop prop,\n-            MapperConfig<?> config, AnnotatedClass ac)\n-    {\n-        PropertyMetadata metadata = prop.required() ?\n-                    PropertyMetadata.STD_REQUIRED : PropertyMetadata.STD_OPTIONAL;\n-        PropertyName propName = _propertyName(prop.name(), prop.namespace());\n-        JavaType type = config.constructType(prop.type());\n-        // now, then, we need a placeholder for member (no real Field/Method):\n-        AnnotatedMember member = new VirtualAnnotatedMember(ac, ac.getRawType(),\n-                propName.getSimpleName(), type.getRawClass());\n-        // and with that and property definition\n-        SimpleBeanPropertyDefinition propDef = SimpleBeanPropertyDefinition.construct(config,\n-                member, propName, metadata, prop.include());\n-\n-        Class<?> implClass = prop.value();\n-\n-        HandlerInstantiator hi = config.getHandlerInstantiator();\n-        VirtualBeanPropertyWriter bpw = (hi == null) ? null\n-                : hi.virtualPropertyWriterInstance(config, implClass);\n-        if (bpw == null) {\n-            bpw = (VirtualBeanPropertyWriter) ClassUtil.createInstance(implClass,\n-                    config.canOverrideAccessModifiers());\n-        }\n-\n-        // one more thing: give it necessary contextual information\n-        return bpw.withConfig(config, ac, propDef, type);\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Serialization: property annotations\n-    /**********************************************************\n-     */\n-\n-    @Override\n-    public PropertyName findNameForSerialization(Annotated a)\n-    {\n-        JsonGetter jg = _findAnnotation(a, JsonGetter.class);\n-        if (jg != null) {\n-            return PropertyName.construct(jg.value());\n-        }\n-        JsonProperty pann = _findAnnotation(a, JsonProperty.class);\n-        if (pann != null) {\n-            return PropertyName.construct(pann.value());\n-        }\n-        if (_hasOneOf(a, ANNOTATIONS_TO_INFER_SER)) {\n-            return PropertyName.USE_DEFAULT;\n-        }\n-        return null;\n-    }\n-\n-    @Override\n-    public boolean hasAsValueAnnotation(AnnotatedMethod am) {\n-        JsonValue ann = _findAnnotation(am, JsonValue.class);\n-        // value of 'false' means disabled...\n-        return (ann != null && ann.value());\n     }\n \n     /*\n"
+  },
+  "timestamp": "2026-06-23 23:29:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_79",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_79",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "@JsonIdentityReference not used when setup on class only\nI am trying to setup @JsonIdentityInfo/@JsonIdentityReference in order to serialize all references to a given class as Object Id (and deserialize them later using a custom ObjectIdResolver to retrieve the proper referenced instance)\r\n\r\nI use @JsonIdentityReference(alwaysAsId=true) in order to enforce exporting the object id in all cases.\r\nIt does not work as expected when I define the annotation only on the class (but it works fine when I set it directly on the property). I would rather not have to define it on every property as I will probably miss some...\r\n\r\nFrom what I see in [BeanSerializerBase](https://github.com/FasterXML/jackson-databind/blob/fea0d29eabcb8e4825a318501b35f8a759c91426/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java#L473), the alwaysAsId is reset when not ObjectIdInfo is found on the accessor:\r\n\r\n```java\r\n            ObjectIdInfo objectIdInfo = intr.findObjectIdInfo(accessor);\r\n            if (objectIdInfo == null) {\r\n                // no ObjectId override, but maybe ObjectIdRef?\r\n                if (oiw != null) {\r\n                    objectIdInfo = intr.findObjectReferenceInfo(accessor,\r\n                            new ObjectIdInfo(NAME_FOR_OBJECT_REF, null, null, null));\r\noiw = _objectIdWriter.withAlwaysAsId(objectIdInfo.getAlwaysAsId());\r\n```\r\n\r\nShouldn't it be kept to the current value when no override is found ?\r\nI tried to set it back in the default ObjectIdInfo created with NAME_FOR_OBJECT_REF but I am not sure if this is the right way to fix this.\r\n\r\nHere is test I added in [TestObjectIdSerialization](https://github.com/vboulaye/jackson-databind/blob/master/src/test/java/com/fasterxml/jackson/databind/objectid/TestObjectIdSerialization.java#L324) for this case:\r\n```java\r\n\r\n    @JsonIdentityInfo(generator=ObjectIdGenerators.IntSequenceGenerator.class, property=\"id\")\r\n    @JsonIdentityReference(alwaysAsId=true)\r\n    static class ReallyAlwaysAsId\r\n    {\r\n        public int value;\r\n\r\n        public ReallyAlwaysAsId() { this(0); }\r\n        public ReallyAlwaysAsId(int v) {\r\n            value = v;\r\n        }\r\n    }\r\n\r\n    @JsonPropertyOrder(alphabetic=true)\r\n    static class ReallyAlwaysContainer\r\n    {\r\n\r\n        @JsonIdentityReference(alwaysAsId=true)\r\n        public AlwaysAsId a = new AlwaysAsId(13);\r\n\r\n        public ReallyAlwaysAsId b = new ReallyAlwaysAsId(13);\r\n\r\n    }\r\n\r\n    public void testReallyAlwaysAsId() throws Exception\r\n    {\r\n        String json = MAPPER.writeValueAsString(new ReallyAlwaysContainer());\r\n        assertEquals(\"{\\\"a\\\":1,\\\"b\\\":2}\", json);\r\n    }\r\n\r\n```\n",
+    "commit_message": "Fix #1607",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 266,
+        "end_line": 266,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 267,
+        "end_line": 267,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 271,
+        "end_line": 271,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 84,
+        "end_line": 84,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.objectid.AlwaysAsReferenceFirstTest::testIssue1607"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 266,
+      "end_line": 266,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 267,
+      "end_line": 267,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 271,
+      "end_line": 271,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 84,
+      "end_line": 84,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

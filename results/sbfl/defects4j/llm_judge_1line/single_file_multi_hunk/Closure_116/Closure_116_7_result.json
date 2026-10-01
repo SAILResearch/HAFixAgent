@@ -1,0 +1,200 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_116",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 14:47:54",
+      "end_time": "2026-06-24 15:00:41",
+      "duration_seconds": 767,
+      "duration_human": "12m 47s"
+    },
+    "model_cost": 0.0944,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 623617,
+      "output_tokens": 5778,
+      "total_tokens": 629395,
+      "cached_input_tokens": 282880,
+      "uncached_input_tokens": 340737
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/FunctionInjector.java b/src/com/google/javascript/jscomp/FunctionInjector.java\nindex c3fc14b24..4efa34b04 100644\n--- a/src/com/google/javascript/jscomp/FunctionInjector.java\n+++ b/src/com/google/javascript/jscomp/FunctionInjector.java\n@@ -255,6 +255,15 @@ class FunctionInjector {\n    */\n   private Node inlineReturnValue(Node callNode, Node fnNode) {\n     Node block = fnNode.getLastChild();\n+    boolean hasSideEffects = false;  // empty function case\n+    if (block.hasChildren()) {\n+      Preconditions.checkState(block.hasOneChild());\n+      Node stmt = block.getFirstChild();\n+      if (stmt.isReturn()) {\n+        hasSideEffects = NodeUtil.mayHaveSideEffects(\n+            stmt.getFirstChild(), compiler);\n+      }\n+    }\n     Node callParentNode = callNode.getParent();\n \n     // NOTE: As the normalize pass guarantees globals aren't being\n@@ -693,6 +702,15 @@ class FunctionInjector {\n     }\n \n     Node block = fnNode.getLastChild();\n+    boolean hasSideEffects = false;  // empty function case\n+    if (block.hasChildren()) {\n+      Preconditions.checkState(block.hasOneChild());\n+      Node stmt = block.getFirstChild();\n+      if (stmt.isReturn()) {\n+        hasSideEffects = NodeUtil.mayHaveSideEffects(\n+            stmt.getFirstChild(), compiler);\n+      }\n+    }\n \n \n     // CALL NODE: [ NAME, ARG1, ARG2, ... ]\n@@ -720,6 +738,9 @@ class FunctionInjector {\n       // For each named parameter check if a mutable argument use more than one.\n       if (fnParam != null) {\n         if (cArg != null) {\n+          if (hasSideEffects && NodeUtil.canBeSideEffected(cArg)) {\n+            return CanInlineResult.NO;\n+          }\n \n           // Check for arguments that are evaluated more than once.\n           // Note: Unlike block inlining, there it is not possible that a\n@@ -738,6 +759,9 @@ class FunctionInjector {\n       // For every call argument check for side-effects, even if there\n       // isn't a named parameter to match.\n       if (cArg != null) {\n+          if (hasSideEffects && NodeUtil.canBeSideEffected(cArg)) {\n+            return CanInlineResult.NO;\n+          }\n         if (NodeUtil.mayHaveSideEffects(cArg, compiler)) {\n           return CanInlineResult.NO;\n         }\n@@ -882,6 +906,15 @@ class FunctionInjector {\n         (paramCount * InlineCostEstimator.ESTIMATED_IDENTIFIER_COST);\n \n     Node block = fnNode.getLastChild();\n+    boolean hasSideEffects = false;  // empty function case\n+    if (block.hasChildren()) {\n+      Preconditions.checkState(block.hasOneChild());\n+      Node stmt = block.getFirstChild();\n+      if (stmt.isReturn()) {\n+        hasSideEffects = NodeUtil.mayHaveSideEffects(\n+            stmt.getFirstChild(), compiler);\n+      }\n+    }\n     if (!block.hasChildren()) {\n       // Assume the inline cost is zero for empty functions.\n       return -costDeltaFunctionOverhead;\n"
+  },
+  "timestamp": "2026-06-24 15:00:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_116",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_116",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Erroneous optimization in ADVANCED_OPTIMIZATIONS mode\n<b>What steps will reproduce the problem?</b>\n\r\n1. Create a file input.js with the following &quot;minimal&quot; test case:\r\n\r\n    window[&quot;anchor&quot;] = function (obj, modifiesProp) {\r\n        return (function (saved) {\r\n            return modifiesProp(obj) + saved;\r\n        })(obj[&quot;prop&quot;]);\r\n    }\r\n\r\n2. Compile it with:\r\n\r\n    java -jar .../build/compiler.jar                    \\\r\n        --compilation_level ADVANCED_OPTIMIZATIONS      \\\r\n        --warning_level VERBOSE                         \\\r\n        --externs window.js                             \\\r\n        --js input.js                                   \\\r\n        --js_output_file output.js\r\n\r\n3. That's all!\r\n\r\nWhat is the expected output?\r\n\r\n    window.foo=function(a,b){var HOLD=a.prop;return b(a)+HOLD};\r\n\r\nWhat do you see instead?\r\n\r\n    window.foo=function(a,b){return b(a)+a.prop};\r\n\r\nNote how this is semantically very different if modifiesProp/b (whose\r\nsemantics are unknown to the compiler) side-effects a.prop.\r\n\r\nThe evaluation order of + is well-defined in EcmaScript 5, but even\r\nthen, this happens even if one substitutes the , (comma) operator.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n\r\nGit HEAD\r\n\r\n    commit 4a62ee4bca02169dd77a6f26ed64a624b3f05f95\r\n    Author: Chad Killingsworth &lt;chadkillingsworth@missouristate.edu&gt;\r\n    Date:   Wed Sep 25 14:52:28 2013 -0500\r\n    \r\n        Add history.state to html5 externs\r\n\r\non Linux.",
+    "commit_message": "Nerf direct function inlining when the function be inlined has side-effects and the call arguments can be effected. Fixes issue 1101 ------------- Created by MOE: http://code.google.com/p/moe-java MOE_MIGRATED_REVID=53511956",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1430,
+        "end_line": 1430,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1431,
+        "end_line": 1431,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1432,
+        "end_line": 1432,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1433,
+        "end_line": 1433,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1434,
+        "end_line": 1434,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1446,
+        "end_line": 1446,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/rhino/Node.java",
+        "start_line": 1459,
+        "end_line": 1459,
+        "suspiciousness": 0.8660254037844387,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionInjector.java",
+        "start_line": 744,
+        "end_line": 744,
+        "suspiciousness": 0.3746343246326776,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/FunctionInjector.java",
+        "start_line": 735,
+        "end_line": 735,
+        "suspiciousness": 0.3713906763541037,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ExpressionDecomposer.java",
+        "start_line": 194,
+        "end_line": 194,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.FunctionInjectorTest::testIssue1101a",
+      "com.google.javascript.jscomp.FunctionInjectorTest::testIssue1101b",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testBug4944818",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testDoubleInlining2",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testIssue1101",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testInlineIfParametersModified8",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testInlineIfParametersModified9",
+      "com.google.javascript.jscomp.InlineFunctionsTest::testInlineFunctions6"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1430,
+      "end_line": 1430,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1431,
+      "end_line": 1431,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1432,
+      "end_line": 1432,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1433,
+      "end_line": 1433,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1434,
+      "end_line": 1434,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1446,
+      "end_line": 1446,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/rhino/Node.java",
+      "start_line": 1459,
+      "end_line": 1459,
+      "suspiciousness": 0.8660254037844387,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionInjector.java",
+      "start_line": 744,
+      "end_line": 744,
+      "suspiciousness": 0.3746343246326776,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/FunctionInjector.java",
+      "start_line": 735,
+      "end_line": 735,
+      "suspiciousness": 0.3713906763541037,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ExpressionDecomposer.java",
+      "start_line": 194,
+      "end_line": 194,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

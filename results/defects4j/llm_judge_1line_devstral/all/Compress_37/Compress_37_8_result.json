@@ -1,0 +1,126 @@
+{
+  "project_name": "Compress",
+  "bug_id": "37",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 13:50:55",
+      "end_time": "2026-06-27 13:51:53",
+      "duration_seconds": 58,
+      "duration_human": "58.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 29,
+    "token_usage": {
+      "input_tokens": 154398,
+      "output_tokens": 2296,
+      "total_tokens": 156694,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 154398
+    },
+    "agent_steps": 29,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex 7a409d65..bfd6b534 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -491,6 +491,9 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n                     }\n                     break; // Processed single header\n                 }\n+                if (ch < 48) {\n+                    break;\n+                }\n                 len *= 10;\n                 len += ch - '0';\n             }\n"
+  },
+  "timestamp": "2026-06-27 13:51:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_37",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_37",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Parsing PAX headers fails with NegativeArraySizeException\nThe {{TarArchiveInputStream.parsePaxHeaders}} method fails with a {{NegativeArraySizeException}} when there is an empty line at the end of the headers.\n\nThe inner loop starts reading the length, but it gets a newline (10) and ends up subtracting '0' (48) from it; the result is a negative length that blows up an attempt to allocate the {{rest}} array.\n\nI would say that a check to see if {{ch}} is less the '0' and break the loop if it is.\n\nI used {{npm pack aws-sdk@2.2.16}} to generate a tarball with this issue.",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+        "start_line": 462,
+        "end_line": 462,
+        "line_numbers": [
+          462
+        ],
+        "function_name": "parsePaxHeaders",
+        "class_name": "TarArchiveInputStream",
+        "filename": "TarArchiveInputStream.java",
+        "code_snippet": "    Map<String, String> parsePaxHeaders(final InputStream i)\n        throws IOException {\n        final Map<String, String> headers = new HashMap<String, String>(globalPaxHeaders);\n        // Format is \"length keyword=value\\n\";\n        while(true){ // get length\n            int ch;\n            int len = 0;\n            int read = 0;\n            while((ch = i.read()) != -1) {\n                read++;\n                if (ch == ' '){\n                    // Get keyword\n                    final ByteArrayOutputStream coll = new ByteArrayOutputStream();\n                    while((ch = i.read()) != -1) {\n                        read++;\n                        if (ch == '='){ // end of keyword\n                            final String keyword = coll.toString(CharsetNames.UTF_8);\n                            // Get rest of entry\n                            final int restLen = len - read;\n                            if (restLen == 1) { // only NL\n                                headers.remove(keyword);\n                            } else {\n                                final byte[] rest = new byte[restLen];\n                                final int got = IOUtils.readFully(i, rest);\n                                if (got != restLen) {\n                                    throw new IOException(\"Failed to read \"\n                                                          + \"Paxheader. Expected \"\n                                                          + restLen\n                                                          + \" bytes, read \"\n                                                          + got);\n                                }\n                                // Drop trailing NL\n                                final String value = new String(rest, 0,\n                                                          restLen - 1, CharsetNames.UTF_8);\n                                headers.put(keyword, value);\n                            }\n                            break;\n                        }\n                        coll.write((byte) ch);\n                    }\n                    break; // Processed single header\n                }\n                len *= 10;\n                len += ch - '0';\n            }\n            if (ch == -1){ // EOF\n                break;\n            }\n        }\n        return headers;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::survivesBlankLinesInPaxHeader"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex f0d60cb8..61b908f0 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -459,9 +459,7 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n             int read = 0;\n             while((ch = i.read()) != -1) {\n                 read++;\n+                if (ch == '\\n') { // blank line in header\n+                    break;\n+                } else if (ch == ' '){ // End of length string\n-                if (ch == ' '){\n                     // Get keyword\n                     final ByteArrayOutputStream coll = new ByteArrayOutputStream();\n                     while((ch = i.read()) != -1) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Stefan Bodewig",
+        "commit_date": "2011-12-07 10:02:45",
+        "commit_message": "whitespace",
+        "commit_hash": "67c25f9d761ad167d9fbb8eed176913d25040a2e"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "available",
+          "close",
+          "canReadEntryData",
+          "getNextEntry",
+          "setAtEOF",
+          "paxHeaders",
+          "setCurrentEntry",
+          "isAtEOF",
+          "skip",
+          "reset",
+          "readGNUSparse",
+          "matches",
+          "getNextTarEntry",
+          "TarArchiveInputStream",
+          "getRecordSize",
+          "read",
+          "getCurrentEntry",
+          "applyPaxHeadersToCurrentEntry",
+          "parsePaxHeaders"
+        ],
+        "functions_name_all_files": [
+          "available",
+          "close",
+          "canReadEntryData",
+          "getNextEntry",
+          "setAtEOF",
+          "paxHeaders",
+          "setCurrentEntry",
+          "isAtEOF",
+          "skip",
+          "reset",
+          "readGNUSparse",
+          "matches",
+          "getNextTarEntry",
+          "TarArchiveInputStream",
+          "getRecordSize",
+          "read",
+          "getCurrentEntry",
+          "applyPaxHeadersToCurrentEntry",
+          "parsePaxHeaders"
+        ],
+        "function_code_before": "            headers = parsePaxHeaders(br);\n        } finally {",
+        "function_code_after": "            headers = parsePaxHeaders(br);\n        } finally {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java": "diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\nindex 208862ec..1a832744 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java\n@@ -287,46 +287,46 @@ public class TarArchiveInputStream extends ArchiveInputStream {\n     Map<String, String> parsePaxHeaders(Reader br) throws IOException {\n         Map<String, String> headers = new HashMap<String, String>();\n         // Format is \"length keyword=value\\n\";\n-            while(true){ // get length\n-                int ch;\n-                int len = 0;\n-                int read = 0;\n-                while((ch = br.read()) != -1){\n-                    read++;\n-                    if (ch == ' '){ // End of length string\n-                        // Get keyword\n-                        StringBuffer sb = new StringBuffer();\n-                        while((ch = br.read()) != -1){\n-                            read++;\n-                            if (ch == '='){ // end of keyword\n-                                String keyword = sb.toString();\n-                                // Get rest of entry\n-                                char[] cbuf = new char[len-read];\n-                                int got = br.read(cbuf);\n-                                if (got != len - read){\n-                                    throw new IOException(\"Failed to read \"\n-                                                          + \"Paxheader. Expected \"\n-                                                          + (len - read)\n-                                                          + \" chars, read \"\n-                                                          + got);\n-                                }\n-                                // Drop trailing NL\n-                                String value = new String(cbuf, 0,\n-                                                          len - read - 1);\n-                                headers.put(keyword, value);\n-                                break;\n+        while(true){ // get length\n+            int ch;\n+            int len = 0;\n+            int read = 0;\n+            while((ch = br.read()) != -1){\n+                read++;\n+                if (ch == ' '){ // End of length string\n+                    // Get keyword\n+                    StringBuffer sb = new StringBuffer();\n+                    while((ch = br.read()) != -1){\n+                        read++;\n+                        if (ch == '='){ // end of keyword\n+                            String keyword = sb.toString();\n+                            // Get rest of entry\n+                            char[] cbuf = new char[len-read];\n+                            int got = br.read(cbuf);\n+                            if (got != len - read){\n+                                throw new IOException(\"Failed to read \"\n+                                                      + \"Paxheader. Expected \"\n+                                                      + (len - read)\n+                                                      + \" chars, read \"\n+                                                      + got);\n                             }\n-                            sb.append((char) ch);\n+                            // Drop trailing NL\n+                            String value = new String(cbuf, 0,\n+                                                      len - read - 1);\n+                            headers.put(keyword, value);\n+                            break;\n                         }\n-                        break; // Processed single header\n+                        sb.append((char) ch);\n                     }\n-                    len *= 10;\n-                    len += ch - '0';\n-                }\n-                if (ch == -1){ // EOF\n-                    break;\n+                    break; // Processed single header\n                 }\n+                len *= 10;\n+                len += ch - '0';\n             }\n+            if (ch == -1){ // EOF\n+                break;\n+            }\n+        }\n         return headers;\n     }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

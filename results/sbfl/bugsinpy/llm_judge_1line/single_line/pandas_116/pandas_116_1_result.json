@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_116",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 15:28:49",
+      "end_time": "2026-06-17 16:03:19",
+      "duration_seconds": 2070,
+      "duration_human": "34m 30s"
+    },
+    "model_cost": 0.2358,
+    "model_calls": 47,
+    "token_usage": {
+      "input_tokens": 1968901,
+      "output_tokens": 69032,
+      "total_tokens": 2037933,
+      "cached_input_tokens": 1200256,
+      "uncached_input_tokens": 768645
+    },
+    "agent_steps": 47,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/reshape/merge.py b/pandas/core/reshape/merge.py\nindex fdd31b3b7c..3c6848baf9 100644\n--- a/pandas/core/reshape/merge.py\n+++ b/pandas/core/reshape/merge.py\n@@ -1145,9 +1145,18 @@ class _MergeOperation:\n                 raise ValueError(msg)\n             elif not needs_i8_conversion(lk) and needs_i8_conversion(rk):\n                 raise ValueError(msg)\n+            # Skip datetime64tz check for merge_asof\n+\n+            elif hasattr(self, \"_merge_type\") and self._merge_type == \"asof_merge\":\n+\n+                pass  # Allow datetime64 and datetime64tz to merge in merge_asof\n+\n             elif is_datetime64tz_dtype(lk) and not is_datetime64tz_dtype(rk):\n+\n                 raise ValueError(msg)\n+\n             elif not is_datetime64tz_dtype(lk) and is_datetime64tz_dtype(rk):\n+\n                 raise ValueError(msg)\n \n             elif lk_is_object and rk_is_object:\n@@ -1622,7 +1631,13 @@ class _AsOfMerge(_OrderedMerge):\n \n         # validate index types are the same\n         for i, (lk, rk) in enumerate(zip(left_join_keys, right_join_keys)):\n-            if not is_dtype_equal(lk.dtype, rk.dtype):\n+            # Skip dtype check for datetime types in merge_asof\n+\n+            lk_is_dt = is_datetime64_dtype(lk.dtype) or is_datetime64tz_dtype(lk.dtype)\n+\n+            rk_is_dt = is_datetime64_dtype(rk.dtype) or is_datetime64tz_dtype(rk.dtype)\n+\n+            if not (lk_is_dt and rk_is_dt) and not is_dtype_equal(lk.dtype, rk.dtype):\n                 if is_categorical_dtype(lk.dtype) and is_categorical_dtype(rk.dtype):\n                     # The generic error message is confusing for categoricals.\n                     #\ndiff --git a/pandas/tests/reshape/merge/test_merge_asof.py b/pandas/tests/reshape/merge/test_merge_asof.py\nindex e12aad870f..b2e764c546 100644\n--- a/pandas/tests/reshape/merge/test_merge_asof.py\n+++ b/pandas/tests/reshape/merge/test_merge_asof.py\n@@ -1303,3 +1303,34 @@ class TestAsOfMerge:\n \n         result = pd.merge_asof(left, right, on=\"a\", tolerance=10)\n         tm.assert_frame_equal(result, expected)\n+\n+    def test_merge_index_column_tz(self):\n+        # GH 29864\n+        index = pd.date_range(\"2019-10-01\", freq=\"30min\", periods=5, tz=\"UTC\")\n+        left = pd.DataFrame([0.9, 0.8, 0.7, 0.6], columns=[\"xyz\"], index=index[1:])\n+        right = pd.DataFrame({\"from_date\": index, \"abc\": [2.46] * 4 + [2.19]})\n+        result = pd.merge_asof(\n+            left=left, right=right, left_index=True, right_on=[\"from_date\"]\n+        )\n+        expected = pd.DataFrame(\n+            {\n+                \"xyz\": [0.9, 0.8, 0.7, 0.6],\n+                \"from_date\": index[1:],\n+                \"abc\": [2.46] * 3 + [2.19],\n+            },\n+            index=pd.Index([1, 2, 3, 4]),\n+        )\n+        tm.assert_frame_equal(result, expected)\n+\n+        result = pd.merge_asof(\n+            left=right, right=left, right_index=True, left_on=[\"from_date\"]\n+        )\n+        expected = pd.DataFrame(\n+            {\n+                \"from_date\": index,\n+                \"abc\": [2.46] * 4 + [2.19],\n+                \"xyz\": [np.nan, 0.9, 0.8, 0.7, 0.6],\n+            },\n+            index=pd.Index([0, 1, 2, 3, 4]),\n+        )\n+        tm.assert_frame_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-17 16:03:19 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_116",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_116/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: merge_asof with tz_aware left index and right column (#29940)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/frame.py",
+        "start_line": 469,
+        "end_line": 469,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 137,
+        "end_line": 137,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 138,
+        "end_line": 138,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 149,
+        "end_line": 149,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 157,
+        "end_line": 157,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 159,
+        "end_line": 159,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 170,
+        "end_line": 170,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 171,
+        "end_line": 171,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/internals/construction.py",
+        "start_line": 176,
+        "end_line": 176,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/merge/test_merge_asof.py::TestAsOfMerge::test_merge_index_column_tz"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/frame.py",
+      "start_line": 469,
+      "end_line": 469,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 137,
+      "end_line": 137,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 138,
+      "end_line": 138,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 149,
+      "end_line": 149,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 157,
+      "end_line": 157,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 159,
+      "end_line": 159,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 170,
+      "end_line": 170,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 171,
+      "end_line": 171,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/internals/construction.py",
+      "start_line": 176,
+      "end_line": 176,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

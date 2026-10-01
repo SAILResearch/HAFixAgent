@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_17",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-23 22:18:34",
+      "end_time": "2026-06-23 22:31:17",
+      "duration_seconds": 762,
+      "duration_human": "12m 42s"
+    },
+    "model_cost": 0.0866,
+    "model_calls": 45,
+    "token_usage": {
+      "input_tokens": 559433,
+      "output_tokens": 5859,
+      "total_tokens": 565292,
+      "cached_input_tokens": 247488,
+      "uncached_input_tokens": 311945
+    },
+    "agent_steps": 45,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\nindex 7fd23f07a..8816c3812 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java\n@@ -175,9 +175,9 @@ public class ObjectMapper\n             case OBJECT_AND_NON_CONCRETE:\n //                return t.isJavaLangObject() || \n                 return (t.getRawClass() == Object.class)\n-                        || (!t.isConcrete()\n-                                // [databind#88] Should not apply to JSON tree models:\n-                        || TreeNode.class.isAssignableFrom(t.getRawClass()));\n+                        || (!t.isConcrete() && !TreeNode.class.isAssignableFrom(t.getRawClass()));\n+\n+\n \n             case NON_FINAL:\n                 while (t.isArrayType()) {\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java.bak b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java.bak\nindex e7d6f11f7..7fd23f07a 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java.bak\n+++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java.bak\n@@ -177,7 +177,7 @@ public class ObjectMapper\n                 return (t.getRawClass() == Object.class)\n                         || (!t.isConcrete()\n                                 // [databind#88] Should not apply to JSON tree models:\n-                                && !TreeNode.class.isAssignableFrom(t.getRawClass()));\n+                        || TreeNode.class.isAssignableFrom(t.getRawClass()));\n \n             case NON_FINAL:\n                 while (t.isArrayType()) {\n"
+  },
+  "timestamp": "2026-06-23 22:31:17 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_17",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_17",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "readTree does not work with defaultTyping enabled but no type info provided\nI have enabled `defaultTyping`, and serialized `Foo` entity with no type info. I'm trying to read json as a tree with `mapper.readTree(json)`, and it throws an exception \n\n``` java\nException in thread \"main\" com.fasterxml.jackson.databind.JsonMappingException: \nUnexpected token (START_OBJECT), expected START_ARRAY: need JSON Array to contain As.WRAPPER_ARRAY \ntype information for class com.fasterxml.jackson.databind.JsonNode\n at [Source: {\n  \"bar\" : \"bar\"\n}; line: 1, column: 1]\n    at com.fasterxml.jackson.databind.JsonMappingException.from(JsonMappingException.java:148)\n    at com.fasterxml.jackson.databind.DeserializationContext.wrongTokenException(DeserializationContext.java:927)\n    at com.fasterxml.jackson.databind.jsontype.impl.AsArrayTypeDeserializer._locateTypeId(AsArrayTypeDeserializer.java:127)\n    at com.fasterxml.jackson.databind.jsontype.impl.AsArrayTypeDeserializer._deserialize(AsArrayTypeDeserializer.java:93)\n    at com.fasterxml.jackson.databind.jsontype.impl.AsArrayTypeDeserializer.deserializeTypedFromAny(AsArrayTypeDeserializer.java:68)\n    at com.fasterxml.jackson.databind.deser.std.BaseNodeDeserializer.deserializeWithType(JsonNodeDeserializer.java:144)\n    at com.fasterxml.jackson.databind.deser.std.JsonNodeDeserializer.deserializeWithType(JsonNodeDeserializer.java:14)\n    at com.fasterxml.jackson.databind.deser.impl.TypeWrappedDeserializer.deserialize(TypeWrappedDeserializer.java:42)\n    at com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3562)\n    at com.fasterxml.jackson.databind.ObjectMapper.readTree(ObjectMapper.java:2136)\n    at test.App.main(App.java:23)\n```\n\nHowever, if I disable `defaultTyping`, the same code works fine. So, `readTree(json)` does not actually need type info for the root element, because it works when `defaultTyping` is disabled (i.e. `{\"bar\" : \"bar\"}`), but it throws the exception when `defaultTyping` is enabled, that's why it looks like a bug. The same thing happens for `valueToTree(foo)`. \nJackson version is `2.5.3`\nFull code is provided.\n\n``` java\nimport com.fasterxml.jackson.databind.JsonNode;\nimport com.fasterxml.jackson.databind.MapperFeature;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport com.fasterxml.jackson.databind.SerializationFeature;\nimport java.io.IOException;\n\npublic class App {\n    public static void main(String[] args) throws IOException {\n        ObjectMapper mapper = new ObjectMapper()\n                .enableDefaultTyping() // works fine with disableDefaultTyping()\n                .enable(MapperFeature.AUTO_DETECT_GETTERS)\n                .enable(MapperFeature.REQUIRE_SETTERS_FOR_GETTERS)\n                .disable(MapperFeature.USE_GETTERS_AS_SETTERS)\n                .disable(MapperFeature.CAN_OVERRIDE_ACCESS_MODIFIERS)\n                .enable(SerializationFeature.INDENT_OUTPUT)\n                .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);\n\n        Foo foo = new Foo(\"bar\");\n        String serialized = mapper.writeValueAsString(foo); // {\"bar\" : \"bar\"}\n\n        JsonNode jsonNode = mapper.readTree(serialized); // exception here\n        JsonNode node = mapper.valueToTree(foo); // and here\n    }\n\n    public static class Foo {\n        private String bar;\n\n        public Foo() {\n        }\n\n        public Foo(String bar) {\n            this.bar = bar;\n        }\n\n        public String getBar() {\n            return bar;\n        }\n\n        public void setBar(String bar) {\n            this.bar = bar;\n        }\n    }\n}\n```\n\n",
+    "commit_message": "Fix #793",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsArrayTypeDeserializer.java",
+        "start_line": 131,
+        "end_line": 131,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsArrayTypeDeserializer.java",
+        "start_line": 134,
+        "end_line": 134,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+        "start_line": 326,
+        "end_line": 326,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java",
+        "start_line": 114,
+        "end_line": 114,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 850,
+        "end_line": 850,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 851,
+        "end_line": 851,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 852,
+        "end_line": 852,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+        "start_line": 854,
+        "end_line": 854,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 1078,
+        "end_line": 1078,
+        "suspiciousness": 0.25,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 1088,
+        "end_line": 1088,
+        "suspiciousness": 0.18569533817705186,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.node.TestJsonNode::testArrayWithDefaultTyping"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsArrayTypeDeserializer.java",
+      "start_line": 131,
+      "end_line": 131,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/AsArrayTypeDeserializer.java",
+      "start_line": 134,
+      "end_line": 134,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JsonMappingException.java",
+      "start_line": 326,
+      "end_line": 326,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/jsontype/impl/TypeDeserializerBase.java",
+      "start_line": 114,
+      "end_line": 114,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 850,
+      "end_line": 850,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 851,
+      "end_line": 851,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 852,
+      "end_line": 852,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+      "start_line": 854,
+      "end_line": 854,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 1078,
+      "end_line": 1078,
+      "suspiciousness": 0.25,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 1088,
+      "end_line": 1088,
+      "suspiciousness": 0.18569533817705186,
+      "rank": 10
+    }
+  ]
+}

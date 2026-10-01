@@ -1,0 +1,75 @@
+{
+  "project_name": "Lang",
+  "bug_id": "28",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 23:11:32",
+      "end_time": "2026-06-26 23:11:59",
+      "duration_seconds": 27,
+      "duration_human": "27.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 17,
+    "token_usage": {
+      "input_tokens": 47324,
+      "output_tokens": 878,
+      "total_tokens": 48202,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 47324
+    },
+    "agent_steps": 17,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\nindex c3cb8695f..148a7079f 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n@@ -59,8 +59,12 @@ public class NumericEntityUnescaper extends CharSequenceTranslator {\n             } catch(NumberFormatException nfe) {\n                 return 0;\n             }\n-\n+            if (entityValue > 0xffff) {\n+                out.write(Character.highSurrogate(entityValue));\n+                out.write(Character.lowSurrogate(entityValue));\n+            } else {\n                 out.write(entityValue);\n+            }\n             return 2 + (end - start) + (isHex ? 1 : 0) + 1;\n         }\n         return 0;\n"
+  },
+  "timestamp": "2026-06-26 23:11:59 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_28",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_28",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "StringEscapeUtils.escapeXML() can't process UTF-16 supplementary characters\nSupplementary characters in UTF-16 are those whose code points are above 0xffff, that is, require more than 1 Java char to be encoded, as explained here: http://java.sun.com/developer/technicalArticles/Intl/Supplementary/\n\nCurrently, StringEscapeUtils.escapeXML() isn't aware of this coding scheme and treats each char as one character, which is not always right.\n\nA possible solution in class Entities would be:\n\n    public void escape(Writer writer, String str) throws IOException {\n        int len = str.length();\n        for (int i = 0; i < len; i++) {\n            int code = str.codePointAt(i);\n            String entityName = this.entityName(code);\n            if (entityName != null) {\n                writer.write('&');\n                writer.write(entityName);\n                writer.write(';');\n            } else if (code > 0x7F) {\n                    writer.write(\"&#\");\n                    writer.write(code);\n                    writer.write(';');\n            } else {\n                    writer.write((char) code);\n            }\n\n            if (code > 0xffff) {\n                    i++;\n            }\n        }\n    }\n\nBesides fixing escapeXML(), this will also affect HTML escaping functions. I guess that's a good thing, but please remember I have only tested escapeXML().\n",
+    "commit_message": "Adding a test, and code fix, to have supplementary chars working in numeric entity unescaping. See LANG-617",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 62,
+        "end_line": 62,
+        "line_numbers": [
+          62
+        ],
+        "function_name": "translate",
+        "class_name": "NumericEntityUnescaper",
+        "filename": "NumericEntityUnescaper.java",
+        "code_snippet": "    public int translate(CharSequence input, int index, Writer out) throws IOException {\n        // TODO: Protect from ArrayIndexOutOfBounds\n        if(input.charAt(index) == '&' && input.charAt(index + 1) == '#') {\n            int start = index + 2;\n            boolean isHex = false;\n\n            char firstChar = input.charAt(start);\n            if(firstChar == 'x' || firstChar == 'X') {\n                start++;\n                isHex = true;\n            }\n\n            int end = start;\n            while(input.charAt(end) != ';') {\n                end++;\n            }\n\n            int entityValue;\n            try {\n                if(isHex) {\n                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 16);\n                } else {\n                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 10);\n                }\n            } catch(NumberFormatException nfe) {\n                return 0;\n            }\n\n                out.write(entityValue);\n            return 2 + (end - start) + (isHex ? 1 : 0) + 1;\n        }\n        return 0;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java",
+        "start_line": 68,
+        "end_line": 68,
+        "line_numbers": [
+          68
+        ],
+        "function_name": "",
+        "class_name": "NumericEntityUnescaper",
+        "filename": "NumericEntityUnescaper.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang3.text.translate.NumericEntityUnescaperTest::testSupplementaryUnescaping"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\nindex a21671a..c3cb869 100644\n--- a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n+++ b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java\n@@ -60,13 +60,7 @@ public class NumericEntityUnescaper extends CharSequenceTranslator {\n                 return 0;\n             }\n \n+            if(entityValue > 0xFFFF) {\n+                char[] chrs = Character.toChars(entityValue);\n+                out.write(chrs[0]);\n+                out.write(chrs[1]);\n+            } else {\n                 out.write(entityValue);\n+            }\n             return 2 + (end - start) + (isHex ? 1 : 0) + 1;\n         }\n         return 0;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

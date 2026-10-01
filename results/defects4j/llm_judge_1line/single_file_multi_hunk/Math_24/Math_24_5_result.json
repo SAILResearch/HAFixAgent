@@ -1,0 +1,131 @@
+{
+  "project_name": "Math",
+  "bug_id": "24",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-29 21:28:57",
+      "end_time": "2025-09-29 21:33:48",
+      "duration_seconds": 291,
+      "duration_human": "4m 51s"
+    },
+    "model_cost": 0.0258,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 305812,
+      "output_tokens": 4419,
+      "total_tokens": 310231,
+      "cached_input_tokens": 293504,
+      "uncached_input_tokens": 12308
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\nindex b6ce68ef3..2fd11c4b0 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\n@@ -141,6 +141,7 @@ public class BrentOptimizer extends BaseAbstractUnivariateOptimizer {\n         UnivariatePointValuePair previous = null;\n         UnivariatePointValuePair current\n             = new UnivariatePointValuePair(x, isMinim ? fx : -fx);\n+        UnivariatePointValuePair best = current;\n \n         int iter = 0;\n         while (true) {\n@@ -232,6 +233,7 @@ public class BrentOptimizer extends BaseAbstractUnivariateOptimizer {\n                 }\n \n                 // Update a, b, v, w and x.\n+                best = best(best, current, isMinim);\n                 if (fu <= fx) {\n                     if (u < x) {\n                         b = x;\n@@ -264,7 +266,7 @@ public class BrentOptimizer extends BaseAbstractUnivariateOptimizer {\n                     }\n                 }\n             } else { // Default termination (Brent's criterion).\n-                return current;\n+                return best;\n             }\n             ++iter;\n         }\n"
+  },
+  "timestamp": "2025-09-29 21:33:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_24",
+    "repo_path": "/defects4j/framework/bin/temp/Math_24",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "\"BrentOptimizer\" not always reporting the best point\n{{BrentOptimizer}} (package \"o.a.c.m.optimization.univariate\") does not check that the point it is going to return is indeed the best one it has encountered. Indeed, the last evaluated point might be slightly worse than the one before last.",
+    "commit_message": "MATH-855 The best point is sometimes not the last one evaluated.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java",
+        "start_line": 230,
+        "end_line": 230,
+        "line_numbers": [
+          230
+        ],
+        "function_name": "doOptimize",
+        "class_name": "BrentOptimizer",
+        "filename": "BrentOptimizer.java",
+        "code_snippet": "    protected UnivariatePointValuePair doOptimize() {\n        final boolean isMinim = getGoalType() == GoalType.MINIMIZE;\n        final double lo = getMin();\n        final double mid = getStartValue();\n        final double hi = getMax();\n\n        // Optional additional convergence criteria.\n        final ConvergenceChecker<UnivariatePointValuePair> checker\n            = getConvergenceChecker();\n\n        double a;\n        double b;\n        if (lo < hi) {\n            a = lo;\n            b = hi;\n        } else {\n            a = hi;\n            b = lo;\n        }\n\n        double x = mid;\n        double v = x;\n        double w = x;\n        double d = 0;\n        double e = 0;\n        double fx = computeObjectiveValue(x);\n        if (!isMinim) {\n            fx = -fx;\n        }\n        double fv = fx;\n        double fw = fx;\n\n        UnivariatePointValuePair previous = null;\n        UnivariatePointValuePair current\n            = new UnivariatePointValuePair(x, isMinim ? fx : -fx);\n\n        int iter = 0;\n        while (true) {\n            final double m = 0.5 * (a + b);\n            final double tol1 = relativeThreshold * FastMath.abs(x) + absoluteThreshold;\n            final double tol2 = 2 * tol1;\n\n            // Default stopping criterion.\n            final boolean stop = FastMath.abs(x - m) <= tol2 - 0.5 * (b - a);\n            if (!stop) {\n                double p = 0;\n                double q = 0;\n                double r = 0;\n                double u = 0;\n\n                if (FastMath.abs(e) > tol1) { // Fit parabola.\n                    r = (x - w) * (fx - fv);\n                    q = (x - v) * (fx - fw);\n                    p = (x - v) * q - (x - w) * r;\n                    q = 2 * (q - r);\n\n                    if (q > 0) {\n                        p = -p;\n                    } else {\n                        q = -q;\n                    }\n\n                    r = e;\n                    e = d;\n\n                    if (p > q * (a - x) &&\n                        p < q * (b - x) &&\n                        FastMath.abs(p) < FastMath.abs(0.5 * q * r)) {\n                        // Parabolic interpolation step.\n                        d = p / q;\n                        u = x + d;\n\n                        // f must not be evaluated too close to a or b.\n                        if (u - a < tol2 || b - u < tol2) {\n                            if (x <= m) {\n                                d = tol1;\n                            } else {\n                                d = -tol1;\n                            }\n                        }\n                    } else {\n                        // Golden section step.\n                        if (x < m) {\n                            e = b - x;\n                        } else {\n                            e = a - x;\n                        }\n                        d = GOLDEN_SECTION * e;\n                    }\n                } else {\n                    // Golden section step.\n                    if (x < m) {\n                        e = b - x;\n                    } else {\n                        e = a - x;\n                    }\n                    d = GOLDEN_SECTION * e;\n                }\n\n                // Update by at least \"tol1\".\n                if (FastMath.abs(d) < tol1) {\n                    if (d >= 0) {\n                        u = x + tol1;\n                    } else {\n                        u = x - tol1;\n                    }\n                } else {\n                    u = x + d;\n                }\n\n                double fu = computeObjectiveValue(u);\n                if (!isMinim) {\n                    fu = -fu;\n                }\n\n                // User-defined convergence checker.\n                previous = current;\n                current = new UnivariatePointValuePair(u, isMinim ? fu : -fu);\n\n                if (checker != null) {\n                    if (checker.converged(iter, previous, current)) {\n                        return current;\n                    }\n                }\n\n                // Update a, b, v, w and x.\n                if (fu <= fx) {\n                    if (u < x) {\n                        b = x;\n                    } else {\n                        a = x;\n                    }\n                    v = w;\n                    fv = fw;\n                    w = x;\n                    fw = fx;\n                    x = u;\n                    fx = fu;\n                } else {\n                    if (u < x) {\n                        a = u;\n                    } else {\n                        b = u;\n                    }\n                    if (fu <= fw ||\n                        Precision.equals(w, x)) {\n                        v = w;\n                        fv = fw;\n                        w = u;\n                        fw = fu;\n                    } else if (fu <= fv ||\n                               Precision.equals(v, x) ||\n                               Precision.equals(v, w)) {\n                        v = u;\n                        fv = fu;\n                    }\n                }\n            } else { // Default termination (Brent's criterion).\n                return current;\n            }\n            ++iter;\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java",
+        "start_line": 267,
+        "end_line": 267,
+        "line_numbers": [
+          267
+        ],
+        "function_name": "doOptimize",
+        "class_name": "BrentOptimizer",
+        "filename": "BrentOptimizer.java",
+        "code_snippet": "    protected UnivariatePointValuePair doOptimize() {\n        final boolean isMinim = getGoalType() == GoalType.MINIMIZE;\n        final double lo = getMin();\n        final double mid = getStartValue();\n        final double hi = getMax();\n\n        // Optional additional convergence criteria.\n        final ConvergenceChecker<UnivariatePointValuePair> checker\n            = getConvergenceChecker();\n\n        double a;\n        double b;\n        if (lo < hi) {\n            a = lo;\n            b = hi;\n        } else {\n            a = hi;\n            b = lo;\n        }\n\n        double x = mid;\n        double v = x;\n        double w = x;\n        double d = 0;\n        double e = 0;\n        double fx = computeObjectiveValue(x);\n        if (!isMinim) {\n            fx = -fx;\n        }\n        double fv = fx;\n        double fw = fx;\n\n        UnivariatePointValuePair previous = null;\n        UnivariatePointValuePair current\n            = new UnivariatePointValuePair(x, isMinim ? fx : -fx);\n\n        int iter = 0;\n        while (true) {\n            final double m = 0.5 * (a + b);\n            final double tol1 = relativeThreshold * FastMath.abs(x) + absoluteThreshold;\n            final double tol2 = 2 * tol1;\n\n            // Default stopping criterion.\n            final boolean stop = FastMath.abs(x - m) <= tol2 - 0.5 * (b - a);\n            if (!stop) {\n                double p = 0;\n                double q = 0;\n                double r = 0;\n                double u = 0;\n\n                if (FastMath.abs(e) > tol1) { // Fit parabola.\n                    r = (x - w) * (fx - fv);\n                    q = (x - v) * (fx - fw);\n                    p = (x - v) * q - (x - w) * r;\n                    q = 2 * (q - r);\n\n                    if (q > 0) {\n                        p = -p;\n                    } else {\n                        q = -q;\n                    }\n\n                    r = e;\n                    e = d;\n\n                    if (p > q * (a - x) &&\n                        p < q * (b - x) &&\n                        FastMath.abs(p) < FastMath.abs(0.5 * q * r)) {\n                        // Parabolic interpolation step.\n                        d = p / q;\n                        u = x + d;\n\n                        // f must not be evaluated too close to a or b.\n                        if (u - a < tol2 || b - u < tol2) {\n                            if (x <= m) {\n                                d = tol1;\n                            } else {\n                                d = -tol1;\n                            }\n                        }\n                    } else {\n                        // Golden section step.\n                        if (x < m) {\n                            e = b - x;\n                        } else {\n                            e = a - x;\n                        }\n                        d = GOLDEN_SECTION * e;\n                    }\n                } else {\n                    // Golden section step.\n                    if (x < m) {\n                        e = b - x;\n                    } else {\n                        e = a - x;\n                    }\n                    d = GOLDEN_SECTION * e;\n                }\n\n                // Update by at least \"tol1\".\n                if (FastMath.abs(d) < tol1) {\n                    if (d >= 0) {\n                        u = x + tol1;\n                    } else {\n                        u = x - tol1;\n                    }\n                } else {\n                    u = x + d;\n                }\n\n                double fu = computeObjectiveValue(u);\n                if (!isMinim) {\n                    fu = -fu;\n                }\n\n                // User-defined convergence checker.\n                previous = current;\n                current = new UnivariatePointValuePair(u, isMinim ? fu : -fu);\n\n                if (checker != null) {\n                    if (checker.converged(iter, previous, current)) {\n                        return current;\n                    }\n                }\n\n                // Update a, b, v, w and x.\n                if (fu <= fx) {\n                    if (u < x) {\n                        b = x;\n                    } else {\n                        a = x;\n                    }\n                    v = w;\n                    fv = fw;\n                    w = x;\n                    fw = fx;\n                    x = u;\n                    fx = fu;\n                } else {\n                    if (u < x) {\n                        a = u;\n                    } else {\n                        b = u;\n                    }\n                    if (fu <= fw ||\n                        Precision.equals(w, x)) {\n                        v = w;\n                        fv = fw;\n                        w = u;\n                        fw = fu;\n                    } else if (fu <= fv ||\n                               Precision.equals(v, x) ||\n                               Precision.equals(v, w)) {\n                        v = u;\n                        fv = fu;\n                    }\n                }\n            } else { // Default termination (Brent's criterion).\n                return current;\n            }\n            ++iter;\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math3.optimization.univariate.BrentOptimizerTest::testMath855"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\nindex cff5bfd..b6ce68e 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/univariate/BrentOptimizer.java\n@@ -227,7 +227,7 @@ public class BrentOptimizer extends BaseAbstractUnivariateOptimizer {\n \n                 if (checker != null) {\n                     if (checker.converged(iter, previous, current)) {\n+                        return best(current, previous, isMinim);\n-                        return current;\n                     }\n                 }\n \n@@ -264,7 +264,7 @@ public class BrentOptimizer extends BaseAbstractUnivariateOptimizer {\n                     }\n                 }\n             } else { // Default termination (Brent's criterion).\n+                return best(current, previous, isMinim);\n-                return current;\n             }\n             ++iter;\n         }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Luc Maisonobe",
+        "commit_date": "2009-01-18 10:39:35",
+        "commit_message": "Added a new minimization package with an implementation of the Brent algorithm",
+        "commit_hash": "e60e3de47441ca63198c7404b5910d7cffe1c248"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "minimize",
+          "localmin",
+          "BrentMinimizer"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "minimize",
+          "checkResultComputed",
+          "clearResult",
+          "BrentMinimizer",
+          "getFunctionValue",
+          "UnivariateRealMinimizer",
+          "localmin",
+          "setResult",
+          "getResult",
+          "UnivariateRealMinimizerImpl"
+        ],
+        "functions_name_modified_file": [
+          "minimize",
+          "localmin",
+          "BrentMinimizer"
+        ],
+        "functions_name_all_files": [
+          "minimize",
+          "checkResultComputed",
+          "clearResult",
+          "BrentMinimizer",
+          "getFunctionValue",
+          "UnivariateRealMinimizer",
+          "localmin",
+          "setResult",
+          "getResult",
+          "UnivariateRealMinimizerImpl"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/java/org/apache/commons/math/analysis/minimization/BrentMinimizer.java",
+          "src/java/org/apache/commons/math/analysis/minimization/UnivariateRealMinimizer.java",
+          "src/java/org/apache/commons/math/analysis/minimization/UnivariateRealMinimizerImpl.java"
+        ],
+        "file_patches": {
+          "src/java/org/apache/commons/math/analysis/minimization/BrentMinimizer.java": "diff --git a/src/java/org/apache/commons/math/analysis/minimization/BrentMinimizer.java b/src/java/org/apache/commons/math/analysis/minimization/BrentMinimizer.java\nnew file mode 100644\nindex 000000000..c50ae7f83\n--- /dev/null\n+++ b/src/java/org/apache/commons/math/analysis/minimization/BrentMinimizer.java\n@@ -0,0 +1,204 @@\n+/*\n+ * Licensed to the Apache Software Foundation (ASF) under one or more\n+ * contributor license agreements.  See the NOTICE file distributed with\n+ * this work for additional information regarding copyright ownership.\n+ * The ASF licenses this file to You under the Apache License, Version 2.0\n+ * (the \"License\"); you may not use this file except in compliance with\n+ * the License.  You may obtain a copy of the License at\n+ *\n+ *      http://www.apache.org/licenses/LICENSE-2.0\n+ *\n+ * Unless required by applicable law or agreed to in writing, software\n+ * distributed under the License is distributed on an \"AS IS\" BASIS,\n+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n+ * See the License for the specific language governing permissions and\n+ * limitations under the License.\n+ */\n+package org.apache.commons.math.analysis.minimization;\n+\n+import org.apache.commons.math.ConvergenceException;\n+import org.apache.commons.math.FunctionEvaluationException;\n+import org.apache.commons.math.MaxIterationsExceededException;\n+import org.apache.commons.math.analysis.UnivariateRealFunction;\n+\n+/**\n+ * Implements Richard Brent's algorithm (from his book \"Algorithms for\n+ * Minimization without Derivatives\", p. 79) for finding minima of real\n+ * univariate functions.\n+ *  \n+ * @version $Revision$ $Date$\n+ * @since 2.0\n+ */\n+public class BrentMinimizer extends UnivariateRealMinimizerImpl {\n+    \n+    /** Serializable version identifier */\n+    private static final long serialVersionUID = 7185472920191999565L;\n+\n+    /**\n+     * Golden section.\n+     */\n+    private static final double c = 0.5 * (3 - Math.sqrt(5));\n+\n+    /**\n+     * Construct a solver.\n+     */\n+    public BrentMinimizer() {\n+        super(100, 1E-10);\n+    }\n+\n+    /**\n+     * Find a minimum in the given interval, start at startValue.\n+     * <p>\n+     * A minimizer may require that the interval brackets a single minimum.\n+     * </p>\n+     * @param f the function to minimize.\n+     * @param min the lower bound for the interval.\n+     * @param max the upper bound for the interval.\n+     * @param startValue this parameter is <em>not</em> used at all\n+     * @return a value where the function is minimum\n+     * @throws ConvergenceException if the maximum iteration count is exceeded\n+     * or the minimizer detects convergence problems otherwise.\n+     * @throws FunctionEvaluationException if an error occurs evaluating the\n+     * function\n+     * @throws IllegalArgumentException if min > max or the arguments do not\n+     * satisfy the requirements specified by the minimizer\n+     */\n+    public double minimize(final UnivariateRealFunction f,\n+                           final double min, final double max, final double startValue)\n+        throws MaxIterationsExceededException, FunctionEvaluationException {\n+        return minimize(f, min, max);\n+    }\n+    \n+    /** {@inheritDoc} */\n+    public double minimize(final UnivariateRealFunction f,\n+                           final double min, final double max)\n+        throws MaxIterationsExceededException, \n+        FunctionEvaluationException {\n+        clearResult();\n+        return localmin(min, max, relativeAccuracy, absoluteAccuracy, f);\n+    }\n+    \n+    /**\n+     * Find the minimum of the function {@code f} within the interval {@code (a, b)}.\n+     *\n+     * If the function {@code f} is defined on the interval {@code (a, b)}, then\n+     * this method finds an approximation {@code x} to the point at which {@code f}\n+     * attains its minimum.<br/>\n+     * {@code t} and {@code eps} define a tolerance {@code tol = eps |x| + t} and\n+     * {@code f} is never evaluated at two points closer together than {@code tol}.\n+     * {@code eps} should be no smaller than <em>2 macheps</em> and preferable not\n+     * much less than <em>sqrt(macheps)</em>, where <em>macheps</em> is the relative\n+     * machine precision. {@code t} should be positive.\n+     *\n+     * @param f the function to solve\n+     * @param a Lower bound of the interval.\n+     * @param b Higher bound of the interval.\n+     * @param eps Relative accuracy.\n+     * @param t Absolute accuracy.\n+     * @return the point at which the function is minimal.\n+     * @throws MaxIterationsExceededException if the maximum iteration count\n+     * is exceeded.\n+     * @throws FunctionEvaluationException if an error occurs evaluating\n+     * the function. \n+     */\n+    private double localmin(double a, double b, final double eps,\n+                            final double t, final UnivariateRealFunction f)\n+        throws MaxIterationsExceededException, FunctionEvaluationException {\n+        double x = a + c * (b - a);\n+        double v = x;\n+        double w = x;\n+        double e = 0;\n+        double fx = f.value(x);\n+        double fv = fx;\n+        double fw = fx;\n+\n+        int count = 0;\n+        while (count < maximalIterationCount) {\n+            double m = 0.5 * (a + b);\n+            double tol = eps * Math.abs(x) + t;\n+            double t2 = 2 * tol;\n+\n+            // Check stopping criterion.\n+            if (Math.abs(x - m) > t2 - 0.5 * (b - a)) {\n+                double p = 0;\n+                double q = 0;\n+                double r = 0;\n+                double d = 0;\n+                double u = 0;\n+\n+                if (Math.abs(e) > tol) { // Fit parabola.\n+                    r = (x - w) * (fx - fv);\n+                    q = (x - v) * (fx - fw);\n+                    p = (x - v) * q - (x - w) * r;\n+                    q = 2 * (q - r);\n+\n+                    if (q > 0) {\n+                        p = -p;\n+                    } else {\n+                        q = -q;\n+                    }\n+\n+                    r = e;\n+                    e = d;\n+                }\n+\n+                if (Math.abs(p) < Math.abs(0.5 * q * r) &&\n+                    (p < q * (a - x)) && (p < q * (b - x))) { // Parabolic interpolation step.\n+                    d = p / q;\n+                    u = x + d;\n+\n+                    // f must not be evaluated too close to a or b.\n+                    if (((u - a) < t2) || ((b - u) < t2)) {\n+                        d = (x < m) ? tol : -tol;\n+                    }\n+                } else { // Golden section step.\n+                    e = ((x < m) ? b : a) - x;\n+                    d = c * e;\n+                }\n+\n+                // f must not be evaluated too close to a or b.\n+                u = x + ((Math.abs(d) > tol) ? d : ((d > 0) ? tol : -tol));\n+                double fu = f.value(u);\n+\n+                // Update a, b, v, w and x.\n+                if (fu <= fx) {\n+                    if (u < x) {\n+                        b = x;\n+                    } else {\n+                        a = x;\n+                    }\n+                    v = w;\n+                    fv = fw;\n+                    w = x;\n+                    fw = fx;\n+                    x = u;\n+                    fx = fu;\n+                } else {\n+                    if (u < x) {\n+                        a = u;\n+                    } else {\n+                        b = u;\n+                    }\n+                    if ((fu <= fw) || (w == x)) {\n+                        v = w;\n+                        fv = fw;\n+                        w = u;\n+                        fw = fu;\n+                    } else if ((fu <= fv) || (v == x) || (v == w)) {\n+                        v = u;\n+                        fv = fu;\n+                    }\n+                }\n+            } else { // Termination.\n+                setResult(x, fx, count);\n+                return x;\n+            }\n+\n+            ++count;\n+        }\n+\n+        throw new MaxIterationsExceededException(maximalIterationCount);\n+\n+    }\n+\n+}"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

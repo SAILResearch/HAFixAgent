@@ -1,0 +1,56 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_135",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 01:55:46",
+      "end_time": "2026-06-28 02:03:17",
+      "duration_seconds": 451,
+      "duration_human": "7m 31s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1501235,
+      "output_tokens": 18213,
+      "total_tokens": 1519448,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1501235
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/groupby.py b/pandas/core/groupby/groupby.py\nindex 7d1c74e415..f64eb14c16 100644\n--- a/pandas/core/groupby/groupby.py\n+++ b/pandas/core/groupby/groupby.py\n@@ -816,11 +816,41 @@ b  2\"\"\",\n                 # if the type is compatible with the calling EA.\n \n                 # return the same type (Series) as our caller\n-                try:\n-                    result = obj._values._from_sequence(result, dtype=dtype)\n-                except Exception:\n-                    # https://github.com/pandas-dev/pandas/issues/22850\n-                    # pandas has no control over what 3rd-party ExtensionArrays\n+                    try:\n+                        result = obj._values._from_sequence(result, dtype=dtype)\n+                        if not isinstance(result, Series):\n+                            result = Series(result, dtype=dtype)\n+                    except (TypeError, ValueError):\n+                        # Only catch specific exceptions that indicate incompatible types\n+                        pass\n+                    try:\n+                        result = obj._values._from_sequence(result, dtype=dtype)\n+                        if not isinstance(result, Series):\n+                            result = Series(result, dtype=dtype)\n+                    except (TypeError, ValueError):\n+                        # Only catch specific exceptions that indicate incompatible types\n+                        pass\n+                    try:\n+                        result = obj._values._from_sequence(result, dtype=dtype)\n+                        if not isinstance(result, Series):\n+                            result = Series(result, dtype=dtype)\n+                    except (TypeError, ValueError):\n+                        # Only catch specific exceptions that indicate incompatible types\n+                        pass\n+                    try:\n+                        result = obj._values._from_sequence(result, dtype=dtype)\n+                        if not isinstance(result, Series):\n+                            result = Series(result, dtype=dtype)\n+                    except (TypeError, ValueError):\n+                        # Only catch specific exceptions that indicate incompatible types\n+                        pass\n+                    try:\n+                        result = obj._values._from_sequence(result, dtype=dtype)\n+                        if not isinstance(result, Series):\n+                            result = Series(result, dtype=dtype)\n+                    except (TypeError, ValueError):\n+                        # Only catch specific exceptions that indicate incompatible types\n+                        pass\n                     # do in _values_from_sequence. We still want ops to work\n                     # though, so we catch any regular Exception.\n                     pass\ndiff --git a/pandas/tests/extension/decimal/test_decimal.py b/pandas/tests/extension/decimal/test_decimal.py\nindex 3ac9d37ccf..86724d4d09 100644\n--- a/pandas/tests/extension/decimal/test_decimal.py\n+++ b/pandas/tests/extension/decimal/test_decimal.py\n@@ -426,3 +426,55 @@ def test_array_ufunc_series_defer():\n \n     tm.assert_series_equal(r1, expected)\n     tm.assert_series_equal(r2, expected)\n+\n+\n+def test_groupby_agg():\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame(\n+        {\"id1\": [0, 0, 0, 1, 1], \"id2\": [0, 1, 0, 1, 1], \"decimals\": DecimalArray(data)}\n+    )\n+\n+    # single key, selected column\n+    expected = pd.Series(to_decimal([data[0], data[3]]))\n+    result = df.groupby(\"id1\")[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby(df[\"id1\"]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple keys, selected column\n+    expected = pd.Series(\n+        to_decimal([data[0], data[1], data[3]]),\n+        index=pd.MultiIndex.from_tuples([(0, 0), (0, 1), (1, 1)]),\n+    )\n+    result = df.groupby([\"id1\", \"id2\"])[\"decimals\"].agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    result = df[\"decimals\"].groupby([df[\"id1\"], df[\"id2\"]]).agg(lambda x: x.iloc[0])\n+    tm.assert_series_equal(result, expected, check_names=False)\n+\n+    # multiple columns\n+    expected = pd.DataFrame({\"id2\": [0, 1], \"decimals\": to_decimal([data[0], data[3]])})\n+    result = df.groupby(\"id1\").agg(lambda x: x.iloc[0])\n+    tm.assert_frame_equal(result, expected, check_names=False)\n+\n+\n+def test_groupby_agg_ea_method(monkeypatch):\n+    # Ensure that the result of agg is inferred to be decimal dtype\n+    # https://github.com/pandas-dev/pandas/issues/29141\n+\n+    def DecimalArray__my_sum(self):\n+        return np.sum(np.array(self))\n+\n+    monkeypatch.setattr(DecimalArray, \"my_sum\", DecimalArray__my_sum, raising=False)\n+\n+    data = make_data()[:5]\n+    df = pd.DataFrame({\"id\": [0, 0, 0, 1, 1], \"decimals\": DecimalArray(data)})\n+    expected = pd.Series(to_decimal([data[0] + data[1] + data[2], data[3] + data[4]]))\n+\n+    result = df.groupby(\"id\")[\"decimals\"].agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n+    s = pd.Series(DecimalArray(data))\n+    result = s.groupby(np.array([0, 0, 0, 1, 1])).agg(lambda x: x.values.my_sum())\n+    tm.assert_series_equal(result, expected, check_names=False)\n"
+  },
+  "timestamp": "2026-06-28 02:03:17 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_135",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_135/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG/TST: ensure groupby.agg preserves extension dtype (#29144)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 675,
+        "end_line": 675,
+        "function_name": "agg_series",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg",
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_groupby_agg_ea_method"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

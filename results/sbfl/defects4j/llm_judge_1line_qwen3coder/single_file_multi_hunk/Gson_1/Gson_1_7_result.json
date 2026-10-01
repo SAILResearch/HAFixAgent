@@ -1,0 +1,193 @@
+{
+  "project_name": "Gson",
+  "bug_id": "Gson_1",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 01:38:50",
+      "end_time": "2026-06-29 01:41:42",
+      "duration_seconds": 172,
+      "duration_human": "2m 52s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1020385,
+      "output_tokens": 6814,
+      "total_tokens": 1027199,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1020385
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/gson/src/main/java/com/google/gson/TypeInfoFactory.java b/gson/src/main/java/com/google/gson/TypeInfoFactory.java\nindex eaf3a101..3085e8a8 100644\n--- a/gson/src/main/java/com/google/gson/TypeInfoFactory.java\n+++ b/gson/src/main/java/com/google/gson/TypeInfoFactory.java\n@@ -90,8 +90,16 @@ final class TypeInfoFactory {\n         int indexOfActualTypeArgument = getIndex(classTypeVariables, fieldTypeVariable);\n         Type[] actualTypeArguments = objParameterizedType.getActualTypeArguments();\n         return actualTypeArguments[indexOfActualTypeArgument];\n+      } else if (typeToEvaluate instanceof TypeVariable<?>) {\n+        Type theSearchedType = null;\n \n+        do {\n+          theSearchedType = extractTypeForHierarchy(parentType, (TypeVariable<?>) typeToEvaluate);\n+        } while ((theSearchedType != null) && (theSearchedType instanceof TypeVariable<?>));\n \n+        if (theSearchedType != null) {\n+          return theSearchedType;\n+        }\n       }\n \n       throw new UnsupportedOperationException(\"Expecting parameterized type, got \" + parentType\n@@ -106,11 +114,43 @@ final class TypeInfoFactory {\n     }\n   }\n \n+  private static Type extractTypeForHierarchy(Type parentType, TypeVariable<?> typeToEvaluate) {\n+    Class<?> rawParentType = null;\n+    if (parentType instanceof Class<?>) {\n+      rawParentType = (Class<?>) parentType;\n+    } else if (parentType instanceof ParameterizedType) {\n+      ParameterizedType parentTypeAsPT = (ParameterizedType) parentType;\n+      rawParentType = (Class<?>) parentTypeAsPT.getRawType();\n+    } else {\n+      return null;\n+    }\n \n+    Type superClass = rawParentType.getGenericSuperclass();\n+    if (superClass instanceof ParameterizedType\n+        && ((ParameterizedType) superClass).getRawType() == typeToEvaluate.getGenericDeclaration()) {\n       // Evaluate type on this type\n+      TypeVariable<?>[] classTypeVariables =\n+          ((Class<?>) ((ParameterizedType) superClass).getRawType()).getTypeParameters();\n+      int indexOfActualTypeArgument = getIndex(classTypeVariables, typeToEvaluate);\n+\n+      Type[] actualTypeArguments = null;\n+      if (parentType instanceof Class<?>) {\n+        actualTypeArguments = ((ParameterizedType) superClass).getActualTypeArguments();\n+      } else if (parentType instanceof ParameterizedType) {\n+        actualTypeArguments = ((ParameterizedType) parentType).getActualTypeArguments();\n+      } else {\n+        return null;\n+      }\n \n+      return actualTypeArguments[indexOfActualTypeArgument];\n+    }\n \n-\n+    Type searchedType = null;\n+    if (superClass != null) {\n+      searchedType = extractTypeForHierarchy(superClass, typeToEvaluate);\n+    }\n+    return searchedType;\n+  }\n \n   private static Type[] extractRealTypes(\n       Type[] actualTypeArguments, Type parentType, Class<?> rawParentClass) {\n"
+  },
+  "timestamp": "2026-06-29 01:41:42 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Gson",
+    "bug_id": "Gson_1",
+    "repo_path": "/defects4j/framework/bin/temp/Gson_1",
+    "github_url": "https://github.com/google/gson.git",
+    "description": "Fails to serialize/deserialize a class where a super-class has a type parameter\n```\nUnfortunately, shortly after the Gson 1.2 release, I found a bug in the\nTypeVariable support.  Basically, the following class can not be serialized\nor deserialized using Gson:\n\npublic class Foo<T> {\n  private final T someField;\n\n  public Foo(T value) {\n    this.someField = value;\n  }\n\n  public boolean equals(Object o) {\n    if (!(o instanceof Foo)) {\n      return false;\n    } else {\n        return someField.equals(((Foo)o).someField);\n    }\n  }\n}\n\npublic class Bar extends Foo<Integer> {\n  public Bar(Integer i) {\n    super(i);\n  }\n}\n\nGson gson = new Gson();\nBar bar1 = new Bar(1);\nString json = gson.toJson(bar1);   // Fails\nBar bar2 = gson.fromJson(\"{\\\"someField\\\":1\", Bar.class);    // Fails\n\nassertEquals(bar1, bar2);\n\n```\n\nOriginal issue reported on code.google.com by `joel.leitch@gmail.com` on 29 Aug 2008 at 11:53\n- Merged into: #168\n\n",
+    "commit_message": "Fix for Issue #40.",
+    "fault_locations": [
+      {
+        "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+        "start_line": 97,
+        "end_line": 97,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.21320071635561041,
+        "rank": 2
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.18569533817705186,
+        "rank": 3
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+        "start_line": 69,
+        "end_line": 69,
+        "suspiciousness": 0.18257418583505536,
+        "rank": 4
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+        "start_line": 62,
+        "end_line": 62,
+        "suspiciousness": 0.14586499149789456,
+        "rank": 5
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+        "start_line": 68,
+        "end_line": 68,
+        "suspiciousness": 0.09534625892455924,
+        "rank": 6
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+        "start_line": 69,
+        "end_line": 69,
+        "suspiciousness": 0.09534625892455924,
+        "rank": 7
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+        "start_line": 165,
+        "end_line": 165,
+        "suspiciousness": 0.086710996952412,
+        "rank": 8
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+        "start_line": 178,
+        "end_line": 178,
+        "suspiciousness": 0.086710996952412,
+        "rank": 9
+      },
+      {
+        "file": "gson/src/main/java/com/google/gson/ObjectNavigator.java",
+        "start_line": 129,
+        "end_line": 129,
+        "suspiciousness": 0.07495316889958614,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.gson.functional.TypeVariableTest::testSingle"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+      "start_line": 97,
+      "end_line": 97,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.21320071635561041,
+      "rank": 2
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.18569533817705186,
+      "rank": 3
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+      "start_line": 69,
+      "end_line": 69,
+      "suspiciousness": 0.18257418583505536,
+      "rank": 4
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/TypeInfoFactory.java",
+      "start_line": 62,
+      "end_line": 62,
+      "suspiciousness": 0.14586499149789456,
+      "rank": 5
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+      "start_line": 68,
+      "end_line": 68,
+      "suspiciousness": 0.09534625892455924,
+      "rank": 6
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+      "start_line": 69,
+      "end_line": 69,
+      "suspiciousness": 0.09534625892455924,
+      "rank": 7
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+      "start_line": 165,
+      "end_line": 165,
+      "suspiciousness": 0.086710996952412,
+      "rank": 8
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/JsonSerializationVisitor.java",
+      "start_line": 178,
+      "end_line": 178,
+      "suspiciousness": 0.086710996952412,
+      "rank": 9
+    },
+    {
+      "file": "gson/src/main/java/com/google/gson/ObjectNavigator.java",
+      "start_line": 129,
+      "end_line": 129,
+      "suspiciousness": 0.07495316889958614,
+      "rank": 10
+    }
+  ]
+}

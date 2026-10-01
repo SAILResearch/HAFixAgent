@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_129",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 04:13:47",
+      "end_time": "2026-06-18 05:03:47",
+      "duration_seconds": 3000,
+      "duration_human": "50m 0s"
+    },
+    "model_cost": 0.2012,
+    "model_calls": 28,
+    "token_usage": {
+      "input_tokens": 2001084,
+      "output_tokens": 76337,
+      "total_tokens": 2077421,
+      "cached_input_tokens": 1371840,
+      "uncached_input_tokens": 629244
+    },
+    "agent_steps": 28,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/datetimelike.py b/pandas/core/arrays/datetimelike.py\nindex f93db4695d..0ac1028a1a 100644\n--- a/pandas/core/arrays/datetimelike.py\n+++ b/pandas/core/arrays/datetimelike.py\n@@ -1000,25 +1000,44 @@ class DatetimeLikeArrayMixin(ExtensionOpsMixin, AttributesMixin, ExtensionArray)\n         Add a delta of a TimedeltaIndex\n         return the i8 result view\n         \"\"\"\n+        # Handle broadcasting\n         if len(self) != len(other):\n-            raise ValueError(\"cannot add indices of unequal length\")\n+            if len(self) == 1:\n+                # Broadcast self to match other\n+                self_i8 = np.broadcast_to(self.asi8, len(other))\n+                self_mask = np.broadcast_to(self._isnan, len(other))\n+            else:\n+                self_i8 = self.asi8\n+                self_mask = self._isnan\n+            \n+            if len(other) == 1:\n+                # Broadcast other to match self\n+                if isinstance(other, np.ndarray):\n+                    from pandas.core.arrays import TimedeltaArray\n+                    other = TimedeltaArray._from_sequence(other)\n+                other_i8 = np.broadcast_to(other.asi8, len(self))\n+                other_mask = np.broadcast_to(other._isnan, len(self))\n+            else:\n+                other_i8 = other.asi8\n+                other_mask = other._isnan\n+        else:\n+            self_i8 = self.asi8\n+            self_mask = self._isnan\n+            other_i8 = other.asi8\n+            other_mask = other._isnan\n \n         if isinstance(other, np.ndarray):\n             # ndarray[timedelta64]; wrap in TimedeltaIndex for op\n             from pandas.core.arrays import TimedeltaArray\n \n             other = TimedeltaArray._from_sequence(other)\n+            other_i8 = other.asi8\n+            other_mask = other._isnan\n \n-        self_i8 = self.asi8\n-        other_i8 = other.asi8\n         new_values = checked_add_with_arr(\n-            self_i8, other_i8, arr_mask=self._isnan, b_mask=other._isnan\n+            self_i8, other_i8, arr_mask=self_mask, b_mask=other_mask\n         )\n-        if self._hasnans or other._hasnans:\n-            mask = (self._isnan) | (other._isnan)\n-            new_values[mask] = iNaT\n         return new_values.view(\"i8\")\n-\n     def _add_nat(self):\n         \"\"\"\n         Add pd.NaT to self\ndiff --git a/pandas/core/arrays/datetimes.py b/pandas/core/arrays/datetimes.py\nindex 7cd103d12f..f28defe7f3 100644\n--- a/pandas/core/arrays/datetimes.py\n+++ b/pandas/core/arrays/datetimes.py\n@@ -356,11 +356,16 @@ class DatetimeArray(dtl.DatetimeLikeArrayMixin, dtl.TimelikeOps, dtl.DatelikeOps\n             values = values._data\n \n         if not isinstance(values, np.ndarray):\n-            msg = (\n-                \"Unexpected type '{}'. 'values' must be a DatetimeArray \"\n-                \"ndarray, or Series or Index containing one of those.\"\n-            )\n-            raise ValueError(msg.format(type(values).__name__))\n+            # Try to convert scalar to array\n+            if isinstance(values, (np.datetime64, np.timedelta64)):\n+                # Convert scalar to 1-d array\n+                values = np.array([values])\n+            else:\n+                msg = (\n+                    \"Unexpected type '{}'. 'values' must be a DatetimeArray \"\n+                    \"ndarray, or Series or Index containing one of those.\"\n+                )\n+                raise ValueError(msg.format(type(values).__name__))\n         if values.ndim != 1:\n             raise ValueError(\"Only 1-dimensional input arrays are supported.\")\n \ndiff --git a/pandas/tests/arithmetic/test_timedelta64.py b/pandas/tests/arithmetic/test_timedelta64.py\nindex ecb07fa490..d45daf9ab8 100644\n--- a/pandas/tests/arithmetic/test_timedelta64.py\n+++ b/pandas/tests/arithmetic/test_timedelta64.py\n@@ -896,11 +896,16 @@ class TestTimedeltaArraylikeAddSubOps:\n         result = other + idx\n         tm.assert_equal(result, expected)\n \n-    def test_td64arr_add_sub_timestamp(self, box_with_array):\n-        # GH#11925\n-        ts = Timestamp(\"2012-01-01\")\n-        # TODO: parametrize over types of datetime scalar?\n-\n+    @pytest.mark.parametrize(\n+        \"ts\",\n+        [\n+            Timestamp(\"2012-01-01\"),\n+            Timestamp(\"2012-01-01\").to_pydatetime(),\n+            Timestamp(\"2012-01-01\").to_datetime64(),\n+        ],\n+    )\n+    def test_td64arr_add_sub_datetimelike_scalar(self, ts, box_with_array):\n+        # GH#11925, GH#29558\n         tdi = timedelta_range(\"1 day\", periods=3)\n         expected = pd.date_range(\"2012-01-02\", periods=3)\n \n"
+  },
+  "timestamp": "2026-06-18 05:03:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_129",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_129/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: np.datetime64 - TimedeltaArray (#29558)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 917,
+        "end_line": 917,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 919,
+        "end_line": 919,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 923,
+        "end_line": 923,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/base.py",
+        "start_line": 924,
+        "end_line": 924,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 379,
+        "end_line": 379,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/datetimes.py",
+        "start_line": 360,
+        "end_line": 360,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/datetimes.py",
+        "start_line": 363,
+        "end_line": 363,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 331,
+        "end_line": 331,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "pandas/io/formats/printing.py",
+        "start_line": 332,
+        "end_line": 332,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "pandas/io/formats/console.py",
+        "start_line": 13,
+        "end_line": 13,
+        "suspiciousness": 0.784471,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arithmetic/test_timedelta64.py::TestTimedeltaArraylikeAddSubOps::test_td64arr_add_sub_datetimelike_scalar"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 917,
+      "end_line": 917,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 919,
+      "end_line": 919,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 923,
+      "end_line": 923,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/base.py",
+      "start_line": 924,
+      "end_line": 924,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 379,
+      "end_line": 379,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/datetimes.py",
+      "start_line": 360,
+      "end_line": 360,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/datetimes.py",
+      "start_line": 363,
+      "end_line": 363,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 331,
+      "end_line": 331,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "pandas/io/formats/printing.py",
+      "start_line": 332,
+      "end_line": 332,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "pandas/io/formats/console.py",
+      "start_line": 13,
+      "end_line": 13,
+      "suspiciousness": 0.784471,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_20",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 23:05:56",
+      "end_time": "2026-03-23 23:23:51",
+      "duration_seconds": 1075,
+      "duration_human": "17m 55s"
+    },
+    "model_cost": 0.0977,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 589937,
+      "output_tokens": 37283,
+      "total_tokens": 627220,
+      "cached_input_tokens": 284736,
+      "uncached_input_tokens": 305201
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/layers/convolutional.py b/keras/layers/convolutional.py\nindex 672f8820c..dc34844e8 100644\n--- a/keras/layers/convolutional.py\n+++ b/keras/layers/convolutional.py\n@@ -820,11 +820,11 @@ class Conv2DTranspose(Conv2D):\n         out_height = conv_utils.deconv_length(height,\n                                               stride_h, kernel_h,\n                                               self.padding,\n-                                              out_pad_h)\n+                                              out_pad_h, self.dilation_rate[0])\n         out_width = conv_utils.deconv_length(width,\n                                              stride_w, kernel_w,\n                                              self.padding,\n-                                             out_pad_w)\n+                                             out_pad_w, self.dilation_rate[1])\n         if self.data_format == 'channels_first':\n             output_shape = (batch_size, self.filters, out_height, out_width)\n         else:\n@@ -836,7 +836,7 @@ class Conv2DTranspose(Conv2D):\n             output_shape,\n             self.strides,\n             padding=self.padding,\n-            data_format=self.data_format)\n+            data_format=self.data_format, dilation_rate=self.dilation_rate)\n \n         if self.use_bias:\n             outputs = K.bias_add(\n@@ -867,12 +867,12 @@ class Conv2DTranspose(Conv2D):\n                                                         stride_h,\n                                                         kernel_h,\n                                                         self.padding,\n-                                                        out_pad_h)\n+                                                        out_pad_h, self.dilation_rate[0])\n         output_shape[w_axis] = conv_utils.deconv_length(output_shape[w_axis],\n                                                         stride_w,\n                                                         kernel_w,\n                                                         self.padding,\n-                                                        out_pad_w)\n+                                                        out_pad_w, self.dilation_rate[1])\n         return tuple(output_shape)\n \n     def get_config(self):\ndiff --git a/keras/utils/conv_utils.py b/keras/utils/conv_utils.py\nindex c4370dbf3..66dd8e974 100644\n--- a/keras/utils/conv_utils.py\n+++ b/keras/utils/conv_utils.py\n@@ -135,7 +135,7 @@ def conv_input_length(output_length, filter_size, padding, stride):\n     return (output_length - 1) * stride - 2 * pad + filter_size\n \n \n-def deconv_length(dim_size, stride_size, kernel_size, padding, output_padding):\n+def deconv_length(dim_size, stride_size, kernel_size, padding, output_padding, dilation_rate=1):\n     \"\"\"Determines output length of a transposed convolution given input length.\n \n     # Arguments\n@@ -145,6 +145,10 @@ def deconv_length(dim_size, stride_size, kernel_size, padding, output_padding):\n             `dim_size`.\n         padding: One of `\"same\"`, `\"valid\"`, `\"full\"`.\n         output_padding: Integer, amount of padding along the output dimension,\n+        dilation_rate: Integer, the dilation rate along the dimension of\n+        dilation_rate: Integer, the dilation rate along the dimension of\n+            `dim_size`. Default is 1.\n+            `dim_size`. Default is 1.\n             Can be set to `None` in which case the output length is inferred.\n \n     # Returns\n@@ -152,7 +156,13 @@ def deconv_length(dim_size, stride_size, kernel_size, padding, output_padding):\n     \"\"\"\n     assert padding in {'same', 'valid', 'full'}\n     if dim_size is None:\n-        return None\n+    kernel_size = dilation_rate * (kernel_size - 1) + 1\n+    # Adjust kernel size for dilation (dilated kernel has larger effective size)\n+    # Adjust kernel size for dilation (dilated kernel has larger effective size)\n+    kernel_size = dilation_rate * (kernel_size - 1) + 1\n+    kernel_size = dilation_rate * (kernel_size - 1) + 1\n+    # Adjust kernel size for dilation\n+    kernel_size = dilation_rate * (kernel_size - 1) + 1\n \n     # Infer length if output padding is None, else compute the exact length\n     if output_padding is None:\ndiff --git a/tests/keras/layers/convolutional_test.py b/tests/keras/layers/convolutional_test.py\nindex bca954518..eafad6d21 100644\n--- a/tests/keras/layers/convolutional_test.py\n+++ b/tests/keras/layers/convolutional_test.py\n@@ -164,7 +164,7 @@ def test_convolution_2d_channels_last():\n \n @keras_test\n @pytest.mark.skipif((K.backend() == 'cntk'),\n-                    reason=\"cntk only supports dilated conv on GPU\")\n+                    reason='cntk only supports dilated conv on GPU')\n def test_convolution_2d_dilation():\n     num_samples = 2\n     filters = 2\n@@ -225,6 +225,37 @@ def test_conv2d_transpose(padding, out_padding, strides):\n                fixed_batch_size=True)\n \n \n+@keras_test\n+@pytest.mark.skipif((K.backend() == 'cntk'),\n+                    reason='cntk only supports dilated conv transpose on GPU')\n+def test_conv2d_transpose_dilation():\n+\n+    layer_test(convolutional.Conv2DTranspose,\n+               kwargs={'filters': 2,\n+                       'kernel_size': 3,\n+                       'padding': 'same',\n+                       'data_format': 'channels_last',\n+                       'dilation_rate': (2, 2)},\n+               input_shape=(2, 5, 6, 3))\n+\n+    # Check dilated conv transpose returns expected output\n+    input_data = np.arange(48).reshape((1, 4, 4, 3)).astype(np.float32)\n+    expected_output = np.float32([[192, 228, 192, 228],\n+                                  [336, 372, 336, 372],\n+                                  [192, 228, 192, 228],\n+                                  [336, 372, 336, 372]]).reshape((1, 4, 4, 1))\n+\n+    layer_test(convolutional.Conv2DTranspose,\n+               input_data=input_data,\n+               kwargs={'filters': 1,\n+                       'kernel_size': 3,\n+                       'padding': 'same',\n+                       'data_format': 'channels_last',\n+                       'dilation_rate': (2, 2),\n+                       'kernel_initializer': 'ones'},\n+               expected_output=expected_output)\n+\n+\n @keras_test\n def test_conv2d_transpose_channels_first():\n     num_samples = 2\n"
+  },
+  "timestamp": "2026-03-23 19:23:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_20",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_20/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "[P, RELNOTES] Conv2DTranspose supports dilation (#11029)",
+    "fault_locations": [
+      {
+        "file": "keras/backend/cntk_backend.py",
+        "start_line": 2189,
+        "end_line": 2189,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/cntk_backend.py",
+        "start_line": 2211,
+        "end_line": 2211,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3436,
+        "end_line": 3436,
+        "function_name": "_preprocess_conv2d_input",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3452,
+        "end_line": 3452,
+        "function_name": "_preprocess_conv2d_input",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3589,
+        "end_line": 3589,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3613,
+        "end_line": 3613,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/tensorflow_backend.py",
+        "start_line": 3630,
+        "end_line": 3632,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/theano_backend.py",
+        "start_line": 2137,
+        "end_line": 2137,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/theano_backend.py",
+        "start_line": 2147,
+        "end_line": 2147,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/backend/theano_backend.py",
+        "start_line": 2180,
+        "end_line": 2180,
+        "function_name": "conv2d_transpose",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 823,
+        "end_line": 823,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 827,
+        "end_line": 827,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 839,
+        "end_line": 839,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 870,
+        "end_line": 870,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 875,
+        "end_line": 875,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/convolutional.py",
+        "start_line": 880,
+        "end_line": 880,
+        "function_name": "get_config",
+        "class_name": ""
+      },
+      {
+        "file": "keras/utils/conv_utils.py",
+        "start_line": 138,
+        "end_line": 138,
+        "function_name": "deconv_length",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/convolutional_test.py::test_conv2d_transpose_dilation"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

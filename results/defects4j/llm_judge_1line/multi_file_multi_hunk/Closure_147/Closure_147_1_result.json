@@ -1,0 +1,64 @@
+{
+  "project_name": "Closure",
+  "bug_id": "147",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:00:12",
+      "end_time": "2025-09-30 14:05:15",
+      "duration_seconds": 302,
+      "duration_human": "5m 2s"
+    },
+    "model_cost": 0.0169,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 197809,
+      "output_tokens": 3986,
+      "total_tokens": 201795,
+      "cached_input_tokens": 191040,
+      "uncached_input_tokens": 6769
+    },
+    "agent_steps": 37,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/CheckGlobalThis.java b/src/com/google/javascript/jscomp/CheckGlobalThis.java\nindex d63c72b17..5291d52e0 100644\n--- a/src/com/google/javascript/jscomp/CheckGlobalThis.java\n+++ b/src/com/google/javascript/jscomp/CheckGlobalThis.java\n@@ -104,7 +104,7 @@ final class CheckGlobalThis implements Callback {\n       int pType = parent.getType();\n       if (!(pType == Token.BLOCK ||\n             pType == Token.SCRIPT ||\n-            pType == Token.NAME ||\n+            pType == Token.NAME || pType == Token.OBJECTLIT ||\n             pType == Token.ASSIGN)) {\n         return false;\n       }\n"
+  },
+  "timestamp": "2025-09-30 14:05:15 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_147",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_147",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Lost a JSC_USED_GLOBAL_THIS warning in 0616 release vs 0514\n<b>What steps will reproduce the problem?</b>\n//------------------\r\n// should warn &quot;JSC_USED_GLOBAL_THIS: dangerous use of the global this object&quot; in both methods\r\n// none of these warns in 0616 release\r\nvar NS = {\r\n\tread: function()\r\n\t{\r\n\t\treturn this.foo; // does not warn in 0514 release\r\n\t},\r\n\r\n\twrite: function()\r\n\t{\r\n\t\tthis.foo = 123; // warns in 0514 release\r\n\t}\r\n};\r\n\r\n// only the non-inline notation warns in 0616 release\r\nNS.write2 = function()\r\n{\r\n\tthis.foo = 123;\r\n};\r\n\r\n//-----------------------\r\n<b>What is the expected output? What do you see instead?</b>\nSince the 0514 release warned in in the &quot;write&quot; case above I would expect the 0616 to also report this. \r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nAs said above, 20100514 and 20100616 releases.\r\n\r\n<b>Please provide any additional information below.</b>\nI understand that the status is that inline-notation isn't preferred, though I wouldn't expect a previous, correct, warning to disappear. (Since I reported issue #144 I'm also aware of the previous limitation in global this).",
+    "commit_message": "Change on 2010/07/09 08:36:29 by nicksantos",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/CheckGlobalThis.java",
+        "start_line": 108,
+        "end_line": 108,
+        "line_numbers": [
+          108
+        ],
+        "function_name": "shouldTraverse",
+        "class_name": "CheckGlobalThis",
+        "filename": "CheckGlobalThis.java",
+        "code_snippet": "  public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {\n\n    if (n.getType() == Token.FUNCTION) {\n      // Don't traverse functions that are constructors or have the @this\n      // or @override annotation.\n      JSDocInfo jsDoc = getFunctionJsDocInfo(n);\n      if (jsDoc != null &&\n          (jsDoc.isConstructor() ||\n           jsDoc.isInterface() ||\n           jsDoc.hasThisType() ||\n           jsDoc.isOverride())) {\n        return false;\n      }\n\n      // Don't traverse functions unless they would normally\n      // be able to have a @this annotation associated with them. e.g.,\n      // var a = function() { }; // or\n      // function a() {} // or\n      // a.x = function() {}; // or\n      // var a = {x: function() {}};\n      int pType = parent.getType();\n      if (!(pType == Token.BLOCK ||\n            pType == Token.SCRIPT ||\n            pType == Token.NAME ||\n            pType == Token.ASSIGN)) {\n        return false;\n      }\n    }\n\n    if (parent != null && parent.getType() == Token.ASSIGN) {\n      Node lhs = parent.getFirstChild();\n      Node rhs = lhs.getNext();\n\n      if (n == lhs) {\n        // Always traverse the left side of the assignment. To handle\n        // nested assignments properly (e.g., (a = this).property = c;),\n        // assignLhsChild should not be overridden.\n        if (assignLhsChild == null) {\n          assignLhsChild = lhs;\n        }\n      } else {\n        // Only traverse the right side if it's not an assignment to a prototype\n        // property or subproperty.\n        if (NodeUtil.isGet(lhs)) {\n          if (lhs.getType() == Token.GETPROP &&\n              lhs.getLastChild().getString().equals(\"prototype\")) {\n            return false;\n          }\n          Node llhs = lhs.getFirstChild();\n          if (llhs.getType() == Token.GETPROP &&\n              llhs.getLastChild().getString().equals(\"prototype\")) {\n            return false;\n          }\n        }\n      }\n    }\n\n    return true;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CheckGlobalThisTest::testIssue182a",
+      "com.google.javascript.jscomp.CheckGlobalThisTest::testIssue182b",
+      "com.google.javascript.jscomp.RuntimeTypeCheckTest::testValueWithInnerFn"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/CheckGlobalThis.java b/src/com/google/javascript/jscomp/CheckGlobalThis.java\nindex 604526e6..d63c72b1 100644\n--- a/src/com/google/javascript/jscomp/CheckGlobalThis.java\n+++ b/src/com/google/javascript/jscomp/CheckGlobalThis.java\n@@ -105,8 +105,7 @@ final class CheckGlobalThis implements Callback {\n       if (!(pType == Token.BLOCK ||\n             pType == Token.SCRIPT ||\n             pType == Token.NAME ||\n+            pType == Token.ASSIGN ||\n+            pType == Token.OBJECTLIT)) {\n-            pType == Token.ASSIGN)) {\n         return false;\n       }\n     }\ndiff --git a/src/com/google/javascript/jscomp/CrossModuleCodeMotion.java b/src/com/google/javascript/jscomp/CrossModuleCodeMotion.java\nold mode 100755\nnew mode 100644\ndiff --git a/src/com/google/javascript/jscomp/RuntimeTypeCheck.java b/src/com/google/javascript/jscomp/RuntimeTypeCheck.java\nindex 5cedf1e0..ed4a6b9a 100644\n--- a/src/com/google/javascript/jscomp/RuntimeTypeCheck.java\n+++ b/src/com/google/javascript/jscomp/RuntimeTypeCheck.java\n@@ -244,11 +244,6 @@ class RuntimeTypeCheck implements CompilerPass {\n \n       // To satisfy normalization constraints, the type checking must be\n       // added after any inner function declarations.\n+      for (Node next = block.getFirstChild();\n+           next != null && NodeUtil.isFunctionDeclaration(next);\n+           next = next.getNext()) {\n+        insertionPoint = next;\n+      }\n \n       for (Node paramType : funType.getParameters()) {\n         // Can this ever happen?\ndiff --git a/src/com/google/javascript/jscomp/SourceInformationAnnotator.java b/src/com/google/javascript/jscomp/SourceInformationAnnotator.java\nold mode 100755\nnew mode 100644\ndiff --git a/src/com/google/javascript/rhino/jstype/RecordType.java b/src/com/google/javascript/rhino/jstype/RecordType.java\nold mode 100755\nnew mode 100644\ndiff --git a/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java b/src/com/google/javascript/rhino/jstype/RecordTypeBuilder.java\nold mode 100755\nnew mode 100644",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

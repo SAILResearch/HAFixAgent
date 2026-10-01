@@ -1,0 +1,193 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_58",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 02:51:40",
+      "end_time": "2026-06-25 03:30:26",
+      "duration_seconds": 2326,
+      "duration_human": "38m 46s"
+    },
+    "model_cost": 0.266,
+    "model_calls": 22,
+    "token_usage": {
+      "input_tokens": 1259652,
+      "output_tokens": 76714,
+      "total_tokens": 1336366,
+      "cached_input_tokens": 390912,
+      "uncached_input_tokens": 868740
+    },
+    "agent_steps": 22,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ControlFlowAnalysis.java b/src/com/google/javascript/jscomp/ControlFlowAnalysis.java\nindex b84ad57d2..78c54f5a3 100644\n--- a/src/com/google/javascript/jscomp/ControlFlowAnalysis.java\n+++ b/src/com/google/javascript/jscomp/ControlFlowAnalysis.java\n@@ -412,27 +412,53 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {\n       // body. Our iter will jump to the forNode again to another condition\n       // check.\n       createEdge(iter, Branch.UNCOND, forNode);\n-      connectToPossibleExceptionHandler(init, init);\n-      connectToPossibleExceptionHandler(forNode, cond);\n-      connectToPossibleExceptionHandler(iter, iter);\n-    } else {\n-      // We have for (item in collection) { body }\n-      Node item = forNode.getFirstChild();\n-      Node collection = item.getNext();\n-      Node body = collection.getNext();\n-      // The edge that transfer control to the beginning of the loop body.\n-      createEdge(forNode, Branch.ON_TRUE, computeFallThrough(body));\n-      // The edge to end of the loop.\n-      createEdge(forNode, Branch.ON_FALSE,\n-          computeFollowNode(forNode, this));\n-      connectToPossibleExceptionHandler(forNode, collection);\n-    }\n-  }\n-\n-  private void handleSwitch(Node node) {\n-    // Transfer to the first non-DEFAULT CASE. if there are none, transfer\n-    // to the DEFAULT or the EMPTY node.\n-    Node next = getNextSiblingOfType(\n+      case Token.FOR:\n+        if (NodeUtil.isForIn(n)) {\n+          // for (x in y) {...}\n+          Node lhs = n.getFirstChild();\n+          Node obj = lhs == null ? null : lhs.getNext();\n+          connectToPossibleExceptionHandler(curNode, lhs);\n+          if (obj != null) {\n+            connectToPossibleExceptionHandler(curNode, obj);\n+          }\n+          finallyMap.put(lhs, finallyNode);\n+          if (obj != null) {\n+            finallyMap.put(obj, finallyNode);\n+          }\n+        } else {\n+          // for (init; cond; increment) {...}\n+          Node init = n.getFirstChild();\n+          Node cond = init == null ? null : init.getNext();\n+          Node increment = cond == null ? null : cond.getNext();\n+          connectToPossibleExceptionHandler(curNode, init);\n+          if (cond != null) {\n+            connectToPossibleExceptionHandler(curNode, cond);\n+          }\n+          if (increment != null) {\n+            connectToPossibleExceptionHandler(curNode, increment);\n+          }\n+          finallyMap.put(init, finallyNode);\n+          if (cond != null) {\n+            finallyMap.put(cond, finallyNode);\n+          }\n+          if (increment != null) {\n+            finallyMap.put(increment, finallyNode);\n+          }\n+        }\n+        break;\n+          }\n+          if (increment != null) {\n+            connectToPossibleExceptionHandler(curNode, increment);\n+          }\n+          finallyMap.put(init, finallyNode);\n+          if (cond != null) {\n+            finallyMap.put(cond, finallyNode);\n+          }\n+          if (increment != null) {\n+            finallyMap.put(increment, finallyNode);\n+          }\n+        }\n+        break;\n         node.getFirstChild().getNext(), Token.CASE, Token.EMPTY);\n     if (next != null) { // Has at least one CASE or EMPTY\n       createEdge(node, Branch.UNCOND, next);\ndiff --git a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\nindex 7999db40e..3959ca07f 100644\n--- a/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n+++ b/src/com/google/javascript/jscomp/LiveVariablesAnalysis.java\n@@ -198,18 +198,58 @@ class LiveVariablesAnalysis extends\n         } else {\n           // for(x in y) {...}\n           Node lhs = n.getFirstChild();\n+          if (lhs == null) return;\n           Node rhs = lhs.getNext();\n+          // Process the left-hand side expression\n+          computeGenKill(lhs, gen, kill, conditional);\n+          // Handle simple variables\n           if (NodeUtil.isVar(lhs)) {\n             // for(var x in y) {...}\n             lhs = lhs.getLastChild();\n+            if (lhs != null && NodeUtil.isName(lhs)) {\n+              addToSetIfLocal(lhs, kill);\n+              addToSetIfLocal(lhs, gen);\n+            }\n+          } else if (NodeUtil.isName(lhs)) {\n+            addToSetIfLocal(lhs, kill);\n+            addToSetIfLocal(lhs, gen);\n+          }\n+          if (rhs != null) {\n+            computeGenKill(rhs, gen, kill, conditional);\n+          }\n+        }\n+        return;\n+          if (rhs != null) {\n+            computeGenKill(rhs, gen, kill, conditional);\n           }\n+        }\n+        return;\n             addToSetIfLocal(lhs, kill);\n             addToSetIfLocal(lhs, gen);\n-          computeGenKill(rhs, gen, kill, conditional);\n+          }\n+          if (rhs != null) {\n+            computeGenKill(rhs, gen, kill, conditional);\n+          }\n         }\n         return;\n-\n-      case Token.VAR:\n+            addToSetIfLocal(lhs, gen);\n+          }\n+          }\n+          if (rhs != null) {\n+          if (rhs != null)\n+            computeGenKill(rhs, gen, kill, conditional);\n+          }\n+        }\n+        return;\n+          }\n+          if (rhs != null) {\n+            computeGenKill(rhs, gen, kill, conditional);\n+          }\n+        }\n+        return;\n+          }\n+        }\n+        break;\n         for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n           if (c.hasChildren()) {\n             computeGenKill(c.getFirstChild(), gen, kill, conditional);\ndiff --git a/test/com/google/debugging/sourcemap/Base64VLQTest.java b/test/com/google/debugging/sourcemap/Base64VLQTest.java\nindex 76cfd2c30..5fd7bd12a 100644\n--- a/test/com/google/debugging/sourcemap/Base64VLQTest.java\n+++ b/test/com/google/debugging/sourcemap/Base64VLQTest.java\n@@ -81,27 +81,25 @@ public class Base64VLQTest extends TestCase {\n   }\n \n   // Disable this test if it is flaky.\n-  public void testSpeed() {}\n-// Defects4J: flaky method\n-//   public void testSpeed() {\n-//     long start = System.currentTimeMillis();\n-//     CharIteratorImpl ci = new CharIteratorImpl();\n-//     try {\n-//       StringBuilder sb = new StringBuilder();\n-//       for (int i = 0; i < 1000000; i++) {\n-//         Base64VLQ.encode(sb, i);\n-//         ci.set(sb);\n-//         int result = Base64VLQ.decode(ci);\n-//         assertEquals(i, result);\n-//         sb.setLength(0);\n-//       }\n-//     } catch (Exception e) {\n-//       throw new RuntimeException(\"failed.\", e);\n-//     }\n-//     long end = System.currentTimeMillis();\n-//     // Was 200ms or less, use a larger number to prevent flakiness\n-//     assertTrue(\"too slow\", end-start < 1000);\n-//   }\n+  public void testSpeed() {\n+    long start = System.currentTimeMillis();\n+    CharIteratorImpl ci = new CharIteratorImpl();\n+    try {\n+      StringBuilder sb = new StringBuilder();\n+      for (int i = 0; i < 1000000; i++) {\n+        Base64VLQ.encode(sb, i);\n+        ci.set(sb);\n+        int result = Base64VLQ.decode(ci);\n+        assertEquals(i, result);\n+        sb.setLength(0);\n+      }\n+    } catch (Exception e) {\n+      throw new RuntimeException(\"failed.\", e);\n+    }\n+    long end = System.currentTimeMillis();\n+    // Was 200ms or less, use a larger number to prevent flakiness\n+    assertTrue(\"too slow\", end-start < 1000);\n+  }\n \n   private void testValue(int value) {\n     try {\ndiff --git a/test/com/google/javascript/jscomp/CrossModuleMethodMotionTest.java b/test/com/google/javascript/jscomp/CrossModuleMethodMotionTest.java\nindex fc990666c..63a89357d 100644\n--- a/test/com/google/javascript/jscomp/CrossModuleMethodMotionTest.java\n+++ b/test/com/google/javascript/jscomp/CrossModuleMethodMotionTest.java\n@@ -220,29 +220,27 @@ public class CrossModuleMethodMotionTest extends CompilerTestCase {\n          });\n   }\n \n-  public void testTwoMethods() {}\n-// Defects4J: flaky method\n-//   public void testTwoMethods() {\n-//     test(createModuleChain(\n-//              \"function Foo() {}\" +\n-//              \"Foo.prototype.baz = function() {};\",\n-//              // Module 2\n-//              \"Foo.prototype.callBaz = function() { this.baz(); }\",\n-//              // Module 3\n-//              \"(new Foo).callBaz()\"),\n-//          new String[] {\n-//              STUB_DECLARATIONS +\n-//              \"function Foo() {}\" +\n-//              \"Foo.prototype.baz = JSCompiler_stubMethod(1);\",\n-//              // Module 2\n-//              \"Foo.prototype.callBaz = JSCompiler_stubMethod(0);\",\n-//              // Module 3\n-//              \"Foo.prototype.baz = JSCompiler_unstubMethod(1, function() {});\" +\n-//              \"Foo.prototype.callBaz = \" +\n-//              \"  JSCompiler_unstubMethod(0, function() { this.baz(); });\" +\n-//              \"(new Foo).callBaz()\"\n-//          });\n-//   }\n+  public void testTwoMethods() {\n+    test(createModuleChain(\n+             \"function Foo() {}\" +\n+             \"Foo.prototype.baz = function() {};\",\n+             // Module 2\n+             \"Foo.prototype.callBaz = function() { this.baz(); }\",\n+             // Module 3\n+             \"(new Foo).callBaz()\"),\n+         new String[] {\n+             STUB_DECLARATIONS +\n+             \"function Foo() {}\" +\n+             \"Foo.prototype.baz = JSCompiler_stubMethod(1);\",\n+             // Module 2\n+             \"Foo.prototype.callBaz = JSCompiler_stubMethod(0);\",\n+             // Module 3\n+             \"Foo.prototype.baz = JSCompiler_unstubMethod(1, function() {});\" +\n+             \"Foo.prototype.callBaz = \" +\n+             \"  JSCompiler_unstubMethod(0, function() { this.baz(); });\" +\n+             \"(new Foo).callBaz()\"\n+         });\n+  }\n \n   public void testTwoMethods2() {\n     // if the programmer screws up the module order, we don't try to correct\n@@ -336,47 +334,45 @@ public class CrossModuleMethodMotionTest extends CompilerTestCase {\n         });\n   }\n \n-  public void testClosureVariableReads3() {}\n-// Defects4J: flaky method\n-//   public void testClosureVariableReads3() {\n-//     test(createModuleChain(\n-//             \"function Foo() {}\" +\n-//             \"Foo.prototype.b1 = function() {\" +\n-//             \"  Foo.prototype.b2 = function() {\" +\n-//             \"    var x = 1;\" +\n-//             \"    Foo.prototype.b3 = function() {\" +\n-//             \"      x;\" +\n-//             \"    }\" +\n-//             \"  }\" +\n-//             \"};\",\n-//             // Module 2\n-//             \"var y = new Foo(); y.b1();\",\n-//             // Module 3\n-//             \"y = new Foo(); z.b2();\",\n-//             // Module 4\n-//             \"y = new Foo(); z.b3();\"\n-//             ),\n-//          new String[] {\n-//            STUB_DECLARATIONS +\n-//            \"function Foo() {}\" +\n-//            \"Foo.prototype.b1 = JSCompiler_stubMethod(0);\",\n-//            // Module 2\n-//            \"Foo.prototype.b1 = JSCompiler_unstubMethod(0, function() {\" +\n-//            \"  Foo.prototype.b2 = JSCompiler_stubMethod(1);\" +\n-//            \"});\" +\n-//            \"var y = new Foo(); y.b1();\",\n-//            // Module 3\n-//            \"Foo.prototype.b2 = JSCompiler_unstubMethod(1, function() {\" +\n-//            \"  var x = 1;\" +\n-//            \"  Foo.prototype.b3 = function() {\" +\n-//            \"    x;\" +\n-//            \"  }\" +\n-//            \"});\" +\n-//            \"y = new Foo(); z.b2();\",\n-//            // Module 4\n-//            \"y = new Foo(); z.b3();\"\n-//         });\n-//   }\n+  public void testClosureVariableReads3() {\n+    test(createModuleChain(\n+            \"function Foo() {}\" +\n+            \"Foo.prototype.b1 = function() {\" +\n+            \"  Foo.prototype.b2 = function() {\" +\n+            \"    var x = 1;\" +\n+            \"    Foo.prototype.b3 = function() {\" +\n+            \"      x;\" +\n+            \"    }\" +\n+            \"  }\" +\n+            \"};\",\n+            // Module 2\n+            \"var y = new Foo(); y.b1();\",\n+            // Module 3\n+            \"y = new Foo(); z.b2();\",\n+            // Module 4\n+            \"y = new Foo(); z.b3();\"\n+            ),\n+         new String[] {\n+           STUB_DECLARATIONS +\n+           \"function Foo() {}\" +\n+           \"Foo.prototype.b1 = JSCompiler_stubMethod(0);\",\n+           // Module 2\n+           \"Foo.prototype.b1 = JSCompiler_unstubMethod(0, function() {\" +\n+           \"  Foo.prototype.b2 = JSCompiler_stubMethod(1);\" +\n+           \"});\" +\n+           \"var y = new Foo(); y.b1();\",\n+           // Module 3\n+           \"Foo.prototype.b2 = JSCompiler_unstubMethod(1, function() {\" +\n+           \"  var x = 1;\" +\n+           \"  Foo.prototype.b3 = function() {\" +\n+           \"    x;\" +\n+           \"  }\" +\n+           \"});\" +\n+           \"y = new Foo(); z.b2();\",\n+           // Module 4\n+           \"y = new Foo(); z.b3();\"\n+        });\n+  }\n \n   // Read of global variable is fine.\n   public void testNoClosureVariableReads1() {\n"
+  },
+  "timestamp": "2026-06-25 03:30:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_58",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_58",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Online CC bug: report java error.\n<b>What steps will reproduce the problem?</b>\n1. open http://closure-compiler.appspot.com/\r\n2. input js code:\r\n  function keys(obj) {\r\n    var a = [], i = 0;\r\n    for (a[i++] in obj)\r\n      ;\r\n    return a;\r\n  }\r\n3. press [compile] button.\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nExcept OK. See java error.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nOnline CC version.",
+    "commit_message": "Allow expressions on LHS of for-in loops. Fixes issue 528.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 200,
+        "end_line": 200,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 201,
+        "end_line": 201,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 202,
+        "end_line": 202,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+        "start_line": 206,
+        "end_line": 206,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/TypeSafeDispatcher.java",
+        "start_line": 146,
+        "end_line": 146,
+        "suspiciousness": 0.5,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/TypeSafeDispatcher.java",
+        "start_line": 219,
+        "end_line": 219,
+        "suspiciousness": 0.5,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+        "start_line": 420,
+        "end_line": 420,
+        "suspiciousness": 0.5,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+        "start_line": 421,
+        "end_line": 421,
+        "suspiciousness": 0.5,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+        "start_line": 422,
+        "end_line": 422,
+        "suspiciousness": 0.5,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+        "start_line": 424,
+        "end_line": 424,
+        "suspiciousness": 0.5,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.LiveVariableAnalysisTest::testExpressionInForIn"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+      "start_line": 200,
+      "end_line": 200,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+      "start_line": 201,
+      "end_line": 201,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+      "start_line": 202,
+      "end_line": 202,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/LiveVariablesAnalysis.java",
+      "start_line": 206,
+      "end_line": 206,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/TypeSafeDispatcher.java",
+      "start_line": 146,
+      "end_line": 146,
+      "suspiciousness": 0.5,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/TypeSafeDispatcher.java",
+      "start_line": 219,
+      "end_line": 219,
+      "suspiciousness": 0.5,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+      "start_line": 420,
+      "end_line": 420,
+      "suspiciousness": 0.5,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+      "start_line": 421,
+      "end_line": 421,
+      "suspiciousness": 0.5,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+      "start_line": 422,
+      "end_line": 422,
+      "suspiciousness": 0.5,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ControlFlowAnalysis.java",
+      "start_line": 424,
+      "end_line": 424,
+      "suspiciousness": 0.5,
+      "rank": 10
+    }
+  ]
+}

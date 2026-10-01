@@ -1,0 +1,77 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_5",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 15:02:45",
+      "end_time": "2026-06-20 15:06:00",
+      "duration_seconds": 195,
+      "duration_human": "3m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 569369,
+      "output_tokens": 4600,
+      "total_tokens": 573969,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 569369
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/util.py b/luigi/util.py\nindex 97feb8f5..f6be2002 100644\n--- a/luigi/util.py\n+++ b/luigi/util.py\n@@ -274,18 +274,19 @@ class inherits(object):\n         self.task_to_inherit = task_to_inherit\n \n     def __call__(self, task_that_inherits):\n+        # Get all parameter objects from the underlying task\n         for param_name, param_obj in self.task_to_inherit.get_params():\n+            # Check if the parameter exists in the inheriting task\n             if not hasattr(task_that_inherits, param_name):\n+                # If not, add it to the inheriting task\n                 setattr(task_that_inherits, param_name, param_obj)\n \n-        # Modify task_that_inherits by subclassing it and adding methods\n-        @task._task_wraps(task_that_inherits)\n-        class Wrapped(task_that_inherits):\n+        # Modify task_that_inherits by adding methods\n+        def clone_parent(_self, **args):\n+            return _self.clone(cls=self.task_to_inherit, **args)\n+        task_that_inherits.clone_parent = clone_parent\n \n-            def clone_parent(_self, **args):\n-                return _self.clone(cls=self.task_to_inherit, **args)\n-\n-        return Wrapped\n+        return task_that_inherits\n \n \n class requires(object):\n@@ -300,14 +301,12 @@ class requires(object):\n     def __call__(self, task_that_requires):\n         task_that_requires = self.inherit_decorator(task_that_requires)\n \n-        # Modify task_that_requres by subclassing it and adding methods\n-        @task._task_wraps(task_that_requires)\n-        class Wrapped(task_that_requires):\n+        # Modify task_that_requres by adding methods\n+        def requires(_self):\n+            return _self.clone_parent()\n+        task_that_requires.requires = requires\n \n-            def requires(_self):\n-                return _self.clone_parent()\n-\n-        return Wrapped\n+        return task_that_requires\n \n \n class copies(object):\ndiff --git a/test/util_test.py b/test/util_test.py\nindex 330566c6..c2e3bb49 100644\n--- a/test/util_test.py\n+++ b/test/util_test.py\n@@ -18,11 +18,89 @@ from helpers import LuigiTestCase, RunOnceTask\n \n import luigi\n import luigi.task\n-from luigi.util import requires\n+from luigi.util import inherits, requires\n \n \n class BasicsTest(LuigiTestCase):\n+    # following tests using inherits decorator\n+    def test_task_ids_using_inherits(self):\n+        class ParentTask(luigi.Task):\n+            my_param = luigi.Parameter()\n+        luigi.namespace('blah')\n+\n+        @inherits(ParentTask)\n+        class ChildTask(luigi.Task):\n+            def requires(self):\n+                return self.clone(ParentTask)\n+        luigi.namespace('')\n+        child_task = ChildTask(my_param='hello')\n+        self.assertEqual(str(child_task), 'blah.ChildTask(my_param=hello)')\n+        self.assertIn(ParentTask(my_param='hello'), luigi.task.flatten(child_task.requires()))\n+\n+    def test_task_ids_using_inherits_2(self):\n+        # Here we use this decorator in a unnormal way.\n+        # But it should still work.\n+        class ParentTask(luigi.Task):\n+            my_param = luigi.Parameter()\n+        decorator = inherits(ParentTask)\n+        luigi.namespace('blah')\n+\n+        class ChildTask(luigi.Task):\n+            def requires(self):\n+                return self.clone_parent()\n+        luigi.namespace('')\n+        ChildTask = decorator(ChildTask)\n+        child_task = ChildTask(my_param='hello')\n+        self.assertEqual(str(child_task), 'blah.ChildTask(my_param=hello)')\n+        self.assertIn(ParentTask(my_param='hello'), luigi.task.flatten(child_task.requires()))\n+\n+    def _setup_parent_and_child_inherits(self):\n+        class ParentTask(luigi.Task):\n+            my_parameter = luigi.Parameter()\n+            class_variable = 'notset'\n+\n+            def run(self):\n+                self.__class__.class_variable = self.my_parameter\n+\n+            def complete(self):\n+                return self.class_variable == 'actuallyset'\n+\n+        @inherits(ParentTask)\n+        class ChildTask(RunOnceTask):\n+            def requires(self):\n+                return self.clone_parent()\n+\n+        return ParentTask\n+\n+    def test_inherits_has_effect_run_child(self):\n+        ParentTask = self._setup_parent_and_child_inherits()\n+        self.assertTrue(self.run_locally_split('ChildTask --my-parameter actuallyset'))\n+        self.assertEqual(ParentTask.class_variable, 'actuallyset')\n+\n+    def test_inherits_has_effect_run_parent(self):\n+        ParentTask = self._setup_parent_and_child_inherits()\n+        self.assertTrue(self.run_locally_split('ParentTask --my-parameter actuallyset'))\n+        self.assertEqual(ParentTask.class_variable, 'actuallyset')\n+\n+    def _setup_inherits_inheritence(self):\n+        class InheritedTask(luigi.Task):\n+            pass\n+\n+        class ParentTask(luigi.Task):\n+            pass\n+\n+        @inherits(InheritedTask)\n+        class ChildTask(ParentTask):\n+            pass\n \n+        return ChildTask\n+\n+    def test_inherits_has_effect_MRO(self):\n+        ChildTask = self._setup_inherits_inheritence()\n+        self.assertNotEqual(str(ChildTask.__mro__[0]),\n+                            str(ChildTask.__mro__[1]))\n+\n+    # following tests using requires decorator\n     def test_task_ids_using_requries(self):\n         class ParentTask(luigi.Task):\n             my_param = luigi.Parameter()\n@@ -78,3 +156,21 @@ class BasicsTest(LuigiTestCase):\n         ParentTask = self._setup_parent_and_child()\n         self.assertTrue(self.run_locally_split('ParentTask --my-parameter actuallyset'))\n         self.assertEqual(ParentTask.class_variable, 'actuallyset')\n+\n+    def _setup_requires_inheritence(self):\n+        class RequiredTask(luigi.Task):\n+            pass\n+\n+        class ParentTask(luigi.Task):\n+            pass\n+\n+        @requires(RequiredTask)\n+        class ChildTask(ParentTask):\n+            pass\n+\n+        return ChildTask\n+\n+    def test_requires_has_effect_MRO(self):\n+        ChildTask = self._setup_requires_inheritence()\n+        self.assertNotEqual(str(ChildTask.__mro__[0]),\n+                            str(ChildTask.__mro__[1]))\n"
+  },
+  "timestamp": "2026-06-20 15:06:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_5",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_5/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Fix MRO on tasks using util.requires (#2307)",
+    "fault_locations": [
+      {
+        "file": "luigi/util.py",
+        "start_line": 281,
+        "end_line": 283,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/util.py",
+        "start_line": 285,
+        "end_line": 288,
+        "function_name": "clone_parent",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/util.py",
+        "start_line": 303,
+        "end_line": 305,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "luigi/util.py",
+        "start_line": 307,
+        "end_line": 310,
+        "function_name": "requires",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/util_test.py::BasicsTest::test_inherits_has_effect_MRO",
+      "pytest test/util_test.py::BasicsTest::test_requires_has_effect_MRO"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "project_name": "Compress",
+  "bug_id": "5",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 07:02:05",
+      "end_time": "2026-06-20 07:07:23",
+      "duration_seconds": 318,
+      "duration_human": "5m 18s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 40,
+    "token_usage": {
+      "input_tokens": 460922,
+      "output_tokens": 9844,
+      "total_tokens": 470766,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 460922
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex befee541..29ed7d2f 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -228,6 +228,8 @@ public class ZipArchiveInputStream extends ArchiveInputStream {\n                 fill();\n                 if (lengthOfLastRead > 0) {\n                     bytesReadFromStream += lengthOfLastRead;\n+                } else if (lengthOfLastRead == -1 && !inf.finished()) {\n+                    throw new IOException(\"Truncated ZIP file\");\n                 }\n             }\n             int read = 0;\n"
+  },
+  "timestamp": "2026-06-20 07:07:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_5",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_5",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "ZipArchiveInputStream doesn't report the end of a truncated archive\nIf a Zip archive is truncated, (e.g. because it is the first volume in a multi-volume archive) the ZipArchiveInputStream.read() method will not detect that fact. All calls to read() will return 0 bytes read. They will not return -1 (end of stream), nor will they throw any exception (which would seem like a good idea to me because the archive is truncated).\n\nI have tracked this problem to ZipArchiveInputStream.java, line 239. It contains a check\n\nif (read == 0 && inf.finished()) {\n    return -1;\n}\n\nFor truncated archives the read is always zero but the inf is never finished(). I suggest adding two lines below:\n\nif (read == 0 && inf.finished()) {\n    return -1;\n} else if (read == 0 && lengthOfLastRead == -1) {\n\tthrow new IOException(\"Truncated ZIP file\");\n}\n\nThis solves the problem in my tests.",
+    "commit_message": "make ZipArchiveInputStream deal better with truncated archives.  Submitted by Antoni Mylka.  COMPRESS-87",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 239,
+        "end_line": 240,
+        "line_numbers": [
+          239,
+          240
+        ],
+        "function_name": "read",
+        "class_name": "ZipArchiveInputStream",
+        "filename": "ZipArchiveInputStream.java",
+        "code_snippet": "    public int read(byte[] buffer, int start, int length) throws IOException {\n        if (closed) {\n            throw new IOException(\"The stream is closed\");\n        }\n        if (inf.finished() || current == null) {\n            return -1;\n        }\n\n        // avoid int overflow, check null buffer\n        if (start <= buffer.length && length >= 0 && start >= 0\n            && buffer.length - start >= length) {\n            if (current.getMethod() == ZipArchiveOutputStream.STORED) {\n                int csize = (int) current.getSize();\n                if (readBytesOfEntry >= csize) {\n                    return -1;\n                }\n                if (offsetInBuffer >= lengthOfLastRead) {\n                    offsetInBuffer = 0;\n                    if ((lengthOfLastRead = in.read(buf)) == -1) {\n                        return -1;\n                    }\n                    count(lengthOfLastRead);\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n                int toRead = length > lengthOfLastRead\n                    ? lengthOfLastRead - offsetInBuffer\n                    : length;\n                if ((csize - readBytesOfEntry) < toRead) {\n                    toRead = csize - readBytesOfEntry;\n                }\n                System.arraycopy(buf, offsetInBuffer, buffer, start, toRead);\n                offsetInBuffer += toRead;\n                readBytesOfEntry += toRead;\n                crc.update(buffer, start, toRead);\n                return toRead;\n            }\n            if (inf.needsInput()) {\n                fill();\n                if (lengthOfLastRead > 0) {\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n            }\n            int read = 0;\n            try {\n                read = inf.inflate(buffer, start, length);\n            } catch (DataFormatException e) {\n                throw new ZipException(e.getMessage());\n            }\n            if (read == 0 && inf.finished()) {\n                return -1;\n            }\n            crc.update(buffer, start, read);\n            return read;\n        }\n        throw new ArrayIndexOutOfBoundsException();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.Maven221MultiVolumeTest::testRead7ZipMultiVolumeArchiveForStream"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex 5ee2eab9..befee541 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -236,12 +236,8 @@ public class ZipArchiveInputStream extends ArchiveInputStream {\n             } catch (DataFormatException e) {\n                 throw new ZipException(e.getMessage());\n             }\n+            if (read == 0) {\n+                if (inf.finished()) {\n+                    return -1;\n+                } else if (lengthOfLastRead == -1) {\n+                    throw new IOException(\"Truncated ZIP file\");\n+                }\n-            if (read == 0 && inf.finished()) {\n-                return -1;\n             }\n             crc.update(buffer, start, read);\n             return read;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Stefan Bodewig",
+        "commit_date": "2009-03-26 18:29:59",
+        "commit_message": "support as much as possible of ZipFile as a stream can do in ZipArchiveInputStream, COMPRESS-47",
+        "commit_hash": "008ca948dadacea8d1a2662c577fdcb25f32d5e2"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "fill",
+          "close",
+          "closeEntry",
+          "ZipArchiveInputStream",
+          "skip",
+          "readFully",
+          "read"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "fill",
+          "close",
+          "closeEntry",
+          "ZipArchiveInputStream",
+          "skip",
+          "readFully",
+          "setNameAndCommentFromExtraFields",
+          "getUnicodeStringIfOriginalMatches",
+          "read"
+        ],
+        "functions_name_modified_file": [
+          "matches",
+          "fill",
+          "close",
+          "closeEntry",
+          "getNextEntry",
+          "ZipArchiveInputStream",
+          "skip",
+          "readFully",
+          "getNextZipEntry",
+          "read"
+        ],
+        "functions_name_all_files": [
+          "deflateUntilInputIsNeeded",
+          "toString",
+          "getName",
+          "setComment",
+          "setPlatform",
+          "setUseLanguageEncodingFlag",
+          "UnicodeExtraFieldPolicy",
+          "setMethod",
+          "setNameAndCommentFromExtraFields",
+          "mergeExtraFields",
+          "matches",
+          "dosToJavaTime",
+          "getInputStream",
+          "setLevel",
+          "read",
+          "setExtraFields",
+          "writeCentralDirectoryEnd",
+          "addAsFirstExtraField",
+          "ZipLong",
+          "NameAndComment",
+          "closeArchiveEntry",
+          "putNextEntry",
+          "getValue",
+          "ZipUtil",
+          "ZipFile",
+          "resolveLocalFileHeaderData",
+          "close",
+          "setExtra",
+          "getNextZipEntry",
+          "finish",
+          "setCreateUnicodeExtraFields",
+          "getEncoding",
+          "setUnixMode",
+          "fill",
+          "writeLocalFileHeader",
+          "closeEntry",
+          "deflate",
+          "equals",
+          "getUnixMode",
+          "getNextEntry",
+          "ZipArchiveEntry",
+          "setName",
+          "fromDosTime",
+          "startsWithLocalFileHeader",
+          "setCentralDirectoryExtra",
+          "ZipArchiveInputStream",
+          "setEncoding",
+          "getUnicodeStringIfOriginalMatches",
+          "getExternalAttributes",
+          "readFully",
+          "getInternalAttributes",
+          "setFallbackToUTF8",
+          "putArchiveEntry",
+          "addExtraField",
+          "getPlatform",
+          "toDosTime",
+          "writeOut",
+          "writeVersionNeededToExtractAndGeneralPurposeBits",
+          "ZipArchiveOutputStream",
+          "getEntries",
+          "populateFromCentralDirectory",
+          "write",
+          "adjustToLong",
+          "hashCode",
+          "writeCentralFileHeader",
+          "removeExtraField",
+          "flush",
+          "addDummy",
+          "setExternalAttributes",
+          "skip",
+          "positionAtCentralDirectory",
+          "setInternalAttributes",
+          "getExtraField",
+          "getEntry",
+          "closeQuietly",
+          "writeDataDescriptor",
+          "isDirectory",
+          "isSeekable",
+          "clone",
+          "BoundedInputStream"
+        ],
+        "function_code_before": "    public int read(byte[] b, int off, int len) throws IOException {\n        return input.read(b, off, len);\n    }",
+        "function_code_after": "    public int read(byte[] buffer, int start, int length) throws IOException {\n        if (closed) {\n            throw new IOException(\"The stream is closed\");\n        }\n        if (inf.finished() || current == null) {\n            return -1;\n        }\n\n        // avoid int overflow, check null buffer\n        if (start <= buffer.length && length >= 0 && start >= 0\n            && buffer.length - start >= length) {\n            if (current.getMethod() == ZipArchiveOutputStream.STORED) {\n                int csize = (int) current.getSize();\n                if (readBytesOfEntry >= csize) {\n                    return -1;\n                }\n                if (offsetInBuffer >= lengthOfLastRead) {\n                    offsetInBuffer = 0;\n                    if ((lengthOfLastRead = in.read(buf)) == -1) {\n                        return -1;\n                    }\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n                int toRead = length > lengthOfLastRead\n                    ? lengthOfLastRead - offsetInBuffer\n                    : length;\n                if ((csize - readBytesOfEntry) < toRead) {\n                    toRead = csize - readBytesOfEntry;\n                }\n                System.arraycopy(buf, offsetInBuffer, buffer, start, toRead);\n                offsetInBuffer += toRead;\n                readBytesOfEntry += toRead;\n                crc.update(buffer, start, toRead);\n                return toRead;\n            }\n            if (inf.needsInput()) {\n                fill();\n                if (lengthOfLastRead > 0) {\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n            }\n            int read = 0;\n            try {\n                read = inf.inflate(buffer, start, length);\n            } catch (DataFormatException e) {\n                throw new ZipException(e.getMessage());\n            }\n            if (read == 0 && inf.finished()) {\n                return -1;\n            }\n            crc.update(buffer, start, read);\n            return read;\n        }\n        throw new ArrayIndexOutOfBoundsException();\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex d1a17ffd..7fb0f58b 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -18,41 +18,250 @@\n  */\n package org.apache.commons.compress.archivers.zip;\n \n+import java.io.EOFException;\n import java.io.IOException;\n import java.io.InputStream;\n-import java.util.zip.ZipInputStream;\n+import java.io.PushbackInputStream;\n+import java.util.zip.CRC32;\n+import java.util.zip.DataFormatException;\n+import java.util.zip.Inflater;\n+import java.util.zip.ZipException;\n \n import org.apache.commons.compress.archivers.ArchiveEntry;\n import org.apache.commons.compress.archivers.ArchiveInputStream;\n \n public class ZipArchiveInputStream extends ArchiveInputStream {\n \n-    private final ZipInputStream input;\n+    private static final int SHORT = 2;\n+    private static final int WORD = 4;\n+\n+    /**\n+     * The zip encoding to use for filenames and the file comment.\n+     */\n+    private final ZipEncoding zipEncoding;\n+\n+    /**\n+     * Whether to look for and use Unicode extra fields.\n+     */\n+    private final boolean useUnicodeExtraFields;\n+\n+    private final InputStream in;\n+\n+    private final Inflater inf = new Inflater(true);\n+    private final CRC32 crc = new CRC32();\n+\n+    private final byte[] SINGLE = new byte[1];\n+    private final byte[] buf = new byte[ZipArchiveOutputStream.BUFFER_SIZE];\n+\n+    private ZipArchiveEntry current = null;\n+    private boolean closed = false;\n+    private boolean hitCentralDirectory = false;\n+    private int readBytesOfEntry = 0, offsetInBuffer = 0;\n+    private int bytesReadFromStream = 0;\n+    private int lengthOfLastRead = 0;\n+    private boolean hasDataDescriptor = false;\n+\n+    private static final int LFH_LEN = 30;\n+    /*\n+      local file header signature     4 bytes  (0x04034b50)\n+      version needed to extract       2 bytes\n+      general purpose bit flag        2 bytes\n+      compression method              2 bytes\n+      last mod file time              2 bytes\n+      last mod file date              2 bytes\n+      crc-32                          4 bytes\n+      compressed size                 4 bytes\n+      uncompressed size               4 bytes\n+      file name length                2 bytes\n+      extra field length              2 bytes\n+    */\n \n     public ZipArchiveInputStream(InputStream inputStream) {\n-        input = new ZipInputStream(inputStream);\n+        this(inputStream, ZipEncodingHelper.UTF8, true);\n+    }\n+\n+    /**\n+     * @param encoding the encoding to use for file names, use null\n+     * for the platform's default encoding\n+     * @param useUnicodeExtraFields whether to use InfoZIP Unicode\n+     * Extra Fields (if present) to set the file names.\n+     */\n+    public ZipArchiveInputStream(InputStream inputStream,\n+                                 String encoding,\n+                                 boolean useUnicodeExtraFields) {\n+        zipEncoding = ZipEncodingHelper.getZipEncoding(encoding);\n+        this.useUnicodeExtraFields = useUnicodeExtraFields;\n+        in = new PushbackInputStream(inputStream, buf.length);\n     }\n \n     public ZipArchiveEntry getNextZipEntry() throws IOException {\n-        java.util.zip.ZipEntry entry = input.getNextEntry();\n-        if(entry == null) {\n+        if (closed || hitCentralDirectory) {\n             return null;\n         }\n-        return new ZipArchiveEntry(entry);\n+        if (current != null) {\n+            closeEntry();\n+        }\n+        int x = 0, count = 0;\n+        byte[] lfh = new byte[LFH_LEN];\n+        try {\n+            readFully(lfh);\n+        } catch (EOFException e) {\n+            return null;\n+        }\n+        ZipLong sig = new ZipLong(lfh);\n+        if (sig.equals(ZipLong.CFH_SIG)) {\n+            hitCentralDirectory = true;\n+            return null;\n+        }\n+        if (!sig.equals(ZipLong.LFH_SIG)) {\n+            return null;\n+        }\n+\n+        int off = WORD;\n+        current = new ZipArchiveEntry();\n+\n+        int versionMadeBy = ZipShort.getValue(lfh, off);\n+        off += SHORT;\n+        current.setPlatform((versionMadeBy >> ZipFile.BYTE_SHIFT)\n+                            & ZipFile.NIBLET_MASK);\n+\n+        final int generalPurposeFlag = ZipShort.getValue(lfh, off);\n+        final boolean hasEFS = \n+            (generalPurposeFlag & ZipArchiveOutputStream.EFS_FLAG) != 0;\n+        final ZipEncoding entryEncoding =\n+            hasEFS ? ZipEncodingHelper.UTF8_ZIP_ENCODING : zipEncoding;\n+        hasDataDescriptor = (generalPurposeFlag & 8) != 0;\n+\n+        off += SHORT;\n+\n+        current.setMethod(ZipShort.getValue(lfh, off));\n+        off += SHORT;\n+\n+        long time = ZipUtil.dosToJavaTime(ZipLong.getValue(lfh, off));\n+        current.setTime(time);\n+        off += WORD;\n+\n+        if (!hasDataDescriptor) {\n+            current.setCrc(ZipLong.getValue(lfh, off));\n+            off += WORD;\n+\n+            current.setCompressedSize(ZipLong.getValue(lfh, off));\n+            off += WORD;\n+\n+            current.setSize(ZipLong.getValue(lfh, off));\n+            off += WORD;\n+        } else {\n+            off += 3 * WORD;\n+        }\n+\n+        int fileNameLen = ZipShort.getValue(lfh, off);\n+\n+        off += SHORT;\n+\n+        int extraLen = ZipShort.getValue(lfh, off);\n+        off += SHORT;\n+\n+        byte[] fileName = new byte[fileNameLen];\n+        readFully(fileName);\n+        current.setName(entryEncoding.decode(fileName));\n+\n+        byte[] extraData = new byte[extraLen];\n+        readFully(extraData);\n+        current.setExtra(extraData);\n+\n+        ZipUtil.setNameAndCommentFromExtraFields(current, fileName, null);\n+\n+        return current;\n     }\n \n     public ArchiveEntry getNextEntry() throws IOException {\n         return getNextZipEntry();\n     }\n \n-    public int read(byte[] b, int off, int len) throws IOException {\n-        return input.read(b, off, len);\n+    public int read(byte[] buffer, int start, int length) throws IOException {\n+        if (closed) {\n+            throw new IOException(\"The stream is closed\");\n+        }\n+        if (inf.finished() || current == null) {\n+            return -1;\n+        }\n+\n+        // avoid int overflow, check null buffer\n+        if (start <= buffer.length && length >= 0 && start >= 0\n+            && buffer.length - start >= length) {\n+            if (current.getMethod() == ZipArchiveOutputStream.STORED) {\n+                int csize = (int) current.getSize();\n+                if (readBytesOfEntry >= csize) {\n+                    return -1;\n+                }\n+                if (offsetInBuffer >= lengthOfLastRead) {\n+                    offsetInBuffer = 0;\n+                    if ((lengthOfLastRead = in.read(buf)) == -1) {\n+                        return -1;\n+                    }\n+                    bytesReadFromStream += lengthOfLastRead;\n+                }\n+                int toRead = length > lengthOfLastRead\n+                    ? lengthOfLastRead - offsetInBuffer\n+                    : length;\n+                if ((csize - readBytesOfEntry) < toRead) {\n+                    toRead = csize - readBytesOfEntry;\n+                }\n+                System.arraycopy(buf, offsetInBuffer, buffer, start, toRead);\n+                offsetInBuffer += toRead;\n+                readBytesOfEntry += toRead;\n+                crc.update(buffer, start, toRead);\n+                return toRead;\n+            }\n+            if (inf.needsInput()) {\n+                fill();\n+                if (lengthOfLastRead > 0) {\n+                    bytesReadFromStream += lengthOfLastRead;\n+                }\n+            }\n+            int read = 0;\n+            try {\n+                read = inf.inflate(buffer, start, length);\n+            } catch (DataFormatException e) {\n+                throw new ZipException(e.getMessage());\n+            }\n+            if (read == 0 && inf.finished()) {\n+                return -1;\n+            }\n+            crc.update(buffer, start, read);\n+            return read;\n+        }\n+        throw new ArrayIndexOutOfBoundsException();\n+    }\n+\n+    public void close() throws IOException {\n+        if (!closed) {\n+            closed = true;\n+            in.close();\n+        }\n     }\n \n     public int read() throws IOException {\n-        return input.read();\n+        int num = read(SINGLE, 0, 1);\n+        return num == -1 ? -1 : SINGLE[0] & ZipArchiveOutputStream.BYTE_MASK;\n     }\n \n+    public long skip(long value) throws IOException {\n+        if (value >= 0) {\n+            long skipped = 0;\n+            byte[] b = new byte[1024];\n+            while (skipped != value) {\n+                long rem = value - skipped;\n+                int x = read(b, 0, (int) (b.length > rem ? rem : b.length));\n+                if (x == -1) {\n+                    return skipped;\n+                }\n+                skipped += x;\n+            }\n+            return skipped;\n+        }\n+        throw new IllegalArgumentException();\n+    }\n \n     public static boolean matches(byte[] signature, int length) {\n         if (length < ZipArchiveOutputStream.LFH_SIG.length) {\n@@ -67,4 +276,59 @@ public class ZipArchiveInputStream extends ArchiveInputStream {\n \n         return true;\n     }\n+\n+    private void closeEntry() throws IOException {\n+        if (closed) {\n+            throw new IOException(\"The stream is closed\");\n+        }\n+        if (current == null) {\n+            return;\n+        }\n+        // Ensure all entry bytes are read\n+        skip(Long.MAX_VALUE);\n+        int inB, out;\n+        if (current.getMethod() == ZipArchiveOutputStream.DEFLATED) {\n+            inB = inf.getTotalIn();\n+            out = inf.getTotalOut();\n+        } else {\n+            inB = readBytesOfEntry;\n+            out = readBytesOfEntry;\n+        }\n+        int diff = 0;\n+\n+        // Pushback any required bytes\n+        if ((diff = bytesReadFromStream - inB) != 0) {\n+            ((PushbackInputStream) in).unread(buf,\n+                                              lengthOfLastRead - diff, diff);\n+        }\n+\n+        if (hasDataDescriptor) {\n+            readFully(new byte[4 * WORD]);\n+        }\n+\n+        inf.reset();\n+        readBytesOfEntry = offsetInBuffer = bytesReadFromStream =\n+            lengthOfLastRead = 0;\n+        crc.reset();\n+        current = null;\n+    }\n+\n+    private void fill() throws IOException {\n+        if (closed) {\n+            throw new IOException(\"The stream is closed\");\n+        }\n+        if ((lengthOfLastRead = in.read(buf)) > 0) {\n+            inf.setInput(buf, 0, lengthOfLastRead);\n+        }\n+    }\n+\n+    private void readFully(byte[] b) throws IOException {\n+        int count = 0, x = 0;\n+        while (count != b.length) {\n+            count += x = in.read(b, count, b.length - count);\n+            if (x == -1) {\n+                throw new EOFException();\n+            }\n+        }\n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

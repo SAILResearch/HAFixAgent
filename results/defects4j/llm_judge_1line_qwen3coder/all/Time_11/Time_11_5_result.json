@@ -1,0 +1,199 @@
+{
+  "project_name": "Time",
+  "bug_id": "11",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 03:22:44",
+      "end_time": "2026-06-20 03:24:34",
+      "duration_seconds": 110,
+      "duration_human": "1m 50s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 45,
+    "token_usage": {
+      "input_tokens": 381642,
+      "output_tokens": 2857,
+      "total_tokens": 384499,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 381642
+    },
+    "agent_steps": 45,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\nindex 6efe0716..5f15884a 100644\n--- a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n+++ b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n@@ -66,16 +66,14 @@ public class ZoneInfoCompiler {\n     static Chronology cLenientISO;\n \n     static ThreadLocal<Boolean> cVerbose = new ThreadLocal<Boolean>();\n-    static {\n-        cVerbose.set(Boolean.FALSE);\n-    }\n \n     /**\n      * Gets a flag indicating that verbose logging is required.\n      * @return true to log verbosely\n      */\n     public static boolean verbose() {\n-        return cVerbose.get();\n+        Boolean verbose = cVerbose.get();\n+        return (verbose != null) ? verbose : false;\n     }\n \n     //-----------------------------------------------------------------------\n"
+  },
+  "timestamp": "2026-06-20 03:24:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Time",
+    "bug_id": "Time_11",
+    "repo_path": "/defects4j/framework/bin/temp/Time_11",
+    "github_url": "https://github.com/JodaOrg/joda-time.git",
+    "description": "NPE in DateTimeZoneBuilder\nWhen a DateTimeZone is build with duplicate-named 'recurring saving time' in a first thread, all goes Ok: a warning message is generated and an identifier is automatically generated in PrecalculatedZone.create(). When a second thread does the same, an NPE is generated in ZoneInfoCompiler.verbose().\n\nThe cause is that the cVerbose ThreadLocal is incorrectly initialized in ZoneInfoCompiler:\n\n``` java\n   static {\n        cVerbose.set(Boolean.FALSE);\n    }\n```\n\n...will initialize cVerbose only for the first thread and not for the subsequent ones. The NPE is caused by the autoboxing in:\n\n``` java\n   public static boolean verbose() {\n        return cVerbose.get();\n    }\n```\n\nA better approach could be to remove the initialization and test for null:\n\n``` java\npublic static boolean verbose(){\n    Boolean verbose = cVerbose.get();\n    return (verbose != null) ? verbose : false;\n}\n```\n\n---\n\nHere follows a test case:\n\n``` java\n    @Test\n    public void testDateTimeZoneBuilder() throws Exception {\n        getTestDataTimeZoneBuilder().toDateTimeZone(\"TestDTZ1\", true);\n        Thread t = new Thread(new Runnable() {\n            @Override\n            public void run() {\n                getTestDataTimeZoneBuilder().toDateTimeZone(\"TestDTZ2\", true);\n            }\n        });\n        t.start();\n        t.join();\n    }\n\n    private DateTimeZoneBuilder getTestDataTimeZoneBuilder() {\n         return new DateTimeZoneBuilder()\n         .addCutover(1601, 'w', 1, 1, 1, false, 7200000)\n         .setStandardOffset(3600000)\n         .addRecurringSavings(\"\", 3600000, 1601, Integer.MAX_VALUE, 'w', 3, -1, 1, false, 7200000)\n         .addRecurringSavings(\"\", 0, 1601, Integer.MAX_VALUE, 'w', 10, -1, 1, false, 10800000);\n    }\n```\n\n",
+    "commit_message": "Fix ZoneInfoCompiler and DateTimeZoneBuilder multi-threading",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/joda/time/tz/ZoneInfoCompiler.java",
+        "start_line": 68,
+        "end_line": 71,
+        "line_numbers": [
+          68,
+          69,
+          70,
+          71
+        ],
+        "function_name": "",
+        "class_name": "ZoneInfoCompiler",
+        "filename": "ZoneInfoCompiler.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.joda.time.tz.TestCompiler::testDateTimeZoneBuilder"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\nindex 64da5ea..6efe071 100644\n--- a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n+++ b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n@@ -65,11 +65,10 @@ public class ZoneInfoCompiler {\n \n     static Chronology cLenientISO;\n \n+    static ThreadLocal<Boolean> cVerbose = new ThreadLocal<Boolean>() {\n+        protected Boolean initialValue() {\n+            return Boolean.FALSE;\n+        }\n+    };\n-    static ThreadLocal<Boolean> cVerbose = new ThreadLocal<Boolean>();\n-    static {\n-        cVerbose.set(Boolean.FALSE);\n-    }\n \n     /**\n      * Gets a flag indicating that verbose logging is required.",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Stephen Colebourne",
+        "commit_date": "2010-08-18 19:43:33",
+        "commit_message": "Reduce logging from ZoneInfoCompiler by adding a verbose flag",
+        "commit_hash": "01ed04f3a83f17e9947c83d04cb258430429789d"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "verbose"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "verbose"
+        ],
+        "functions_name_modified_file": [
+          "buildDateTimeZone",
+          "DateTimeOfYear",
+          "RuleSet",
+          "Rule",
+          "test",
+          "toString",
+          "getLenientISOChronology",
+          "parseZoneChar",
+          "parseYear",
+          "parseDataFile",
+          "addRule",
+          "formatName",
+          "Zone",
+          "parseMonth",
+          "main",
+          "parseDayOfWeek",
+          "parseOptional",
+          "addRecurring",
+          "writeZoneInfoMap",
+          "addToBuilder",
+          "addCutover",
+          "printUsage",
+          "parseTime",
+          "verbose",
+          "chain",
+          "compile",
+          "ZoneInfoCompiler",
+          "getStartOfYear"
+        ],
+        "functions_name_all_files": [
+          "buildDateTimeZone",
+          "previousTransition",
+          "setDayOfMonthNext",
+          "DateTimeOfYear",
+          "RuleSet",
+          "nextTransition",
+          "DSTZone",
+          "equals",
+          "Rule",
+          "test",
+          "toString",
+          "buildFixedZone",
+          "OfYear",
+          "setDayOfMonthPrevious",
+          "getWallOffset",
+          "buildTailZone",
+          "setStandardOffset",
+          "getOffset",
+          "readMillis",
+          "getLenientISOChronology",
+          "getOfYear",
+          "renameAppend",
+          "parseZoneChar",
+          "parseYear",
+          "parseDataFile",
+          "create",
+          "addRule",
+          "formatName",
+          "writeTo",
+          "Zone",
+          "parseMonth",
+          "DateTimeZoneBuilder",
+          "isFixed",
+          "main",
+          "parseDayOfWeek",
+          "setDayOfMonth",
+          "getFromYear",
+          "writeZoneInfoMap",
+          "parseOptional",
+          "addRecurring",
+          "isTransitionFrom",
+          "addToBuilder",
+          "setFixedSavings",
+          "writeMillis",
+          "toDateTimeZone",
+          "addCutover",
+          "getNameKey",
+          "getSaveMillis",
+          "getToYear",
+          "getLastRuleSet",
+          "Transition",
+          "getMillis",
+          "isCachable",
+          "verbose",
+          "printUsage",
+          "setUpperLimit",
+          "parseTime",
+          "chain",
+          "compile",
+          "next",
+          "Recurrence",
+          "readFrom",
+          "setDayOfWeek",
+          "getStandardOffset",
+          "firstTransition",
+          "addRecurringSavings",
+          "PrecalculatedZone",
+          "ZoneInfoCompiler",
+          "getUpperLimit",
+          "findMatchingRecurrence",
+          "getStartOfYear",
+          "previous",
+          "addTransition",
+          "rename",
+          "setInstant"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "JodaTime/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+          "JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java"
+        ],
+        "file_patches": {
+          "JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java": "diff --git a/JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java b/JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\nindex a7b54185..a057c304 100644\n--- a/JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n+++ b/JodaTime/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java\n@@ -1,5 +1,5 @@\n /*\n- *  Copyright 2001-2009 Stephen Colebourne\n+ *  Copyright 2001-2010 Stephen Colebourne\n  *\n  *  Licensed under the Apache License, Version 2.0 (the \"License\");\n  *  you may not use this file except in compliance with the License.\n@@ -65,6 +65,20 @@ public class ZoneInfoCompiler {\n \n     static Chronology cLenientISO;\n \n+    static ThreadLocal<Boolean> cVerbose = new ThreadLocal<Boolean>();\n+    static {\n+        cVerbose.set(Boolean.FALSE);\n+    }\n+\n+    /**\n+     * Gets a flag indicating that verbose logging is required.\n+     * @return true to log verbosely\n+     */\n+    public static boolean verbose() {\n+        return cVerbose.get();\n+    }\n+\n+    //-----------------------------------------------------------------------\n     /**\n      * Launches the ZoneInfoCompiler tool.\n      *\n@@ -73,6 +87,7 @@ public class ZoneInfoCompiler {\n      * where possible options include:\n      *   -src &lt;directory&gt;    Specify where to read source files\n      *   -dst &lt;directory&gt;    Specify where to write generated files\n+     *   -verbose            Output verbosely (default false)\n      * </pre>\n      */\n     public static void main(String[] args) throws Exception {\n@@ -83,6 +98,7 @@ public class ZoneInfoCompiler {\n \n         File inputDir = null;\n         File outputDir = null;\n+        boolean verbose = false;\n \n         int i;\n         for (i=0; i<args.length; i++) {\n@@ -91,6 +107,8 @@ public class ZoneInfoCompiler {\n                     inputDir = new File(args[++i]);\n                 } else if (\"-dst\".equals(args[i])) {\n                     outputDir = new File(args[++i]);\n+                } else if (\"-verbose\".equals(args[i])) {\n+                    verbose = true;\n                 } else if (\"-?\".equals(args[i])) {\n                     printUsage();\n                     return;\n@@ -113,6 +131,7 @@ public class ZoneInfoCompiler {\n             sources[j] = inputDir == null ? new File(args[i]) : new File(inputDir, args[i]);\n         }\n \n+        cVerbose.set(verbose);\n         ZoneInfoCompiler zic = new ZoneInfoCompiler();\n         zic.compile(outputDir, sources);\n     }\n@@ -122,6 +141,7 @@ public class ZoneInfoCompiler {\n         System.out.println(\"where possible options include:\");\n         System.out.println(\"  -src <directory>    Specify where to read source files\");\n         System.out.println(\"  -dst <directory>    Specify where to write generated files\");\n+        System.out.println(\"  -verbose            Output verbosely (default false)\");\n     }\n \n     static DateTimeOfYear getStartOfYear() {\n@@ -363,6 +383,7 @@ public class ZoneInfoCompiler {\n \n         Map<String, DateTimeZone> map = new TreeMap<String, DateTimeZone>();\n \n+        System.out.println(\"Writing zoneinfo files\");\n         for (int i=0; i<iZones.size(); i++) {\n             Zone zone = iZones.get(i);\n             DateTimeZoneBuilder builder = new DateTimeZoneBuilder();\n@@ -372,7 +393,9 @@ public class ZoneInfoCompiler {\n             if (test(tz.getID(), tz)) {\n                 map.put(tz.getID(), tz);\n                 if (outputDir != null) {\n-                    System.out.println(\"Writing \" + tz.getID());\n+                    if (ZoneInfoCompiler.verbose()) {\n+                        System.out.println(\"Writing \" + tz.getID());\n+                    }\n                     File file = new File(outputDir, tz.getID());\n                     if (!file.getParentFile().exists()) {\n                         file.getParentFile().mkdirs();"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_130",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 01:11:20",
+      "end_time": "2026-03-24 01:49:24",
+      "duration_seconds": 2285,
+      "duration_human": "38m 5s"
+    },
+    "model_cost": 0.2446,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1807007,
+      "output_tokens": 87066,
+      "total_tokens": 1894073,
+      "cached_input_tokens": 1033216,
+      "uncached_input_tokens": 773791
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/ops.py b/pandas/core/groupby/ops.py\nindex 2c8aa12944..9f44f8ba6b 100644\n--- a/pandas/core/groupby/ops.py\n+++ b/pandas/core/groupby/ops.py\n@@ -753,13 +753,20 @@ class BinGrouper(BaseGrouper):\n     def group_info(self):\n         ngroups = self.ngroups\n         obs_group_ids = np.arange(ngroups)\n+        \n+        # Calculate bin sizes\n         rep = np.diff(np.r_[0, self.bins])\n-\n         rep = ensure_platform_int(rep)\n+        \n         if ngroups == len(self.bins):\n+            # All bins have valid labels\n             comp_ids = np.repeat(np.arange(ngroups), rep)\n         else:\n-            comp_ids = np.repeat(np.r_[-1, np.arange(ngroups)], rep)\n+            # First bin corresponds to NA label\n+            # The first rep[0] elements belong to NA group (-1)\n+            # Remaining elements belong to valid groups 0..ngroups-1\n+            comp_ids = np.repeat(np.r_[-1, np.arange(ngroups)], \n+                                 np.r_[rep[0], rep[1:]])\n \n         return (\n             comp_ids.astype(\"int64\", copy=False),\ndiff --git a/pandas/tests/groupby/test_value_counts.py b/pandas/tests/groupby/test_value_counts.py\nindex 363c5a9af0..c76ee09f97 100644\n--- a/pandas/tests/groupby/test_value_counts.py\n+++ b/pandas/tests/groupby/test_value_counts.py\n@@ -9,7 +9,7 @@ from itertools import product\n import numpy as np\n import pytest\n \n-from pandas import DataFrame, MultiIndex, Series, date_range\n+from pandas import DataFrame, Grouper, MultiIndex, Series, date_range, to_datetime\n import pandas.util.testing as tm\n \n \n@@ -79,3 +79,31 @@ def test_series_groupby_value_counts(\n     # have to sort on index because of unstable sort on values\n     left, right = map(rebuild_index, (left, right))  # xref GH9212\n     tm.assert_series_equal(left.sort_index(), right.sort_index())\n+\n+\n+def test_series_groupby_value_counts_with_grouper():\n+    # GH28479\n+    df = DataFrame(\n+        {\n+            \"Timestamp\": [\n+                1565083561,\n+                1565083561 + 86400,\n+                1565083561 + 86500,\n+                1565083561 + 86400 * 2,\n+                1565083561 + 86400 * 3,\n+                1565083561 + 86500 * 3,\n+                1565083561 + 86400 * 4,\n+            ],\n+            \"Food\": [\"apple\", \"apple\", \"banana\", \"banana\", \"orange\", \"orange\", \"pear\"],\n+        }\n+    ).drop([3])\n+\n+    df[\"Datetime\"] = to_datetime(df[\"Timestamp\"].apply(lambda t: str(t)), unit=\"s\")\n+    dfg = df.groupby(Grouper(freq=\"1D\", key=\"Datetime\"))\n+\n+    # have to sort on index because of unstable sort on values xref GH9212\n+    result = dfg[\"Food\"].value_counts().sort_index()\n+    expected = dfg[\"Food\"].apply(Series.value_counts).sort_index()\n+    expected.index.names = result.index.names\n+\n+    tm.assert_series_equal(result, expected)\n"
+  },
+  "timestamp": "2026-03-23 21:49:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_130",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_130/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: value_counts can handle the case even with empty groups (#28479) (#28634)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 769,
+        "end_line": 770,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 770,
+        "end_line": 771,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 771,
+        "end_line": 772,
+        "function_name": "result_index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 772,
+        "end_line": 773,
+        "function_name": "result_index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/ops.py",
+        "start_line": 773,
+        "end_line": 774,
+        "function_name": "result_index",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_value_counts.py::test_series_groupby_value_counts_with_grouper"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

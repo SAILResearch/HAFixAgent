@@ -1,0 +1,69 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_160",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 05:15:52",
+      "end_time": "2026-03-24 05:36:04",
+      "duration_seconds": 1212,
+      "duration_human": "20m 12s"
+    },
+    "model_cost": 0.1081,
+    "model_calls": 19,
+    "token_usage": {
+      "input_tokens": 657368,
+      "output_tokens": 50264,
+      "total_tokens": 707632,
+      "cached_input_tokens": 333376,
+      "uncached_input_tokens": 323992
+    },
+    "agent_steps": 19,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/computation/expressions.py b/pandas/core/computation/expressions.py\nindex 5b6d275001..d2fb3b98e0 100644\n--- a/pandas/core/computation/expressions.py\n+++ b/pandas/core/computation/expressions.py\n@@ -81,11 +81,25 @@ def _can_use_numexpr(op, op_str, a, b, dtype_check):\n             dtypes = set()\n             for o in [a, b]:\n                 if hasattr(o, \"dtypes\"):\n-                    s = o.dtypes.value_counts()\n-                    if len(s) > 1:\n-                        return False\n-                    dtypes |= set(s.index.astype(str))\n+\n+                    # Handle both DataFrame and Series\n+\n+                    if hasattr(o.dtypes, \"value_counts\"):  # DataFrame\n+\n+                        s = o.dtypes.value_counts()\n+\n+                        if len(s) > 1:\n+\n+                            return False\n+\n+                        dtypes |= set(s.index.astype(str))\n+\n+                    else:  # Series\n+\n+                        dtypes |= {str(o.dtypes)}\n+\n                 elif isinstance(o, np.ndarray):\n+\n                     dtypes |= {o.dtype.name}\n \n             # allowed are a superset\ndiff --git a/pandas/tests/test_expressions.py b/pandas/tests/test_expressions.py\nindex 4070624985..ca514f62f4 100644\n--- a/pandas/tests/test_expressions.py\n+++ b/pandas/tests/test_expressions.py\n@@ -66,7 +66,7 @@ class TestExpressions:\n                 operator_name = \"truediv\"\n \n             if test_flex:\n-                op = lambda x, y: getattr(df, arith)(y)\n+                op = lambda x, y: getattr(x, arith)(y)\n                 op.__name__ = arith\n             else:\n                 op = getattr(operator, operator_name)\n@@ -318,7 +318,6 @@ class TestExpressions:\n             for f in [self.frame, self.frame2, self.mixed, self.mixed2]:\n \n                 for cond in [True, False]:\n-\n                     c = np.empty(f.shape, dtype=np.bool_)\n                     c.fill(cond)\n                     result = expr.where(c, f.values, f.values + 1)\n@@ -431,3 +430,29 @@ class TestExpressions:\n         # GH 22383 - .ne fails if columns containing column name 'dtype'\n         result = test_input.loc[:, [\"a\", \"dtype\"]].ne(test_input.loc[:, [\"a\", \"dtype\"]])\n         assert_frame_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"arith\", (\"add\", \"sub\", \"mul\", \"mod\", \"truediv\", \"floordiv\")\n+    )\n+    @pytest.mark.parametrize(\"axis\", (0, 1))\n+    def test_frame_series_axis(self, axis, arith):\n+        # GH#26736 Dataframe.floordiv(Series, axis=1) fails\n+        if axis == 1 and arith == \"floordiv\":\n+            pytest.xfail(\"'floordiv' does not succeed with axis=1 #27636\")\n+\n+        df = self.frame\n+        if axis == 1:\n+            other = self.frame.iloc[0, :]\n+        else:\n+            other = self.frame.iloc[:, 0]\n+\n+        expr._MIN_ELEMENTS = 0\n+\n+        op_func = getattr(df, arith)\n+\n+        expr.set_use_numexpr(False)\n+        expected = op_func(other, axis=axis)\n+        expr.set_use_numexpr(True)\n+\n+        result = op_func(other, axis=axis)\n+        assert_frame_equal(expected, result)\n"
+  },
+  "timestamp": "2026-03-24 01:36:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_160",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_160/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: _can_use_numexpr fails when passed large Series (#27773)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 79,
+        "end_line": 79,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 83,
+        "end_line": 83,
+        "function_name": "_can_use_numexpr",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 88,
+        "end_line": 88,
+        "function_name": "_can_use_numexpr",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/test_expressions.py::TestExpressions::test_frame_series_axis"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

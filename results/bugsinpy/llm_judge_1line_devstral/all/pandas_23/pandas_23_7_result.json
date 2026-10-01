@@ -1,0 +1,78 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_23",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:57:44",
+      "end_time": "2026-06-27 22:59:48",
+      "duration_seconds": 125,
+      "duration_human": "2m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 707284,
+      "output_tokens": 5921,
+      "total_tokens": 713205,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 707284
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/datetimelike.py b/pandas/core/indexes/datetimelike.py\nindex b83b64c144..c5af3170f1 100644\n--- a/pandas/core/indexes/datetimelike.py\n+++ b/pandas/core/indexes/datetimelike.py\n@@ -724,10 +724,10 @@ class DatetimeTimedeltaMixin(DatetimeIndexOpsMixin, Int64Index):\n         start = right[0]\n \n         if end < start:\n-            return type(self)(data=[])\n+            return type(self)(data=[], dtype=self.dtype)\n         else:\n             lslice = slice(*left.slice_locs(start, end))\n-            left_chunk = left.values[lslice]\n+            left_chunk = left._data[lslice]\n             return self._shallow_copy(left_chunk)\n \n     def _can_fast_union(self, other) -> bool:\ndiff --git a/pandas/tests/indexes/datetimes/test_setops.py b/pandas/tests/indexes/datetimes/test_setops.py\nindex c088301097..7182d05b77 100644\n--- a/pandas/tests/indexes/datetimes/test_setops.py\n+++ b/pandas/tests/indexes/datetimes/test_setops.py\n@@ -269,14 +269,34 @@ class TestDatetimeIndexSetOps:\n             assert result.freq is None\n             assert result.tz == expected.tz\n \n-    def test_intersection_empty(self):\n+    # parametrize over both anchored and non-anchored freqs, as they\n+    #  have different code paths\n+    @pytest.mark.parametrize(\"freq\", [\"T\", \"B\"])\n+    def test_intersection_empty(self, tz_aware_fixture, freq):\n         # empty same freq GH2129\n-        rng = date_range(\"6/1/2000\", \"6/15/2000\", freq=\"T\")\n+        tz = tz_aware_fixture\n+        rng = date_range(\"6/1/2000\", \"6/15/2000\", freq=freq, tz=tz)\n         result = rng[0:0].intersection(rng)\n         assert len(result) == 0\n+        assert result.freq == rng.freq\n \n         result = rng.intersection(rng[0:0])\n         assert len(result) == 0\n+        assert result.freq == rng.freq\n+\n+        # no overlap GH#33604\n+        result = rng[:3].intersection(rng[-3:])\n+        tm.assert_index_equal(result, rng[:0])\n+        if freq != \"T\":\n+            # We don't preserve freq on non-anchored offsets\n+            assert result.freq == rng.freq\n+\n+        # swapped left and right\n+        result = rng[-3:].intersection(rng[:3])\n+        tm.assert_index_equal(result, rng[:0])\n+        if freq != \"T\":\n+            # We don't preserve freq on non-anchored offsets\n+            assert result.freq == rng.freq\n \n     def test_intersection_bug_1708(self):\n         from pandas import DateOffset\n@@ -450,6 +470,7 @@ class TestBusinessDatetimeIndex:\n         b = bdate_range(\"12/10/2011\", \"12/20/2011\")\n         result = a.intersection(b)\n         tm.assert_index_equal(result, b)\n+        assert result.freq == b.freq\n \n     def test_month_range_union_tz_pytz(self, sort):\n         from pytz import timezone\n@@ -527,3 +548,4 @@ class TestCustomDatetimeIndex:\n         b = bdate_range(\"12/10/2011\", \"12/20/2011\", freq=\"C\")\n         result = a.intersection(b)\n         tm.assert_index_equal(result, b)\n+        assert result.freq == b.freq\n"
+  },
+  "timestamp": "2026-06-27 22:59:48 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_23",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_23/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: DatetimeIndex.intersection losing freq and tz (#33604)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 727,
+        "end_line": 727,
+        "function_name": "intersection",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/datetimelike.py",
+        "start_line": 730,
+        "end_line": 730,
+        "function_name": "intersection",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/tests/indexes/datetimes/test_indexing.py",
+        "start_line": 78,
+        "end_line": 78,
+        "function_name": "test_dti_business_getitem",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/tests/indexes/datetimes/test_indexing.py",
+        "start_line": 105,
+        "end_line": 105,
+        "function_name": "test_dti_custom_getitem",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestDatetimeIndexSetOps::test_intersection_empty",
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestBusinessDatetimeIndex::test_intersection_bug",
+      "pytest pandas/tests/indexes/datetimes/test_setops.py::TestCustomDatetimeIndex::test_intersection_bug"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

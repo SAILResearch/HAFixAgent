@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_110",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 14:29:42",
+      "end_time": "2026-06-28 14:31:52",
+      "duration_seconds": 130,
+      "duration_human": "2m 10s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 608400,
+      "output_tokens": 5689,
+      "total_tokens": 614089,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 608400
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/JavaUtilCollectionsDeserializers.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/JavaUtilCollectionsDeserializers.java\nindex 3228bacda..f16d95e42 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/JavaUtilCollectionsDeserializers.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/JavaUtilCollectionsDeserializers.java\n@@ -44,6 +44,7 @@ public abstract class JavaUtilCollectionsDeserializers\n     /* 02-Mar-2019, tatu: for [databind#2265], need to consider possible alternate type...\n      *    which we essentially coerce into the other one\n      */\n+    private final static Class<?> CLASS_UNMODIFIABLE_LIST_ALIAS;\n     private final static Class<?> CLASS_UNMODIFIABLE_MAP;\n \n     static {\n@@ -55,6 +56,7 @@ public abstract class JavaUtilCollectionsDeserializers\n         CLASS_SINGLETON_LIST = list.getClass();\n         CLASS_UNMODIFIABLE_LIST = Collections.unmodifiableList(list).getClass();\n         // for [databind#2265]\n+        CLASS_UNMODIFIABLE_LIST_ALIAS = Collections.unmodifiableList(new LinkedList<Object>()).getClass();\n         \n         Map<?,?> map = Collections.singletonMap(\"a\", \"b\");\n         CLASS_SINGLETON_MAP = map.getClass();\n@@ -75,7 +77,7 @@ public abstract class JavaUtilCollectionsDeserializers\n         } else if (type.hasRawClass(CLASS_SINGLETON_SET)) {\n             conv = converter(TYPE_SINGLETON_SET, type, Set.class);\n         // [databind#2265]: we may have another impl type for unmodifiable Lists, check both\n-        } else if (type.hasRawClass(CLASS_UNMODIFIABLE_LIST)) {\n+        } else if (type.hasRawClass(CLASS_UNMODIFIABLE_LIST) || type.hasRawClass(CLASS_UNMODIFIABLE_LIST_ALIAS)) {\n             conv = converter(TYPE_UNMODIFIABLE_LIST, type, List.class);\n         } else if (type.hasRawClass(CLASS_UNMODIFIABLE_SET)) {\n             conv = converter(TYPE_UNMODIFIABLE_SET, type, Set.class);\n"
+  },
+  "timestamp": "2026-06-28 14:31:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_110",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_110",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Inconsistent handling of Collections$UnmodifiableList VS Collections$UnmodifiableRandomAccessList\nI'm sorry to bring that one up again, but I'm under the impression that the issue about unmodifiable collections (https://github.com/FasterXML/jackson-databind/issues/1880) is still not solved completely.\r\n\r\nIn fact, the way the `CLASS_UNMODIFIABLE_LIST` is retrieved [here](https://github.com/FasterXML/jackson-databind/blob/master/src/main/java/com/fasterxml/jackson/databind/deser/impl/JavaUtilCollectionsDeserializers.java#L52) yields `Collections$UnmodifiableRandomAccessList`, and therefore only this type is currently supported by Jackson 2.9.8.\r\n\r\nHowever, using `Collections.unmodifiableList()` on a `List` implementation that doesn't implement `RandomAccess` will yield a `Collections$UnmodifiableList` instead, which is not deserialized properly and fails with:\r\n```\r\ncom.fasterxml.jackson.databind.exc.InvalidDefinitionException: Cannot construct instance of `java.util.Collections$UnmodifiableList` (no Creators, like default constructor, exist): no default no-arguments constructor found\r\n```\r\n\r\nThis can be reproduced by adding the following test case in `TestDefaultForUtilCollections1868`:\r\n```java\r\npublic void testUnmodifiableNonRandomAccessList() throws Exception {\r\n   _verifyCollection(Collections.unmodifiableList(new LinkedList<>(Arrays.asList(\"first\", \"second\"))));\r\n}\r\n```\r\n\r\nOr more generally for outside the project:\r\n```java\r\npublic void testUnmodifiableNonRandomAccessList() throws Exception {\r\n    Collection<?> exp = Collections.unmodifiableList(new LinkedList<>(Arrays.asList(\"first\", \"second\")));\r\n    ObjectMapper mapper = new ObjectMapper();\r\n    mapper.enableDefaultTyping(DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);\r\n    String json = mapper.writeValueAsString(exp);\r\n    Collection<?> act = mapper.readValue(json, Collection.class);\r\n\r\n    assertEquals(exp, act);\r\n    assertEquals(exp.getClass(), act.getClass());\r\n}\r\n```\r\n\r\nCurrently `java.util.Collections.unmodifiableList()` can only return these 2 types of unmodifiable lists, so I believe it is safe for now to just hardcode yet another special case for this class.\r\n\r\nThis can currently be solved on user side by adding a mixin, but since `Collections$UnmodifiableRandomAccessList` is supported, I would find it natural to also support the non-random access variant.\n",
+    "commit_message": "Fix #2265",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 286,
+        "end_line": 286,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 287,
+        "end_line": 287,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 291,
+        "end_line": 291,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9460323297592803,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.jdk.UtilCollectionsTypesTest::testUnmodifiableListFromLinkedList"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 286,
+      "end_line": 286,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 287,
+      "end_line": 287,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 291,
+      "end_line": 291,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9460323297592803,
+      "rank": 10
+    }
+  ]
+}

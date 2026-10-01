@@ -1,0 +1,188 @@
+{
+  "project_name": "Closure",
+  "bug_id": "35",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 21:29:02",
+      "end_time": "2025-10-10 21:37:38",
+      "duration_seconds": 516,
+      "duration_human": "8m 36s"
+    },
+    "model_cost": 0.0348,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 421776,
+      "output_tokens": 5786,
+      "total_tokens": 427562,
+      "cached_input_tokens": 408384,
+      "uncached_input_tokens": 13392
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/TypeInference.java b/src/com/google/javascript/jscomp/TypeInference.java\nindex 13e109201..dfe292c78 100644\n--- a/src/com/google/javascript/jscomp/TypeInference.java\n+++ b/src/com/google/javascript/jscomp/TypeInference.java\n@@ -1123,7 +1123,7 @@ class TypeInference\n       if (objType != null) {\n         for (String prop : constraintObj.getOwnPropertyNames()) {\n           JSType propType = constraintObj.getPropertyType(prop);\n-          if (!objType.isPropertyTypeDeclared(prop)) {\n+          if (!objType.hasProperty(prop) || !objType.isPropertyTypeDeclared(prop)) {\n             JSType typeToInfer = propType;\n             if (!objType.hasProperty(prop)) {\n               typeToInfer =\n"
+  },
+  "timestamp": "2025-10-10 17:37:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_35",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_35",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "assignment to object in conditional causes type error on function w/ record type return type\nslightly dodgy code :)\r\n\r\n/** @returns {{prop1: (Object|undefined), prop2: (string|undefined), prop3: (string|undefined)}} */\r\nfunction func(a, b) {\r\n  var results;\r\n  if (a) {\r\n    results = {};\r\n    results.prop1 = {a: 3};\r\n  }\r\n  if (b) {\r\n    results = results || {};\r\n    results.prop2 = 'prop2';\r\n  } else {\r\n    results = results || {};\r\n    results.prop3 = 'prop3';\r\n  }\r\n  return results;\r\n}\r\nresults in this error:\r\n\r\n\r\nJSC_TYPE_MISMATCH: inconsistent return type\r\nfound   : ({prop1: {a: number}}|{})\r\nrequired: {prop1: (Object|null|undefined), prop2: (string|undefined), prop3: (string|undefined)} at line 18 character 7\r\nreturn results;\r\n\r\n\r\n\r\ndefining results on the first line on the function causes it the world.\r\nthe still dodgy, but slightly less so, use of this is if the function return type were that record type|undefined and not all branches were guaranteed to be executed.",
+    "commit_message": "push reverse-inference into the type system fixes issue 669",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeInference.java",
+        "start_line": 1121,
+        "end_line": 1135,
+        "line_numbers": [
+          1121,
+          1122,
+          1123,
+          1124,
+          1125,
+          1126,
+          1127,
+          1128,
+          1129,
+          1130,
+          1131,
+          1132,
+          1133,
+          1134,
+          1135
+        ],
+        "function_name": "inferPropertyTypesToMatchConstraint",
+        "class_name": "TypeInference",
+        "filename": "TypeInference.java",
+        "code_snippet": "  private void inferPropertyTypesToMatchConstraint(\n      JSType type, JSType constraint) {\n    if (type == null || constraint == null) {\n      return;\n    }\n\n    ObjectType constraintObj =\n        ObjectType.cast(constraint.restrictByNotNullOrUndefined());\n    if (constraintObj != null && constraintObj.isRecordType()) {\n      ObjectType objType = ObjectType.cast(type.restrictByNotNullOrUndefined());\n      if (objType != null) {\n        for (String prop : constraintObj.getOwnPropertyNames()) {\n          JSType propType = constraintObj.getPropertyType(prop);\n          if (!objType.isPropertyTypeDeclared(prop)) {\n            JSType typeToInfer = propType;\n            if (!objType.hasProperty(prop)) {\n              typeToInfer =\n                  getNativeType(VOID_TYPE).getLeastSupertype(propType);\n            }\n            objType.defineInferredProperty(prop, typeToInfer, null);\n          }\n        }\n      }\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue669"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypeInference.java b/src/com/google/javascript/jscomp/TypeInference.java\nindex fb6be1e..13e1092 100644\n--- a/src/com/google/javascript/jscomp/TypeInference.java\n+++ b/src/com/google/javascript/jscomp/TypeInference.java\n@@ -1118,8 +1118,21 @@ class TypeInference\n \n     ObjectType constraintObj =\n         ObjectType.cast(constraint.restrictByNotNullOrUndefined());\n+    if (constraintObj != null) {\n+      type.matchConstraint(constraintObj);\n-    if (constraintObj != null && constraintObj.isRecordType()) {\n-      ObjectType objType = ObjectType.cast(type.restrictByNotNullOrUndefined());\n-      if (objType != null) {\n-        for (String prop : constraintObj.getOwnPropertyNames()) {\n-          JSType propType = constraintObj.getPropertyType(prop);\n-          if (!objType.isPropertyTypeDeclared(prop)) {\n-            JSType typeToInfer = propType;\n-            if (!objType.hasProperty(prop)) {\n-              typeToInfer =\n-                  getNativeType(VOID_TYPE).getLeastSupertype(propType);\n-            }\n-            objType.defineInferredProperty(prop, typeToInfer, null);\n-          }\n-        }\n-      }\n     }\n   }",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "nicksantos@google.com",
+        "commit_date": "2011-05-24 17:37:04",
+        "commit_message": "Minor changes to the last cl. This isn't functionally different",
+        "commit_hash": "c590fe51732eea3b712c7f894ba3f5a9d23613e1"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "flowThrough",
+          "tightenTypesAfterAssertions",
+          "traverseAssign",
+          "updateScopeForTypeChange",
+          "createEntryLattice",
+          "updateTypeOfThisOnClosure",
+          "traverseGetProp",
+          "traverseGetElem",
+          "getJoinedFlowScope",
+          "traverseName",
+          "traverseHook",
+          "ensurePropertyDeclaredHelper",
+          "traverseCatch",
+          "newBooleanOutcomePair",
+          "traverse",
+          "branchedFlowThrough",
+          "getOutcomeFlowScope",
+          "traverseCall",
+          "traverseArrayLiteral",
+          "isAddedAsNumber",
+          "dereferencePointer",
+          "getBooleanOutcomePair",
+          "TypeInference",
+          "traverseAdd",
+          "traverseObjectLiteral",
+          "traverseWithinShortCircuitingBinOp",
+          "ensurePropertyDefined",
+          "getPropertyType",
+          "BooleanOutcomePair",
+          "getAssignedOuterLocalVars",
+          "updateTypeOfParameters",
+          "getJSType",
+          "traverseNew",
+          "redeclare",
+          "ensurePropertyDeclared",
+          "getNativeType",
+          "traverseOr",
+          "traverseAnd",
+          "traverseChildren",
+          "inferPropertyTypesToMatchConstraint",
+          "traverseShortCircuitingBinOp",
+          "getBooleanOutcomes",
+          "createInitialEstimateLattice"
+        ],
+        "functions_name_all_files": [
+          "flowThrough",
+          "tightenTypesAfterAssertions",
+          "traverseAssign",
+          "updateScopeForTypeChange",
+          "createEntryLattice",
+          "updateTypeOfThisOnClosure",
+          "traverseGetProp",
+          "traverseGetElem",
+          "getJoinedFlowScope",
+          "traverseName",
+          "traverseHook",
+          "ensurePropertyDeclaredHelper",
+          "traverseCatch",
+          "newBooleanOutcomePair",
+          "traverse",
+          "branchedFlowThrough",
+          "getOutcomeFlowScope",
+          "traverseCall",
+          "traverseArrayLiteral",
+          "isAddedAsNumber",
+          "dereferencePointer",
+          "getBooleanOutcomePair",
+          "TypeInference",
+          "traverseAdd",
+          "traverseObjectLiteral",
+          "traverseWithinShortCircuitingBinOp",
+          "ensurePropertyDefined",
+          "getPropertyType",
+          "BooleanOutcomePair",
+          "getAssignedOuterLocalVars",
+          "updateTypeOfParameters",
+          "getJSType",
+          "traverseNew",
+          "redeclare",
+          "ensurePropertyDeclared",
+          "getNativeType",
+          "traverseOr",
+          "traverseAnd",
+          "traverseChildren",
+          "inferPropertyTypesToMatchConstraint",
+          "traverseShortCircuitingBinOp",
+          "getBooleanOutcomes",
+          "createInitialEstimateLattice"
+        ],
+        "function_code_before": "      inferPropertyTypesToMatchConstraint(iArgumentType, iParameterType);\n\n      if (iParameterType instanceof FunctionType) {\n        FunctionType iParameterFnType = (FunctionType) iParameterType;\n\n        if (iArgument.getType() == Token.FUNCTION &&\n            iArgumentType instanceof FunctionType &&\n            iArgument.getJSDocInfo() == null) {\n          iArgument.setJSType(iParameterFnType);\n        }\n      }",
+        "function_code_after": "      inferPropertyTypesToMatchConstraint(iArgumentType, iParameterType);\n\n      if (iParameterType instanceof FunctionType) {\n        FunctionType iParameterFnType = (FunctionType) iParameterType;\n\n        if (iArgument.getType() == Token.FUNCTION &&\n            iArgumentType instanceof FunctionType &&\n            iArgument.getJSDocInfo() == null) {\n          iArgument.setJSType(iParameterFnType);\n        }\n      }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/com/google/javascript/jscomp/TypeInference.java"
+        ],
+        "file_patches": {
+          "src/com/google/javascript/jscomp/TypeInference.java": "diff --git a/src/com/google/javascript/jscomp/TypeInference.java b/src/com/google/javascript/jscomp/TypeInference.java\nindex 41f8d1537..967671fd4 100644\n--- a/src/com/google/javascript/jscomp/TypeInference.java\n+++ b/src/com/google/javascript/jscomp/TypeInference.java\n@@ -1067,15 +1067,17 @@ class TypeInference\n         ObjectType.cast(constraint.restrictByNotNullOrUndefined());\n     if (constraintObj != null && constraintObj.isRecordType()) {\n       ObjectType objType = ObjectType.cast(type.restrictByNotNullOrUndefined());\n-      for (String prop : constraintObj.getOwnPropertyNames()) {\n-        JSType propType = constraintObj.getPropertyType(prop);\n-        if (objType != null && !objType.isPropertyTypeDeclared(prop)) {\n-          JSType typeToInfer = propType;\n-          if (!objType.hasProperty(prop)) {\n-            typeToInfer = registry.createUnionType(\n-                getNativeType(VOID_TYPE), propType);\n+      if (objType != null) {\n+        for (String prop : constraintObj.getOwnPropertyNames()) {\n+          JSType propType = constraintObj.getPropertyType(prop);\n+          if (!objType.isPropertyTypeDeclared(prop)) {\n+            JSType typeToInfer = propType;\n+            if (!objType.hasProperty(prop)) {\n+              typeToInfer =\n+                  getNativeType(VOID_TYPE).getLeastSupertype(propType);\n+            }\n+            objType.defineInferredProperty(prop, typeToInfer, false, null);\n           }\n-          objType.defineInferredProperty(prop, typeToInfer, false, null);\n         }\n       }\n     }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

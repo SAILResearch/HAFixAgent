@@ -1,0 +1,193 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_50",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 06:53:39",
+      "end_time": "2026-06-25 07:01:21",
+      "duration_seconds": 462,
+      "duration_human": "7m 42s"
+    },
+    "model_cost": 0.083,
+    "model_calls": 42,
+    "token_usage": {
+      "input_tokens": 574519,
+      "output_tokens": 17208,
+      "total_tokens": 591727,
+      "cached_input_tokens": 293376,
+      "uncached_input_tokens": 281143
+    },
+    "agent_steps": 42,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 34880d8b..440104f3 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -82,6 +82,55 @@ public final class DataUtil {\n         }\n     }\n \n+    /**\n+     * Detect charset from Byte Order Mark (BOM).\n+     * @param byteData ByteBuffer containing the data\n+     * @return charset name if BOM detected, null otherwise\n+     */\n+    private static String detectCharsetFromBOM(ByteBuffer byteData) {\n+        if (byteData.remaining() < 2) {\n+            return null;\n+        }\n+        \n+        byteData.mark();\n+        byte first = byteData.get();\n+        byte second = byteData.get();\n+        \n+        if (first == (byte)0xFE && second == (byte)0xFF) {\n+            return \"UTF-16BE\";\n+        }\n+        \n+        if (first == (byte)0xFF && second == (byte)0xFE) {\n+            if (byteData.remaining() >= 2) {\n+                byte third = byteData.get();\n+                byte fourth = byteData.get();\n+                if (third == 0x00 && fourth == 0x00) {\n+                    return \"UTF-32LE\";\n+                }\n+            }\n+            byteData.reset();\n+            return \"UTF-16LE\";\n+        }\n+        \n+        if (first == (byte)0xEF && second == (byte)0xBB && byteData.remaining() >= 1) {\n+            byte third = byteData.get();\n+            if (third == (byte)0xBF) {\n+                return \"UTF-8\";\n+            }\n+        }\n+        \n+        if (first == 0x00 && second == 0x00 && byteData.remaining() >= 2) {\n+            byte third = byteData.get();\n+            byte fourth = byteData.get();\n+            if (third == (byte)0xFE && fourth == (byte)0xFF) {\n+                return \"UTF-32BE\";\n+            }\n+        }\n+        \n+        byteData.reset();\n+        return null;\n+    }\n+\n     // reads bytes first into a buffer, then decodes with the appropriate charset. done this way to support\n     // switching the chartset midstream when a meta http-equiv tag defines the charset.\n     // todo - this is getting gnarly. needs a rewrite.\n@@ -90,6 +139,21 @@ public final class DataUtil {\n         Document doc = null;\n \n         // look for BOM - overrides any other header or input\n+        String bomCharset = detectCharsetFromBOM(byteData);\n+        if (bomCharset != null) {\n+            // BOM found - use the charset indicated by the BOM\n+            charsetName = bomCharset;\n+            byteData.rewind(); // Start from beginning\n+            \n+            // Skip BOM bytes\n+            if (bomCharset.equals(\"UTF-8\")) {\n+                byteData.get(); byteData.get(); byteData.get(); // Skip 3 bytes\n+            } else if (bomCharset.equals(\"UTF-16BE\") || bomCharset.equals(\"UTF-16LE\")) {\n+                byteData.get(); byteData.get(); // Skip 2 bytes\n+            } else if (bomCharset.equals(\"UTF-32BE\") || bomCharset.equals(\"UTF-32LE\")) {\n+                byteData.get(); byteData.get(); byteData.get(); byteData.get(); // Skip 4 bytes\n+            }\n+        }\n \n         if (charsetName == null) { // determine from meta. safe parse as UTF-8\n             // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n@@ -123,13 +187,12 @@ public final class DataUtil {\n             Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n             docData = Charset.forName(charsetName).decode(byteData).toString();\n         }\n+        \n+        // Remove BOM character if present (for backward compatibility)\n         if (docData.length() > 0 && docData.charAt(0) == UNICODE_BOM) {\n-            byteData.rewind();\n-            docData = Charset.forName(defaultCharset).decode(byteData).toString();\n             docData = docData.substring(1);\n-            charsetName = defaultCharset;\n-            doc = null;\n         }\n+        \n         if (doc == null) {\n             doc = parser.parseInput(docData, baseUri);\n             doc.outputSettings().charset(charsetName);\n@@ -184,16 +247,6 @@ public final class DataUtil {\n         }\n     }\n \n-    static ByteBuffer emptyByteBuffer() {\n-        return ByteBuffer.allocate(0);\n-    }\n-\n-    /**\n-     * Parse out a charset from a content type header. If the charset is not supported, returns null (so the default\n-     * will kick in.)\n-     * @param contentType e.g. \"text/html; charset=EUC-JP\"\n-     * @return \"EUC-JP\", or null if not found. Charset is trimmed and uppercased.\n-     */\n     static String getCharsetFromContentType(String contentType) {\n         if (contentType == null) return null;\n         Matcher m = charsetPattern.matcher(contentType);\n@@ -203,10 +256,7 @@ public final class DataUtil {\n             if (charset.length() == 0) return null;\n             try {\n                 if (Charset.isSupported(charset)) return charset;\n-                charset = charset.toUpperCase(Locale.ENGLISH);\n-                if (Charset.isSupported(charset)) return charset;\n             } catch (IllegalCharsetNameException e) {\n-                // if our advanced charset matching fails.... we just take the default\n                 return null;\n             }\n         }\n"
+  },
+  "timestamp": "2026-06-25 07:01:21 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_50",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_50",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "UTF16 streams with BOM are processed as UTF-8\nThe handling of the character encoding in org.jsoup.helper.DataUtil.parseByteData(...) is bugged when the input is an UTF16 stream with unicode BOM. This method does a check for presence of a BOM and, if it finds one, incorrectly assumes that this was a UTF-8 BOM. To fix this, the code would have to check the raw BOM bytes as the distinction between the various BOMs is lost after conversion to characters. See also: http://unicode.org/faq/utf_bom.html#bom4\n\n",
+    "commit_message": "Support UTF-16 and -32 BOMs",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/parser/CharacterReader.java",
+        "start_line": 164,
+        "end_line": 164,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Document.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/Jsoup.java",
+        "start_line": 88,
+        "end_line": 88,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 96,
+        "end_line": 96,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 97,
+        "end_line": 97,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 98,
+        "end_line": 98,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 99,
+        "end_line": 99,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.30151134457776363,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/Element.java",
+        "start_line": 606,
+        "end_line": 606,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::supportsBOMinFiles"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/parser/CharacterReader.java",
+      "start_line": 164,
+      "end_line": 164,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Document.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/Jsoup.java",
+      "start_line": 88,
+      "end_line": 88,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 96,
+      "end_line": 96,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 97,
+      "end_line": 97,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 98,
+      "end_line": 98,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 99,
+      "end_line": 99,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.30151134457776363,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/Element.java",
+      "start_line": 606,
+      "end_line": 606,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 10
+    }
+  ]
+}

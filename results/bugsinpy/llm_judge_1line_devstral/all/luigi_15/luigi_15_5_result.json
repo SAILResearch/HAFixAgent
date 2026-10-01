@@ -1,0 +1,55 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_15",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 20:41:50",
+      "end_time": "2026-06-27 20:42:51",
+      "duration_seconds": 60,
+      "duration_human": "1m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 351449,
+      "output_tokens": 2622,
+      "total_tokens": 354071,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 351449
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/test/central_planner_test.py b/test/central_planner_test.py\nindex e03685d3..33d91a09 100644\n--- a/test/central_planner_test.py\n+++ b/test/central_planner_test.py\n@@ -18,10 +18,11 @@\n import time\n from helpers import unittest\n \n-from nose.plugins.attrib import attr\n+# from nose.plugins.attrib import attr\n \n import luigi.notifications\n-from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, CentralPlannerScheduler\n+from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, \\\n+    UNKNOWN, CentralPlannerScheduler\n \n luigi.notifications.DEBUG = True\n WORKER = 'myworker'\n@@ -1086,5 +1087,42 @@ class CentralPlannerTest(unittest.TestCase):\n             self.assertTrue(0 <= res < NUM_PENDING)\n             self.sch.add_task(worker=WORKER, task_id=str(res), status=DONE)\n \n-if __name__ == '__main__':\n-    unittest.main()\n+    def test_assistants_dont_nurture_finished_statuses(self):\n+        \"\"\"\n+        Assistants should not affect longevity of DONE tasks\n+\n+        Also check for statuses DISABLED and UNKNOWN.\n+        \"\"\"\n+        self.sch = CentralPlannerScheduler(retry_delay=100000000000)  # Never pendify failed tasks\n+        self.setTime(1)\n+        self.sch.add_worker('assistant', [('assistant', True)])\n+        self.sch.ping(worker='assistant')\n+        self.sch.add_task(worker='uploader', task_id='running', status=PENDING)\n+        self.assertEqual(self.sch.get_work(worker='assistant', assistant=True)['task_id'], 'running')\n+\n+        self.setTime(2)\n+        self.sch.add_task(worker='uploader', task_id='done', status=DONE)\n+        self.sch.add_task(worker='uploader', task_id='disabled', status=DISABLED)\n+        self.sch.add_task(worker='uploader', task_id='pending', status=PENDING)\n+        self.sch.add_task(worker='uploader', task_id='failed', status=FAILED)\n+        self.sch.add_task(worker='uploader', task_id='unknown', status=UNKNOWN)\n+\n+        self.setTime(100000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+\n+        self.setTime(200000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+        nurtured_statuses = ['PENDING', 'FAILED', 'RUNNING']\n+        not_nurtured_statuses = ['DONE', 'UNKNOWN', 'DISABLED']\n+\n+        for status in nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([status.lower()]), set(self.sch.task_list(status, '')))\n+\n+        for status in not_nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([]), set(self.sch.task_list(status, '')))\n+\n+        self.assertEqual(3, len(self.sch.task_list(None, '')))  # None == All statuses\n"
+  },
+  "timestamp": "2026-06-27 20:42:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_15/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "assistants bugfix: Also prune UNKNOWN tasks",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 485,
+        "end_line": 486,
+        "function_name": "get_necessary_tasks",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/central_planner_test.py::CentralPlannerTest::test_assistants_dont_nurture_finished_statuses"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

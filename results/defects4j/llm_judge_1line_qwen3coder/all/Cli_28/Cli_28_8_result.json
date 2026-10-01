@@ -1,0 +1,100 @@
+{
+  "project_name": "Cli",
+  "bug_id": "28",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 09:28:36",
+      "end_time": "2026-06-20 09:31:19",
+      "duration_seconds": 163,
+      "duration_human": "2m 43s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 510031,
+      "output_tokens": 4907,
+      "total_tokens": 514938,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 510031
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 09:31:19 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Cli",
+    "bug_id": "Cli_28",
+    "repo_path": "/defects4j/framework/bin/temp/Cli_28",
+    "github_url": "https://github.com/apache/commons-cli.git",
+    "description": "Default options may be partially processed\nThe Properties instance passed to the Parser.parse() method to initialize the default options may be partially processed. This happens when the properties contains an option that doesn't accept arguments and has a default value that isn't evaluated to \"true\". When this case occurs the processing of the properties is stopped and the remaining options are never handled.\n\nThis is caused by the break statement in Parser.processProperties(Properties), a continue statement should have been used instead.\n\nThe related test in ValueTest is also wrong, there are two assertions that need to be changed:\n\n{code}\nOptions opts = new Options();\nopts.addOption(\"a\", false, \"toggle -a\");\nopts.addOption(\"c\", \"c\", false, \"toggle -c\");\nopts.addOption(OptionBuilder.hasOptionalArg().create('e'));\n\nproperties = new Properties();\nproperties.setProperty( \"a\", \"false\" );\nproperties.setProperty( \"c\", \"no\" );\nproperties.setProperty( \"e\", \"0\" );\n\ncmd = parser.parse(opts, null, properties);\nassertTrue( !cmd.hasOption(\"a\") );\nassertTrue( !cmd.hasOption(\"c\") );\nassertTrue( !cmd.hasOption(\"e\") ); // Wrong, this option accepts an argument and should receive the value \"0\"\n{code}\n\n and the second one:\n\n{code}\nproperties = new Properties();\nproperties.setProperty( \"a\", \"just a string\" );\nproperties.setProperty( \"e\", \"\" );\n\ncmd = parser.parse(opts, null, properties);\nassertTrue( !cmd.hasOption(\"a\") );\nassertTrue( !cmd.hasOption(\"c\") );\nassertTrue( !cmd.hasOption(\"e\") ); // Wrong, this option accepts an argument and should receive an empty string as value\n{code}\n",
+    "commit_message": "The processing of the default options is no longer stopped by a flag with a false value (CLI-201)",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/cli/Parser.java",
+        "start_line": 290,
+        "end_line": 290,
+        "line_numbers": [
+          290
+        ],
+        "function_name": "processProperties",
+        "class_name": "Parser",
+        "filename": "Parser.java",
+        "code_snippet": "    protected void processProperties(Properties properties)\n    {\n        if (properties == null)\n        {\n            return;\n        }\n\n        for (Enumeration e = properties.propertyNames(); e.hasMoreElements();)\n        {\n            String option = e.nextElement().toString();\n\n            if (!cmd.hasOption(option))\n            {\n                Option opt = getOptions().getOption(option);\n\n                // get the value from the properties instance\n                String value = properties.getProperty(option);\n\n                if (opt.hasArg())\n                {\n                    if (opt.getValues() == null || opt.getValues().length == 0)\n                    {\n                        try\n                        {\n                            opt.addValueForProcessing(value);\n                        }\n                        catch (RuntimeException exp)\n                        {\n                            // if we cannot add the value don't worry about it\n                        }\n                    }\n                }\n                else if (!(\"yes\".equalsIgnoreCase(value)\n                        || \"true\".equalsIgnoreCase(value)\n                        || \"1\".equalsIgnoreCase(value)))\n                {\n                    // if the value is not yes, true or 1 then don't add the\n                    // option to the CommandLine\n                    break;\n                }\n\n                cmd.addOption(opt);\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.cli.ValueTest::testPropertyOptionFlags"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/cli/Parser.java b/src/java/org/apache/commons/cli/Parser.java\nindex c106932..6b39536 100644\n--- a/src/java/org/apache/commons/cli/Parser.java\n+++ b/src/java/org/apache/commons/cli/Parser.java\n@@ -287,7 +287,7 @@ public abstract class Parser implements CommandLineParser\n                 {\n                     // if the value is not yes, true or 1 then don't add the\n                     // option to the CommandLine\n+                    continue;\n-                    break;\n                 }\n \n                 cmd.addOption(opt);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "John Keyes",
+        "commit_date": "2002-11-27 18:22:02",
+        "commit_message": "added support for *boolean/flag* options from properties",
+        "commit_hash": "be7dfa5b0a0e0bf609ac77ae45aeb2c3287ad453"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [],
+        "functions_name_modified_file": [
+          "Parser",
+          "parse",
+          "processArgs",
+          "processProperties",
+          "processOption",
+          "checkRequiredOptions"
+        ],
+        "functions_name_all_files": [
+          "Parser",
+          "parse",
+          "processArgs",
+          "processProperties",
+          "processOption",
+          "checkRequiredOptions"
+        ],
+        "function_code_before": "        processProperties( properties );\n        checkRequiredOptions();\n        return cmd;\n    }\n\n    /**\n     * <p>Sets the values of Options using the values in <code>properties</code>.</p>\n     */\n    private void processProperties( Properties properties ) {",
+        "function_code_after": "        processProperties( properties );\n        checkRequiredOptions();\n        return cmd;\n    }\n\n    /**\n     * <p>Sets the values of Options using the values in <code>properties</code>.</p>\n     */\n    private void processProperties( Properties properties ) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/java/org/apache/commons/cli/Parser.java"
+        ],
+        "file_patches": {
+          "src/java/org/apache/commons/cli/Parser.java": "diff --git a/src/java/org/apache/commons/cli/Parser.java b/src/java/org/apache/commons/cli/Parser.java\nindex 39c72d2..9c860dd 100644\n--- a/src/java/org/apache/commons/cli/Parser.java\n+++ b/src/java/org/apache/commons/cli/Parser.java\n@@ -1,7 +1,7 @@\n /*\n- * $Header: /home/jerenkrantz/tmp/commons/commons-convert/cvs/home/cvs/jakarta-commons//cli/src/java/org/apache/commons/cli/Parser.java,v 1.9 2002/11/25 23:43:40 jkeyes Exp $\n- * $Revision: 1.9 $\n- * $Date: 2002/11/25 23:43:40 $\n+ * $Header: /home/jerenkrantz/tmp/commons/commons-convert/cvs/home/cvs/jakarta-commons//cli/src/java/org/apache/commons/cli/Parser.java,v 1.10 2002/11/27 23:22:02 jkeyes Exp $\n+ * $Revision: 1.10 $\n+ * $Date: 2002/11/27 23:22:02 $\n  *\n  * ====================================================================\n  *\n@@ -74,7 +74,7 @@ import java.util.Properties;\n  *\n  * @author John Keyes (john at integralsource.com)\n  * @see Parser\n- * @version $Revision: 1.9 $\n+ * @version $Revision: 1.10 $\n  */\n public abstract class Parser implements CommandLineParser {\n \n@@ -255,9 +255,28 @@ public abstract class Parser implements CommandLineParser {\n             String option = e.nextElement().toString();\n             if( !cmd.hasOption( option ) ) {\n                 Option opt = options.getOption( option );\n-                if( opt.getValues() == null || opt.getValues().length == 0 ) {\n-                    opt.addValue( properties.getProperty( option ) );\n+\n+                // get the value from the properties instance\n+                String value = properties.getProperty( option );\n+\n+                if( opt.hasArgs() ) {\n+                    if( opt.getValues() == null || opt.getValues().length == 0 ) {\n+                        try {\n+                            opt.addValue( value );\n+                        }\n+                        catch( RuntimeException exp ) {\n+                            // if we cannot add the value don't worry about it\n+                        }\n+                    }\n                 }\n+                else if ( ! ( \"yes\".equalsIgnoreCase( value ) ||\n+                              \"true\".equalsIgnoreCase( value ) ||\n+                              \"1\".equalsIgnoreCase( value) ) ) {\n+                    // if the value is not yes, true or 1 then don't add the\n+                    // option to the CommandLine\n+                    break;\n+                }\n+\n                 cmd.addOption( opt );\n             }\n         }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

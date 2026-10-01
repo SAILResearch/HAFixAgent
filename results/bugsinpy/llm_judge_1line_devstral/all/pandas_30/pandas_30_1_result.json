@@ -1,0 +1,53 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_30",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:12:07",
+      "end_time": "2026-06-27 18:13:30",
+      "duration_seconds": 84,
+      "duration_human": "1m 24s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 474115,
+      "output_tokens": 4272,
+      "total_tokens": 478387,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 474115
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/io/json/_json.py b/pandas/io/json/_json.py\nindex 886387a7a9..eb973a4e71 100644\n--- a/pandas/io/json/_json.py\n+++ b/pandas/io/json/_json.py\n@@ -964,192 +964,14 @@ class Parser:\n         new_data = data\n         if new_data.dtype == \"object\":\n             try:\n+        if new_data.dtype == \"object\":\n+            # Check if data contains boolean values\n+            if len(new_data) > 0 and isinstance(new_data[0], bool):\n+                return data, False\n+            try:\n                 new_data = data.astype(\"int64\")\n             except (TypeError, ValueError, OverflowError):\n                 pass\n-\n-        # ignore numbers that are out of range\n-        if issubclass(new_data.dtype.type, np.number):\n-            in_range = (\n-                isna(new_data._values)\n-                | (new_data > self.min_stamp)\n-                | (new_data._values == iNaT)\n-            )\n-            if not in_range.all():\n-                return data, False\n-\n-        date_units = (self.date_unit,) if self.date_unit else self._STAMP_UNITS\n-        for date_unit in date_units:\n-            try:\n-                new_data = to_datetime(new_data, errors=\"raise\", unit=date_unit)\n-            except (ValueError, OverflowError):\n-                continue\n-            return new_data, True\n-        return data, False\n-\n-    def _try_convert_dates(self):\n-        raise AbstractMethodError(self)\n-\n-\n-class SeriesParser(Parser):\n-    _default_orient = \"index\"\n-    _split_keys = (\"name\", \"index\", \"data\")\n-\n-    def _parse_no_numpy(self):\n-        data = loads(self.json, precise_float=self.precise_float)\n-\n-        if self.orient == \"split\":\n-            decoded = {str(k): v for k, v in data.items()}\n-            self.check_keys_split(decoded)\n-            self.obj = create_series_with_explicit_dtype(**decoded)\n-        else:\n-            self.obj = create_series_with_explicit_dtype(data, dtype_if_empty=object)\n-\n-    def _parse_numpy(self):\n-        load_kwargs = {\n-            \"dtype\": None,\n-            \"numpy\": True,\n-            \"precise_float\": self.precise_float,\n-        }\n-        if self.orient in [\"columns\", \"index\"]:\n-            load_kwargs[\"labelled\"] = True\n-        loads_ = functools.partial(loads, **load_kwargs)\n-        data = loads_(self.json)\n-\n-        if self.orient == \"split\":\n-            decoded = {str(k): v for k, v in data.items()}\n-            self.check_keys_split(decoded)\n-            self.obj = create_series_with_explicit_dtype(**decoded)\n-        elif self.orient in [\"columns\", \"index\"]:\n-            self.obj = create_series_with_explicit_dtype(*data, dtype_if_empty=object)\n-        else:\n-            self.obj = create_series_with_explicit_dtype(data, dtype_if_empty=object)\n-\n-    def _try_convert_types(self):\n-        if self.obj is None:\n-            return\n-        obj, result = self._try_convert_data(\n-            \"data\", self.obj, convert_dates=self.convert_dates\n-        )\n-        if result:\n-            self.obj = obj\n-\n-\n-class FrameParser(Parser):\n-    _default_orient = \"columns\"\n-    _split_keys = (\"columns\", \"index\", \"data\")\n-\n-    def _parse_numpy(self):\n-\n-        json = self.json\n-        orient = self.orient\n-\n-        if orient == \"columns\":\n-            args = loads(\n-                json,\n-                dtype=None,\n-                numpy=True,\n-                labelled=True,\n-                precise_float=self.precise_float,\n-            )\n-            if len(args):\n-                args = (args[0].T, args[2], args[1])\n-            self.obj = DataFrame(*args)\n-        elif orient == \"split\":\n-            decoded = loads(\n-                json, dtype=None, numpy=True, precise_float=self.precise_float\n-            )\n-            decoded = {str(k): v for k, v in decoded.items()}\n-            self.check_keys_split(decoded)\n-            self.obj = DataFrame(**decoded)\n-        elif orient == \"values\":\n-            self.obj = DataFrame(\n-                loads(json, dtype=None, numpy=True, precise_float=self.precise_float)\n-            )\n-        else:\n-            self.obj = DataFrame(\n-                *loads(\n-                    json,\n-                    dtype=None,\n-                    numpy=True,\n-                    labelled=True,\n-                    precise_float=self.precise_float,\n-                )\n-            )\n-\n-    def _parse_no_numpy(self):\n-\n-        json = self.json\n-        orient = self.orient\n-\n-        if orient == \"columns\":\n-            self.obj = DataFrame(\n-                loads(json, precise_float=self.precise_float), dtype=None\n-            )\n-        elif orient == \"split\":\n-            decoded = {\n-                str(k): v\n-                for k, v in loads(json, precise_float=self.precise_float).items()\n-            }\n-            self.check_keys_split(decoded)\n-            self.obj = DataFrame(dtype=None, **decoded)\n-        elif orient == \"index\":\n-            self.obj = DataFrame.from_dict(\n-                loads(json, precise_float=self.precise_float),\n-                dtype=None,\n-                orient=\"index\",\n-            )\n-        elif orient == \"table\":\n-            self.obj = parse_table_schema(json, precise_float=self.precise_float)\n-        else:\n-            self.obj = DataFrame(\n-                loads(json, precise_float=self.precise_float), dtype=None\n-            )\n-\n-    def _process_converter(self, f, filt=None):\n-        \"\"\"\n-        Take a conversion function and possibly recreate the frame.\n-        \"\"\"\n-        if filt is None:\n-            filt = lambda col, c: True\n-\n-        needs_new_obj = False\n-        new_obj = dict()\n-        for i, (col, c) in enumerate(self.obj.items()):\n-            if filt(col, c):\n-                new_data, result = f(col, c)\n-                if result:\n-                    c = new_data\n-                    needs_new_obj = True\n-            new_obj[i] = c\n-\n-        if needs_new_obj:\n-\n-            # possibly handle dup columns\n-            new_obj = DataFrame(new_obj, index=self.obj.index)\n-            new_obj.columns = self.obj.columns\n-            self.obj = new_obj\n-\n-    def _try_convert_types(self):\n-        if self.obj is None:\n-            return\n-        if self.convert_dates:\n-            self._try_convert_dates()\n-\n-        self._process_converter(\n-            lambda col, c: self._try_convert_data(col, c, convert_dates=False)\n-        )\n-\n-    def _try_convert_dates(self):\n-        if self.obj is None:\n-            return\n-\n-        # our columns to parse\n-        convert_dates = self.convert_dates\n-        if convert_dates is True:\n-            convert_dates = []\n-        convert_dates = set(convert_dates)\n-\n         def is_ok(col) -> bool:\n             \"\"\"\n             Return if this col is ok to try for a date parse.\ndiff --git a/pandas/tests/io/json/test_pandas.py b/pandas/tests/io/json/test_pandas.py\nindex b74abc965f..0576d8e91d 100644\n--- a/pandas/tests/io/json/test_pandas.py\n+++ b/pandas/tests/io/json/test_pandas.py\n@@ -1659,3 +1659,9 @@ DataFrame\\\\.index values are different \\\\(100\\\\.0 %\\\\)\n         # GH 31615\n         result = pd.DataFrame([[nulls_fixture]]).to_json()\n         assert result == '{\"0\":{\"0\":null}}'\n+\n+    def test_readjson_bool_series(self):\n+        # GH31464\n+        result = read_json(\"[true, true, false]\", typ=\"series\")\n+        expected = pd.Series([True, True, False])\n+        tm.assert_series_equal(result, expected)\n"
+  },
+  "timestamp": "2026-06-27 18:13:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_30",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_30/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: #31464 Fix error when parsing JSON list of bool into Series (#33373)",
+    "fault_locations": [
+      {
+        "file": "pandas/io/json/_json.py",
+        "start_line": 985,
+        "end_line": 985,
+        "function_name": "_try_convert_to_date",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/io/json/test_pandas.py::TestPandasContainer::test_readjson_bool_series"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null
+}

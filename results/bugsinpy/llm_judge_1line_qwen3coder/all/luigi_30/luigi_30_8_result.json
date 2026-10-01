@@ -1,0 +1,56 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_30",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 18:46:29",
+      "end_time": "2026-06-20 18:49:47",
+      "duration_seconds": 198,
+      "duration_human": "3m 18s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 947987,
+      "output_tokens": 4685,
+      "total_tokens": 952672,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 947987
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/worker.py b/luigi/worker.py\nindex 43002464..21155683 100644\n--- a/luigi/worker.py\n+++ b/luigi/worker.py\n@@ -196,7 +196,7 @@ class TaskProcess(AbstractTaskProcess):\n                         os.getpid(), self.worker_id, self.task.task_id)\n                     return\n             finally:\n-                if status != SUSPENDED:\n+                if status is not None and status != SUSPENDED:\n                     self.task.trigger_event(\n                         Event.PROCESSING_TIME, self.task, time.time() - t0)\n                     error_message = json.dumps(self.task.on_success())\ndiff --git a/test/test_event_callbacks.py b/test/test_event_callbacks.py\nindex 07248c77..a7a66fd8 100644\n--- a/test/test_event_callbacks.py\n+++ b/test/test_event_callbacks.py\n@@ -58,31 +58,35 @@ class TestEventCallbacks(unittest.TestCase):\n         build([t], local_scheduler=True)\n         self.assertEqual(saved_tasks, [t])\n \n-    def test_success_handler(self):\n-        saved_tasks = []\n+    def _run_empty_task(self, fail):\n+        successes = []\n+        failures = []\n+        exceptions = []\n \n         @EmptyTask.event_handler(Event.SUCCESS)\n-        def save_task(task):\n-            print(\"Saving task...\")\n-            saved_tasks.append(task)\n-\n-        t = EmptyTask(False)\n-        build([t], local_scheduler=True)\n-        self.assertEqual(saved_tasks, [t])\n-\n-    def test_failure_handler(self):\n-        saved_tasks = []\n-        exceptions = []\n+        def success(task):\n+            successes.append(task)\n \n         @EmptyTask.event_handler(Event.FAILURE)\n-        def save_task(task, exception):\n-            print(\"Saving task and exception...\")\n-            saved_tasks.append(task)\n+        def failure(task, exception):\n+            failures.append(task)\n             exceptions.append(exception)\n \n-        t = EmptyTask(True)\n+        t = EmptyTask(fail)\n         build([t], local_scheduler=True)\n-        self.assertEqual(saved_tasks, [t])\n+        return t, successes, failures, exceptions\n+\n+    def test_success(self):\n+        t, successes, failures, exceptions = self._run_empty_task(False)\n+        self.assertEqual(successes, [t])\n+        self.assertEqual(failures, [])\n+        self.assertEqual(exceptions, [])\n+\n+    def test_failure(self):\n+        t, successes, failures, exceptions = self._run_empty_task(True)\n+        self.assertEqual(successes, [])\n+        self.assertEqual(failures, [t])\n+        self.assertEqual(len(exceptions), 1)\n         self.assertTrue(isinstance(exceptions[0], DummyException))\n \n     def test_custom_handler(self):\n@@ -96,18 +100,31 @@ class TestEventCallbacks(unittest.TestCase):\n         build([t], local_scheduler=True)\n         self.assertEqual(dummies[0], \"foo\")\n \n-    def test_processing_time_handler(self):\n+    def _run_processing_time_handler(self, fail):\n+        result = []\n+\n         @EmptyTask.event_handler(Event.PROCESSING_TIME)\n         def save_task(task, processing_time):\n-            self.result = task, processing_time\n+            result.append((task, processing_time))\n \n         times = [43.0, 1.0]\n-        t = EmptyTask(random.choice([True, False]))\n+        t = EmptyTask(fail)\n         with patch('luigi.worker.time') as mock:\n             mock.time = times.pop\n             build([t], local_scheduler=True)\n-        self.assertTrue(self.result[0] is t)\n-        self.assertEqual(self.result[1], 42.0)\n+\n+        return t, result\n+\n+    def test_processing_time_handler_success(self):\n+        t, result = self._run_processing_time_handler(False)\n+        self.assertEqual(len(result), 1)\n+        task, time = result[0]\n+        self.assertTrue(task is t)\n+        self.assertEqual(time, 42.0)\n+\n+    def test_processing_time_handler_failure(self):\n+        t, result = self._run_processing_time_handler(True)\n+        self.assertEqual(result, [])\n \n \n #        A\n"
+  },
+  "timestamp": "2026-06-20 18:49:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_30",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_30/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Fixed a bug with event callbacks - the success callback was called even if the job failed Added a test for it as well.",
+    "fault_locations": [
+      {
+        "file": "luigi/worker.py",
+        "start_line": 188,
+        "end_line": 206,
+        "function_name": "run",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/test_event_callbacks.py::TestEventCallbacks::test_failure",
+      "pytest test/test_event_callbacks.py::TestEventCallbacks::test_processing_time_handler_failure"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

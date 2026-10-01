@@ -1,0 +1,206 @@
+{
+  "project_name": "Mockito",
+  "bug_id": "20",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-01 22:06:59",
+      "end_time": "2025-10-01 22:17:01",
+      "duration_seconds": 602,
+      "duration_human": "10m 2s"
+    },
+    "model_cost": 0.0384,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 482540,
+      "output_tokens": 3895,
+      "total_tokens": 486435,
+      "cached_input_tokens": 468160,
+      "uncached_input_tokens": 14380
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/buildSrc/src/test/groovy/org/mockito/release/notes/improvements/GitHubTicketFetcherTest.groovy b/buildSrc/src/test/groovy/org/mockito/release/notes/improvements/GitHubTicketFetcherTest.groovy\ndeleted file mode 100644\nindex 902137999..000000000\n--- a/buildSrc/src/test/groovy/org/mockito/release/notes/improvements/GitHubTicketFetcherTest.groovy\n+++ /dev/null\n@@ -1,23 +0,0 @@\n-package org.mockito.release.notes.improvements\n-\n-import spock.lang.IgnoreIf\n-import spock.lang.Specification\n-import spock.lang.Subject\n-import testutil.OfflineChecker\n-\n-@IgnoreIf({ OfflineChecker.isOffline()})\n-class GitHubTicketFetcherTest extends Specification {\n-\n-    @Subject fetcher = new GitHubTicketFetcher()\n-\n-    //TODO SF tidy up this and the test subject\n-    def \"fetches improvements from GitHub\"() {\n-        def impr = new DefaultImprovements()\n-        def readOnlyToken = \"a0a4c0f41c200f7c653323014d6a72a127764e17\"\n-        when: fetcher.fetchTickets(readOnlyToken, ['109', '108', '99999', '112'], impr)\n-        then:\n-        impr.toText() == \"\"\"* Improvements: 2\n-  * Allow instances of other classes in AdditionalAnswers.delegatesTo [(#112)](https://github.com/mockito/mockito/issues/112)\n-  * Clarify Spy vs Mock CALLS_REAL_METHODS [(#108)](https://github.com/mockito/mockito/issues/108)\"\"\"\n-    }\n-}\ndiff --git a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\nindex 9dc44e663..4e9571b72 100644\n--- a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n+++ b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n@@ -39,7 +39,7 @@ public class ByteBuddyMockMaker implements MockMaker {\n         } catch (ClassCastException cce) {\n             throw new MockitoException(join(\n                     \"ClassCastException occurred while creating the mockito mock :\",\n-                    \"  class to mock : \" + describeClass(mockedProxyType),\n+                    \"  class to mock : \" + describeClass(settings.getTypeToMock()),\n                     \"  created class : \" + describeClass(settings.getTypeToMock()),\n                     \"  proxy instance class : \" + describeClass(mockInstance),\n                     \"  instance creation by : \" + classInstantiator.getClass().getSimpleName(),\n@@ -48,7 +48,7 @@ public class ByteBuddyMockMaker implements MockMaker {\n                     \"\"\n             ),cce);\n         } catch (org.mockito.internal.creation.instance.InstantiationException e) {\n-            throw new MockitoException(\"Unable to create mock instance of type '\" + mockedProxyType.getSuperclass().getSimpleName() + \"'\", e);\n+            throw new MockitoException(\"Unable to create mock instance of type '\" + settings.getTypeToMock().getSimpleName() + \"'\", e);\n         }\n     }\n \n"
+  },
+  "timestamp": "2025-10-01 18:17:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Mockito",
+    "bug_id": "Mockito_20",
+    "repo_path": "/defects4j/framework/bin/temp/Mockito_20",
+    "github_url": "https://github.com/mockito/mockito.git",
+    "description": "Allow convenient spying on abstract classes\nI posted this in GoogleCode and was asked to submit in github.\n\nMockito is easy to use when the test needs to provide canned values for a certain method.\n\nBut it gets harder when a canned value isn't sufficient.\n##### Example 1: Fake with trivial Logic\n\n```\ninterface UserAccount {\n  List<String> getEmails();\n  void addEmail(String email);\n  // 12 other methods ...\n}\n```\n\nWhen mocking such domain entity object, it's tedious to manually program getEmails()/addEmail() with when().thenReturn() and to make sure the two methods are logically consistent, that is, getEmails() returns all emails added.\n##### Example 2: callback-style API\n\n```\ninterface AccountService {\n  void getAccount(String id, AsyncCallback<UserAccount> callback);\n}\n```\n\nStubbing AccountService isn't easy. It'd require use of Answer, and the Answer API isn't statically type safe:\n\n```\nwhen(service.getAccount(eq(id), any(AsyncCallback.class)).thenAnswer(new Answer<Void>() {\n  AsyncCallback<UserAccount> callback = (AsyncCallback<UserAccount>) getArguments()[1];\n  ...\n});\n```\n##### Example 3: Uninteresting parameters\n\n```\ninterface AccountRpcService {\n  FutureAccount getAccount(RpcContext context, String id);\n}\n```\n\nNone of the tests care about the context object. It's an uninteresting parameter imposed by the framework.\n\nIf AccountRpcService were directly mocked, all tests would have to use isA() to repetitively mention this uninteresting parameter, like this:\n\n`when(service.getAccount(isA(RpcContext.class), eq(\"id\")).thenReturn(...);`\n\nAnd all other parameters are required to be wrapped in eq().\n#### Proposal\n\nI propose adding support for abstract classes to mockito to make it easier to deal with tests like above:\n##### For example 1\n\n```\nabstract class FakeUserAccount implements UserAccount {\n  private final List<String> emails = new ArrayList<>();\n\n  @Override public void addEmail(String email) {\n    emails.add(email);\n  }\n  @Override List<String> getEmails() {\n    return ImmutableList.copyOf(emails);\n  }\n}\n\n@Fake private FakeUserAccount userAccount; // Mockito instantiates abstract class.\n```\n##### For example 2\n\n```\nabstract class MockAccountService implements AccountService {\n  @Override public void getAccount(String id, AsyncCallback<UserAccount> callback) {\n    callback.onSuccess(getAccount(id));\n  }\n  abstract UserAccount getAccount(String id);\n}\n\n@Fake private MockAccountService service;\n\n...\n\nwhen(service.getAccount(\"id\")).thenReturn(account);\n```\n##### For example 3\n\n```\nabstract class MockAccountRpcService implements AccountRpcService {\n  @Override Future<Account> getAccount(RpcContext context, String id) {\n    checkNotNull(context);  // Common sanity test. Don't have to repeat it in tests.\n    return getAccount(id);\n  }\n\n  abstract Future<Account> getAccount(String id);\n}\n\n@Fake private MockAccountRpcService service;\n\nwhen(service.getAccount(\"id\")).thenReturn(...);\n```\n\nMy work place internally implemented a default Answer to support abstract classes. We found that the support of abstract classes helps us to avoid overusing mocks when we should be using fakes. And in situations like above we get cleaner test code.\n\nBut because it's not integrated in the core Mockito, there are gotchas with our implementation (like, you can't have private/final methods in your fake).\n\nIf the idea sounds okay to give a try, I'll volunteer to submit a patch.\n\nThanks!\n\n",
+    "commit_message": "Adds support for issue #92 with ByteBuddy",
+    "fault_locations": [
+      {
+        "file": "src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+        "start_line": 34,
+        "end_line": 34,
+        "line_numbers": [
+          34
+        ],
+        "function_name": "createMock",
+        "class_name": "ByteBuddyMockMaker",
+        "filename": "ByteBuddyMockMaker.java",
+        "code_snippet": "    public <T> T createMock(MockCreationSettings<T> settings, MockHandler handler) {\n        if (settings.getSerializableMode() == SerializableMode.ACROSS_CLASSLOADERS) {\n            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddyMockMaker\");\n        }\n        Class<? extends T> mockedProxyType = cachingMockBytecodeGenerator.get(\n                settings.getTypeToMock(),\n                settings.getExtraInterfaces()\n        );\n        T mockInstance = null;\n        try {\n            mockInstance = classInstantiator.instantiate(mockedProxyType);\n            MockMethodInterceptor.MockAccess mockAccess = (MockMethodInterceptor.MockAccess) mockInstance;\n            mockAccess.setMockitoInterceptor(new MockMethodInterceptor(asInternalMockHandler(handler), settings));\n\n            return ensureMockIsAssignableToMockedType(settings, mockInstance);\n        } catch (ClassCastException cce) {\n            throw new MockitoException(join(\n                    \"ClassCastException occurred while creating the mockito mock :\",\n                    \"  class to mock : \" + describeClass(mockedProxyType),\n                    \"  created class : \" + describeClass(settings.getTypeToMock()),\n                    \"  proxy instance class : \" + describeClass(mockInstance),\n                    \"  instance creation by : \" + classInstantiator.getClass().getSimpleName(),\n                    \"\",\n                    \"You might experience classloading issues, please ask the mockito mailing-list.\",\n                    \"\"\n            ),cce);\n        } catch (org.mockito.internal.creation.instance.InstantiationException e) {\n            throw new MockitoException(\"Unable to create mock instance of type '\" + mockedProxyType.getSuperclass().getSimpleName() + \"'\", e);\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+        "start_line": 45,
+        "end_line": 45,
+        "line_numbers": [
+          45
+        ],
+        "function_name": "createMock",
+        "class_name": "ByteBuddyMockMaker",
+        "filename": "ByteBuddyMockMaker.java",
+        "code_snippet": "    public <T> T createMock(MockCreationSettings<T> settings, MockHandler handler) {\n        if (settings.getSerializableMode() == SerializableMode.ACROSS_CLASSLOADERS) {\n            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddyMockMaker\");\n        }\n        Class<? extends T> mockedProxyType = cachingMockBytecodeGenerator.get(\n                settings.getTypeToMock(),\n                settings.getExtraInterfaces()\n        );\n        T mockInstance = null;\n        try {\n            mockInstance = classInstantiator.instantiate(mockedProxyType);\n            MockMethodInterceptor.MockAccess mockAccess = (MockMethodInterceptor.MockAccess) mockInstance;\n            mockAccess.setMockitoInterceptor(new MockMethodInterceptor(asInternalMockHandler(handler), settings));\n\n            return ensureMockIsAssignableToMockedType(settings, mockInstance);\n        } catch (ClassCastException cce) {\n            throw new MockitoException(join(\n                    \"ClassCastException occurred while creating the mockito mock :\",\n                    \"  class to mock : \" + describeClass(mockedProxyType),\n                    \"  created class : \" + describeClass(settings.getTypeToMock()),\n                    \"  proxy instance class : \" + describeClass(mockInstance),\n                    \"  instance creation by : \" + classInstantiator.getClass().getSimpleName(),\n                    \"\",\n                    \"You might experience classloading issues, please ask the mockito mailing-list.\",\n                    \"\"\n            ),cce);\n        } catch (org.mockito.internal.creation.instance.InstantiationException e) {\n            throw new MockitoException(\"Unable to create mock instance of type '\" + mockedProxyType.getSuperclass().getSimpleName() + \"'\", e);\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.mockitousage.annotation.SpyAnnotationTest::should_spy_inner_class",
+      "org.mockitousage.annotation.SpyAnnotationTest::should_report_when_constructor_is_explosive",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::can_spy_abstract_classes",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::exception_message_when_constructor_not_found",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::can_create_mock_with_constructor",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::can_mock_inner_classes",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::mocking_inner_classes_with_wrong_outer_instance",
+      "org.mockitousage.constructor.CreatingMocksWithConstructorTest::can_mock_abstract_classes"
+    ],
+    "golden_patch": "diff --git a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\nindex d5f77b6..9dc44e6 100644\n--- a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n+++ b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n@@ -29,10 +29,9 @@ public class ByteBuddyMockMaker implements MockMaker {\n                 settings.getTypeToMock(),\n                 settings.getExtraInterfaces()\n         );\n+        Instantiator instantiator = new InstantiatorProvider().getInstantiator(settings);\n         T mockInstance = null;\n         try {\n+            mockInstance = instantiator.newInstance(mockedProxyType);\n-            mockInstance = classInstantiator.instantiate(mockedProxyType);\n             MockMethodInterceptor.MockAccess mockAccess = (MockMethodInterceptor.MockAccess) mockInstance;\n             mockAccess.setMockitoInterceptor(new MockMethodInterceptor(asInternalMockHandler(handler), settings));\n \n@@ -43,7 +42,7 @@ public class ByteBuddyMockMaker implements MockMaker {\n                     \"  class to mock : \" + describeClass(mockedProxyType),\n                     \"  created class : \" + describeClass(settings.getTypeToMock()),\n                     \"  proxy instance class : \" + describeClass(mockInstance),\n+                    \"  instance creation by : \" + instantiator.getClass().getSimpleName(),\n-                    \"  instance creation by : \" + classInstantiator.getClass().getSimpleName(),\n                     \"\",\n                     \"You might experience classloading issues, please ask the mockito mailing-list.\",\n                     \"\"",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Brice Dutheil",
+        "commit_date": "2014-08-14 08:10:10",
+        "commit_message": "Refactors the classcache to be more readable + some renaming job",
+        "commit_hash": "6037ce651d1e7dc718a6f078f5506e900d4ace55"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "initializeClassInstantiator"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "prettifyFailure",
+          "CachingMockBytecodeGenerator",
+          "InterceptedInvocation",
+          "doIntercept",
+          "interceptDefaultCallable",
+          "invoke",
+          "MockMethodInterceptor",
+          "MockKey",
+          "doIdentityEquals",
+          "interceptSuperCallable",
+          "MockBytecodeGenerator",
+          "doWriteReplace",
+          "equals",
+          "interceptAbstract",
+          "getAcrossJVMSerializationFeature",
+          "hashCode",
+          "doIdentityHashCode",
+          "getMockitoInterceptor",
+          "nameFor",
+          "createMockitoMethod",
+          "setMockitoInterceptor",
+          "isInvokable",
+          "CachedBytecodeGenerator",
+          "getMockHandler",
+          "FromCallable",
+          "initializeClassInstantiator"
+        ],
+        "functions_name_modified_file": [
+          "asInternalMockHandler",
+          "getHandler",
+          "ByteBuddyMockMaker",
+          "initializeClassInstantiator",
+          "resetMock"
+        ],
+        "functions_name_all_files": [
+          "MockitoMockObjectOutputStream",
+          "mockReplacementCompleted",
+          "prettifyFailure",
+          "getLocation",
+          "mockReplacementStarted",
+          "CachingMockBytecodeGenerator",
+          "InterceptedInvocation",
+          "doIntercept",
+          "mockitoProxyClassMarker",
+          "interceptDefaultCallable",
+          "readResolve",
+          "invoke",
+          "getMethod",
+          "MockitoMockObjectInputStream",
+          "MockMethodInterceptor",
+          "MockKey",
+          "doIdentityEquals",
+          "interceptSuperCallable",
+          "getHandler",
+          "ByteBuddyMockMaker",
+          "AcrossJVMMockitoMockSerializable",
+          "stubInfo",
+          "asInternalMockHandler",
+          "toString",
+          "MockBytecodeGenerator",
+          "writeReplace",
+          "getMock",
+          "doWriteReplace",
+          "equals",
+          "interceptAbstract",
+          "AcrossJVMSerializationFeature",
+          "notMarkedAsAMockitoMock",
+          "callRealMethod",
+          "getAcrossJVMSerializationFeature",
+          "mockIsCurrentlyBeingReplaced",
+          "isWriteReplace",
+          "resetMock",
+          "ignoreForVerification",
+          "hackClassNameToMatchNewlyCreatedClass",
+          "doIdentityHashCode",
+          "AcrossJVMMockSerializationProxy",
+          "resolveClass",
+          "getMockitoInterceptor",
+          "annotateClass",
+          "markStubbed",
+          "nameFor",
+          "createMockitoMethod",
+          "setMockitoInterceptor",
+          "markVerified",
+          "CachedBytecodeGenerator",
+          "isVerified",
+          "isInvokable",
+          "isIgnoredForVerification",
+          "getSequenceNumber",
+          "equalArguments",
+          "FromCallable",
+          "getMockHandler",
+          "hashCode",
+          "initializeClassInstantiator"
+        ],
+        "function_code_before": "    public <T> T createMock(MockCreationSettings<T> settings, MockHandler handler) {\n        if (settings.getSerializableMode() == SerializableMode.ACROSS_CLASSLOADERS) {\n            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddy\");\n        }\n        Class<? extends T> mockedType = cachingBytecodeGenerator.get(\n                settings.getTypeToMock(),\n                settings.getExtraInterfaces()\n        );\n        T mock = classInstantiator.instantiate(mockedType);\n        MockitoMethodInterceptor.MockAccess mockAccess = (MockitoMethodInterceptor.MockAccess) mock;\n        mockAccess.setMockitoInterceptor(new MockitoMethodInterceptor(asInternalMockHandler(handler), settings));\n\n        return settings.getTypeToMock().cast(mock);\n    }",
+        "function_code_after": "    public <T> T createMock(MockCreationSettings<T> settings, MockHandler handler) {\n        if (settings.getSerializableMode() == SerializableMode.ACROSS_CLASSLOADERS) {\n            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddyMockMaker\");\n        }\n        Class<? extends T> mockedType = cachingMockBytecodeGenerator.get(\n                settings.getTypeToMock(),\n                settings.getExtraInterfaces()\n        );\n        T mock = classInstantiator.instantiate(mockedType);\n        MockMethodInterceptor.MockAccess mockAccess = (MockMethodInterceptor.MockAccess) mock;\n        mockAccess.setMockitoInterceptor(new MockMethodInterceptor(asInternalMockHandler(handler), settings));\n\n        return ensureMockIsAssignableToMockedType(settings, mock);\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/org/mockito/internal/creation/bytebuddy/AcrossJVMSerializationFeature.java",
+          "src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java",
+          "src/org/mockito/internal/creation/bytebuddy/CachingMockBytecodeGenerator.java",
+          "src/org/mockito/internal/creation/bytebuddy/InterceptedInvocation.java",
+          "src/org/mockito/internal/creation/bytebuddy/MockBytecodeGenerator.java",
+          "src/org/mockito/internal/creation/bytebuddy/MockMethodInterceptor.java"
+        ],
+        "file_patches": {
+          "src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java": "diff --git a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\nindex 15b67d634..a20a72547 100644\n--- a/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n+++ b/src/org/mockito/internal/creation/bytebuddy/ByteBuddyMockMaker.java\n@@ -15,84 +15,72 @@ import static org.mockito.internal.util.StringJoiner.join;\n public class ByteBuddyMockMaker implements MockMaker {\n \n     private final ClassInstantiator classInstantiator;\n-    private final CachingBytecodeGenerator cachingBytecodeGenerator;\n-\n-//    // TODO should be weakhashmap\n-//    private static final Map<MockKey<?>, Class<?>> PREVIOUSLY_GENERATED_MOCK_CLASSES = new ConcurrentHashMap<MockKey<?>, Class<?>>();\n-\n+    private final CachingMockBytecodeGenerator cachingMockBytecodeGenerator;\n \n     public ByteBuddyMockMaker() {\n         classInstantiator = initializeClassInstantiator();\n-        cachingBytecodeGenerator = new CachingBytecodeGenerator();\n-    }\n-\n-    private static ClassInstantiator initializeClassInstantiator() {\n-        try {\n-            Class<?> objenesisClassLoader = Class.forName(\"org.mockito.internal.creation.bytebuddy.ClassInstantiator$UsingObjenesis\");\n-            Constructor<?> usingClassCacheConstructor = objenesisClassLoader.getDeclaredConstructor(boolean.class);\n-            return ClassInstantiator.class.cast(usingClassCacheConstructor.newInstance(new GlobalConfiguration().enableClassCache()));\n-        } catch (Throwable throwable) {\n-            // MockitoException cannot be used at this point as we are early in the classloading chain and necessary dependencies may not yet be loadable by the classloader\n-            throw new IllegalStateException(join(\n-                    \"Mockito could not create mock: Objenesis is missing on the classpath.\",\n-                    \"Please add Objenesis on the classpath.\",\n-                    \"\"\n-            ), throwable);\n-        }\n+        cachingMockBytecodeGenerator = new CachingMockBytecodeGenerator();\n     }\n \n     public <T> T createMock(MockCreationSettings<T> settings, MockHandler handler) {\n         if (settings.getSerializableMode() == SerializableMode.ACROSS_CLASSLOADERS) {\n-            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddy\");\n+            throw new MockitoException(\"Serialization across classloaders not yet supported with ByteBuddyMockMaker\");\n         }\n-        Class<? extends T> mockedType = cachingBytecodeGenerator.get(\n+        Class<? extends T> mockedType = cachingMockBytecodeGenerator.get(\n                 settings.getTypeToMock(),\n                 settings.getExtraInterfaces()\n         );\n         T mock = classInstantiator.instantiate(mockedType);\n-        MockitoMethodInterceptor.MockAccess mockAccess = (MockitoMethodInterceptor.MockAccess) mock;\n-        mockAccess.setMockitoInterceptor(new MockitoMethodInterceptor(asInternalMockHandler(handler), settings));\n+        MockMethodInterceptor.MockAccess mockAccess = (MockMethodInterceptor.MockAccess) mock;\n+        mockAccess.setMockitoInterceptor(new MockMethodInterceptor(asInternalMockHandler(handler), settings));\n \n-        return settings.getTypeToMock().cast(mock);\n+        return ensureMockIsAssignableToMockedType(settings, mock);\n     }\n \n-//    public <T> Class<? extends T> getOrMakeMock(Class<T> mockedType, Set<Class> interfaces) {\n-//        MockKey<T> mockKey = new MockKey<T>(mockedType, interfaces);\n-//        Class<? extends T> mockType = lookup(mockKey);\n-//        if (mockType == null) {\n-//            synchronized (mockedType) {\n-//                mockType = lookup(mockKey);\n-//                if (mockType != null) {\n-//                    return mockType;\n-//                }\n-//                try {\n-//                    mockType = new ByteBuddyMockBytecodeGenerator().generateMockClass(mockedType, interfaces);\n-//                } catch (Exception generationFailed) {\n-//                    prettifyFailure(mockedType, generationFailed);\n-//                }\n-//                PREVIOUSLY_GENERATED_MOCK_CLASSES.put(mockKey, mockType);\n-//            }\n-//        }\n-////        System.out.println(mockedType.getSimpleName() + \";\" + mockedType.getClassLoader() + \"   --->   \" + mockType.getSimpleName() + \";\" + mockType.getClassLoader());\n-//        System.out.println(PREVIOUSLY_GENERATED_MOCK_CLASSES.size() + \" -> \" + PREVIOUSLY_GENERATED_MOCK_CLASSES);\n-//        return mockType;\n-//    }\n-//\n-//    @SuppressWarnings(\"unchecked\")\n-//    private <T> Class<? extends T> lookup(MockKey<T> mockKey) {\n-//        return (Class<? extends T>) PREVIOUSLY_GENERATED_MOCK_CLASSES.get(mockKey);\n-//    }\n-\n+    private <T> T ensureMockIsAssignableToMockedType(MockCreationSettings<T> settings, T mock) {\n+        // force explicit cast to mocked type here, instead of\n+        // relying on the JVM to implicitly cast on the client call site\n+        Class<T> typeToMock = settings.getTypeToMock();\n+        try {\n+            return typeToMock.cast(mock);\n+        } catch (ClassCastException cce) {\n+            throw new MockitoException(join(\n+                    \"ClassCastException occurred while creating the mockito mock :\",\n+                    \"  class to mock : '\" + typeToMock.getCanonicalName() + \"', loaded by classloader : '\" + typeToMock.getClassLoader() + \"'\",\n+                    \"  imposterizing class : '\" + mock.getClass().getCanonicalName() + \"', loaded by classloader : '\" + mock.getClass().getClassLoader() + \"'\",\n+                    \"\",\n+                    \"You might experience classloading issues, please ask the mockito mailing-list.\",\n+                    \"\"\n+            ),cce);\n+        }\n+    }\n \n     public MockHandler getHandler(Object mock) {\n-        if (!(mock instanceof MockitoMethodInterceptor.MockAccess)) {\n+        if (!(mock instanceof MockMethodInterceptor.MockAccess)) {\n             return null;\n         }\n-        return ((MockitoMethodInterceptor.MockAccess) mock).getMockitoInterceptor().getMockHandler();\n+        return ((MockMethodInterceptor.MockAccess) mock).getMockitoInterceptor().getMockHandler();\n     }\n \n     public void resetMock(Object mock, MockHandler newHandler, MockCreationSettings settings) {\n-        ((MockitoMethodInterceptor.MockAccess) mock).setMockitoInterceptor(new MockitoMethodInterceptor(asInternalMockHandler(newHandler), settings));\n+        ((MockMethodInterceptor.MockAccess) mock).setMockitoInterceptor(\n+                new MockMethodInterceptor(asInternalMockHandler(newHandler), settings)\n+        );\n+    }\n+\n+    private static ClassInstantiator initializeClassInstantiator() {\n+        try {\n+            Class<?> objenesisClassLoader = Class.forName(\"org.mockito.internal.creation.bytebuddy.ClassInstantiator$UsingObjenesis\");\n+            Constructor<?> usingClassCacheConstructor = objenesisClassLoader.getDeclaredConstructor(boolean.class);\n+            return ClassInstantiator.class.cast(usingClassCacheConstructor.newInstance(new GlobalConfiguration().enableClassCache()));\n+        } catch (Throwable throwable) {\n+            // MockitoException cannot be used at this point as we are early in the classloading chain and necessary dependencies may not yet be loadable by the classloader\n+            throw new IllegalStateException(join(\n+                    \"Mockito could not create mock: Objenesis is missing on the classpath.\",\n+                    \"Please add Objenesis on the classpath.\",\n+                    \"\"\n+            ), throwable);\n+        }\n     }\n \n     private static InternalMockHandler asInternalMockHandler(MockHandler handler) {\n@@ -105,6 +93,4 @@ public class ByteBuddyMockMaker implements MockMaker {\n         }\n         return (InternalMockHandler) handler;\n     }\n-\n-\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_52",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 17:09:03",
+      "end_time": "2026-06-20 17:12:39",
+      "duration_seconds": 215,
+      "duration_human": "3m 35s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 729462,
+      "output_tokens": 4086,
+      "total_tokens": 733548,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 729462
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/groupby/generic.py b/pandas/core/groupby/generic.py\nindex 37b6429167..4640d592c4 100644\n--- a/pandas/core/groupby/generic.py\n+++ b/pandas/core/groupby/generic.py\n@@ -591,22 +591,25 @@ class SeriesGroupBy(GroupBy):\n \n         val = self.obj._internal_get_values()\n \n-        # GH 27951\n-        # temporary fix while we wait for NumPy bug 12629 to be fixed\n-        val[isna(val)] = np.datetime64(\"NaT\")\n+        codes, _ = algorithms.factorize(val, sort=False)\n+        sorter = np.lexsort((codes, ids))\n+        codes = codes[sorter]\n+        ids = ids[sorter]\n \n-        try:\n-            sorter = np.lexsort((val, ids))\n-        except TypeError:  # catches object dtypes\n-            msg = f\"val.dtype must be object, got {val.dtype}\"\n-            assert val.dtype == object, msg\n-            val, _ = algorithms.factorize(val, sort=False)\n-            sorter = np.lexsort((val, ids))\n-            _isna = lambda a: a == -1\n+        # group boundaries are where group ids change\n+        # unique observations are where sorted values change\n+        idx = np.r_[0, 1 + np.nonzero(ids[1:] != ids[:-1])[0]]\n+        inc = np.r_[1, codes[1:] != codes[:-1]]\n+\n+        # 1st item of each group is a new unique observation\n+        mask = codes == -1\n+        if dropna:\n+            inc[idx] = 1\n+            inc[mask] = 0\n         else:\n-            _isna = isna\n+            inc[mask & np.r_[False, mask[:-1]]] = 0\n+            inc[idx] = 1\n \n-        ids, val = ids[sorter], val[sorter]\n \n         # group boundaries are where group ids change\n         # unique observations are where sorted values change\ndiff --git a/pandas/tests/groupby/test_function.py b/pandas/tests/groupby/test_function.py\nindex 6205dfb87b..c402ca1946 100644\n--- a/pandas/tests/groupby/test_function.py\n+++ b/pandas/tests/groupby/test_function.py\n@@ -1017,6 +1017,7 @@ def test_frame_describe_unstacked_format():\n @pytest.mark.parametrize(\"dropna\", [False, True])\n def test_series_groupby_nunique(n, m, sort, dropna):\n     def check_nunique(df, keys, as_index=True):\n+        original_df = df.copy()\n         gr = df.groupby(keys, as_index=as_index, sort=sort)\n         left = gr[\"julie\"].nunique(dropna=dropna)\n \n@@ -1026,6 +1027,7 @@ def test_series_groupby_nunique(n, m, sort, dropna):\n             right = right.reset_index(drop=True)\n \n         tm.assert_series_equal(left, right, check_names=False)\n+        tm.assert_frame_equal(df, original_df)\n \n     days = date_range(\"2015-08-23\", periods=10)\n \n"
+  },
+  "timestamp": "2026-06-20 17:12:39 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_52",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_52/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: groupby nunique changing values (#32175)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 594,
+        "end_line": 609,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 614,
+        "end_line": 614,
+        "function_name": "nunique",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/groupby/generic.py",
+        "start_line": 617,
+        "end_line": 617,
+        "function_name": "nunique",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_function.py::test_series_groupby_nunique"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

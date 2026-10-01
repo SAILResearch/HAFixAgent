@@ -1,0 +1,63 @@
+{
+  "project_name": "Compress",
+  "bug_id": "41",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:58:27",
+      "end_time": "2026-06-20 00:01:00",
+      "duration_seconds": 153,
+      "duration_human": "2m 33s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 719662,
+      "output_tokens": 4382,
+      "total_tokens": 724044,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 719662
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:01:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_41",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_41",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "ZipArchiveInputStream.getNextZipEntry() should differentiate between \"invalid entry encountered\" and \"no more entries\"\nZipArchiveInputStream.getNextZipEntry() currently returns null if an invalid entry is encountered.  Thus, it's not possible to differentiate between \"no more entries\" and \"invalid entry encountered\" conditions.\n\nInstead, it should throw an exception if an invalid entry is encountered.\n\nI've created a test case and fix. I will submit a pull request shortly.",
+    "commit_message": "COMPRESS-367 Throw ZipException on invalid entry with ZipArchiveInputStream",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 249,
+        "end_line": 249,
+        "line_numbers": [
+          249
+        ],
+        "function_name": "getNextZipEntry",
+        "class_name": "ZipArchiveInputStream",
+        "filename": "ZipArchiveInputStream.java",
+        "code_snippet": "    public ZipArchiveEntry getNextZipEntry() throws IOException {\n        boolean firstEntry = true;\n        if (closed || hitCentralDirectory) {\n            return null;\n        }\n        if (current != null) {\n            closeEntry();\n            firstEntry = false;\n        }\n\n        try {\n            if (firstEntry) {\n                // split archives have a special signature before the\n                // first local file header - look for it and fail with\n                // the appropriate error message if this is a split\n                // archive.\n                readFirstLocalFileHeader(LFH_BUF);\n            } else {\n                readFully(LFH_BUF);\n            }\n        } catch (final EOFException e) {\n            return null;\n        }\n\n        final ZipLong sig = new ZipLong(LFH_BUF);\n        if (sig.equals(ZipLong.CFH_SIG) || sig.equals(ZipLong.AED_SIG)) {\n            hitCentralDirectory = true;\n            skipRemainderOfArchive();\n        }\n        if (!sig.equals(ZipLong.LFH_SIG)) {\n            return null;\n        }\n\n        int off = WORD;\n        current = new CurrentEntry();\n\n        final int versionMadeBy = ZipShort.getValue(LFH_BUF, off);\n        off += SHORT;\n        current.entry.setPlatform((versionMadeBy >> ZipFile.BYTE_SHIFT) & ZipFile.NIBLET_MASK);\n\n        final GeneralPurposeBit gpFlag = GeneralPurposeBit.parse(LFH_BUF, off);\n        final boolean hasUTF8Flag = gpFlag.usesUTF8ForNames();\n        final ZipEncoding entryEncoding = hasUTF8Flag ? ZipEncodingHelper.UTF8_ZIP_ENCODING : zipEncoding;\n        current.hasDataDescriptor = gpFlag.usesDataDescriptor();\n        current.entry.setGeneralPurposeBit(gpFlag);\n\n        off += SHORT;\n\n        current.entry.setMethod(ZipShort.getValue(LFH_BUF, off));\n        off += SHORT;\n\n        final long time = ZipUtil.dosToJavaTime(ZipLong.getValue(LFH_BUF, off));\n        current.entry.setTime(time);\n        off += WORD;\n\n        ZipLong size = null, cSize = null;\n        if (!current.hasDataDescriptor) {\n            current.entry.setCrc(ZipLong.getValue(LFH_BUF, off));\n            off += WORD;\n\n            cSize = new ZipLong(LFH_BUF, off);\n            off += WORD;\n\n            size = new ZipLong(LFH_BUF, off);\n            off += WORD;\n        } else {\n            off += 3 * WORD;\n        }\n\n        final int fileNameLen = ZipShort.getValue(LFH_BUF, off);\n\n        off += SHORT;\n\n        final int extraLen = ZipShort.getValue(LFH_BUF, off);\n        off += SHORT;\n\n        final byte[] fileName = new byte[fileNameLen];\n        readFully(fileName);\n        current.entry.setName(entryEncoding.decode(fileName), fileName);\n\n        final byte[] extraData = new byte[extraLen];\n        readFully(extraData);\n        current.entry.setExtra(extraData);\n\n        if (!hasUTF8Flag && useUnicodeExtraFields) {\n            ZipUtil.setNameAndCommentFromExtraFields(current.entry, fileName, null);\n        }\n\n        processZip64Extra(size, cSize);\n\n        if (current.entry.getCompressedSize() != ArchiveEntry.SIZE_UNKNOWN) {\n            if (current.entry.getMethod() == ZipMethod.UNSHRINKING.getCode()) {\n                current.in = new UnshrinkingInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\n            } else if (current.entry.getMethod() == ZipMethod.IMPLODING.getCode()) {\n                current.in = new ExplodingInputStream(\n                        current.entry.getGeneralPurposeBit().getSlidingDictionarySize(),\n                        current.entry.getGeneralPurposeBit().getNumberOfShannonFanoTrees(),\n                        new BoundedInputStream(in, current.entry.getCompressedSize()));\n            } else if (current.entry.getMethod() == ZipMethod.BZIP2.getCode()) {\n                current.in = new BZip2CompressorInputStream(new BoundedInputStream(in, current.entry.getCompressedSize()));\n            }\n        }\n        \n        entriesRead++;\n        return current.entry;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.ZipTestCase::testListAllFilesWithNestedArchive",
+      "org.apache.commons.compress.archivers.zip.ZipArchiveInputStreamTest::testThrowOnInvalidEntry"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex 51b19304..5d4c0a82 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -244,10 +244,9 @@ public ZipArchiveEntry getNextZipEntry() throws IOException {\n         if (sig.equals(ZipLong.CFH_SIG) || sig.equals(ZipLong.AED_SIG)) {\n             hitCentralDirectory = true;\n             skipRemainderOfArchive();\n+            return null;\n         }\n         if (!sig.equals(ZipLong.LFH_SIG)) {\n+            throw new ZipException(String.format(\"Unexpected record signature: 0X%X\", sig.getValue()));\n-            return null;\n         }\n \n         int off = WORD;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

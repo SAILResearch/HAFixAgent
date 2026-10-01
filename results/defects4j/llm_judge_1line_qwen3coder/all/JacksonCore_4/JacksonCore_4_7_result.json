@@ -1,0 +1,134 @@
+{
+  "project_name": "JacksonCore",
+  "bug_id": "4",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 07:20:08",
+      "end_time": "2026-06-20 07:22:37",
+      "duration_seconds": 150,
+      "duration_human": "2m 30s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 43,
+    "token_usage": {
+      "input_tokens": 469355,
+      "output_tokens": 4314,
+      "total_tokens": 473669,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 469355
+    },
+    "agent_steps": 43,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\nindex f97a083f..1f92f440 100644\n--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n@@ -583,7 +583,11 @@ public final class TextBuffer\n         // Let's grow by 50% by default\n         final int len = curr.length;\n         // but above intended maximum, slow to increase by 25%\n-        int newLen = (len == MAX_SEGMENT_LEN) ? (MAX_SEGMENT_LEN+1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n+        int newLen = len + (len >> 1);\n+        // but above intended maximum, slow to increase by 25%\n+        if (newLen > MAX_SEGMENT_LEN) {\n+            newLen = len + (len >> 2);\n+        }\n         return (_currentSegment = Arrays.copyOf(curr, newLen));\n     }\n \n"
+  },
+  "timestamp": "2026-06-20 07:22:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonCore",
+    "bug_id": "JacksonCore_4",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonCore_4",
+    "github_url": "https://github.com/FasterXML/jackson-core.git",
+    "description": "What is the maximum key length allowed?\nI noticed that even in Jackson 2.4, if a JSON key is longer than 262144 bytes, ArrayIndexOutOfBoundsException is thrown from TextBuffer. Below is the stack trace:\n\n```\njava.lang.ArrayIndexOutOfBoundsException\n    at java.lang.System.arraycopy(Native Method)\n    at com.fasterxml.jackson.core.util.TextBuffer.expandCurrentSegment(TextBuffer.java:604)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser.addName(UTF8StreamJsonParser.java:2034)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser.findName(UTF8StreamJsonParser.java:1928)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser.parseLongFieldName(UTF8StreamJsonParser.java:1534)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser.parseMediumFieldName(UTF8StreamJsonParser.java:1502)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser._parseFieldName(UTF8StreamJsonParser.java:1437)\n    at com.fasterxml.jackson.core.json.UTF8StreamJsonParser.nextToken(UTF8StreamJsonParser.java:668)\n    ... <below are our code> ...\n```\n\nLooking at TextBuffer.expandCurrentSegment(TextBuffer.java:604), once the length of _currentSegment is increased to MAX_SEGMENT_LEN + 1 (262145) bytes, the newLen will stay at MAX_SEGMENT_LEN, which is smaller than len. Therefore System.arraycopy() will fail.\n\nI understand it is rare to have key larger than 262144 bytes, but it would be nice if\n- Jackson explicitly throw exception stating that key is too long.\n- Document that the maximum key length is 262144 bytes.\n\nOR\n- Update TextBuffer to support super long key.\n\nThanks!\n\n",
+    "commit_message": "Fix #152",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java",
+        "start_line": 586,
+        "end_line": 586,
+        "line_numbers": [
+          586
+        ],
+        "function_name": "expandCurrentSegment",
+        "class_name": "TextBuffer",
+        "filename": "TextBuffer.java",
+        "code_snippet": "    public char[] expandCurrentSegment()\n    {\n        final char[] curr = _currentSegment;\n        // Let's grow by 50% by default\n        final int len = curr.length;\n        // but above intended maximum, slow to increase by 25%\n        int newLen = (len == MAX_SEGMENT_LEN) ? (MAX_SEGMENT_LEN+1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n        return (_currentSegment = Arrays.copyOf(curr, newLen));\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.core.util.TestTextBuffer::testExpand"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\nindex a6773760..f97a083f 100644\n--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n@@ -582,11 +582,8 @@ public final class TextBuffer\n         final char[] curr = _currentSegment;\n         // Let's grow by 50% by default\n         final int len = curr.length;\n+        int newLen = len + (len >> 1);\n         // but above intended maximum, slow to increase by 25%\n+        if (newLen > MAX_SEGMENT_LEN) {\n+            newLen = len + (len >> 2);\n+        }\n-        int newLen = (len == MAX_SEGMENT_LEN) ? (MAX_SEGMENT_LEN+1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n         return (_currentSegment = Arrays.copyOf(curr, newLen));\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2014-01-19 22:28:41",
+        "commit_message": "minor addition to TextBuffer",
+        "commit_hash": "0c8d86eab3670535dfcb5ad4d80f090f001aca14"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "getTextOffset",
+          "contentsAsDecimal",
+          "TextBuffer"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "getTextOffset",
+          "contentsAsDecimal",
+          "TextBuffer"
+        ],
+        "functions_name_modified_file": [
+          "hasTextAsCharacters",
+          "expand",
+          "resetWithCopy",
+          "TextBuffer",
+          "size",
+          "getTextOffset",
+          "resetWithString",
+          "unshare",
+          "getCurrentSegmentSize",
+          "contentsAsDouble",
+          "releaseBuffers",
+          "setCurrentLength",
+          "contentsAsString",
+          "ensureNotShared",
+          "append",
+          "resetWithEmpty",
+          "clearSegments",
+          "contentsAsDecimal",
+          "resetWithShared"
+        ],
+        "functions_name_all_files": [
+          "hasTextAsCharacters",
+          "expand",
+          "resetWithCopy",
+          "TextBuffer",
+          "size",
+          "getTextOffset",
+          "resetWithString",
+          "unshare",
+          "getCurrentSegmentSize",
+          "contentsAsDouble",
+          "releaseBuffers",
+          "setCurrentLength",
+          "contentsAsString",
+          "ensureNotShared",
+          "append",
+          "resetWithEmpty",
+          "clearSegments",
+          "contentsAsDecimal",
+          "resetWithShared"
+        ],
+        "function_code_before": "    /**\n     * Method called to expand size of the current segment, to\n     * accommodate for more contiguous content. Usually only\n     * used when parsing tokens like names if even then.\n     */\n    public char[] expandCurrentSegment()\n    {\n        final char[] curr = _currentSegment;\n        // Let's grow by 50%\n        final int len = curr.length;\n        // Must grow by at least 1 char, no matter what\n        int newLen = (len == MAX_SEGMENT_LEN) ?\n            (MAX_SEGMENT_LEN + 1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n        return (_currentSegment = Arrays.copyOf(curr, newLen));\n    }",
+        "function_code_after": "    /**\n     * Method called to expand size of the current segment, to\n     * accommodate for more contiguous content. Usually only\n     * used when parsing tokens like names if even then.\n     */\n    public char[] expandCurrentSegment()\n    {\n        final char[] curr = _currentSegment;\n        // Let's grow by 50%\n        final int len = curr.length;\n        // Must grow by at least 1 char, no matter what\n        int newLen = (len == MAX_SEGMENT_LEN) ? (MAX_SEGMENT_LEN+1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n        return (_currentSegment = Arrays.copyOf(curr, newLen));\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java": "diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\nindex 3aac2190..fb4ad6d1 100644\n--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n+++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java\n@@ -118,8 +118,7 @@ public final class TextBuffer\n     /**********************************************************\n      */\n \n-    public TextBuffer(BufferRecycler allocator)\n-    {\n+    public TextBuffer(BufferRecycler allocator) {\n         _allocator = allocator;\n     }\n \n@@ -204,7 +203,7 @@ public final class TextBuffer\n         if (_hasSegments) {\n             clearSegments();\n         } else if (_currentSegment == null) {\n-            _currentSegment = findBuffer(len);\n+            _currentSegment = buf(len);\n         }\n         _currentSize = _segmentSize = 0;\n         append(buf, start, len);\n@@ -230,7 +229,7 @@ public final class TextBuffer\n      * Helper method used to find a buffer to use, ideally one\n      * recycled earlier.\n      */\n-    private char[] findBuffer(int needed)\n+    private char[] buf(int needed)\n     {\n         if (_allocator != null) {\n             return _allocator.allocCharBuffer(BufferRecycler.CHAR_TEXT_BUFFER, needed);\n@@ -275,8 +274,7 @@ public final class TextBuffer\n         return _segmentSize + _currentSize;\n     }\n \n-    public int getTextOffset()\n-    {\n+    public int getTextOffset() {\n         /* Only shared input buffer can have non-zero offset; buffer\n          * segments start at 0, and if we have to create a combo buffer,\n          * that too will start from beginning of the buffer\n@@ -291,32 +289,22 @@ public final class TextBuffer\n     public boolean hasTextAsCharacters()\n     {\n         // if we have array in some form, sure\n-        if (_inputStart >= 0 || _resultArray != null) {\n-            return true;\n-        }\n+        if (_inputStart >= 0 || _resultArray != null)  return true;\n         // not if we have String as value\n-        if (_resultString != null) {\n-            return false;\n-        }\n+        if (_resultString != null) return false;\n         return true;\n     }\n     \n     public char[] getTextBuffer()\n     {\n         // Are we just using shared input buffer?\n-        if (_inputStart >= 0) {\n-            return _inputBuffer;\n-        }\n-        if (_resultArray != null) {\n-            return _resultArray;\n-        }\n+        if (_inputStart >= 0) return _inputBuffer;\n+        if (_resultArray != null)  return _resultArray;\n         if (_resultString != null) {\n             return (_resultArray = _resultString.toCharArray());\n         }\n         // Nope; but does it fit in just one segment?\n-        if (!_hasSegments) {\n-            return _currentSegment;\n-        }\n+        if (!_hasSegments)  return _currentSegment;\n         // Nope, need to have/create a non-segmented array and return it\n         return contentsAsArray();\n     }\n@@ -366,11 +354,10 @@ public final class TextBuffer\n         return _resultString;\n     }\n  \n-    public char[] contentsAsArray()\n-    {\n+    public char[] contentsAsArray() {\n         char[] result = _resultArray;\n         if (result == null) {\n-            _resultArray = result = buildResultArray();\n+            _resultArray = result = resultArray();\n         }\n         return result;\n     }\n@@ -379,8 +366,7 @@ public final class TextBuffer\n      * Convenience method for converting contents of the buffer\n      * into a {@link BigDecimal}.\n      */\n-    public BigDecimal contentsAsDecimal()\n-        throws NumberFormatException\n+    public BigDecimal contentsAsDecimal() throws NumberFormatException\n     {\n         // Already got a pre-cut array?\n         if (_resultArray != null) {\n@@ -530,7 +516,7 @@ public final class TextBuffer\n         } else {\n             char[] curr = _currentSegment;\n             if (curr == null) {\n-                _currentSegment = findBuffer(0);\n+                _currentSegment = buf(0);\n             } else if (_currentSize >= curr.length) {\n                 // Plus, we better have room for at least one more char\n                 expand(1);\n@@ -556,7 +542,7 @@ public final class TextBuffer\n         }\n         char[] curr = _currentSegment;\n         if (curr == null) {\n-            _currentSegment = curr = findBuffer(0);\n+            _currentSegment = curr = buf(0);\n         }\n         return curr;\n     }\n@@ -574,7 +560,7 @@ public final class TextBuffer\n         _segmentSize += oldLen;\n         // Let's grow segments by 50%\n         int newLen = Math.min(oldLen + (oldLen >> 1), MAX_SEGMENT_LEN);\n-        char[] curr = _charArray(newLen);\n+        char[] curr = carr(newLen);\n         _currentSize = 0;\n         _currentSegment = curr;\n         return curr;\n@@ -591,11 +577,26 @@ public final class TextBuffer\n         // Let's grow by 50%\n         final int len = curr.length;\n         // Must grow by at least 1 char, no matter what\n-        int newLen = (len == MAX_SEGMENT_LEN) ?\n-            (MAX_SEGMENT_LEN + 1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n+        int newLen = (len == MAX_SEGMENT_LEN) ? (MAX_SEGMENT_LEN+1) : Math.min(MAX_SEGMENT_LEN, len + (len >> 1));\n         return (_currentSegment = Arrays.copyOf(curr, newLen));\n     }\n \n+    /**\n+     * Method called to expand size of the current segment, to\n+     * accommodate for more contiguous content. Usually only\n+     * used when parsing tokens like names if even then.\n+     * \n+     * @param minSize Required minimum strength of the current segment\n+     *\n+     * @since 2.4.0\n+     */\n+    public char[] expandCurrentSegment(int minSize) {\n+        char[] curr = _currentSegment;\n+        if (curr.length >= minSize) return curr;\n+        _currentSegment = curr = Arrays.copyOf(curr, minSize);\n+        return curr;\n+    }\n+\n     /*\n     /**********************************************************\n     /* Standard methods:\n@@ -631,7 +632,7 @@ public final class TextBuffer\n         // Is buffer big enough, or do we need to reallocate?\n         int needed = sharedLen+needExtra;\n         if (_currentSegment == null || needed > _currentSegment.length) {\n-            _currentSegment = findBuffer(needed);\n+            _currentSegment = buf(needed);\n         }\n         if (sharedLen > 0) {\n             System.arraycopy(inputBuf, start, _currentSegment, 0, sharedLen);\n@@ -661,10 +662,10 @@ public final class TextBuffer\n             sizeAddition = minNewSegmentSize;\n         }\n         _currentSize = 0;\n-        _currentSegment = _charArray(Math.min(MAX_SEGMENT_LEN, oldLen + sizeAddition));\n+        _currentSegment = carr(Math.min(MAX_SEGMENT_LEN, oldLen + sizeAddition));\n     }\n \n-    private char[] buildResultArray()\n+    private char[] resultArray()\n     {\n         if (_resultString != null) { // Can take a shortcut...\n             return _resultString.toCharArray();\n@@ -687,7 +688,7 @@ public final class TextBuffer\n             return NO_CHARS;\n         }\n         int offset = 0;\n-        final char[] result = _charArray(size);\n+        final char[] result = carr(size);\n         if (_segments != null) {\n             for (int i = 0, len = _segments.size(); i < len; ++i) {\n                 char[] curr = (char[]) _segments.get(i);\n@@ -700,5 +701,5 @@ public final class TextBuffer\n         return result;\n     }\n \n-    private char[] _charArray(int len) { return new char[len]; }\n+    private char[] carr(int len) { return new char[len]; }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

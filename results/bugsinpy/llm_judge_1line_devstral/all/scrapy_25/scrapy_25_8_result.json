@@ -1,0 +1,62 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_25",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 02:09:20",
+      "end_time": "2026-06-28 02:10:56",
+      "duration_seconds": 95,
+      "duration_human": "1m 35s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 317353,
+      "output_tokens": 5594,
+      "total_tokens": 322947,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 317353
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/http/request/form.py b/scrapy/http/request/form.py\nindex a12a2fd07..1f223a750 100644\n--- a/scrapy/http/request/form.py\n+++ b/scrapy/http/request/form.py\n@@ -58,7 +58,16 @@ def _urlencode(seq, enc):\n def _get_form(response, formname, formid, formnumber, formxpath):\n     \"\"\"Find the form element \"\"\"\n     text = response.body_as_unicode()\n-    root = create_root_node(text, lxml.html.HTMLParser, base_url=response.url)\n+    # First parse with base_url=None to extract the HTML base tag\n+    root = create_root_node(text, lxml.html.HTMLParser, base_url=None)\n+    base_tags = root.xpath('//base')\n+    if base_tags:\n+        base_url = base_tags[0].get('href')\n+    else:\n+        base_url = response.url\n+\n+    # Now parse again with the correct base_url\n+    root = create_root_node(text, lxml.html.HTMLParser, base_url=base_url)\n     forms = root.xpath('//form')\n     if not forms:\n         raise ValueError(\"No <form> element found in %s\" % response)\n@@ -72,7 +81,7 @@ def _get_form(response, formname, formid, formnumber, formxpath):\n         f = root.xpath('//form[@id=\"%s\"]' % formid)\n         if f:\n             return f[0]\n-            \n+\n     # Get form element from xpath, if not found, go up\n     if formxpath is not None:\n         nodes = root.xpath(formxpath)\n@@ -97,7 +106,7 @@ def _get_form(response, formname, formid, formnumber, formxpath):\n         else:\n             return form\n \n-\n+    return forms[0]\n def _get_inputs(form, formdata, dont_click, clickdata, response):\n     try:\n         formdata = dict(formdata or ())\ndiff --git a/tests/test_http_request.py b/tests/test_http_request.py\nindex ff0941961..60fd855dd 100644\n--- a/tests/test_http_request.py\n+++ b/tests/test_http_request.py\n@@ -801,6 +801,25 @@ class FormRequestTest(RequestTest):\n         self.assertEqual(fs[b'test2'], [b'val2'])\n         self.assertEqual(fs[b'button1'], [b''])\n \n+    def test_html_base_form_action(self):\n+        response = _buildresponse(\n+            \"\"\"\n+            <html>\n+                <head>\n+                    <base href=\"http://b.com/\">\n+                </head>\n+                <body>\n+                    <form action=\"test_form\">\n+                    </form>\n+                </body>\n+            </html>\n+            \"\"\",\n+            url='http://a.com/'\n+        )\n+        req = self.request_class.from_response(response)\n+        self.assertEqual(req.url, 'http://b.com/test_form')\n+\n+\n def _buildresponse(body, **kwargs):\n     kwargs.setdefault('body', body)\n     kwargs.setdefault('url', 'http://example.com')\n"
+  },
+  "timestamp": "2026-06-28 02:10:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_25",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_25/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "Merge pull request #1563 from starrify/master",
+    "fault_locations": [
+      {
+        "file": "scrapy/http/request/form.py",
+        "start_line": 47,
+        "end_line": 47,
+        "function_name": "_get_form_url",
+        "class_name": ""
+      },
+      {
+        "file": "scrapy/http/request/form.py",
+        "start_line": 61,
+        "end_line": 61,
+        "function_name": "_get_form",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_http_request.FormRequestTest.test_html_base_form_action"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

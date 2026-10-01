@@ -1,0 +1,69 @@
+{
+  "project_name": "Closure",
+  "bug_id": "171",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:31:01",
+      "end_time": "2026-06-19 23:36:28",
+      "duration_seconds": 327,
+      "duration_human": "5m 27s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 506605,
+      "output_tokens": 3383,
+      "total_tokens": 509988,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 506605
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:36:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_171",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_171",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Assigning object literals to obj.prototype in a immediately executed function not recognized.\n/** @constructor */\r\nfunction foo() {}\r\n(function() {\r\n  foo.prototype = {\r\n    alert: function() {\r\n      alert(&quot;hello world&quot;);\r\n    }\r\n  };\r\n})()\r\nwindow.console.log(foo.prototype.alert); //undefined property warning",
+    "commit_message": "Handle prototype assignments much better. Fixes issue #1023.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeInference.java",
+        "start_line": 731,
+        "end_line": 736,
+        "line_numbers": [
+          731,
+          732,
+          733,
+          734,
+          735,
+          736
+        ],
+        "function_name": "traverseObjectLiteral",
+        "class_name": "TypeInference",
+        "filename": "TypeInference.java",
+        "code_snippet": "  private FlowScope traverseObjectLiteral(Node n, FlowScope scope) {\n    JSType type = n.getJSType();\n    Preconditions.checkNotNull(type);\n\n    for (Node name = n.getFirstChild(); name != null; name = name.getNext()) {\n      scope = traverse(name.getFirstChild(), scope);\n    }\n\n    // Object literals can be reflected on other types.\n    // See CodingConvention#getObjectLiteralCase and goog.object.reflect.\n    // Ignore these types of literals.\n    ObjectType objectType = ObjectType.cast(type);\n    if (objectType == null) {\n      return scope;\n    }\n    boolean hasLendsName = n.getJSDocInfo() != null &&\n        n.getJSDocInfo().getLendsName() != null;\n    if (objectType.hasReferenceName() && !hasLendsName) {\n      return scope;\n    }\n\n    String qObjName = NodeUtil.getBestLValueName(\n        NodeUtil.getBestLValue(n));\n    for (Node name = n.getFirstChild(); name != null;\n         name = name.getNext()) {\n      String memberName = NodeUtil.getObjectLitKeyName(name);\n      if (memberName != null) {\n        JSType rawValueType =  name.getFirstChild().getJSType();\n        JSType valueType = NodeUtil.getObjectLitKeyTypeFromValueType(\n            name, rawValueType);\n        if (valueType == null) {\n          valueType = unknownType;\n        }\n        objectType.defineInferredProperty(memberName, valueType, name);\n\n        // Do normal flow inference if this is a direct property assignment.\n        if (qObjName != null && name.isStringKey()) {\n          String qKeyName = qObjName + \".\" + memberName;\n          Var var = syntacticScope.getVar(qKeyName);\n          JSType oldType = var == null ? null : var.getType();\n          if (var != null && var.isTypeInferred()) {\n            var.setType(oldType == null ?\n                valueType : oldType.getLeastSupertype(oldType));\n          }\n\n          scope.inferQualifiedSlot(name, qKeyName,\n              oldType == null ? unknownType : oldType,\n              valueType);\n        }\n      } else {\n        n.setJSType(unknownType);\n      }\n    }\n    return scope;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue1023",
+      "com.google.javascript.jscomp.TypedScopeCreatorTest::testMethodBeforeFunction2",
+      "com.google.javascript.jscomp.TypedScopeCreatorTest::testPropertiesOnInterface2"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypeInference.java b/src/com/google/javascript/jscomp/TypeInference.java\nindex 4a03b1e3..9367b32f 100644\n--- a/src/com/google/javascript/jscomp/TypeInference.java\n+++ b/src/com/google/javascript/jscomp/TypeInference.java\n@@ -728,7 +728,12 @@ class TypeInference\n     // See CodingConvention#getObjectLiteralCase and goog.object.reflect.\n     // Ignore these types of literals.\n     ObjectType objectType = ObjectType.cast(type);\n+    if (objectType == null || n.getBooleanProp(Node.REFLECTED_OBJECT)) {\n-    if (objectType == null) {\n-      return scope;\n-    }\n-    boolean hasLendsName = n.getJSDocInfo() != null &&\n-        n.getJSDocInfo().getLendsName() != null;\n-    if (objectType.hasReferenceName() && !hasLendsName) {\n       return scope;\n     }\n \ndiff --git a/src/com/google/javascript/jscomp/TypedScopeCreator.java b/src/com/google/javascript/jscomp/TypedScopeCreator.java\nindex ef02b9c1..e9e8486f 100644\n--- a/src/com/google/javascript/jscomp/TypedScopeCreator.java\n+++ b/src/com/google/javascript/jscomp/TypedScopeCreator.java\n@@ -1666,9 +1666,6 @@ final class TypedScopeCreator implements ScopeCreator {\n       }\n \n       // Prototype sets are always declared.\n+      if (qName != null && qName.endsWith(\".prototype\")) {\n+        return false;\n+      }\n \n       boolean inferred = true;\n       if (info != null) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

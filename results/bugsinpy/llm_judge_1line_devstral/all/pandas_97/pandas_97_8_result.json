@@ -1,0 +1,62 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_97",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-28 01:45:56",
+      "end_time": "2026-06-28 01:48:01",
+      "duration_seconds": 125,
+      "duration_human": "2m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 477921,
+      "output_tokens": 6748,
+      "total_tokens": 484669,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 477921
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/timedeltas.py b/pandas/core/indexes/timedeltas.py\nindex 90967ffd02..ad33c15120 100644\n--- a/pandas/core/indexes/timedeltas.py\n+++ b/pandas/core/indexes/timedeltas.py\n@@ -257,7 +257,7 @@ class TimedeltaIndex(\n         this, other = self, other\n \n         if this._can_fast_union(other):\n-            return this._fast_union(other)\n+            return this._fast_union(other, sort=sort)\n         else:\n             result = Index._union(this, other, sort=sort)\n             if isinstance(result, TimedeltaIndex):\n@@ -265,30 +265,25 @@ class TimedeltaIndex(\n                     result._set_freq(\"infer\")\n             return result\n \n-    def _fast_union(self, other):\n+    def _fast_union(self, other, sort=True):\n         if len(other) == 0:\n             return self.view(type(self))\n \n         if len(self) == 0:\n             return other.view(type(self))\n \n-        # to make our life easier, \"sort\" the two ranges\n-        if self[0] <= other[0]:\n-            left, right = self, other\n-        else:\n-            left, right = other, self\n-\n-        left_end = left[-1]\n-        right_end = right[-1]\n-\n-        # concatenate\n-        if left_end < right_end:\n-            loc = right.searchsorted(left_end, side=\"right\")\n-            right_chunk = right.values[loc:]\n-            dates = concat_compat((left.values, right_chunk))\n+        if not sort:\n+            # When sort=False, just concatenate without any sorting\n+            dates = concat_compat((self.values, other.values))\n             return self._shallow_copy(dates)\n-        else:\n-            return left\n+\n+        # When sort=True, combine and sort\n+        combined = concat_compat((self.values, other.values))\n+        # Remove duplicates\n+        combined = np.unique(combined)\n+        # Sort the combined result\n+        combined = np.sort(combined)\n+        return self._shallow_copy(combined)\n \n     def _maybe_promote(self, other):\n         if other.inferred_type == \"timedelta\":\ndiff --git a/pandas/tests/indexes/timedeltas/test_setops.py b/pandas/tests/indexes/timedeltas/test_setops.py\nindex b2024d04ef..e6d5ca97a0 100644\n--- a/pandas/tests/indexes/timedeltas/test_setops.py\n+++ b/pandas/tests/indexes/timedeltas/test_setops.py\n@@ -22,6 +22,22 @@ class TestTimedeltaIndex:\n         i1.union(i2)  # Works\n         i2.union(i1)  # Fails with \"AttributeError: can't set attribute\"\n \n+    def test_union_sort_false(self):\n+        tdi = timedelta_range(\"1day\", periods=5)\n+\n+        left = tdi[3:]\n+        right = tdi[:3]\n+\n+        # Check that we are testing the desired code path\n+        assert left._can_fast_union(right)\n+\n+        result = left.union(right)\n+        tm.assert_index_equal(result, tdi)\n+\n+        result = left.union(right, sort=False)\n+        expected = pd.TimedeltaIndex([\"4 Days\", \"5 Days\", \"1 Days\", \"2 Day\", \"3 Days\"])\n+        tm.assert_index_equal(result, expected)\n+\n     def test_union_coverage(self):\n \n         idx = TimedeltaIndex([\"3d\", \"1d\", \"2d\"])\n"
+  },
+  "timestamp": "2026-06-28 01:48:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_97",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_97/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TimedeltaIndex.union with sort=False (#30701)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/timedeltas.py",
+        "start_line": 260,
+        "end_line": 260,
+        "function_name": "_union",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/timedeltas.py",
+        "start_line": 268,
+        "end_line": 268,
+        "function_name": "_fast_union",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/timedeltas/test_setops.py::TestTimedeltaIndex::test_union_sort_false"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

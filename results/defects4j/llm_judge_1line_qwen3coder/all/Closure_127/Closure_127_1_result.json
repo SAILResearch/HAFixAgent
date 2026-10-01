@@ -1,0 +1,67 @@
+{
+  "project_name": "Closure",
+  "bug_id": "127",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:20:23",
+      "end_time": "2026-06-19 23:22:50",
+      "duration_seconds": 146,
+      "duration_human": "2m 26s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 762451,
+      "output_tokens": 4173,
+      "total_tokens": 766624,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 762451
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-19 23:22:50 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_127",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_127",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Break in finally block isn't optimized properly\nb: try { throw(&quot;throw me&quot;) } finally { /* fake catcher */ ; break b }; console.log(&quot;ok then...&quot;)\r\n\r\n... gets optimized into ...\r\n\r\n  throw&quot;throw me&quot;;\r\n\r\n... which is not the same.\r\n\r\nThe break in the finally block should prevent the exception from being passed on. The expected result is:\r\n\r\n   console.log(&quot;ok then...&quot;)\r\n\r\nECMA-262 says:\r\n\r\nThe production TryStatement : try Block Finally is evaluated as follows:\r\n\r\nLet B be the result of evaluating Block.\r\nLet F be the result of evaluating Finally.\r\nIf F.type is normal, return B.\r\nReturn F.\r\n\r\nF.type in this case would be 'break' and not 'normal', so 'break' overrides the 'throw' of B\r\n\r\nThis is with the build available for download on Feb 28 2013.",
+    "commit_message": "Fix tests and code in UCE that do unsound optimizations in finally blocks.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/UnreachableCodeElimination.java",
+        "start_line": 170,
+        "end_line": 170,
+        "line_numbers": [
+          170
+        ],
+        "function_name": "tryRemoveUnconditionalBranching",
+        "class_name": "EliminationPass",
+        "filename": "UnreachableCodeElimination.java",
+        "code_snippet": "    private void tryRemoveUnconditionalBranching(Node n) {\n      /*\n       * For each unconditional branching control flow node, check to see\n       * if the ControlFlowAnalysis.computeFollowNode of that node is same as\n       * the branching target. If it is, the branch node is safe to be removed.\n       *\n       * This is not as clever as MinimizeExitPoints because it doesn't do any\n       * if-else conversion but it handles more complicated switch statements\n       * much more nicely.\n       */\n\n      // If n is null the target is the end of the function, nothing to do.\n      if (n == null) {\n         return;\n      }\n\n      DiGraphNode<Node, Branch> gNode = cfg.getDirectedGraphNode(n);\n\n      if (gNode == null) {\n        return;\n      }\n\n      switch (n.getType()) {\n        case Token.RETURN:\n          if (n.hasChildren()) {\n            break;\n          }\n        case Token.BREAK:\n        case Token.CONTINUE:\n          // We are looking for a control flow changing statement that always\n          // branches to the same node. If after removing it control still\n          // branches to the same node, it is safe to remove.\n          List<DiGraphEdge<Node, Branch>> outEdges = gNode.getOutEdges();\n          if (outEdges.size() == 1 &&\n              // If there is a next node, this jump is not useless.\n              (n.getNext() == null || n.getNext().isFunction())) {\n\n            Preconditions.checkState(\n                outEdges.get(0).getValue() == Branch.UNCOND);\n            Node fallThrough = computeFollowing(n);\n            Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n            if (nextCfgNode == fallThrough) {\n              removeNode(n);\n            }\n          }\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testIssue4177428_return",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testDontRemoveBreakInTryFinally",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testIssue4177428_continue",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testDontRemoveBreakInTryFinallySwitch",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testIssue4177428a",
+      "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testIssue4177428c"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\nindex e6d88a8..d819874 100644\n--- a/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n+++ b/src/com/google/javascript/jscomp/UnreachableCodeElimination.java\n@@ -167,22 +167,13 @@ class UnreachableCodeElimination implements CompilerPass {\n                 outEdges.get(0).getValue() == Branch.UNCOND);\n             Node fallThrough = computeFollowing(n);\n             Node nextCfgNode = outEdges.get(0).getDestination().getValue();\n+            if (nextCfgNode == fallThrough && !inFinally(n.getParent(), n)) {\n-            if (nextCfgNode == fallThrough) {\n               removeNode(n);\n             }\n           }\n       }\n     }\n \n+    private boolean inFinally(Node parent, Node child) {\n+      if (parent == null || parent.isFunction()) {\n+        return false;\n+      } else if (NodeUtil.isTryFinallyNode(parent, child)) {\n+        return true;\n+      } else {\n+        return inFinally(parent.getParent(), parent);\n+      }\n+    }\n \n     private Node computeFollowing(Node n) {\n       Node next = ControlFlowAnalysis.computeFollowNode(n);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

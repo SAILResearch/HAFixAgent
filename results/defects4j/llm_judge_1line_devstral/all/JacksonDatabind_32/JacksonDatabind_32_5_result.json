@@ -1,0 +1,146 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "32",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 04:54:15",
+      "end_time": "2026-06-27 04:56:20",
+      "duration_seconds": 125,
+      "duration_human": "2m 5s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 645403,
+      "output_tokens": 5645,
+      "total_tokens": 651048,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 645403
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\nindex 76754bd37..b2716872b 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n@@ -269,6 +269,8 @@ public class UntypedObjectDeserializer\n \n         case JsonTokenId.ID_NULL: // should not get this but...\n             return null;\n+            case JsonTokenId.ID_END_OBJECT:\n+                return new LinkedHashMap<String,Object>(2);\n \n //        case JsonTokenId.ID_END_ARRAY: // invalid\n         default:\n@@ -284,6 +286,13 @@ public class UntypedObjectDeserializer\n         case JsonTokenId.ID_START_ARRAY:\n         case JsonTokenId.ID_START_OBJECT:\n         case JsonTokenId.ID_FIELD_NAME:\n+            // Handle empty object case\n+            JsonToken t = p.nextToken();\n+            if (t == JsonToken.END_OBJECT) {\n+                return new LinkedHashMap<String,Object>(2);\n+            }\n+            // Move back to the field name for type deserializer\n+            p.clearCurrentToken();\n             /* Output can be as JSON Object, Array or scalar: no way to know\n              * a this point:\n              */\n@@ -327,6 +336,8 @@ public class UntypedObjectDeserializer\n \n         case JsonTokenId.ID_NULL: // should not get this far really but...\n             return null;\n+            case JsonTokenId.ID_END_OBJECT:\n+                return new LinkedHashMap<String,Object>(2);\n         default:\n         }\n         throw ctxt.mappingException(Object.class);\n@@ -531,6 +542,8 @@ public class UntypedObjectDeserializer\n \n             case JsonTokenId.ID_NULL: // should not get this but...\n                 return null;\n+            case JsonTokenId.ID_END_OBJECT:\n+                return new LinkedHashMap<String,Object>(2);\n \n                 // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n                 //    if caller has advanced to the first token of Object, but for empty Object\n@@ -574,6 +587,8 @@ public class UntypedObjectDeserializer\n \n             case JsonTokenId.ID_NULL: // should not get this far really but...\n                 return null;\n+            case JsonTokenId.ID_END_OBJECT:\n+                return new LinkedHashMap<String,Object>(2);\n             default:\n                 throw ctxt.mappingException(Object.class);\n             }\n"
+  },
+  "timestamp": "2026-06-27 04:56:20 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_32",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_32",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Deserialization from \"{}\" to java.lang.Object causes \"out of END_OBJECT token\" error\nHi, I've faced with a problem that is too similar this one #941. I expect that \"{}\" will be parsed correctly to empty Map when I'm using `@JsonCreator`\n\nI've found that this case is invalid https://github.com/FasterXML/jackson-databind/blob/jackson-databind-2.6.3/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java#L272, but why?\n\nHere is the minimum code to reproduce:\n\n```\nimport java.io.IOException;\nimport com.fasterxml.jackson.annotation.JsonCreator;\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\npublic class Main {\n    public static void main(String[] args) throws IOException {\n        ObjectMapper mapper = new ObjectMapper();\n        mapper.readValue(\"[]\", SomeObjectThatCanBeAggregated.class);\n        mapper.readValue(\"[{}]\", SomeObjectThatCanBeAggregated.class);\n        mapper.readValue(\"{\\\"key\\\":null}\", SomeObjectThatCanBeAggregated.class);\n        mapper.readValue(\"{}\", SomeObjectThatCanBeAggregated.class);\n    }\n}\nclass SomeObjectThatCanBeAggregated {\n\n    @JsonCreator\n    public SomeObjectThatCanBeAggregated(Object obj) {\n        System.out.println(obj + \" //\" + obj.getClass());\n    }\n}\n```\n\nOutput: \n\n```\n[] //class java.util.ArrayList\n[{}] //class java.util.ArrayList\n{key=null} //class java.util.LinkedHashMap\nException in thread \"main\" com.fasterxml.jackson.databind.JsonMappingException: Can not deserialize instance of java.lang.Object out of END_OBJECT token\n at [Source: {}; line: 1, column: 2]\n...\n```\n\n",
+    "commit_message": "Fix #989",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java",
+        "start_line": 220,
+        "end_line": 220,
+        "line_numbers": [
+          220
+        ],
+        "function_name": "deserialize",
+        "class_name": "UntypedObjectDeserializer",
+        "filename": "UntypedObjectDeserializer.java",
+        "code_snippet": "    public Object deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n    {\n        switch (p.getCurrentTokenId()) {\n        case JsonTokenId.ID_START_OBJECT:\n        case JsonTokenId.ID_FIELD_NAME:\n            // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n            //    if caller has advanced to the first token of Object, but for empty Object\n            if (_mapDeserializer != null) {\n                return _mapDeserializer.deserialize(p, ctxt);\n            }\n            return mapObject(p, ctxt);\n        case JsonTokenId.ID_START_ARRAY:\n            if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n                return mapArrayToArray(p, ctxt);\n            }\n            if (_listDeserializer != null) {\n                return _listDeserializer.deserialize(p, ctxt);\n            }\n            return mapArray(p, ctxt);\n        case JsonTokenId.ID_EMBEDDED_OBJECT:\n            return p.getEmbeddedObject();\n        case JsonTokenId.ID_STRING:\n            if (_stringDeserializer != null) {\n                return _stringDeserializer.deserialize(p, ctxt);\n            }\n            return p.getText();\n\n        case JsonTokenId.ID_NUMBER_INT:\n            if (_numberDeserializer != null) {\n                return _numberDeserializer.deserialize(p, ctxt);\n            }\n            /* Caller may want to get all integral values returned as {@link java.math.BigInteger},\n             * or {@link java.lang.Long} for consistency\n             */\n            if (ctxt.hasSomeOfFeatures(F_MASK_INT_COERCIONS)) {\n                return _coerceIntegral(p, ctxt);\n            }\n            return p.getNumberValue(); // should be optimal, whatever it is\n\n        case JsonTokenId.ID_NUMBER_FLOAT:\n            if (_numberDeserializer != null) {\n                return _numberDeserializer.deserialize(p, ctxt);\n            }\n            /* [JACKSON-72]: need to allow overriding the behavior regarding\n             *   which type to use\n             */\n            if (ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n                return p.getDecimalValue();\n            }\n            return p.getDoubleValue();\n\n        case JsonTokenId.ID_TRUE:\n            return Boolean.TRUE;\n        case JsonTokenId.ID_FALSE:\n            return Boolean.FALSE;\n\n        case JsonTokenId.ID_NULL: // should not get this but...\n            return null;\n\n//        case JsonTokenId.ID_END_ARRAY: // invalid\n        default:\n        }\n        throw ctxt.mappingException(Object.class);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java",
+        "start_line": 535,
+        "end_line": 535,
+        "line_numbers": [
+          535
+        ],
+        "function_name": "deserialize",
+        "class_name": "Vanilla",
+        "filename": "UntypedObjectDeserializer.java",
+        "code_snippet": "        public Object deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n        {\n            switch (p.getCurrentTokenId()) {\n            case JsonTokenId.ID_START_OBJECT:\n                {\n                    JsonToken t = p.nextToken();\n                    if (t == JsonToken.END_OBJECT) {\n                        return new LinkedHashMap<String,Object>(2);\n                    }\n                }\n            case JsonTokenId.ID_FIELD_NAME:\n                return mapObject(p, ctxt);\n            case JsonTokenId.ID_START_ARRAY:\n                {\n                    JsonToken t = p.nextToken();\n                    if (t == JsonToken.END_ARRAY) { // and empty one too\n                        if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n                            return NO_OBJECTS;\n                        }\n                        return new ArrayList<Object>(2);\n                    }\n                }\n                if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n                    return mapArrayToArray(p, ctxt);\n                }\n                return mapArray(p, ctxt);\n            case JsonTokenId.ID_EMBEDDED_OBJECT:\n                return p.getEmbeddedObject();\n            case JsonTokenId.ID_STRING:\n                return p.getText();\n\n            case JsonTokenId.ID_NUMBER_INT:\n                if (ctxt.hasSomeOfFeatures(F_MASK_INT_COERCIONS)) {\n                    return _coerceIntegral(p, ctxt);\n                }\n                return p.getNumberValue(); // should be optimal, whatever it is\n\n            case JsonTokenId.ID_NUMBER_FLOAT:\n                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n                    return p.getDecimalValue();\n                }\n                return Double.valueOf(p.getDoubleValue());\n\n            case JsonTokenId.ID_TRUE:\n                return Boolean.TRUE;\n            case JsonTokenId.ID_FALSE:\n                return Boolean.FALSE;\n\n            case JsonTokenId.ID_NULL: // should not get this but...\n                return null;\n\n                // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n                //    if caller has advanced to the first token of Object, but for empty Object\n\n            //case JsonTokenId.ID_END_ARRAY: // invalid\n            default:\n                throw ctxt.mappingException(Object.class);\n            }\n        }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java",
+        "start_line": 538,
+        "end_line": 538,
+        "line_numbers": [
+          538
+        ],
+        "function_name": "deserialize",
+        "class_name": "Vanilla",
+        "filename": "UntypedObjectDeserializer.java",
+        "code_snippet": "        public Object deserialize(JsonParser p, DeserializationContext ctxt) throws IOException\n        {\n            switch (p.getCurrentTokenId()) {\n            case JsonTokenId.ID_START_OBJECT:\n                {\n                    JsonToken t = p.nextToken();\n                    if (t == JsonToken.END_OBJECT) {\n                        return new LinkedHashMap<String,Object>(2);\n                    }\n                }\n            case JsonTokenId.ID_FIELD_NAME:\n                return mapObject(p, ctxt);\n            case JsonTokenId.ID_START_ARRAY:\n                {\n                    JsonToken t = p.nextToken();\n                    if (t == JsonToken.END_ARRAY) { // and empty one too\n                        if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n                            return NO_OBJECTS;\n                        }\n                        return new ArrayList<Object>(2);\n                    }\n                }\n                if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n                    return mapArrayToArray(p, ctxt);\n                }\n                return mapArray(p, ctxt);\n            case JsonTokenId.ID_EMBEDDED_OBJECT:\n                return p.getEmbeddedObject();\n            case JsonTokenId.ID_STRING:\n                return p.getText();\n\n            case JsonTokenId.ID_NUMBER_INT:\n                if (ctxt.hasSomeOfFeatures(F_MASK_INT_COERCIONS)) {\n                    return _coerceIntegral(p, ctxt);\n                }\n                return p.getNumberValue(); // should be optimal, whatever it is\n\n            case JsonTokenId.ID_NUMBER_FLOAT:\n                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n                    return p.getDecimalValue();\n                }\n                return Double.valueOf(p.getDoubleValue());\n\n            case JsonTokenId.ID_TRUE:\n                return Boolean.TRUE;\n            case JsonTokenId.ID_FALSE:\n                return Boolean.FALSE;\n\n            case JsonTokenId.ID_NULL: // should not get this but...\n                return null;\n\n                // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n                //    if caller has advanced to the first token of Object, but for empty Object\n\n            //case JsonTokenId.ID_END_ARRAY: // invalid\n            default:\n                throw ctxt.mappingException(Object.class);\n            }\n        }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestUntypedDeserialization::testNestedUntyped989"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\nindex c96221412..76754bd37 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n@@ -218,7 +218,6 @@ public class UntypedObjectDeserializer\n         case JsonTokenId.ID_FIELD_NAME:\n             // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n             //    if caller has advanced to the first token of Object, but for empty Object\n+        case JsonTokenId.ID_END_OBJECT:\n             if (_mapDeserializer != null) {\n                 return _mapDeserializer.deserialize(p, ctxt);\n             }\n@@ -533,10 +532,8 @@ public class UntypedObjectDeserializer\n             case JsonTokenId.ID_NULL: // should not get this but...\n                 return null;\n \n+            case JsonTokenId.ID_END_OBJECT:\n                 // 28-Oct-2015, tatu: [databind#989] We may also be given END_OBJECT (similar to FIELD_NAME),\n                 //    if caller has advanced to the first token of Object, but for empty Object\n+                return new LinkedHashMap<String,Object>(2);\n \n             //case JsonTokenId.ID_END_ARRAY: // invalid\n             default:",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2014-04-21 01:26:30",
+        "commit_message": "trying to simplify default handling of \"untyped\" deserialization",
+        "commit_hash": "09e5f52bd407a132386b42dc042d8be5b79eeba6"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "deserialize",
+          "deserializeWithType",
+          "mapObject",
+          "mapArray",
+          "Vanilla"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "deserialize",
+          "deserializeWithType",
+          "mapObject",
+          "mapArray",
+          "Vanilla"
+        ],
+        "functions_name_modified_file": [
+          "_findCustomDeser",
+          "resolve",
+          "_withResolved",
+          "deserialize",
+          "deserializeWithType",
+          "mapObject",
+          "createContextual",
+          "mapArray",
+          "UntypedObjectDeserializer",
+          "Vanilla"
+        ],
+        "functions_name_all_files": [
+          "_findCustomDeser",
+          "resolve",
+          "_withResolved",
+          "deserialize",
+          "deserializeWithType",
+          "mapObject",
+          "createContextual",
+          "mapArray",
+          "UntypedObjectDeserializer",
+          "Vanilla"
+        ],
+        "function_code_before": "",
+        "function_code_after": ""
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\nindex cc85faff2..74b387eed 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/UntypedObjectDeserializer.java\n@@ -36,7 +36,7 @@ public class UntypedObjectDeserializer\n {\n     private static final long serialVersionUID = 1L;\n \n-    private final static Object[] NO_OBJECTS = new Object[0];\n+    protected final static Object[] NO_OBJECTS = new Object[0];\n \n     /**\n      * @deprecated Since 2.3, construct a new instance, needs to be resolved\n@@ -113,6 +113,13 @@ public class UntypedObjectDeserializer\n     public JsonDeserializer<?> createContextual(DeserializationContext ctxt,\n             BeanProperty property) throws JsonMappingException\n     {\n+        // 20-Apr-2014, tatu: If nothing custom, let's use \"vanilla\" instance,\n+        //     simpler and can avoid some of delegation\n+        if ((_stringDeserializer == null) && (_numberDeserializer == null)\n+                && (_mapDeserializer == null) && (_listDeserializer == null)\n+                &&  getClass() == UntypedObjectDeserializer.class) {\n+            return Vanilla.std;\n+        }\n         JsonDeserializer<?> mapDeserializer = _mapDeserializer;\n         if (mapDeserializer instanceof ContextualDeserializer) {\n             mapDeserializer = ((ContextualDeserializer)mapDeserializer).createContextual(ctxt, property);\n@@ -148,7 +155,7 @@ public class UntypedObjectDeserializer\n         return new UntypedObjectDeserializer(this,\n                 mapDeser, listDeser, stringDeser, numberDeser);\n     }\n-        \n+\n     /*\n     /**********************************************************\n     /* Deserializer API\n@@ -395,4 +402,208 @@ public class UntypedObjectDeserializer\n         } while (jp.nextToken() != JsonToken.END_ARRAY);\n         return buffer.completeAndClearBuffer(values, ptr);\n     }\n+\n+    /*\n+    /**********************************************************\n+    /* Separate \"vanilla\" implementation for common case of\n+    /* no custom deserializer overrides\n+    /**********************************************************\n+     */\n+\n+    @JacksonStdImpl\n+    public static class Vanilla\n+        extends StdDeserializer<Object>\n+    {\n+        private static final long serialVersionUID = 1L;\n+\n+        public final static Vanilla std = new Vanilla();\n+\n+        public Vanilla() { super(Object.class); }\n+        \n+        @Override\n+        public Object deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n+        {\n+            switch (jp.getCurrentTokenId()) {\n+            case JsonTokenId.ID_START_OBJECT:\n+                {\n+                    JsonToken t = jp.nextToken();\n+                    if (t  == JsonToken.END_OBJECT) {\n+                        return new LinkedHashMap<String,Object>(2);\n+                    }\n+                }\n+            case JsonTokenId.ID_FIELD_NAME:\n+                return mapObject(jp, ctxt);\n+            case JsonTokenId.ID_START_ARRAY:\n+                {\n+                    JsonToken t = jp.nextToken();\n+                    if (t == JsonToken.END_ARRAY) { // and empty one too\n+                        if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n+                            return NO_OBJECTS;\n+                        }\n+                        return new ArrayList<Object>(2);\n+                    }\n+                }\n+                if (ctxt.isEnabled(DeserializationFeature.USE_JAVA_ARRAY_FOR_JSON_ARRAY)) {\n+                    return mapArrayToArray(jp, ctxt);\n+                }\n+                return mapArray(jp, ctxt);\n+            case JsonTokenId.ID_EMBEDDED_OBJECT:\n+                return jp.getEmbeddedObject();\n+            case JsonTokenId.ID_STRING:\n+                return jp.getText();\n+\n+            case JsonTokenId.ID_NUMBER_INT:\n+                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)) {\n+                    return jp.getBigIntegerValue(); // should be optimal, whatever it is\n+                }\n+                return jp.getNumberValue(); // should be optimal, whatever it is\n+\n+            case JsonTokenId.ID_NUMBER_FLOAT:\n+                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n+                    return jp.getDecimalValue();\n+                }\n+                return Double.valueOf(jp.getDoubleValue());\n+\n+            case JsonTokenId.ID_TRUE:\n+                return Boolean.TRUE;\n+            case JsonTokenId.ID_FALSE:\n+                return Boolean.FALSE;\n+\n+            case JsonTokenId.ID_NULL: // should not get this but...\n+                return null;\n+\n+            //case JsonTokenId.ID_END_ARRAY: // invalid\n+            //case JsonTokenId.ID_END_OBJECT: // invalid\n+            default:\n+                throw ctxt.mappingException(Object.class);\n+            }\n+        }\n+\n+        @Override\n+        public Object deserializeWithType(JsonParser jp, DeserializationContext ctxt, TypeDeserializer typeDeserializer) throws IOException\n+        {\n+            switch (jp.getCurrentTokenId()) {\n+            case JsonTokenId.ID_START_ARRAY:\n+            case JsonTokenId.ID_START_OBJECT:\n+            case JsonTokenId.ID_FIELD_NAME:\n+                return typeDeserializer.deserializeTypedFromAny(jp, ctxt);\n+\n+            case JsonTokenId.ID_STRING:\n+                return jp.getText();\n+\n+            case JsonTokenId.ID_NUMBER_INT:\n+                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)) {\n+                    return jp.getBigIntegerValue();\n+                }\n+                return jp.getNumberValue();\n+\n+            case JsonTokenId.ID_NUMBER_FLOAT:\n+                if (ctxt.isEnabled(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)) {\n+                    return jp.getDecimalValue();\n+                }\n+                return Double.valueOf(jp.getDoubleValue());\n+\n+            case JsonTokenId.ID_TRUE:\n+                return Boolean.TRUE;\n+            case JsonTokenId.ID_FALSE:\n+                return Boolean.FALSE;\n+            case JsonTokenId.ID_EMBEDDED_OBJECT:\n+                return jp.getEmbeddedObject();\n+\n+            case JsonTokenId.ID_NULL: // should not get this far really but...\n+                return null;\n+            default:\n+                throw ctxt.mappingException(Object.class);\n+            }\n+        }\n+\n+        protected Object mapArray(JsonParser jp, DeserializationContext ctxt) throws IOException\n+        {\n+            Object value = deserialize(jp, ctxt);\n+            if (jp.nextToken()  == JsonToken.END_ARRAY) {\n+                ArrayList<Object> l = new ArrayList<Object>(2);\n+                l.add(value);\n+                return l;\n+            }\n+            Object value2 = deserialize(jp, ctxt);\n+            if (jp.nextToken()  == JsonToken.END_ARRAY) {\n+                ArrayList<Object> l = new ArrayList<Object>(2);\n+                l.add(value);\n+                l.add(value2);\n+                return l;\n+            }\n+            ObjectBuffer buffer = ctxt.leaseObjectBuffer();\n+            Object[] values = buffer.resetAndStart();\n+            int ptr = 0;\n+            values[ptr++] = value;\n+            values[ptr++] = value2;\n+            int totalSize = ptr;\n+            do {\n+                value = deserialize(jp, ctxt);\n+                ++totalSize;\n+                if (ptr >= values.length) {\n+                    values = buffer.appendCompletedChunk(values);\n+                    ptr = 0;\n+                }\n+                values[ptr++] = value;\n+            } while (jp.nextToken() != JsonToken.END_ARRAY);\n+            // let's create full array then\n+            ArrayList<Object> result = new ArrayList<Object>(totalSize);\n+            buffer.completeAndClearBuffer(values, ptr, result);\n+            return result;\n+        }\n+\n+        /**\n+         * Method called to map a JSON Object into a Java value.\n+         */\n+        protected Object mapObject(JsonParser jp, DeserializationContext ctxt) throws IOException\n+        {\n+            // will point to FIELD_NAME at this point, guaranteed\n+            String field1 = jp.getText();\n+            jp.nextToken();\n+            Object value1 = deserialize(jp, ctxt);\n+            if (jp.nextToken() == JsonToken.END_OBJECT) { // single entry; but we want modifiable\n+                LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>(2);\n+                result.put(field1, value1);\n+                return result;\n+            }\n+            String field2 = jp.getText();\n+            jp.nextToken();\n+            Object value2 = deserialize(jp, ctxt);\n+            if (jp.nextToken() == JsonToken.END_OBJECT) {\n+                LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>(4);\n+                result.put(field1, value1);\n+                result.put(field2, value2);\n+                return result;\n+            }\n+            // And then the general case; default map size is 16\n+            LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>();\n+            result.put(field1, value1);\n+            result.put(field2, value2);\n+            do {\n+                String fieldName = jp.getText();\n+                jp.nextToken();\n+                result.put(fieldName, deserialize(jp, ctxt));\n+            } while (jp.nextToken() != JsonToken.END_OBJECT);\n+            return result;\n+        }\n+\n+        /**\n+         * Method called to map a JSON Array into a Java Object array (Object[]).\n+         */\n+        protected Object[] mapArrayToArray(JsonParser jp, DeserializationContext ctxt) throws IOException {\n+            ObjectBuffer buffer = ctxt.leaseObjectBuffer();\n+            Object[] values = buffer.resetAndStart();\n+            int ptr = 0;\n+            do {\n+                Object value = deserialize(jp, ctxt);\n+                if (ptr >= values.length) {\n+                    values = buffer.appendCompletedChunk(values);\n+                    ptr = 0;\n+                }\n+                values[ptr++] = value;\n+            } while (jp.nextToken() != JsonToken.END_ARRAY);\n+            return buffer.completeAndClearBuffer(values, ptr);\n+        }\n+    }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

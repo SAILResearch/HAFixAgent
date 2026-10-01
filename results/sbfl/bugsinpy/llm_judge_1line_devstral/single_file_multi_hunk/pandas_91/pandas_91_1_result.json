@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_91",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:47:39",
+      "end_time": "2026-06-30 16:49:27",
+      "duration_seconds": 108,
+      "duration_human": "1m 48s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 405605,
+      "output_tokens": 4396,
+      "total_tokens": 410001,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 405605
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/datetimelike.py b/pandas/core/arrays/datetimelike.py\nindex 06c1338dbf..840372dc14 100644\n--- a/pandas/core/arrays/datetimelike.py\n+++ b/pandas/core/arrays/datetimelike.py\n@@ -748,7 +748,7 @@ class DatetimeLikeArrayMixin(ExtensionOpsMixin, AttributesMixin, ExtensionArray)\n             value = self._scalar_from_string(value)\n \n         if not (isinstance(value, (self._scalar_type, type(self))) or isna(value)):\n-            raise ValueError(f\"Unexpected type for 'value': {type(value)}\")\n+            raise TypeError(f\"searchsorted requires compatible dtype or scalar, not {type(value).__name__}\")\n \n         self._check_compatible_with(value)\n         if isinstance(value, type(self)):\ndiff --git a/pandas/core/indexes/timedeltas.py b/pandas/core/indexes/timedeltas.py\nindex d1d8db0746..9d8c27457a 100644\n--- a/pandas/core/indexes/timedeltas.py\n+++ b/pandas/core/indexes/timedeltas.py\n@@ -357,11 +357,26 @@ class TimedeltaIndex(\n     @Appender(_shared_docs[\"searchsorted\"])\n     def searchsorted(self, value, side=\"left\", sorter=None):\n         if isinstance(value, (np.ndarray, Index)):\n-            value = np.array(value, dtype=_TD_DTYPE, copy=False)\n-        else:\n-            value = Timedelta(value).asm8.view(_TD_DTYPE)\n+            if not type(self._data)._is_recognized_dtype(value):\n+                raise TypeError(\n+                    \"searchsorted requires compatible dtype or scalar, \"\n+                    f\"not {type(value).__name__}\"\n+                )\n+            value = type(self._data)(value)\n+            self._data._check_compatible_with(value)\n+\n+        elif isinstance(value, self._data._recognized_scalars):\n+            self._data._check_compatible_with(value)\n+            value = self._data._scalar_type(value)\n+\n+        elif not isinstance(value, TimedeltaArray):\n+            raise TypeError(\n+                \"searchsorted requires compatible dtype or scalar, \"\n+                f\"not {type(value).__name__}\"\n+            )\n+\n+        return self._data.searchsorted(value, side=side, sorter=sorter)\n \n-        return self.values.searchsorted(value, side=side, sorter=sorter)\n \n     def is_type_compatible(self, typ) -> bool:\n         return typ == self.inferred_type or typ == \"timedelta\"\ndiff --git a/pandas/tests/arrays/test_timedeltas.py b/pandas/tests/arrays/test_timedeltas.py\nindex 667fe36ddf..62cb476617 100644\n--- a/pandas/tests/arrays/test_timedeltas.py\n+++ b/pandas/tests/arrays/test_timedeltas.py\n@@ -140,6 +140,42 @@ class TestTimedeltaArray:\n         arr[0] = obj\n         assert arr[0] == pd.Timedelta(seconds=1)\n \n+    @pytest.mark.parametrize(\n+        \"other\",\n+        [\n+            1,\n+            np.int64(1),\n+            1.0,\n+            np.datetime64(\"NaT\"),\n+            pd.Timestamp.now(),\n+            \"invalid\",\n+            np.arange(10, dtype=\"i8\") * 24 * 3600 * 10 ** 9,\n+            (np.arange(10) * 24 * 3600 * 10 ** 9).view(\"datetime64[ns]\"),\n+            pd.Timestamp.now().to_period(\"D\"),\n+        ],\n+    )\n+    @pytest.mark.parametrize(\n+        \"index\",\n+        [\n+            True,\n+            pytest.param(\n+                False,\n+                marks=pytest.mark.xfail(\n+                    reason=\"Raises ValueError instead of TypeError\", raises=ValueError\n+                ),\n+            ),\n+        ],\n+    )\n+    def test_searchsorted_invalid_types(self, other, index):\n+        data = np.arange(10, dtype=\"i8\") * 24 * 3600 * 10 ** 9\n+        arr = TimedeltaArray(data, freq=\"D\")\n+        if index:\n+            arr = pd.Index(arr)\n+\n+        msg = \"searchsorted requires compatible dtype or scalar\"\n+        with pytest.raises(TypeError, match=msg):\n+            arr.searchsorted(other)\n+\n \n class TestReductions:\n     @pytest.mark.parametrize(\"name\", [\"sum\", \"std\", \"min\", \"max\", \"median\"])\n"
+  },
+  "timestamp": "2026-06-30 16:49:27 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_91",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_91/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: TimedeltaIndex.searchsorted accepting invalid types/dtypes (#30831)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1022,
+        "end_line": 1022,
+        "suspiciousness": 0.989011,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1023,
+        "end_line": 1023,
+        "suspiciousness": 0.989011,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1024,
+        "end_line": 1024,
+        "suspiciousness": 0.989011,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1693,
+        "end_line": 1693,
+        "suspiciousness": 0.989011,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 538,
+        "end_line": 538,
+        "suspiciousness": 0.989011,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 570,
+        "end_line": 570,
+        "suspiciousness": 0.989011,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 571,
+        "end_line": 571,
+        "suspiciousness": 0.989011,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 572,
+        "end_line": 572,
+        "suspiciousness": 0.989011,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 717,
+        "end_line": 717,
+        "suspiciousness": 0.989011,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 721,
+        "end_line": 721,
+        "suspiciousness": 0.989011,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/test_timedeltas.py::TestTimedeltaArray::test_searchsorted_invalid_types"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1022,
+      "end_line": 1022,
+      "suspiciousness": 0.989011,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1023,
+      "end_line": 1023,
+      "suspiciousness": 0.989011,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1024,
+      "end_line": 1024,
+      "suspiciousness": 0.989011,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1693,
+      "end_line": 1693,
+      "suspiciousness": 0.989011,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 538,
+      "end_line": 538,
+      "suspiciousness": 0.989011,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 570,
+      "end_line": 570,
+      "suspiciousness": 0.989011,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 571,
+      "end_line": 571,
+      "suspiciousness": 0.989011,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 572,
+      "end_line": 572,
+      "suspiciousness": 0.989011,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 717,
+      "end_line": 717,
+      "suspiciousness": 0.989011,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 721,
+      "end_line": 721,
+      "suspiciousness": 0.989011,
+      "rank": 10
+    }
+  ]
+}

@@ -1,0 +1,198 @@
+{
+  "project_name": "JxPath",
+  "bug_id": "JxPath_4",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 13:01:07",
+      "end_time": "2026-06-30 13:04:22",
+      "duration_seconds": 195,
+      "duration_human": "3m 15s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 588765,
+      "output_tokens": 7155,
+      "total_tokens": 595920,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 588765
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/model/dom/DOMNodePointer.java b/src/java/org/apache/commons/jxpath/ri/model/dom/DOMNodePointer.java\nindex 5236867..c4e7260 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/dom/DOMNodePointer.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/dom/DOMNodePointer.java\n@@ -640,7 +640,16 @@ public class DOMNodePointer extends NodePointer {\n         }\n         if (nodeType == Node.TEXT_NODE || nodeType == Node.CDATA_SECTION_NODE) {\n             String text = node.getNodeValue();\n-            return text == null ? \"\" : text.trim();\n+            // Check if xml:space=\"preserve\" is set on parent element\n+            boolean shouldPreserve = false;\n+            if (node.getParentNode() != null && node.getParentNode().getNodeType() == Node.ELEMENT_NODE) {\n+                Element parentElem = (Element) node.getParentNode();\n+                String spaceAttr = parentElem.getAttribute(\"xml:space\");\n+                if (\"preserve\".equals(spaceAttr)) {\n+                    shouldPreserve = true;\n+                }\n+            }\n+            return text == null ? \"\" : (shouldPreserve ? text : text.trim());\n         }\n         if (nodeType == Node.PROCESSING_INSTRUCTION_NODE) {\n             String text = ((ProcessingInstruction) node).getData();\n@@ -654,10 +663,19 @@ public class DOMNodePointer extends NodePointer {\n                 buf.append(child.getNodeValue());\n             }\n             else {\n-            buf.append(stringValue(child));\n+                // Check if xml:space=\"preserve\" is set on this element\n+                boolean shouldPreserve = false;\n+                if (node.getNodeType() == Node.ELEMENT_NODE) {\n+                    Element elem = (Element) node;\n+                    String spaceAttr = elem.getAttribute(\"xml:space\");\n+                    if (\"preserve\".equals(spaceAttr)) {\n+                        shouldPreserve = true;\n+                    }\n+                }\n+                buf.append(stringValue(child));\n             }\n         }\n-        return buf.toString().trim();\n+        return buf.toString();\n     }\n \n     /**\ndiff --git a/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMNodePointer.java b/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMNodePointer.java\nindex 975dbc4..d73f9b5 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMNodePointer.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/jdom/JDOMNodePointer.java\n@@ -237,7 +237,15 @@ public class JDOMNodePointer extends NodePointer {\n \n     public Object getValue() {\n         if (node instanceof Element) {\n-            return ((Element) node).getTextTrim();\n+            Element elem = (Element) node;\n+            // Check if xml:space=\"preserve\" is set\n+            String spaceAttr = elem.getAttributeValue(\"xml:space\", Namespace.XML_NAMESPACE);\n+            if (\"preserve\".equals(spaceAttr)) {\n+                return elem.getText();\n+            }\n+            else {\n+                return elem.getTextTrim();\n+            }\n         }\n         if (node instanceof Comment) {\n             String text = ((Comment) node).getText();\n@@ -247,9 +255,27 @@ public class JDOMNodePointer extends NodePointer {\n             return text;\n         }\n         if (node instanceof Text) {\n+            // Check if parent element has xml:space=\"preserve\"\n+            Node parent = node.getParent();\n+            if (parent instanceof Element) {\n+                Element parentElem = (Element) parent;\n+                String spaceAttr = parentElem.getAttributeValue(\"xml:space\", Namespace.XML_NAMESPACE);\n+                if (\"preserve\".equals(spaceAttr)) {\n+                    return ((Text) node).getText();\n+                }\n+            }\n             return ((Text) node).getTextTrim();\n         }\n         if (node instanceof CDATA) {\n+            // Check if parent element has xml:space=\"preserve\"\n+            Node parent = node.getParent();\n+            if (parent instanceof Element) {\n+                Element parentElem = (Element) parent;\n+                String spaceAttr = parentElem.getAttributeValue(\"xml:space\", Namespace.XML_NAMESPACE);\n+                if (\"preserve\".equals(spaceAttr)) {\n+                    return ((CDATA) node).getText();\n+                }\n+            }\n             return ((CDATA) node).getTextTrim();\n         }\n         if (node instanceof ProcessingInstruction) {\n"
+  },
+  "timestamp": "2026-06-30 13:04:22 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JxPath",
+    "bug_id": "JxPath_4",
+    "repo_path": "/defects4j/framework/bin/temp/JxPath_4",
+    "github_url": "https://github.com/apache/commons-jxpath.git",
+    "description": "JXpath automatically trims string values\nWhen an xml contains a value with leading or trailing spaces, JXPath trims this value.\nexample: <value>     12324 56</value> is retrieved by JXPath as : '1234 56' while I expect '     1234 56'.\n",
+    "commit_message": "[JXPATH-83] respect xml:space='preserve'",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 202,
+        "end_line": 202,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 212,
+        "end_line": 212,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 214,
+        "end_line": 214,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 215,
+        "end_line": 215,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 216,
+        "end_line": 216,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 223,
+        "end_line": 223,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 225,
+        "end_line": 225,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+        "start_line": 229,
+        "end_line": 229,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/Parser.java",
+        "start_line": 34,
+        "end_line": 34,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/java/org/apache/commons/jxpath/JXPathContext.java",
+        "start_line": 432,
+        "end_line": 432,
+        "suspiciousness": 0.9807674351775562,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testPreserveDOM",
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testNestedJDOM",
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testNestedWithCommentsJDOM",
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testPreserveJDOM",
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testNestedDOM",
+      "org.apache.commons.jxpath.ri.model.XMLSpaceTest::testNestedWithCommentsDOM"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 202,
+      "end_line": 202,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 212,
+      "end_line": 212,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 214,
+      "end_line": 214,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 215,
+      "end_line": 215,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 216,
+      "end_line": 216,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 223,
+      "end_line": 223,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 225,
+      "end_line": 225,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/JXPathContextReferenceImpl.java",
+      "start_line": 229,
+      "end_line": 229,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/ri/Parser.java",
+      "start_line": 34,
+      "end_line": 34,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/java/org/apache/commons/jxpath/JXPathContext.java",
+      "start_line": 432,
+      "end_line": 432,
+      "suspiciousness": 0.9807674351775562,
+      "rank": 10
+    }
+  ]
+}

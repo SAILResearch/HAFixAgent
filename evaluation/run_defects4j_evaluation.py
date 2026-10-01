@@ -4,6 +4,12 @@ import time
 import traceback as tb
 from pathlib import Path
 from typing import Dict, Optional
+
+from dotenv import load_dotenv
+# Load project-level .env before any LLM imports; override=True ensures project .env
+# always takes precedence over mini-swe-agent's global ~/.config/mini-swe-agent/.env
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
+
 import typer
 import yaml
 from rich.console import Console
@@ -15,8 +21,9 @@ from hafix_agent.blame.core import HistoryCategory, history_name_to_category
 from hafix_agent.blame.context_loader import create_context_loader
 from hafix_agent.utils import (
     BugLogger, EvaluationProgressManager, extract_execution_metrics, save_trajectory_safe,
-    get_timestamp as _get_timestamp, add_token_tracking_to_model
+    get_timestamp as _get_timestamp, add_token_tracking_to_model, resolve_model_tag
 )
+from hafix_agent.utils.model_specs import register_local_model_with_litellm
 from hafix_agent.agents.hafix_agent import HAFixAgent
 from hafix_agent.prompts.prompt_builder import build_hafix_prompt
 
@@ -26,11 +33,13 @@ DEFAULT_TIMEZONE = "America/Toronto"
 # Load config once at module level to avoid repeated I/O
 _CONFIG_CACHE = None
 _CONFIG_PATH = None
+_MODEL_CONFIG_PATH = None
 
-def set_config_path(config_path: str):
+def set_config_path(config_path: str, model_config_path: str = None):
     """Set the config path (must be called before get_config)."""
-    global _CONFIG_PATH
+    global _CONFIG_PATH, _MODEL_CONFIG_PATH
     _CONFIG_PATH = config_path
+    _MODEL_CONFIG_PATH = model_config_path
 
 def get_config() -> Dict:
     """Get cached config or load it if not cached."""
@@ -42,6 +51,14 @@ def get_config() -> Dict:
         else:
             config_path = Path(__file__).parent.parent / "config" / "defects4j.yaml"
         _CONFIG_CACHE = yaml.safe_load(config_path.read_text())
+
+        # Override model section if a separate model config is provided
+        if _MODEL_CONFIG_PATH:
+            model_config = yaml.safe_load(Path(_MODEL_CONFIG_PATH).read_text())
+            _CONFIG_CACHE["model"] = model_config["model"]
+            if model_config.get("model_tag"):
+                _CONFIG_CACHE["model_tag"] = model_config["model_tag"]
+        register_local_model_with_litellm(_CONFIG_CACHE)
     return _CONFIG_CACHE
 
 def get_timestamp(timestamp: float = None) -> str:
@@ -509,6 +526,7 @@ def main(
     blame_category: str = typer.Option("both", "--blame-category", help="Which bugs to evaluate: 'blameable' (only blameable bugs), 'blameless' (only blameless bugs), 'both' (all bugs)", rich_help_panel="Blame Context Category"),
 
     config: str = typer.Option("config/defects4j.yaml", "--config", help="Path to config YAML file (use config/defects4j_adaptive.yaml for RQ2)", rich_help_panel="Basic"),
+    model_config: str = typer.Option("", "--model-config", help="Path to model config YAML (overrides model section in --config, e.g., config/models/gpt35_turbo_0125.yaml)", rich_help_panel="Basic"),
     output: str = typer.Option("results/defects4j", "-o", "--output", help="Output directory", rich_help_panel="Basic"),
     project_filter: str = typer.Option("", "--project", help="Specific project to evaluate (e.g., 'Math', 'Lang')", rich_help_panel="Bug Selection"),
     custom_bugs: str = typer.Option("", "--custom-bugs", help="Comma-separated list of specific bugs to run (e.g., 'Math_91,Lang_58,Cli_24')", rich_help_panel="Bug Selection"),
@@ -520,7 +538,7 @@ def main(
     """Run HAFixAgent with blame context on Defects4J bugs."""
 
     # Set config path (must be called before any get_config() calls)
-    set_config_path(config)
+    set_config_path(config, model_config if model_config else None)
 
     # Parse history category - support both names and legacy numbers
     try:
@@ -635,12 +653,18 @@ def main(
 
     # Setup output directory with selector_type, n-lines, and bug category subdirectories
     base_output_path = Path(output)
-    # Construct path: base / {selector_type}_{n_lines}line / {bug_category}
+    # Construct path: base / {selector_type}_{n_lines}line[_{model_tag}] / {bug_category}
     selector_dir = f"{selector_type}_{n_lines}line"
+    # Append model tag when using a non-default model config (isolates per-LLM output)
+    if model_config:
+        selector_dir = f"{selector_dir}_{resolve_model_tag(get_config())}"
     output_path = base_output_path / selector_dir / bug_category
     output_path.mkdir(parents=True, exist_ok=True)
     
     console.print(f"[green]HAFixAgent Defects4J Evaluation[/green]")
+    config_data = get_config()
+    active_model = config_data.get("model", {}).get("model_name", "unknown")
+    console.print(f"Model: [bold cyan]{active_model}[/bold cyan]")
     console.print(f"Output: {output_path}")
     console.print(f"History category: {history_cat.name}")
     console.print(f"Multi-line: ({'LLM' if selector_type == 'llm_judge' else selector_type} selector, {n_lines} lines)")

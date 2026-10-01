@@ -1,0 +1,195 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_41",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 09:52:07",
+      "end_time": "2026-06-30 09:58:00",
+      "duration_seconds": 353,
+      "duration_human": "5m 53s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 843018,
+      "output_tokens": 5415,
+      "total_tokens": 848433,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 843018
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java\nindex aa4b367dc..7ebe874eb 100644\n--- a/src/com/google/javascript/jscomp/TypeCheck.java\n+++ b/src/com/google/javascript/jscomp/TypeCheck.java\n@@ -1094,12 +1094,24 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {\n                 propertyName, topInstanceType.toString(),\n                 superClassPropType.toString(), propertyType.toString()));\n       }\n+      \n+      // Additional parameter validation for function overrides\n+      if (propertyType.isFunctionType() && superClassPropType.isFunctionType()) {\n+        validateOverrideParameters(t, n, propertyType.toMaybeFunctionType(),\n+            superClassPropType.toMaybeFunctionType(), propertyName, topInstanceType);\n+      }\n     } else if (superInterfacesHasProperty) {\n       // there is an super interface property\n       for (ObjectType interfaceType : ctorType.getExtendedInterfaces()) {\n         if (interfaceType.hasProperty(propertyName)) {\n           JSType superPropertyType =\n             interfaceType.getPropertyType(propertyName);\n+          \n+          // Additional parameter validation for function overrides\n+          if (propertyType.isFunctionType() && superPropertyType.isFunctionType()) {\n+            validateOverrideParameters(t, n, propertyType.toMaybeFunctionType(),\n+                superPropertyType.toMaybeFunctionType(), propertyName, topInstanceType);\n+          }\n           if (!propertyType.canAssignTo(superPropertyType)) {\n             topInstanceType = interfaceType.getConstructor().\n                 getTopMostDefiningType(propertyName);\n@@ -1117,6 +1129,57 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {\n           t.makeError(n, UNKNOWN_OVERRIDE,\n               propertyName, ctorType.getInstanceType().toString()));\n     }\n+  \n+  /**\n+   * Validates that the overriding function has compatible parameters with the superclass function.\n+   * @param t The node traversal.\n+   * @param n The node to issue warnings on.\n+   * @param overridingType The overriding function type.\n+   * @param superType The superclass function type.\n+   * @param propertyName The name of the property being overridden.\n+   * @param ownerType The type of the owner of the property.\n+   */\n+  private void validateOverrideParameters(NodeTraversal t, Node n, FunctionType overridingType,\n+      FunctionType superType, String propertyName, JSType ownerType) {\n+    // Check parameter count compatibility\n+    int overridingMinArgs = overridingType.getMinArguments();\n+    int overridingMaxArgs = overridingType.getMaxArguments();\n+    int superMinArgs = superType.getMinArguments();\n+    int superMaxArgs = superType.getMaxArguments();\n+    \n+    // Overriding method must accept at least as many required arguments as the super method\n+    if (overridingMinArgs < superMinArgs) {\n+      compiler.report(\n+          t.makeError(n, HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,\n+              propertyName, ownerType.toString(),\n+              superType.toString(), overridingType.toString()));\n+      return;\n+    }\n+    \n+    // Check parameter type compatibility\n+    Node overridingParams = overridingType.getParametersNode();\n+    Node superParams = superType.getParametersNode();\n+    \n+    if (overridingParams != null && superParams != null) {\n+      int paramCount = Math.min(overridingParams.getChildCount(), superParams.getChildCount());\n+      for (int i = 0; i < paramCount; i++) {\n+        Node overridingParam = overridingParams.getChild(i);\n+        Node superParam = superParams.getChild(i);\n+        \n+        JSType overridingParamType = overridingParam.getJSType();\n+        JSType superParamType = superParam.getJSType();\n+        \n+        if (overridingParamType != null && superParamType != null &&\n+            !overridingParamType.canAssignTo(superParamType)) {\n+          compiler.report(\n+              t.makeError(n, HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,\n+                  propertyName, ownerType.toString(),\n+                  superType.toString(), overridingType.toString()));\n+          return;\n+        }\n+      }\n+    }\n+  }\n   }\n \n   /**\n"
+  },
+  "timestamp": "2026-06-30 09:58:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_41",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_41",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "In ADVANCED mode, Compiler fails to warn about overridden methods with different signatures.\nIn ADVANCED mode, Compiler fails to warn about overridden methods with different signatures. The following code only warns in the one instance noted in the comment, whereas I would expect it to complain about the declarations of both Bar.prototype.add and Bar.prototype.sub, as they claim @inheritDoc, but have seemingly different signatures from that of their superclass methods.\r\n\r\nIt would be helpful to have such a warning so that when you change the signature of a superclass method, you can run the Compiler to trigger warnings and find all of the other signatures that you need to update.\r\n\r\nRun the following:\r\n\r\n// ==ClosureCompiler==\r\n// @compilation_level ADVANCED_OPTIMIZATIONS\r\n// @output_file_name default.js\r\n// @use_closure_library true\r\n// ==/ClosureCompiler==\r\n\r\ngoog.provide('Foo');\r\ngoog.provide('Bar');\r\n\r\n\r\n/** @constructor */\r\nFoo = function() {};\r\n\r\n\r\n/**\r\n * @param {number} a\r\n * @param {number} b\r\n * @return {number}\r\n */\r\nFoo.prototype.add = function(a, b) {\r\n  return a + b;\r\n};\r\n\r\n\r\n/**\r\n * @param {number} a\r\n * @param {number} b\r\n * @return {number}\r\n */\r\nFoo.prototype.sub = goog.abstractMethod;\r\n\r\n\r\n/**\r\n * @constructor\r\n * @extends {Foo}\r\n */\r\nBar = function() {\r\n  goog.base(this);\r\n};\r\ngoog.inherits(Bar, Foo);\r\n\r\n\r\n/** @inheritDoc */\r\nBar.prototype.add = function(one) {\r\n  return one;\r\n};\r\n\r\n\r\n/** @inheritDoc */\r\nBar.prototype.sub = function(one) {\r\n  return one;\r\n};\r\n\r\n\r\nvar foo = /** @type {Foo} */ (new Bar());\r\nalert(foo.add(3, 4));\r\n\r\nvar bar = new Bar();\r\n// THIS PRODUCES JSC_WRONG_ARGUMENT_COUNT\r\nalert(bar.add(3, 4));",
+    "commit_message": "When inferring a function type, there may be formal parameters that do not appear in the function literal Fixes issue 368",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 694,
+        "end_line": 694,
+        "suspiciousness": 0.3464101615137754,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 700,
+        "end_line": 700,
+        "suspiciousness": 0.3464101615137754,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 709,
+        "end_line": 709,
+        "suspiciousness": 0.3273268353539886,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1630,
+        "end_line": 1630,
+        "suspiciousness": 0.2773500981126145,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1631,
+        "end_line": 1631,
+        "suspiciousness": 0.2773500981126145,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1632,
+        "end_line": 1632,
+        "suspiciousness": 0.2773500981126145,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1633,
+        "end_line": 1633,
+        "suspiciousness": 0.2773500981126145,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+        "start_line": 1634,
+        "end_line": 1634,
+        "suspiciousness": 0.2773500981126145,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 708,
+        "end_line": 708,
+        "suspiciousness": 0.23145502494313785,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 707,
+        "end_line": 707,
+        "suspiciousness": 0.22360679774997896,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.LooseTypeCheckTest::testMethodInference6",
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue368",
+      "com.google.javascript.jscomp.TypeCheckTest::testMethodInference6"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 694,
+      "end_line": 694,
+      "suspiciousness": 0.3464101615137754,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 700,
+      "end_line": 700,
+      "suspiciousness": 0.3464101615137754,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 709,
+      "end_line": 709,
+      "suspiciousness": 0.3273268353539886,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+      "start_line": 1630,
+      "end_line": 1630,
+      "suspiciousness": 0.2773500981126145,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+      "start_line": 1631,
+      "end_line": 1631,
+      "suspiciousness": 0.2773500981126145,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+      "start_line": 1632,
+      "end_line": 1632,
+      "suspiciousness": 0.2773500981126145,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+      "start_line": 1633,
+      "end_line": 1633,
+      "suspiciousness": 0.2773500981126145,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+      "start_line": 1634,
+      "end_line": 1634,
+      "suspiciousness": 0.2773500981126145,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 708,
+      "end_line": 708,
+      "suspiciousness": 0.23145502494313785,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 707,
+      "end_line": 707,
+      "suspiciousness": 0.22360679774997896,
+      "rank": 10
+    }
+  ]
+}

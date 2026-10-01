@@ -1,0 +1,101 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "78",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 23:18:39",
+      "end_time": "2025-09-30 23:30:51",
+      "duration_seconds": 732,
+      "duration_human": "12m 12s"
+    },
+    "model_cost": 0.0763,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 916215,
+      "output_tokens": 14341,
+      "total_tokens": 930556,
+      "cached_input_tokens": 887104,
+      "uncached_input_tokens": 29111
+    },
+    "agent_steps": 37,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2025-09-30 23:30:51 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_78",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_78",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Underlying input stream returned zero bytes\n```\r\nCaused by org.jsoup.c: java.io.IOException: Underlying input stream returned zero bytes\r\n       at org.jsoup.parser.CharacterReader.bufferUp(CharacterReader.java:60)\r\n       at org.jsoup.parser.CharacterReader.(CharacterReader.java)\r\n       at org.jsoup.parser.CharacterReader.(CharacterReader.java)\r\n       at org.jsoup.parser.TreeBuilder.defaultSettings(TreeBuilder.java:35)\r\n       at org.jsoup.parser.HtmlTreeBuilder.initialiseParse(HtmlTreeBuilder.java:66)\r\n       at org.jsoup.parser.TreeBuilder.parse(TreeBuilder.java:44)\r\n       at org.jsoup.parser.Parser.parseInput(Parser.java:39)\r\n       at org.jsoup.helper.DataUtil.parseInputStream(DataUtil.java:151)\r\n       at org.jsoup.helper.HttpConnection$Response.parse(HttpConnection.java:832)\r\n       at org.jsoup.helper.HttpConnection.get(HttpConnection.java:289)\r\n```\r\n\r\nThere isn't much information I can offer here.\r\nThis is with JSoup 1.11.1, with an attempt of parsing for a user's name.\r\n\r\nMy assumption is that the call is executing the following:\r\n\r\n```kotlin\r\nvar result = \"\"\r\ntry {\r\n\tresult = frostJsoup(cookie, FbItem.PROFILE.url).title()\r\n\tL.d(\"Fetch username found\", result)\r\n} catch (e: Exception) {\r\n\tif (e !is UnknownHostException)\r\n\t\te.logFrostAnswers(\"Fetch username failed\")\r\n} finally {\r\n\tif (result.isBlank() && (name?.isNotBlank() == true)) {\r\n\t\tcallback(name!!)\r\n\t\treturn@subscribe\r\n\t}\r\n\tif (name != result) {\r\n\t\tname = result\r\n\t\tsaveFbCookie(this@fetchUsername)\r\n\t}\r\n\tcallback(result)\r\n}\r\n```\r\n\r\nwhere cookie is the user's cooke, and the url is touch.facebook.com/me\r\n\r\nI'm not sure why this is a seemlingly fatal error though.\r\n\r\nAs usual, the full log and thread info can be found [here](http://crashes.to/s/92e0e5d0b69)\n",
+    "commit_message": "DataUtil should throw IOException on failed reads during parse",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 2,
+        "end_line": 2,
+        "line_numbers": [
+          2
+        ],
+        "function_name": "",
+        "class_name": "",
+        "filename": "DataUtil.java",
+        "code_snippet": "",
+        "granularity": "file"
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 151,
+        "end_line": 151,
+        "line_numbers": [
+          151
+        ],
+        "function_name": "parseInputStream",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseInputStream(InputStream input, String charsetName, String baseUri, Parser parser) throws IOException  {\n        if (input == null) // empty body\n            return new Document(baseUri);\n        input = ConstrainableInputStream.wrap(input, bufferSize, 0);\n\n        Document doc = null;\n        boolean fullyRead = false;\n\n        // read the start of the stream and look for a BOM or meta charset\n        input.mark(bufferSize);\n        ByteBuffer firstBytes = readToByteBuffer(input, firstReadBufferSize - 1); // -1 because we read one more to see if completed. First read is < buffer size, so can't be invalid.\n        fullyRead = input.read() == -1;\n        input.reset();\n\n        // look for BOM - overrides any other header or input\n        BomCharset bomCharset = detectCharsetFromBom(firstBytes);\n        if (bomCharset != null) {\n            charsetName = bomCharset.charset;\n            input.skip(bomCharset.offset);\n        }\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            String docData = Charset.forName(defaultCharset).decode(firstBytes).toString();\n            doc = parser.parseInput(docData, baseUri);\n\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            Elements metaElements = doc.select(\"meta[http-equiv=content-type], meta[charset]\");\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            for (Element meta : metaElements) {\n                if (meta.hasAttr(\"http-equiv\"))\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                if (foundCharset == null && meta.hasAttr(\"charset\"))\n                    foundCharset = meta.attr(\"charset\");\n                if (foundCharset != null)\n                    break;\n            }\n\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNodeSize() > 0 && doc.childNode(0) instanceof XmlDeclaration) {\n                XmlDeclaration prolog = (XmlDeclaration) doc.childNode(0);\n                if (prolog.name().equals(\"xml\"))\n                    foundCharset = prolog.attr(\"encoding\");\n            }\n            foundCharset = validateCharset(foundCharset);\n            if (foundCharset != null && !foundCharset.equalsIgnoreCase(defaultCharset)) { // need to re-decode. (case insensitive check here to match how validate works)\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                doc = null;\n            } else if (!fullyRead) {\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n        }\n        if (doc == null) {\n            if (charsetName == null)\n                charsetName = defaultCharset;\n            BufferedReader reader = new BufferedReader(new InputStreamReader(input, charsetName), bufferSize);\n                doc = parser.parseInput(reader, baseUri);\n                // io exception when parsing (not seen before because reading the stream as we go)\n            doc.outputSettings().charset(charsetName);\n        }\n        input.close();\n        return doc;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 153,
+        "end_line": 153,
+        "line_numbers": [
+          153
+        ],
+        "function_name": "parseInputStream",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseInputStream(InputStream input, String charsetName, String baseUri, Parser parser) throws IOException  {\n        if (input == null) // empty body\n            return new Document(baseUri);\n        input = ConstrainableInputStream.wrap(input, bufferSize, 0);\n\n        Document doc = null;\n        boolean fullyRead = false;\n\n        // read the start of the stream and look for a BOM or meta charset\n        input.mark(bufferSize);\n        ByteBuffer firstBytes = readToByteBuffer(input, firstReadBufferSize - 1); // -1 because we read one more to see if completed. First read is < buffer size, so can't be invalid.\n        fullyRead = input.read() == -1;\n        input.reset();\n\n        // look for BOM - overrides any other header or input\n        BomCharset bomCharset = detectCharsetFromBom(firstBytes);\n        if (bomCharset != null) {\n            charsetName = bomCharset.charset;\n            input.skip(bomCharset.offset);\n        }\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            String docData = Charset.forName(defaultCharset).decode(firstBytes).toString();\n            doc = parser.parseInput(docData, baseUri);\n\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            Elements metaElements = doc.select(\"meta[http-equiv=content-type], meta[charset]\");\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            for (Element meta : metaElements) {\n                if (meta.hasAttr(\"http-equiv\"))\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                if (foundCharset == null && meta.hasAttr(\"charset\"))\n                    foundCharset = meta.attr(\"charset\");\n                if (foundCharset != null)\n                    break;\n            }\n\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNodeSize() > 0 && doc.childNode(0) instanceof XmlDeclaration) {\n                XmlDeclaration prolog = (XmlDeclaration) doc.childNode(0);\n                if (prolog.name().equals(\"xml\"))\n                    foundCharset = prolog.attr(\"encoding\");\n            }\n            foundCharset = validateCharset(foundCharset);\n            if (foundCharset != null && !foundCharset.equalsIgnoreCase(defaultCharset)) { // need to re-decode. (case insensitive check here to match how validate works)\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                doc = null;\n            } else if (!fullyRead) {\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n        }\n        if (doc == null) {\n            if (charsetName == null)\n                charsetName = defaultCharset;\n            BufferedReader reader = new BufferedReader(new InputStreamReader(input, charsetName), bufferSize);\n                doc = parser.parseInput(reader, baseUri);\n                // io exception when parsing (not seen before because reading the stream as we go)\n            doc.outputSettings().charset(charsetName);\n        }\n        input.close();\n        return doc;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 155,
+        "end_line": 155,
+        "line_numbers": [
+          155
+        ],
+        "function_name": "parseInputStream",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseInputStream(InputStream input, String charsetName, String baseUri, Parser parser) throws IOException  {\n        if (input == null) // empty body\n            return new Document(baseUri);\n        input = ConstrainableInputStream.wrap(input, bufferSize, 0);\n\n        Document doc = null;\n        boolean fullyRead = false;\n\n        // read the start of the stream and look for a BOM or meta charset\n        input.mark(bufferSize);\n        ByteBuffer firstBytes = readToByteBuffer(input, firstReadBufferSize - 1); // -1 because we read one more to see if completed. First read is < buffer size, so can't be invalid.\n        fullyRead = input.read() == -1;\n        input.reset();\n\n        // look for BOM - overrides any other header or input\n        BomCharset bomCharset = detectCharsetFromBom(firstBytes);\n        if (bomCharset != null) {\n            charsetName = bomCharset.charset;\n            input.skip(bomCharset.offset);\n        }\n\n        if (charsetName == null) { // determine from meta. safe first parse as UTF-8\n            String docData = Charset.forName(defaultCharset).decode(firstBytes).toString();\n            doc = parser.parseInput(docData, baseUri);\n\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            Elements metaElements = doc.select(\"meta[http-equiv=content-type], meta[charset]\");\n            String foundCharset = null; // if not found, will keep utf-8 as best attempt\n            for (Element meta : metaElements) {\n                if (meta.hasAttr(\"http-equiv\"))\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                if (foundCharset == null && meta.hasAttr(\"charset\"))\n                    foundCharset = meta.attr(\"charset\");\n                if (foundCharset != null)\n                    break;\n            }\n\n            // look for <?xml encoding='ISO-8859-1'?>\n            if (foundCharset == null && doc.childNodeSize() > 0 && doc.childNode(0) instanceof XmlDeclaration) {\n                XmlDeclaration prolog = (XmlDeclaration) doc.childNode(0);\n                if (prolog.name().equals(\"xml\"))\n                    foundCharset = prolog.attr(\"encoding\");\n            }\n            foundCharset = validateCharset(foundCharset);\n            if (foundCharset != null && !foundCharset.equalsIgnoreCase(defaultCharset)) { // need to re-decode. (case insensitive check here to match how validate works)\n                foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                charsetName = foundCharset;\n                doc = null;\n            } else if (!fullyRead) {\n                doc = null;\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n        }\n        if (doc == null) {\n            if (charsetName == null)\n                charsetName = defaultCharset;\n            BufferedReader reader = new BufferedReader(new InputStreamReader(input, charsetName), bufferSize);\n                doc = parser.parseInput(reader, baseUri);\n                // io exception when parsing (not seen before because reading the stream as we go)\n            doc.outputSettings().charset(charsetName);\n        }\n        input.close();\n        return doc;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.integration.ConnectTest::handlesEmptyStreamDuringParseRead"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 3037d61..82c17c9 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -1,6 +1,5 @@\n package org.jsoup.helper;\n \n+import org.jsoup.UncheckedIOException;\n import org.jsoup.internal.ConstrainableInputStream;\n import org.jsoup.nodes.Document;\n import org.jsoup.nodes.Element;\n@@ -149,12 +148,8 @@ public final class DataUtil {\n             if (charsetName == null)\n                 charsetName = defaultCharset;\n             BufferedReader reader = new BufferedReader(new InputStreamReader(input, charsetName), bufferSize);\n+            try {\n                 doc = parser.parseInput(reader, baseUri);\n+            } catch (UncheckedIOException e) {\n                 // io exception when parsing (not seen before because reading the stream as we go)\n+                throw e.ioException();\n+            }\n             doc.outputSettings().charset(charsetName);\n         }\n         input.close();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

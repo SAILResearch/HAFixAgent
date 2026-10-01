@@ -1,0 +1,62 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "19",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 23:59:29",
+      "end_time": "2025-10-11 00:25:05",
+      "duration_seconds": 1536,
+      "duration_human": "25m 36s"
+    },
+    "model_cost": 0.1527,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1851672,
+      "output_tokens": 35427,
+      "total_tokens": 1887099,
+      "cached_input_tokens": 1812480,
+      "uncached_input_tokens": 39192
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java\nindex 51349dab..0cbaebba 100644\n--- a/src/main/java/org/jsoup/safety/Whitelist.java\n+++ b/src/main/java/org/jsoup/safety/Whitelist.java\n@@ -342,9 +342,12 @@ public class Whitelist {\n         if (!preserveRelativeLinks)\n             attr.setValue(value);\n         \n+        // also check the original attribute value for custom protocols like cid\n+        String origValue = attr.getValue();\n+        \n         for (Protocol protocol : protocols) {\n             String prot = protocol.toString() + \":\";\n-            if (value.toLowerCase().startsWith(prot)) {\n+            if (value.toLowerCase().startsWith(prot) || origValue.toLowerCase().startsWith(prot)) {\n                 return true;\n             }\n         }\n"
+  },
+  "timestamp": "2025-10-10 20:25:05 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_19",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_19",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Cleaning html containing the cid identifier breaks images\nOk, so in mail type HTML the following is common\n\n<img src=\"cid:SDOMSDOFMOSDOMFOSD\">\n\nThe item after CID: can be almost anything (US-ASCII I think) and of any length. It corresponds to an image linked elsewhere in MIME say like this\n\n--mimebounday\nContent-ID:<SDOMSDOFMOSDOMFOSD>\nContent-Type: image/jpeg.....\n(snip)\n\nSo, to mark a long story somewhat shorter, I use Jsoup's sanitizer extensively. However, I need these CID references to be preserved post sanitization. addProtocols does not work because the items are not valid URLs. As a result\nthe above becomes <img />. Which for my purposes is not good :)\n\n",
+    "commit_message": "Updated the Cleaner to support custom allowed protocols such as \"cid:\" and \"data:\".",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+        "start_line": 341,
+        "end_line": 341,
+        "line_numbers": [
+          341
+        ],
+        "function_name": "testValidProtocol",
+        "class_name": "Whitelist",
+        "filename": "Whitelist.java",
+        "code_snippet": "    private boolean testValidProtocol(Element el, Attribute attr, Set<Protocol> protocols) {\n        // try to resolve relative urls to abs, and optionally update the attribute so output html has abs.\n        // rels without a baseuri get removed\n        String value = el.absUrl(attr.getKey());\n        if (!preserveRelativeLinks)\n            attr.setValue(value);\n        \n        for (Protocol protocol : protocols) {\n            String prot = protocol.toString() + \":\";\n            if (value.toLowerCase().startsWith(prot)) {\n                return true;\n            }\n        }\n        return false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.safety.CleanerTest::handlesCustomProtocols"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java\nindex 4d14dce..51349da 100644\n--- a/src/main/java/org/jsoup/safety/Whitelist.java\n+++ b/src/main/java/org/jsoup/safety/Whitelist.java\n@@ -339,8 +339,6 @@ public class Whitelist {\n         // try to resolve relative urls to abs, and optionally update the attribute so output html has abs.\n         // rels without a baseuri get removed\n         String value = el.absUrl(attr.getKey());\n+        if (value.length() == 0)\n+            value = attr.getValue(); // if it could not be made abs, run as-is to allow custom unknown protocols\n         if (!preserveRelativeLinks)\n             attr.setValue(value);",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

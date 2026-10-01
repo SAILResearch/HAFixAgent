@@ -1,0 +1,55 @@
+{
+  "project_name": "black",
+  "bug_id": "black_16",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 16:55:25",
+      "end_time": "2026-03-23 17:12:53",
+      "duration_seconds": 1047,
+      "duration_human": "17m 27s"
+    },
+    "model_cost": 0.0371,
+    "model_calls": 26,
+    "token_usage": {
+      "input_tokens": 154195,
+      "output_tokens": 34686,
+      "total_tokens": 188881,
+      "cached_input_tokens": 69632,
+      "uncached_input_tokens": 84563
+    },
+    "agent_steps": 26,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex 9d9bada..ce34028 100644\n--- a/black.py\n+++ b/black.py\n@@ -2945,7 +2945,12 @@ def gen_python_files_in_dir(\n     \"\"\"\n     assert root.is_absolute(), f\"INTERNAL ERROR: `root` must be absolute but is {root}\"\n     for child in path.iterdir():\n-        normalized_path = \"/\" + child.resolve().relative_to(root).as_posix()\n+        try:\n+            normalized_path = \"/\" + child.resolve().relative_to(root).as_posix()\n+        except ValueError:\n+            if child.is_symlink():\n+                continue\n+            raise\n         if child.is_dir():\n             normalized_path += \"/\"\n         exclude_match = exclude.search(normalized_path)\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex 84b7a61..3418df9 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -11,7 +11,7 @@ import sys\n from tempfile import TemporaryDirectory\n from typing import Any, BinaryIO, Generator, List, Tuple, Iterator\n import unittest\n-from unittest.mock import patch\n+from unittest.mock import patch, MagicMock\n \n from click import unstyle\n from click.testing import CliRunner\n@@ -1162,6 +1162,49 @@ class BlackTestCase(unittest.TestCase):\n         with self.assertRaises(AssertionError):\n             black.assert_equivalent(\"{}\", \"None\")\n \n+    def test_symlink_out_of_root_directory(self) -> None:\n+        # prepare argumens\n+        path = MagicMock()\n+        root = THIS_DIR\n+        child = MagicMock()\n+        include = re.compile(black.DEFAULT_INCLUDES)\n+        exclude = re.compile(black.DEFAULT_EXCLUDES)\n+        report = black.Report()\n+\n+        # set the behavior of mock arguments\n+        # child should behave like a symlink which resolved path is clearly\n+        # outside of the root directory\n+        path.iterdir.return_value = [child]\n+        child.resolve.return_value = Path(\"/a/b/c\")\n+        child.is_symlink.return_value = True\n+\n+        # call the method\n+        # it should not raise any error\n+        list(black.gen_python_files_in_dir(path, root, include, exclude, report))\n+\n+        # check the call of the methods of the mock objects\n+        path.iterdir.assert_called_once()\n+        child.resolve.assert_called_once()\n+        child.is_symlink.assert_called_once()\n+\n+        # set the behavior of mock arguments\n+        # child should behave like a strange file which resolved path is clearly\n+        # outside of the root directory\n+        child.is_symlink.return_value = False\n+\n+        # call the method\n+        # it should raise a ValueError\n+        with self.assertRaises(ValueError):\n+            list(black.gen_python_files_in_dir(path, root, include, exclude, report))\n+\n+        # check the call of the methods of the mock objects\n+        path.iterdir.assert_called()\n+        self.assertEqual(path.iterdir.call_count, 2)\n+        child.resolve.assert_called()\n+        self.assertEqual(child.resolve.call_count, 2)\n+        child.is_symlink.assert_called()\n+        self.assertEqual(child.is_symlink.call_count, 2)\n+\n \n if __name__ == \"__main__\":\n     unittest.main(module=\"test_black\")\n"
+  },
+  "timestamp": "2026-03-23 13:12:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_16",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_16/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Ignore symbolic links pointing outside of the root directory (#339)",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 2948,
+        "end_line": 2948,
+        "function_name": "",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_symlink_out_of_root_directory"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

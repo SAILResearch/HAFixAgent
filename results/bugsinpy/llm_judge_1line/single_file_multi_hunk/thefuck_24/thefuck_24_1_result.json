@@ -1,0 +1,75 @@
+{
+  "project_name": "thefuck",
+  "bug_id": "thefuck_24",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-18 18:09:35",
+      "end_time": "2026-06-18 18:19:04",
+      "duration_seconds": 569,
+      "duration_human": "9m 29s"
+    },
+    "model_cost": 0.0492,
+    "model_calls": 40,
+    "token_usage": {
+      "input_tokens": 304441,
+      "output_tokens": 9791,
+      "total_tokens": 314232,
+      "cached_input_tokens": 137216,
+      "uncached_input_tokens": 167225
+    },
+    "agent_steps": 40,
+    "checkout_success": true,
+    "patch": "diff --git a/tests/test_types.py b/tests/test_types.py\nindex 910bbc9..c17f7a5 100644\n--- a/tests/test_types.py\n+++ b/tests/test_types.py\n@@ -44,3 +44,16 @@ class TestSortedCorrectedCommandsSequence(object):\n             settings)\n         assert set(seq) == {CorrectedCommand('ls', priority=100),\n                             CorrectedCommand('ls', side_effect, 300)}\n+\n+\n+class TestCorrectedCommand(object):\n+\n+    def test_equality(self):\n+        assert CorrectedCommand('ls', None, 100) == \\\n+               CorrectedCommand('ls', None, 200)\n+        assert CorrectedCommand('ls', None, 100) != \\\n+               CorrectedCommand('ls', lambda *_: _, 100)\n+\n+    def test_hashable(self):\n+        assert {CorrectedCommand('ls', None, 100),\n+                CorrectedCommand('ls', None, 200)} == {CorrectedCommand('ls')}\ndiff --git a/thefuck/types.py b/thefuck/types.py\nindex 6da4234..577f908 100644\n--- a/thefuck/types.py\n+++ b/thefuck/types.py\n@@ -4,7 +4,16 @@ from .logs import debug\n \n Command = namedtuple('Command', ('script', 'stdout', 'stderr'))\n \n-CorrectedCommand = namedtuple('CorrectedCommand', ('script', 'side_effect', 'priority'))\n+_CorrectedCommandBase = namedtuple('_CorrectedCommandBase', ('script', 'side_effect', 'priority'))\n+\n+class CorrectedCommand(_CorrectedCommandBase):\n+    def __eq__(self, other):\n+        if not isinstance(other, CorrectedCommand):\n+            return NotImplemented\n+        return self.script == other.script and self.side_effect == other.side_effect\n+    \n+    def __hash__(self):\n+        return hash((self.script, self.side_effect))\n \n Rule = namedtuple('Rule', ('name', 'match', 'get_new_command',\n                            'enabled_by_default', 'side_effect',\n@@ -37,14 +46,13 @@ class SortedCorrectedCommandsSequence(object):\n     - immediately gives access to the first commands through [];\n     - realises generator and sorts commands on first access to other\n       commands through [], or when len called.\n-\n     \"\"\"\n \n     def __init__(self, commands, settings):\n+        self._commands = iter(commands)\n         self._settings = settings\n-        self._commands = commands\n-        self._cached = self._get_first_two_unique()\n         self._realised = False\n+        self._cached = self._get_first_two_unique()\n \n     def _get_first_two_unique(self):\n         \"\"\"Returns first two unique commands.\"\"\"\n@@ -79,7 +87,9 @@ class SortedCorrectedCommandsSequence(object):\n             self._cached, '\\n'.join(format_stack())), self._settings)\n \n     def __getitem__(self, item):\n-        if item != 0 and not self._realised:\n+        if not self._realised and isinstance(item, slice):\n+            self._realise()\n+        if not self._realised and item > 1:\n             self._realise()\n         return self._cached[item]\n \n@@ -96,6 +106,7 @@ class SortedCorrectedCommandsSequence(object):\n             self._realise()\n         return iter(self._cached)\n \n-    @property\n     def is_multiple(self):\n+        if not self._realised and len(self._cached) < 2:\n+            self._realise()\n         return len(self._cached) > 1\n"
+  },
+  "timestamp": "2026-06-18 18:19:04 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "thefuck",
+    "bug_id": "thefuck_24",
+    "repo_path": "/BugsInPy/framework/bin/temp/thefuck_24/thefuck",
+    "github_url": "https://github.com/nvbn/thefuck",
+    "description": "",
+    "commit_message": "Make `CorrectedCommand` ignore priority when checking equality",
+    "fault_locations": [
+      {
+        "file": "thefuck/types.py",
+        "start_line": 7,
+        "end_line": 8,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "thefuck/types.py",
+        "start_line": 57,
+        "end_line": 58,
+        "function_name": "_get_first_two_unique",
+        "class_name": ""
+      },
+      {
+        "file": "thefuck/types.py",
+        "start_line": 64,
+        "end_line": 64,
+        "function_name": "_remove_duplicates",
+        "class_name": ""
+      },
+      {
+        "file": "thefuck/types.py",
+        "start_line": 67,
+        "end_line": 69,
+        "function_name": "_remove_duplicates",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_types.py::TestCorrectedCommand::test_equality",
+      "pytest tests/test_types.py::TestCorrectedCommand::test_hashable"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

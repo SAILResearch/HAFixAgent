@@ -1,0 +1,97 @@
+{
+  "project_name": "black",
+  "bug_id": "black_18",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:30:08",
+      "end_time": "2026-06-20 16:34:12",
+      "duration_seconds": 243,
+      "duration_human": "4m 3s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 592761,
+      "output_tokens": 7700,
+      "total_tokens": 600461,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 592761
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/black.py b/black.py\nindex e59a1e5..2e178e2 100644\n--- a/black.py\n+++ b/black.py\n@@ -467,15 +467,18 @@ def format_file_in_place(\n         mode |= FileMode.PYI\n     with tokenize.open(src) as src_buffer:\n         src_contents = src_buffer.read()\n+        line_ending = src_buffer.newlines\n+        if line_ending is None:\n+            line_ending = \"\\n\"\n     try:\n         dst_contents = format_file_contents(\n-            src_contents, line_length=line_length, fast=fast, mode=mode\n+            src_contents, line_length=line_length, fast=fast, mode=mode, line_ending=line_ending\n         )\n     except NothingChanged:\n         return False\n \n     if write_back == write_back.YES:\n-        with open(src, \"w\", encoding=src_buffer.encoding) as f:\n+        with open(src, \"w\", encoding=src_buffer.encoding, newline=\"\") as f:\n             f.write(dst_contents)\n     elif write_back == write_back.DIFF:\n         src_name = f\"{src}  (original)\"\n@@ -527,6 +530,7 @@ def format_file_contents(\n     line_length: int,\n     fast: bool,\n     mode: FileMode = FileMode.AUTO_DETECT,\n+    line_ending: str = \"\\n\",\n ) -> FileContent:\n     \"\"\"Reformat contents a file and return new contents.\n \n@@ -537,7 +541,7 @@ def format_file_contents(\n     if src_contents.strip() == \"\":\n         raise NothingChanged\n \n-    dst_contents = format_str(src_contents, line_length=line_length, mode=mode)\n+    dst_contents = format_str(src_contents, line_length=line_length, mode=mode, line_ending=line_ending)\n     if src_contents == dst_contents:\n         raise NothingChanged\n \n@@ -548,7 +552,7 @@ def format_file_contents(\n \n \n def format_str(\n-    src_contents: str, line_length: int, *, mode: FileMode = FileMode.AUTO_DETECT\n+    src_contents: str, line_length: int, *, mode: FileMode = FileMode.AUTO_DETECT, line_ending: str = \"\\n\"\n ) -> FileContent:\n     \"\"\"Reformat a string and return new contents.\n \n@@ -564,9 +568,10 @@ def format_str(\n         remove_u_prefix=py36 or \"unicode_literals\" in future_imports,\n         is_pyi=is_pyi,\n         normalize_strings=normalize_strings,\n+        line_ending=line_ending,\n     )\n-    elt = EmptyLineTracker(is_pyi=is_pyi)\n-    empty_line = Line()\n+    elt = EmptyLineTracker(is_pyi=is_pyi, line_ending=line_ending)\n+    empty_line = Line(line_ending=line_ending)\n     after = 0\n     for current_line in lines.visit(src_node):\n         for _ in range(after):\n@@ -927,6 +932,8 @@ class Line:\n     bracket_tracker: BracketTracker = Factory(BracketTracker)\n     inside_brackets: bool = False\n     should_explode: bool = False\n+    line_ending: str = \"\n+\"\n \n     def append(self, leaf: Leaf, preformatted: bool = False) -> None:\n         \"\"\"Add a new `leaf` to the end of the line.\n@@ -1180,7 +1187,7 @@ class Line:\n     def __str__(self) -> str:\n         \"\"\"Render the line.\"\"\"\n         if not self:\n-            return \"\\n\"\n+            return self.line_ending\n \n         indent = \"    \" * self.depth\n         leaves = iter(self.leaves)\n@@ -1190,7 +1197,7 @@ class Line:\n             res += str(leaf)\n         for _, comment in self.comments:\n             res += str(comment)\n-        return res + \"\\n\"\n+        return res + self.line_ending\n \n     def __bool__(self) -> bool:\n         \"\"\"Return True if the line has leaves or comments.\"\"\"\n@@ -1226,7 +1233,7 @@ class UnformattedLines(Line):\n         `depth` is not used for indentation in this case.\n         \"\"\"\n         if not self:\n-            return \"\\n\"\n+            return self.line_ending\n \n         res = \"\"\n         for leaf in self.leaves:\n@@ -1260,6 +1267,11 @@ class EmptyLineTracker:\n     previous_line: Optional[Line] = None\n     previous_after: int = 0\n     previous_defs: List[int] = Factory(list)\n+    line_ending: str = \"\\n\"\n+\n+    def __init__(self, is_pyi: bool = False, line_ending: str = \"\\n\") -> None:\n+        self.is_pyi = is_pyi\n+        self.line_ending = line_ending\n \n     def maybe_empty_lines(self, current_line: Line) -> Tuple[int, int]:\n         \"\"\"Return the number of extra empty lines before and after the `current_line`.\n@@ -1364,6 +1376,11 @@ class LineGenerator(Visitor[Line]):\n     normalize_strings: bool = True\n     current_line: Line = Factory(Line)\n     remove_u_prefix: bool = False\n+    line_ending: str = \"\\n\"\n+\n+    def __init__(self, line_ending: str = \"\\n\") -> None:\n+        self.line_ending = line_ending\n+        self.current_line = Line(line_ending=line_ending)\n \n     def line(self, indent: int = 0, type: Type[Line] = Line) -> Iterator[Line]:\n         \"\"\"Generate a line.\n@@ -1377,11 +1394,11 @@ class LineGenerator(Visitor[Line]):\n             if self.current_line.__class__ == type:\n                 self.current_line.depth += indent\n             else:\n-                self.current_line = type(depth=self.current_line.depth + indent)\n+                self.current_line = type(line_ending=self.line_ending, depth=self.current_line.depth + indent)\n             return  # Line is empty, don't emit. Creating a new one unnecessary.\n \n         complete_line = self.current_line\n-        self.current_line = type(depth=complete_line.depth + indent)\n+        self.current_line = type(line_ending=self.line_ending, depth=complete_line.depth + indent)\n         yield complete_line\n \n     def visit(self, node: LN) -> Iterator[Line]:\ndiff --git a/tests/test_black.py b/tests/test_black.py\nindex adf5ede..1f93e6a 100644\n--- a/tests/test_black.py\n+++ b/tests/test_black.py\n@@ -3,7 +3,7 @@ import asyncio\n from concurrent.futures import ThreadPoolExecutor\n from contextlib import contextmanager\n from functools import partial\n-from io import StringIO\n+from io import BytesIO, TextIOWrapper\n import os\n from pathlib import Path\n import sys\n@@ -121,8 +121,9 @@ class BlackTestCase(unittest.TestCase):\n         source, expected = read_data(\"../black\")\n         hold_stdin, hold_stdout = sys.stdin, sys.stdout\n         try:\n-            sys.stdin, sys.stdout = StringIO(source), StringIO()\n-            sys.stdin.name = \"<stdin>\"\n+            sys.stdin = TextIOWrapper(BytesIO(source.encode(\"utf8\")), encoding=\"utf8\")\n+            sys.stdout = TextIOWrapper(BytesIO(), encoding=\"utf8\")\n+            sys.stdin.buffer.name = \"<stdin>\"  # type: ignore\n             black.format_stdin_to_stdout(\n                 line_length=ll, fast=True, write_back=black.WriteBack.YES\n             )\n@@ -139,8 +140,9 @@ class BlackTestCase(unittest.TestCase):\n         expected, _ = read_data(\"expression.diff\")\n         hold_stdin, hold_stdout = sys.stdin, sys.stdout\n         try:\n-            sys.stdin, sys.stdout = StringIO(source), StringIO()\n-            sys.stdin.name = \"<stdin>\"\n+            sys.stdin = TextIOWrapper(BytesIO(source.encode(\"utf8\")), encoding=\"utf8\")\n+            sys.stdout = TextIOWrapper(BytesIO(), encoding=\"utf8\")\n+            sys.stdin.buffer.name = \"<stdin>\"  # type: ignore\n             black.format_stdin_to_stdout(\n                 line_length=ll, fast=True, write_back=black.WriteBack.DIFF\n             )\n@@ -204,7 +206,7 @@ class BlackTestCase(unittest.TestCase):\n         tmp_file = Path(black.dump_to_file(source))\n         hold_stdout = sys.stdout\n         try:\n-            sys.stdout = StringIO()\n+            sys.stdout = TextIOWrapper(BytesIO(), encoding=\"utf8\")\n             self.assertTrue(ff(tmp_file, write_back=black.WriteBack.DIFF))\n             sys.stdout.seek(0)\n             actual = sys.stdout.read()\n@@ -1108,6 +1110,18 @@ class BlackTestCase(unittest.TestCase):\n             result = CliRunner().invoke(black.main, [\"-\", option, \"**()(!!*)\"])\n             self.assertEqual(result.exit_code, 2)\n \n+    def test_preserves_line_endings(self) -> None:\n+        with TemporaryDirectory() as workspace:\n+            test_file = Path(workspace) / \"test.py\"\n+            for nl in [\"\\n\", \"\\r\\n\"]:\n+                contents = nl.join([\"def f(  ):\", \"    pass\"])\n+                test_file.write_bytes(contents.encode())\n+                ff(test_file, write_back=black.WriteBack.YES)\n+                updated_contents: bytes = test_file.read_bytes()\n+                self.assertIn(nl.encode(), updated_contents)  # type: ignore\n+                if nl == \"\\n\":\n+                    self.assertNotIn(b\"\\r\\n\", updated_contents)  # type: ignore\n+\n \n if __name__ == \"__main__\":\n     unittest.main()\n"
+  },
+  "timestamp": "2026-06-20 16:34:12 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "black",
+    "bug_id": "black_18",
+    "repo_path": "/BugsInPy/framework/bin/temp/black_18/black",
+    "github_url": "https://github.com/psf/black",
+    "description": "",
+    "commit_message": "Preserve line endings when formatting a file in place (#288)",
+    "fault_locations": [
+      {
+        "file": "black.py",
+        "start_line": 468,
+        "end_line": 469,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 478,
+        "end_line": 478,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 487,
+        "end_line": 487,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 506,
+        "end_line": 506,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 517,
+        "end_line": 517,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 521,
+        "end_line": 521,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "black.py",
+        "start_line": 593,
+        "end_line": 594,
+        "function_name": "lib2to3_parse",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_black.BlackTestCase.test_preserves_line_endings"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "95",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 18:03:28",
+      "end_time": "2025-09-30 18:08:17",
+      "duration_seconds": 289,
+      "duration_human": "4m 49s"
+    },
+    "model_cost": 0.0491,
+    "model_calls": 31,
+    "token_usage": {
+      "input_tokens": 575430,
+      "output_tokens": 4636,
+      "total_tokens": 580066,
+      "cached_input_tokens": 542720,
+      "uncached_input_tokens": 32710
+    },
+    "agent_steps": 32,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\nindex 41ffafb2b..16389c7f2 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n@@ -1410,6 +1410,9 @@ public final class TypeFactory\n     {\n         // ideally should find it via bindings:\n         final String name = var.getName();\n+        if (bindings == null) {\n+            bindings = TypeBindings.emptyBindings();\n+        }\n         JavaType type = bindings.findBoundType(name);\n         if (type != null) {\n             return type;\n"
+  },
+  "timestamp": "2025-09-30 18:08:17 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_95",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_95",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`TypeFactory.constructFromCanonical()` throws NPE for Unparameterized generic canonical strings\nWhen `TypeFactory.constructFromCanonical(returnType)` is used in `2.6.1`, the `returnType` string for generic types is not expected to have parameterized type information. For example, the following code runs fine on 2.6.1:\r\n\r\n```java\r\nreturnType = \"java.util.List\";\r\nobjectMapper.getTypeFactory().constructFromCanonical(returnType);\r\n```\r\n\r\nBut in version `2.8.7`, the same code gives a `NullPointerException` with the stack trace:\r\n\r\n```\r\njava.rmi.RemoteException: java.lang.NullPointerException:null. \r\n    at com.fasterxml.jackson.databind.type.TypeFactory._fromVariable(TypeFactory.java:1421)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory._fromAny(TypeFactory.java:1182)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory._fromParamType(TypeFactory.java:1404)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory._fromAny(TypeFactory.java:1172)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory._resolveSuperInterfaces(TypeFactory.java:1318)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory._fromClass(TypeFactory.java:1261)\r\n    at com.fasterxml.jackson.databind.type.TypeParser.parseType(TypeParser.java:60)\r\n    at com.fasterxml.jackson.databind.type.TypeParser.parse(TypeParser.java:33)\r\n    at com.fasterxml.jackson.databind.type.TypeFactory.constructFromCanonical(TypeFactory.java:544)\r\n    at foo.company.package.serialize.Serializer.deserialize(Serializer.java:355)\r\n```\r\n\r\nBut if the `returnType` string is passed with the generic type information, even if it is passed as `Object`, ie, `returnType = \"java.util.List<java.lang.Object>\";`, it works fine.\r\n\r\nI have 2 questions, is there a way to make this change backward compatible? If not, how can I work around this? PS: The workaround given by Tatu in the mailing list is not clear to *me*, if someone can give me an example, it'd be great help. Thanks!\r\n\r\n[Link to google groups thread.](https://groups.google.com/forum/#!topic/jackson-user/Ik1oEkUC1E8)\n",
+    "commit_message": "Fix #1941",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+        "start_line": 355,
+        "end_line": 355,
+        "line_numbers": [
+          355
+        ],
+        "function_name": "constructSpecializedType",
+        "class_name": "TypeFactory",
+        "filename": "TypeFactory.java",
+        "code_snippet": "    public JavaType constructSpecializedType(JavaType baseType, Class<?> subclass)\n    {\n        // simple optimization to avoid costly introspection if type-erased type does NOT differ\n        final Class<?> rawBase = baseType.getRawClass();\n        if (rawBase == subclass) {\n            return baseType;\n        }\n\n        JavaType newType;\n\n        // also: if we start from untyped, not much to save\n        do { // bogus loop to be able to break\n            if (rawBase == Object.class) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());\n                break;\n            }\n            if (!rawBase.isAssignableFrom(subclass)) {\n                throw new IllegalArgumentException(String.format(\n                        \"Class %s not subtype of %s\", subclass.getName(), baseType));\n            }\n            // A few special cases where we can simplify handling:\n\n            // (1) Original target type has no generics -- just resolve subtype\n            if (baseType.getBindings().isEmpty()) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());     \n                break;\n            }\n            // (2) A small set of \"well-known\" List/Map subtypes where can take a short-cut\n            if (baseType.isContainerType()) {\n                if (baseType.isMapLikeType()) {\n                    if ((subclass == HashMap.class)\n                            || (subclass == LinkedHashMap.class)\n                            || (subclass == EnumMap.class)\n                            || (subclass == TreeMap.class)) {\n                        newType = _fromClass(null, subclass,\n                                TypeBindings.create(subclass, baseType.getKeyType(), baseType.getContentType()));\n                        break;\n                    }\n                } else if (baseType.isCollectionLikeType()) {\n                    if ((subclass == ArrayList.class)\n                            || (subclass == LinkedList.class)\n                            || (subclass == HashSet.class)\n                            || (subclass == TreeSet.class)) {\n                        newType = _fromClass(null, subclass,\n                                TypeBindings.create(subclass, baseType.getContentType()));\n                        break;\n                    }\n                    // 29-Oct-2015, tatu: One further shortcut: there are variants of `EnumSet`,\n                    //    but they are impl details and we basically do not care...\n                    if (rawBase == EnumSet.class) {\n                        return baseType;\n                    }\n                }\n            }\n            // (3) Sub-class does not take type parameters -- just resolve subtype\n            int typeParamCount = subclass.getTypeParameters().length;\n            if (typeParamCount == 0) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());     \n                break;\n            }\n            // (4) If all else fails, do the full traversal using placeholders\n            TypeBindings tb = _bindingsForSubtype(baseType, typeParamCount, subclass);\n            newType = _fromClass(null, subclass, tb);\n\n        } while (false);\n\n        // 25-Sep-2016, tatu: As per [databind#1384] also need to ensure handlers get\n        //   copied as well\n        newType = newType.withHandlersFrom(baseType);\n        return newType;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+        "start_line": 366,
+        "end_line": 366,
+        "line_numbers": [
+          366
+        ],
+        "function_name": "constructSpecializedType",
+        "class_name": "TypeFactory",
+        "filename": "TypeFactory.java",
+        "code_snippet": "    public JavaType constructSpecializedType(JavaType baseType, Class<?> subclass)\n    {\n        // simple optimization to avoid costly introspection if type-erased type does NOT differ\n        final Class<?> rawBase = baseType.getRawClass();\n        if (rawBase == subclass) {\n            return baseType;\n        }\n\n        JavaType newType;\n\n        // also: if we start from untyped, not much to save\n        do { // bogus loop to be able to break\n            if (rawBase == Object.class) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());\n                break;\n            }\n            if (!rawBase.isAssignableFrom(subclass)) {\n                throw new IllegalArgumentException(String.format(\n                        \"Class %s not subtype of %s\", subclass.getName(), baseType));\n            }\n            // A few special cases where we can simplify handling:\n\n            // (1) Original target type has no generics -- just resolve subtype\n            if (baseType.getBindings().isEmpty()) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());     \n                break;\n            }\n            // (2) A small set of \"well-known\" List/Map subtypes where can take a short-cut\n            if (baseType.isContainerType()) {\n                if (baseType.isMapLikeType()) {\n                    if ((subclass == HashMap.class)\n                            || (subclass == LinkedHashMap.class)\n                            || (subclass == EnumMap.class)\n                            || (subclass == TreeMap.class)) {\n                        newType = _fromClass(null, subclass,\n                                TypeBindings.create(subclass, baseType.getKeyType(), baseType.getContentType()));\n                        break;\n                    }\n                } else if (baseType.isCollectionLikeType()) {\n                    if ((subclass == ArrayList.class)\n                            || (subclass == LinkedList.class)\n                            || (subclass == HashSet.class)\n                            || (subclass == TreeSet.class)) {\n                        newType = _fromClass(null, subclass,\n                                TypeBindings.create(subclass, baseType.getContentType()));\n                        break;\n                    }\n                    // 29-Oct-2015, tatu: One further shortcut: there are variants of `EnumSet`,\n                    //    but they are impl details and we basically do not care...\n                    if (rawBase == EnumSet.class) {\n                        return baseType;\n                    }\n                }\n            }\n            // (3) Sub-class does not take type parameters -- just resolve subtype\n            int typeParamCount = subclass.getTypeParameters().length;\n            if (typeParamCount == 0) {\n                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());     \n                break;\n            }\n            // (4) If all else fails, do the full traversal using placeholders\n            TypeBindings tb = _bindingsForSubtype(baseType, typeParamCount, subclass);\n            newType = _fromClass(null, subclass, tb);\n\n        } while (false);\n\n        // 25-Sep-2016, tatu: As per [databind#1384] also need to ensure handlers get\n        //   copied as well\n        newType = newType.withHandlersFrom(baseType);\n        return newType;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+        "start_line": 896,
+        "end_line": 896,
+        "line_numbers": [
+          896
+        ],
+        "function_name": "constructParametricType",
+        "class_name": "TypeFactory",
+        "filename": "TypeFactory.java",
+        "code_snippet": "    public JavaType constructParametricType(Class<?> parametrized, Class<?>... parameterClasses) {\n        int len = parameterClasses.length;\n        JavaType[] pt = new JavaType[len];\n        for (int i = 0; i < len; ++i) {\n            pt[i] = _fromClass(null, parameterClasses[i], null);\n        }\n        return constructParametricType(parametrized, pt);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeParser.java",
+        "start_line": 59,
+        "end_line": 59,
+        "line_numbers": [
+          59
+        ],
+        "function_name": "parseType",
+        "class_name": "TypeParser",
+        "filename": "TypeParser.java",
+        "code_snippet": "    protected JavaType parseType(MyTokenizer tokens)\n        throws IllegalArgumentException\n    {\n        if (!tokens.hasMoreTokens()) {\n            throw _problem(tokens, \"Unexpected end-of-string\");\n        }\n        Class<?> base = findClass(tokens.nextToken(), tokens);\n\n        // either end (ok, non generic type), or generics\n        if (tokens.hasMoreTokens()) {\n            String token = tokens.nextToken();\n            if (\"<\".equals(token)) {\n                List<JavaType> parameterTypes = parseTypes(tokens);\n                TypeBindings b = TypeBindings.create(base, parameterTypes);\n                return _factory._fromClass(null, base, b);\n            }\n            // can be comma that separates types, or closing '>'\n            tokens.pushBack(token);\n        }\n        return _factory._fromClass(null, base, null);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.type.TestTypeFactory::testCanonicalNames"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\nindex 46910eb45..41ffafb2b 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java\n@@ -352,7 +352,7 @@ public final class TypeFactory\n         // also: if we start from untyped, not much to save\n         do { // bogus loop to be able to break\n             if (rawBase == Object.class) {\n+                newType = _fromClass(null, subclass, EMPTY_BINDINGS);\n-                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());\n                 break;\n             }\n             if (!rawBase.isAssignableFrom(subclass)) {\n@@ -363,7 +363,7 @@ public final class TypeFactory\n \n             // (1) Original target type has no generics -- just resolve subtype\n             if (baseType.getBindings().isEmpty()) {\n+                newType = _fromClass(null, subclass, EMPTY_BINDINGS);     \n-                newType = _fromClass(null, subclass, TypeBindings.emptyBindings());     \n                 break;\n             }\n             // (2) A small set of \"well-known\" List/Map subtypes where can take a short-cut\n@@ -893,7 +893,7 @@ public final class TypeFactory\n         int len = parameterClasses.length;\n         JavaType[] pt = new JavaType[len];\n         for (int i = 0; i < len; ++i) {\n+            pt[i] = _fromClass(null, parameterClasses[i], EMPTY_BINDINGS);\n-            pt[i] = _fromClass(null, parameterClasses[i], null);\n         }\n         return constructParametricType(parametrized, pt);\n     }\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeParser.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeParser.java\nindex 1817e0aad..c3697f5e5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeParser.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeParser.java\n@@ -56,7 +56,7 @@ public class TypeParser\n             // can be comma that separates types, or closing '>'\n             tokens.pushBack(token);\n         }\n+        return _factory._fromClass(null, base, TypeBindings.emptyBindings());\n-        return _factory._fromClass(null, base, null);\n     }\n \n     protected List<JavaType> parseTypes(MyTokenizer tokens)",
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

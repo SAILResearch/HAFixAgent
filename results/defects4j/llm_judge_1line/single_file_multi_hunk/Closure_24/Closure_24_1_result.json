@@ -1,0 +1,76 @@
+{
+  "project_name": "Closure",
+  "bug_id": "24",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:31:32",
+      "end_time": "2025-09-30 14:37:40",
+      "duration_seconds": 368,
+      "duration_human": "6m 8s"
+    },
+    "model_cost": 0.0314,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 387607,
+      "output_tokens": 4447,
+      "total_tokens": 392054,
+      "cached_input_tokens": 376384,
+      "uncached_input_tokens": 11223
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex 30d29d0ad..d9da28f94 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -275,7 +275,7 @@ class ScopedAliases implements HotSwapCompilerPass {\n         Node n = v.getNode();\n         int type = n.getType();\n         Node parent = n.getParent();\n-        if (parent.isVar()) {\n+        if (parent.isVar() || (parent.isFunction() && NodeUtil.isFunctionDeclaration(parent))) {\n           if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n           String name = n.getString();\n           Var aliasVar = scope.getVar(name);\n"
+  },
+  "timestamp": "2025-09-30 14:37:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_24",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_24",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "goog.scope doesn't properly check declared functions\nThe following code is a compiler error:\r\n\r\ngoog.scope(function() {\r\n  var x = function(){};\r\n});\r\n\r\nbut the following code is not:\r\n\r\ngoog.scope(function() {\r\n  function x() {}\r\n});\r\n\r\nBoth code snippets should be a compiler error, because they prevent the goog.scope from being unboxed.",
+    "commit_message": "Emit an error if there are dangling functions in the goog.scope fixes issue 737",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 278,
+        "end_line": 279,
+        "line_numbers": [
+          278,
+          279
+        ],
+        "function_name": "findAliases",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void findAliases(NodeTraversal t) {\n      Scope scope = t.getScope();\n      for (Var v : scope.getVarIterable()) {\n        Node n = v.getNode();\n        int type = n.getType();\n        Node parent = n.getParent();\n        if (parent.isVar()) {\n          if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n          String name = n.getString();\n          Var aliasVar = scope.getVar(name);\n          aliases.put(name, aliasVar);\n\n          String qualifiedName =\n              aliasVar.getInitialValue().getQualifiedName();\n          transformation.addAlias(name, qualifiedName);\n          // Bleeding functions already get a BAD_PARAMETERS error, so just\n          // do nothing.\n          // Parameters of the scope function also get a BAD_PARAMETERS\n          // error.\n        } else {\n          // TODO(robbyw): Support using locals for private variables.\n          report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n        }\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ScopedAliases.java",
+        "start_line": 295,
+        "end_line": 295,
+        "line_numbers": [
+          295
+        ],
+        "function_name": "findAliases",
+        "class_name": "Traversal",
+        "filename": "ScopedAliases.java",
+        "code_snippet": "    private void findAliases(NodeTraversal t) {\n      Scope scope = t.getScope();\n      for (Var v : scope.getVarIterable()) {\n        Node n = v.getNode();\n        int type = n.getType();\n        Node parent = n.getParent();\n        if (parent.isVar()) {\n          if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n          String name = n.getString();\n          Var aliasVar = scope.getVar(name);\n          aliases.put(name, aliasVar);\n\n          String qualifiedName =\n              aliasVar.getInitialValue().getQualifiedName();\n          transformation.addAlias(name, qualifiedName);\n          // Bleeding functions already get a BAD_PARAMETERS error, so just\n          // do nothing.\n          // Parameters of the scope function also get a BAD_PARAMETERS\n          // error.\n        } else {\n          // TODO(robbyw): Support using locals for private variables.\n          report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n        }\n        }\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.ScopedAliasesTest::testNonAliasLocal"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/ScopedAliases.java b/src/com/google/javascript/jscomp/ScopedAliases.java\nindex c248002..30d29d0 100644\n--- a/src/com/google/javascript/jscomp/ScopedAliases.java\n+++ b/src/com/google/javascript/jscomp/ScopedAliases.java\n@@ -275,8 +275,8 @@ class ScopedAliases implements HotSwapCompilerPass {\n         Node n = v.getNode();\n         int type = n.getType();\n         Node parent = n.getParent();\n+        if (parent.isVar() &&\n+            n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n-        if (parent.isVar()) {\n-          if (n.hasChildren() && n.getFirstChild().isQualifiedName()) {\n           String name = n.getString();\n           Var aliasVar = scope.getVar(name);\n           aliases.put(name, aliasVar);\n@@ -284,16 +284,15 @@ class ScopedAliases implements HotSwapCompilerPass {\n           String qualifiedName =\n               aliasVar.getInitialValue().getQualifiedName();\n           transformation.addAlias(name, qualifiedName);\n+        } else if (v.isBleedingFunction()) {\n           // Bleeding functions already get a BAD_PARAMETERS error, so just\n           // do nothing.\n+        } else if (parent.getType() == Token.LP) {\n           // Parameters of the scope function also get a BAD_PARAMETERS\n           // error.\n         } else {\n           // TODO(robbyw): Support using locals for private variables.\n           report(t, n, GOOG_SCOPE_NON_ALIAS_LOCAL, n.getString());\n         }\n-        }\n       }\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

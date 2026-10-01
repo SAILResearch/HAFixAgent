@@ -1,0 +1,67 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_160",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:34:29",
+      "end_time": "2026-06-27 18:35:22",
+      "duration_seconds": 54,
+      "duration_human": "54.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 458232,
+      "output_tokens": 2588,
+      "total_tokens": 460820,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 458232
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/computation/expressions.py b/pandas/core/computation/expressions.py\nindex 5b6d275001..ff9db28490 100644\n--- a/pandas/core/computation/expressions.py\n+++ b/pandas/core/computation/expressions.py\n@@ -76,37 +76,14 @@ def _can_use_numexpr(op, op_str, a, b, dtype_check):\n \n         # required min elements (otherwise we are adding overhead)\n         if np.prod(a.shape) > _MIN_ELEMENTS:\n-\n-            # check for dtype compatibility\n-            dtypes = set()\n-            for o in [a, b]:\n-                if hasattr(o, \"dtypes\"):\n+                if hasattr(o, \"dtype\"):\n+                    dtypes |= {o.dtype.name}\n                     s = o.dtypes.value_counts()\n                     if len(s) > 1:\n                         return False\n+                elif hasattr(o, \"dtypes\"):\n                     dtypes |= set(s.index.astype(str))\n-                elif isinstance(o, np.ndarray):\n-                    dtypes |= {o.dtype.name}\n-\n-            # allowed are a superset\n-            if not len(dtypes) or _ALLOWED_DTYPES[dtype_check] >= dtypes:\n-                return True\n-\n     return False\n-\n-\n-def _evaluate_numexpr(op, op_str, a, b, truediv=True, reversed=False, **eval_kwargs):\n-    result = None\n-\n-    if _can_use_numexpr(op, op_str, a, b, \"evaluate\"):\n-        if reversed:\n-            # we were originally called by a reversed op method\n-            a, b = b, a\n-\n-        a_value = getattr(a, \"values\", a)\n-        b_value = getattr(b, \"values\", b)\n-        try:\n-            result = ne.evaluate(\n                 \"a_value {op} b_value\".format(op=op_str),\n                 local_dict={\"a_value\": a_value, \"b_value\": b_value},\n                 casting=\"safe\",\ndiff --git a/pandas/tests/test_expressions.py b/pandas/tests/test_expressions.py\nindex 4070624985..ca514f62f4 100644\n--- a/pandas/tests/test_expressions.py\n+++ b/pandas/tests/test_expressions.py\n@@ -66,7 +66,7 @@ class TestExpressions:\n                 operator_name = \"truediv\"\n \n             if test_flex:\n-                op = lambda x, y: getattr(df, arith)(y)\n+                op = lambda x, y: getattr(x, arith)(y)\n                 op.__name__ = arith\n             else:\n                 op = getattr(operator, operator_name)\n@@ -318,7 +318,6 @@ class TestExpressions:\n             for f in [self.frame, self.frame2, self.mixed, self.mixed2]:\n \n                 for cond in [True, False]:\n-\n                     c = np.empty(f.shape, dtype=np.bool_)\n                     c.fill(cond)\n                     result = expr.where(c, f.values, f.values + 1)\n@@ -431,3 +430,29 @@ class TestExpressions:\n         # GH 22383 - .ne fails if columns containing column name 'dtype'\n         result = test_input.loc[:, [\"a\", \"dtype\"]].ne(test_input.loc[:, [\"a\", \"dtype\"]])\n         assert_frame_equal(result, expected)\n+\n+    @pytest.mark.parametrize(\n+        \"arith\", (\"add\", \"sub\", \"mul\", \"mod\", \"truediv\", \"floordiv\")\n+    )\n+    @pytest.mark.parametrize(\"axis\", (0, 1))\n+    def test_frame_series_axis(self, axis, arith):\n+        # GH#26736 Dataframe.floordiv(Series, axis=1) fails\n+        if axis == 1 and arith == \"floordiv\":\n+            pytest.xfail(\"'floordiv' does not succeed with axis=1 #27636\")\n+\n+        df = self.frame\n+        if axis == 1:\n+            other = self.frame.iloc[0, :]\n+        else:\n+            other = self.frame.iloc[:, 0]\n+\n+        expr._MIN_ELEMENTS = 0\n+\n+        op_func = getattr(df, arith)\n+\n+        expr.set_use_numexpr(False)\n+        expected = op_func(other, axis=axis)\n+        expr.set_use_numexpr(True)\n+\n+        result = op_func(other, axis=axis)\n+        assert_frame_equal(expected, result)\n"
+  },
+  "timestamp": "2026-06-27 18:35:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_160",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_160/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: _can_use_numexpr fails when passed large Series (#27773)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 79,
+        "end_line": 79,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 83,
+        "end_line": 83,
+        "function_name": "_can_use_numexpr",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/computation/expressions.py",
+        "start_line": 88,
+        "end_line": 88,
+        "function_name": "_can_use_numexpr",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/test_expressions.py::TestExpressions::test_frame_series_axis"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

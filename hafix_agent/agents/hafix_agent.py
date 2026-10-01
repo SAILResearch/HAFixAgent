@@ -18,6 +18,7 @@ class HAFixAgentConfig(AgentConfig):
     # Default limits for Defects4J (overridden by YAML)
     step_limit: int = 50
     cost_limit: float = 1.0
+    dataset: str = "defects4j"  # "defects4j" or "bugsinpy"
 
     # Default templates (overridden by YAML config)
     system_template: str = "You are an expert Java developer fixing bugs."
@@ -240,7 +241,35 @@ class HAFixAgent(DefaultAgent):
         # Intercept hafix-context commands (standalone or in chains)
         # Handle both: "hafix-context fn_all" and "cmd1 && hafix-context fn_all && cmd2"
         if "hafix-context" in cmd:
-            pass
+            # Check if it's a standalone hafix-context command
+            if cmd.strip().startswith("hafix-context"):
+                self._log(f"   ➤ [Intercepted adaptive context request]: {cmd}")
+                return self._handle_hafix_context_command(cmd)
+
+            # Handle chained commands containing hafix-context
+            # Split by && or || and process hafix-context separately
+            parts = []
+            for part in re.split(r'\s*&&\s*|\s*\|\|\s*', cmd):
+                part = part.strip()
+                if part.startswith("hafix-context"):
+                    # Extract and execute hafix-context, get the context
+                    self._log(f"   ➤ [Intercepted adaptive context request in chain]: {part}")
+                    result = self._handle_hafix_context_command(part)
+                    # If successful, the context is now cached
+                    # Replace hafix-context with echo to show it was processed
+                    if result.get("returncode") == 0:
+                        parts.append(f"echo '[Historical context loaded for {part}]'")
+                    else:
+                        # If failed, replace with error echo
+                        error_msg = result.get("output", "Unknown error")
+                        parts.append(f"echo 'Error loading context: {error_msg}'")
+                else:
+                    parts.append(part)
+
+            # Reconstruct command without hafix-context
+            cmd = " && ".join(parts)
+            action["action"] = cmd
+
         # Prefix any command that doesn't set its own cwd
         if cmd and not cmd.lstrip().startswith("cd "):
             repo_path = self._get_repo_path()
@@ -293,22 +322,10 @@ class HAFixAgent(DefaultAgent):
         output = super().get_observation(response)
         output_str = str(output.get("output", ""))
 
-        # Compilation tracking - detect compilation failures first
-        if ("Running ant (compile)" in output_str or "Running ant (compile.tests)" in output_str):
-            if ("FAIL" in output_str and ("BUILD FAILED" in output_str or "Cannot compile" in output_str)):
-                self.compilation_failures += 1
-                self.extra_template_vars["compilation_status"] = "failed"
-                return output  # Don't process test results if compilation failed
-            elif " OK" in output_str:
-                self.extra_template_vars["compilation_status"] = "successful"
-
-        # Test result analysis (only if compilation succeeded)
-        if "Failing tests:" in output_str:
-            if "Failing tests: 0" in output_str:
-                self.extra_template_vars["tests_fixed"] = True
-            else:
-                self._analyze_test_output(output)
-                self.test_failures_count += 1
+        if self.config.dataset == "bugsinpy":
+            self._parse_bugsinpy_output(output, output_str)
+        else:
+            self._parse_defects4j_output(output, output_str)
 
         # Timeout handling
         if 'TIMEOUT' in output_str:
@@ -321,6 +338,47 @@ class HAFixAgent(DefaultAgent):
         })
 
         return output
+
+    def _parse_defects4j_output(self, output: dict, output_str: str) -> None:
+        """Parse Defects4J compilation and test output."""
+        if ("Running ant (compile)" in output_str or "Running ant (compile.tests)" in output_str):
+            if ("FAIL" in output_str and ("BUILD FAILED" in output_str or "Cannot compile" in output_str)):
+                self.compilation_failures += 1
+                self.extra_template_vars["compilation_status"] = "failed"
+                return
+            elif " OK" in output_str:
+                self.extra_template_vars["compilation_status"] = "successful"
+
+        if "Failing tests:" in output_str:
+            if "Failing tests: 0" in output_str:
+                self.extra_template_vars["tests_fixed"] = True
+            else:
+                self._analyze_test_output(output)
+                self.test_failures_count += 1
+
+    def _parse_bugsinpy_output(self, output: dict, output_str: str) -> None:
+        """Parse BugsInPy pytest/unittest output."""
+        import re
+        # Compilation/import errors
+        if "SyntaxError" in output_str or "ImportError" in output_str or "ModuleNotFoundError" in output_str:
+            self.compilation_failures += 1
+            self.extra_template_vars["compilation_status"] = "failed"
+            return
+        if "You have not compile" in output_str or "This is not a checkout project" in output_str:
+            self.compilation_failures += 1
+            self.extra_template_vars["compilation_status"] = "failed"
+            return
+
+        # Test pass detection (pytest: "X passed", unittest: "OK")
+        last_500 = output_str[-500:] if len(output_str) > 500 else output_str
+        if "passed" in output_str and "failed" not in output_str and "error" not in last_500.lower():
+            self.extra_template_vars["tests_fixed"] = True
+        elif re.search(r'\bOK\b', last_500):
+            self.extra_template_vars["tests_fixed"] = True
+        # Test failure detection
+        elif "FAILED" in output_str or "failed" in output_str or re.search(r'\d+ error', output_str):
+            self.extra_template_vars["tests_fixed"] = False
+            self.test_failures_count += 1
 
     def _analyze_test_output(self, output: dict) -> None:
         """
@@ -390,6 +448,101 @@ class HAFixAgent(DefaultAgent):
     # ========================================================================
     # Adaptive Context Loading (RQ2)
     # ========================================================================
+
+    def _handle_hafix_context_command(self, command: str) -> dict:
+        """
+        Handle hafix-context command to provide historical context on-demand.
+
+        Commands:
+            hafix-context fl_diff  - File diff patch from blame commit
+            hafix-context fn_all   - All functions in blame commit files
+            hafix-context fn_pair  - Function before/after code comparison
+
+        Returns:
+            Dict with output and returncode (mimics Docker execution result)
+        """
+        parts = command.strip().split()
+        if len(parts) != 2:
+            return {
+                "output": (
+                    "Error: Usage: hafix-context <heuristic>\n"
+                    "Available heuristics:\n"
+                    "  - fl_diff  : Detailed diff patch from blame commit\n"
+                    "  - fn_all   : All functions in blame commit files\n"
+                    "  - fn_pair  : Function before/after code comparison"
+                ),
+                "returncode": 1
+            }
+
+        heuristic_name = parts[1]
+
+        # Validate heuristic name (only 3 allowed: fl_diff, fn_all, fn_pair)
+        valid_heuristics = ['fl_diff', 'fn_all', 'fn_pair']
+        if heuristic_name not in valid_heuristics:
+            return {
+                "output": f"Error: Unknown heuristic '{heuristic_name}'\nAvailable: {', '.join(valid_heuristics)}",
+                "returncode": 1
+            }
+
+        # Check if already used (each heuristic can only be used once)
+        if heuristic_name in self.blame_context_cache:
+            # Show which heuristics are still available
+            valid_heuristics = ['fl_diff', 'fn_all', 'fn_pair']
+            unused_heuristics = [h for h in valid_heuristics if h not in self.blame_context_cache]
+
+            if unused_heuristics:
+                unused_list = ', '.join(unused_heuristics)
+                return {
+                    "output": f"Error: {heuristic_name} has already been used. Each heuristic can only be used once.\nUnused heuristics: {unused_list}",
+                    "returncode": 1
+                }
+            else:
+                return {
+                    "output": f"Error: {heuristic_name} has already been used. All available heuristics have been exhausted.",
+                    "returncode": 1
+                }
+
+        # Extract blame context dynamically
+        try:
+            self._log(f"   ⚙️  Extracting {heuristic_name} context dynamically...")
+            # Use configured selector and n_lines (set by evaluation script)
+            selector = getattr(self, 'adaptive_selector_type', 'llm_judge')
+            n_lines = getattr(self, 'adaptive_n_lines', 1)
+            blame_info = self._extract_blame_for_heuristic(selector, n_lines)
+            formatted_context = self._format_blame_context(heuristic_name, blame_info)
+
+            # Cache for reuse
+            self.blame_context_cache[heuristic_name] = formatted_context
+
+            # Track request with step number (use model.n_calls for accurate step count)
+            current_step = self.model.n_calls
+            self.requested_heuristics.append({
+                'heuristic': heuristic_name,
+                'step': current_step
+            })
+
+            self._log(f"   ✅ Successfully extracted {heuristic_name} context ({len(formatted_context)} chars)")
+
+            # Inject context as a separate user message (not in command output)
+            # This allows LLM to cache it efficiently instead of re-processing in every observation
+            self.messages.append({
+                'role': 'user',
+                'content': f"## Historical Context ({heuristic_name}):\n\n{formatted_context}"
+            })
+
+            # Return minimal command output (not the full context)
+            return {
+                "output": f"✓ Loaded {heuristic_name} historical context ({len(formatted_context)} chars). Context has been added to the conversation for your reference.",
+                "returncode": 0
+            }
+
+        except Exception as e:
+            error_msg = f"Error extracting {heuristic_name} context: {str(e)}"
+            self._log(f"   ❌ {error_msg}", "ERROR")
+            return {
+                "output": error_msg,
+                "returncode": 1
+            }
 
     def _extract_blame_for_heuristic(
         self,

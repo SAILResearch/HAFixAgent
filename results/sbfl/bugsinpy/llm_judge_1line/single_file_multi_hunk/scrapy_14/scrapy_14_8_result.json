@@ -1,0 +1,194 @@
+{
+  "project_name": "scrapy",
+  "bug_id": "scrapy_14",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-18 06:03:01",
+      "end_time": "2026-06-18 06:12:56",
+      "duration_seconds": 595,
+      "duration_human": "9m 55s"
+    },
+    "model_cost": 0.0205,
+    "model_calls": 4,
+    "token_usage": {
+      "input_tokens": 52790,
+      "output_tokens": 15279,
+      "total_tokens": 68069,
+      "cached_input_tokens": 64,
+      "uncached_input_tokens": 52726
+    },
+    "agent_steps": 4,
+    "checkout_success": true,
+    "patch": "diff --git a/scrapy/utils/gz.py b/scrapy/utils/gz.py\nindex d035f9fdf..58ee30ed7 100644\n--- a/scrapy/utils/gz.py\n+++ b/scrapy/utils/gz.py\n@@ -1,3 +1,5 @@\n+\"\"\"Gzip support\"\"\"\n+\n import struct\n \n try:\n@@ -53,5 +55,65 @@ def gunzip(data):\n \n def is_gzipped(response):\n     \"\"\"Return True if the response is gzipped, or False otherwise\"\"\"\n+    # Check Content-Encoding header first\n+    ce = response.headers.get('Content-Encoding', b'')\n+    if isinstance(ce, bytes):\n+        ce = ce.decode('latin-1')\n+    ce = ce.lower()\n+    # Split by comma for multiple encodings\n+    encodings = [e.strip() for e in ce.split(',')]\n+    if 'gzip' in encodings:\n+        return True\n+    \n+    # Check Content-Type header\n     ctype = response.headers.get('Content-Type', b'')\n-    return ctype in (b'application/x-gzip', b'application/gzip')\n+    if isinstance(ctype, bytes):\n+        ctype = ctype.decode('latin-1')\n+    ctype = ctype.lower()\n+    # Extract main content type before semicolon\n+    ctype_main = ctype.split(';')[0].strip()\n+    return ctype_main in ('application/x-gzip', 'application/gzip')\n+EOF && cd /BugsInPy/framework/bin/temp/scrapy_14/scrapy && python -c \"\n+import sys\n+sys.path.insert(0, '.')\n+from scrapy.utils.gz import is_gzipped\n+from scrapy.http import Response, Headers\n+\n+# Test the failing test cases\n+test_cases = [\n+    # From test_is_gzipped_case_insensitive\n+    ({'Content-Type': 'Application/X-Gzip'}, True, 'Mixed case'),\n+    ({'Content-Type': 'application/X-GZIP ; charset=utf-8'}, True, 'Mixed case with charset'),\n+    \n+    # From test_is_gzipped_with_charset  \n+    ({'Content-Type': 'application/x-gzip;charset=utf-8'}, True, 'Lowercase with charset'),\n+    \n+    # Other test cases from the test file\n+    ({'Content-Type': 'application/x-gzip'}, True, 'Lowercase'),\n+    ({'Content-Type': 'application/gzip'}, True, 'application/gzip'),\n+    ({'Content-Type': 'application/gzippppp'}, False, 'False positive'),\n+    ({'Content-Type': 'application/javascript'}, False, 'Wrong type'),\n+    \n+    # Content-Encoding tests\n+    ({'Content-Encoding': 'gzip'}, True, 'Content-Encoding: gzip'),\n+    ({'Content-Encoding': 'gzip, deflate'}, True, 'Multiple encodings'),\n+    ({'Content-Encoding': 'deflate'}, False, 'Wrong encoding'),\n+]\n+\n+print('Testing is_gzipped implementation...')\n+all_pass = True\n+for headers_dict, expected, desc in test_cases:\n+    headers = Headers(headers_dict)\n+    response = Response('http://example.com', headers=headers)\n+    result = is_gzipped(response)\n+    if result != expected:\n+        print(f'FAIL: {desc}: {headers_dict} -> {result} (expected {expected})')\n+        all_pass = False\n+    else:\n+        print(f'PASS: {desc}: {headers_dict} -> {result}')\n+\n+if all_pass:\n+    print('\\\\nAll tests passed!')\n+else:\n+    print('\\\\nSome tests failed')\n+\" && cd /BugsInPy/framework/bin/temp/scrapy_14/scrapy && python -m unittest -q tests.test_utils_gz.GunzipTest.test_is_gzipped_case_insensitive && cd /BugsInPy/framework/bin/temp/scrapy_14/scrapy && python -m unittest -q tests.test_utils_gz.GunzipTest.test_is_gzipped_with_charset && cd /BugsInPy/framework/bin/temp/scrapy_14/scrapy && python -m unittest -q tests.test_utils_gz.GunzipTest && cd /BugsInPy/framework/bin/temp/scrapy_14/scrapy && bugsinpy-test && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\ndiff --git a/tests/test_utils_gz.py b/tests/test_utils_gz.py\nindex 8fb1e414d..2b47bf8da 100644\n--- a/tests/test_utils_gz.py\n+++ b/tests/test_utils_gz.py\n@@ -1,7 +1,8 @@\n import unittest\n from os.path import join\n \n-from scrapy.utils.gz import gunzip\n+from scrapy.utils.gz import gunzip, is_gzipped\n+from scrapy.http import Response, Headers\n from tests import tests_datadir\n \n SAMPLEDIR = join(tests_datadir, 'compressed')\n@@ -27,3 +28,41 @@ class GunzipTest(unittest.TestCase):\n         with open(join(SAMPLEDIR, 'truncated-crc-error-short.gz'), 'rb') as f:\n             text = gunzip(f.read())\n             assert text.endswith(b'</html>')\n+\n+    def test_is_x_gzipped_right(self):\n+        hdrs = Headers({\"Content-Type\": \"application/x-gzip\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertTrue(is_gzipped(r1))\n+\n+    def test_is_gzipped_right(self):\n+        hdrs = Headers({\"Content-Type\": \"application/gzip\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertTrue(is_gzipped(r1))\n+\n+    def test_is_gzipped_not_quite(self):\n+        hdrs = Headers({\"Content-Type\": \"application/gzippppp\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertFalse(is_gzipped(r1))\n+\n+    def test_is_gzipped_case_insensitive(self):\n+        hdrs = Headers({\"Content-Type\": \"Application/X-Gzip\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertTrue(is_gzipped(r1))\n+\n+        hdrs = Headers({\"Content-Type\": \"application/X-GZIP ; charset=utf-8\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertTrue(is_gzipped(r1))\n+\n+    def test_is_gzipped_empty(self):\n+        r1 = Response(\"http://www.example.com\")\n+        self.assertFalse(is_gzipped(r1))\n+\n+    def test_is_gzipped_wrong(self):\n+        hdrs = Headers({\"Content-Type\": \"application/javascript\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertFalse(is_gzipped(r1))\n+\n+    def test_is_gzipped_with_charset(self):\n+        hdrs = Headers({\"Content-Type\": \"application/x-gzip;charset=utf-8\"})\n+        r1 = Response(\"http://www.example.com\", headers=hdrs)\n+        self.assertTrue(is_gzipped(r1))\n"
+  },
+  "timestamp": "2026-06-18 06:12:56 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "scrapy",
+    "bug_id": "scrapy_14",
+    "repo_path": "/BugsInPy/framework/bin/temp/scrapy_14/scrapy",
+    "github_url": "https://github.com/scrapy/scrapy",
+    "description": "",
+    "commit_message": "Merge pull request #2050 from Tethik/is_gzipped_fix",
+    "fault_locations": [
+      {
+        "file": "scrapy/http/headers.py",
+        "start_line": 24,
+        "end_line": 24,
+        "suspiciousness": 0.561151,
+        "rank": 1
+      },
+      {
+        "file": "scrapy/http/headers.py",
+        "start_line": 52,
+        "end_line": 52,
+        "suspiciousness": 0.561151,
+        "rank": 2
+      },
+      {
+        "file": "scrapy/http/headers.py",
+        "start_line": 53,
+        "end_line": 53,
+        "suspiciousness": 0.561151,
+        "rank": 3
+      },
+      {
+        "file": "scrapy/http/headers.py",
+        "start_line": 71,
+        "end_line": 71,
+        "suspiciousness": 0.561151,
+        "rank": 4
+      },
+      {
+        "file": "scrapy/http/headers.py",
+        "start_line": 74,
+        "end_line": 74,
+        "suspiciousness": 0.561151,
+        "rank": 5
+      },
+      {
+        "file": "scrapy/utils/datatypes.py",
+        "start_line": 193,
+        "end_line": 193,
+        "suspiciousness": 0.561151,
+        "rank": 6
+      },
+      {
+        "file": "scrapy/utils/datatypes.py",
+        "start_line": 196,
+        "end_line": 196,
+        "suspiciousness": 0.561151,
+        "rank": 7
+      },
+      {
+        "file": "scrapy/utils/datatypes.py",
+        "start_line": 227,
+        "end_line": 227,
+        "suspiciousness": 0.561151,
+        "rank": 8
+      },
+      {
+        "file": "scrapy/utils/datatypes.py",
+        "start_line": 228,
+        "end_line": 228,
+        "suspiciousness": 0.561151,
+        "rank": 9
+      },
+      {
+        "file": "scrapy/utils/datatypes.py",
+        "start_line": 229,
+        "end_line": 229,
+        "suspiciousness": 0.561151,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "python -m unittest -q tests.test_utils_gz.GunzipTest.test_is_gzipped_case_insensitive",
+      "python -m unittest -q tests.test_utils_gz.GunzipTest.test_is_gzipped_with_charset"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "scrapy/http/headers.py",
+      "start_line": 24,
+      "end_line": 24,
+      "suspiciousness": 0.561151,
+      "rank": 1
+    },
+    {
+      "file": "scrapy/http/headers.py",
+      "start_line": 52,
+      "end_line": 52,
+      "suspiciousness": 0.561151,
+      "rank": 2
+    },
+    {
+      "file": "scrapy/http/headers.py",
+      "start_line": 53,
+      "end_line": 53,
+      "suspiciousness": 0.561151,
+      "rank": 3
+    },
+    {
+      "file": "scrapy/http/headers.py",
+      "start_line": 71,
+      "end_line": 71,
+      "suspiciousness": 0.561151,
+      "rank": 4
+    },
+    {
+      "file": "scrapy/http/headers.py",
+      "start_line": 74,
+      "end_line": 74,
+      "suspiciousness": 0.561151,
+      "rank": 5
+    },
+    {
+      "file": "scrapy/utils/datatypes.py",
+      "start_line": 193,
+      "end_line": 193,
+      "suspiciousness": 0.561151,
+      "rank": 6
+    },
+    {
+      "file": "scrapy/utils/datatypes.py",
+      "start_line": 196,
+      "end_line": 196,
+      "suspiciousness": 0.561151,
+      "rank": 7
+    },
+    {
+      "file": "scrapy/utils/datatypes.py",
+      "start_line": 227,
+      "end_line": 227,
+      "suspiciousness": 0.561151,
+      "rank": 8
+    },
+    {
+      "file": "scrapy/utils/datatypes.py",
+      "start_line": 228,
+      "end_line": 228,
+      "suspiciousness": 0.561151,
+      "rank": 9
+    },
+    {
+      "file": "scrapy/utils/datatypes.py",
+      "start_line": 229,
+      "end_line": 229,
+      "suspiciousness": 0.561151,
+      "rank": 10
+    }
+  ]
+}

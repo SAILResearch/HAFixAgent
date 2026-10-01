@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "23",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:29:25",
+      "end_time": "2025-09-30 14:35:51",
+      "duration_seconds": 387,
+      "duration_human": "6m 27s"
+    },
+    "model_cost": 0.0352,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 429859,
+      "output_tokens": 6069,
+      "total_tokens": 435928,
+      "cached_input_tokens": 417856,
+      "uncached_input_tokens": 12003
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex f777b1c20..9e67c71ac 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1457,6 +1457,13 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n     if (elem == null) {\n       error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n       return n;\n+    // Check if any array elements that are not being preserved have side effects\n+    current = left.getFirstChild();\n+    for (int i = 0; current != null; i++, current = current.getNext()) {\n+      if (i != intIndex && mayHaveSideEffects(current)) {\n+        return n;\n+      }\n+    }\n     }\n \n     if (elem.isEmpty()) {\n"
+  },
+  "timestamp": "2025-09-30 14:35:52 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_23",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_23",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "tryFoldArrayAccess does not check for side effects\n<b>What steps will reproduce the problem?</b>\n1. Compile the following program with simple or advanced optimization:\r\nconsole.log([console.log('hello, '), 'world!'][1]);\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nThe expected output would preserve side effects. It would not transform the program at all or transform it into:\r\n\r\nconsole.log((console.log(&quot;hello&quot;), &quot;world!&quot;));\r\n\r\nInstead, the program is transformed into:\r\n\r\nconsole.log(&quot;world!&quot;);\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nRevision 2022. Ubuntu 12.04.\r\n\r\n<b>Please provide any additional information below.</b>\ntryFoldArrayAccess in com.google.javascript.jscomp.PeepholeFoldConstants should check whether   every array element that is not going to be preserved has no side effects.",
+    "commit_message": "Don't fold arrays if they have side effects. Contributed by Robert Gust-Bardon Fixes issue 747",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PeepholeFoldConstants.java",
+        "start_line": 1451,
+        "end_line": 1451,
+        "line_numbers": [
+          1451
+        ],
+        "function_name": "tryFoldArrayAccess",
+        "class_name": "PeepholeFoldConstants",
+        "filename": "PeepholeFoldConstants.java",
+        "code_snippet": "  private Node tryFoldArrayAccess(Node n, Node left, Node right) {\n    Node parent = n.getParent();\n    // If GETPROP/GETELEM is used as assignment target the array literal is\n    // acting as a temporary we can't fold it here:\n    //    \"[][0] += 1\"\n    if (isAssignmentTarget(n)) {\n      return n;\n    }\n\n    if (!right.isNumber()) {\n      // Sometimes people like to use complex expressions to index into\n      // arrays, or strings to index into array methods.\n      return n;\n    }\n\n    double index = right.getDouble();\n    int intIndex = (int) index;\n    if (intIndex != index) {\n      error(INVALID_GETELEM_INDEX_ERROR, right);\n      return n;\n    }\n\n    if (intIndex < 0) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    Node current = left.getFirstChild();\n    Node elem = null;\n    for (int i = 0; current != null && i < intIndex; i++) {\n        elem = current;\n\n      current = current.getNext();\n    }\n\n    if (elem == null) {\n      error(INDEX_OUT_OF_BOUNDS_ERROR, right);\n      return n;\n    }\n\n    if (elem.isEmpty()) {\n      elem = NodeUtil.newUndefinedNode(elem);\n    } else {\n      left.removeChild(elem);\n    }\n\n    // Replace the entire GETELEM with the value\n    n.getParent().replaceChild(n, elem);\n    reportCodeChange();\n    return elem;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.PeepholeFoldConstantsTest::testFoldGetElem"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\nindex 7a0313c..f777b1c 100644\n--- a/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n+++ b/src/com/google/javascript/jscomp/PeepholeFoldConstants.java\n@@ -1448,14 +1448,8 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {\n \n     Node current = left.getFirstChild();\n     Node elem = null;\n+    for (int i = 0; current != null; i++) {\n+      if (i != intIndex) {\n+        if (mayHaveSideEffects(current)) {\n+          return n;\n+        }\n+      } else {\n-    for (int i = 0; current != null && i < intIndex; i++) {\n         elem = current;\n+      }\n \n       current = current.getNext();\n     }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "fastapi",
+  "bug_id": "fastapi_2",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 16:15:10",
+      "end_time": "2026-06-25 16:50:29",
+      "duration_seconds": 2119,
+      "duration_human": "35m 19s"
+    },
+    "model_cost": 0.1979,
+    "model_calls": 23,
+    "token_usage": {
+      "input_tokens": 998984,
+      "output_tokens": 57223,
+      "total_tokens": 1056207,
+      "cached_input_tokens": 352832,
+      "uncached_input_tokens": 646152
+    },
+    "agent_steps": 23,
+    "checkout_success": true,
+    "patch": "diff --git a/fastapi/concurrency.py b/fastapi/concurrency.py\nindex 451923c5..fb929d2f 100644\n--- a/fastapi/concurrency.py\n+++ b/fastapi/concurrency.py\n@@ -1,7 +1,32 @@\n-from typing import Any, Callable\n+import asyncio\n+import contextvars\n+import functools\n+import inspect\n+from typing import Any, Callable, TypeVar\n \n+import anyio\n+\n+T = TypeVar(\"T\")\n+\n+\n+async def run_in_threadpool(\n+    func: Callable[..., T],\n+    *args: Any,\n+    **kwargs: Any,\n+) -> T:\n+    if inspect.iscoroutinefunction(func):\n+        # If the function is a coroutine function, run it directly\n+        return await func(*args, **kwargs)\n+    elif contextvars is not None:  # pragma: no cover\n+        # Ensure we run in the same context\n+        child = functools.partial(contextvars.copy_context().run, func, *args, **kwargs)\n+        return await anyio.to_thread.run_sync(child)\n+    else:\n+        return await anyio.to_thread.run_sync(func, *args, **kwargs)\n+\n+\n+# Re-export other functions from starlette\n from starlette.concurrency import iterate_in_threadpool  # noqa\n-from starlette.concurrency import run_in_threadpool  # noqa\n from starlette.concurrency import run_until_first_complete  # noqa\n \n asynccontextmanager_error_message = \"\"\"\n@@ -10,7 +35,6 @@ or the backport for Python 3.6, installed with:\n     pip install async-generator\n \"\"\"\n \n-\n def _fake_asynccontextmanager(func: Callable) -> Callable:\n     def raiser(*args: Any, **kwargs: Any) -> Any:\n         raise RuntimeError(asynccontextmanager_error_message)\n@@ -35,13 +59,20 @@ except ImportError:\n         AsyncExitStack = None  # type: ignore\n \n \n-@asynccontextmanager\n-async def contextmanager_in_threadpool(cm: Any) -> Any:\n-    try:\n-        yield await run_in_threadpool(cm.__enter__)\n-    except Exception as e:\n-        ok = await run_in_threadpool(cm.__exit__, type(e), e, None)\n-        if not ok:\n-            raise e\n-    else:\n-        await run_in_threadpool(cm.__exit__, None, None, None)\n+def contextmanager_in_threadpool(cm: Any) -> Any:\n+    return asynccontextmanager(contextvars_contextmanager(cm))\n+\n+\n+def contextvars_contextmanager(cm: Any) -> Any:\n+    return _ContextvarsContextManager(cm)\n+\n+\n+class _ContextvarsContextManager:\n+    def __init__(self, cm: Any):\n+        self.cm = cm\n+\n+    def __enter__(self) -> Any:\n+        return self.cm.__enter__()\n+\n+    def __exit__(self, *args: Any) -> Any:\n+        return self.cm.__exit__(*args)\ndiff --git a/fastapi/routing.py b/fastapi/routing.py\nindex b90935e1..0a77eefc 100644\n--- a/fastapi/routing.py\n+++ b/fastapi/routing.py\n@@ -536,6 +536,7 @@ class APIRouter(routing.Router):\n         for route in router.routes:\n             if isinstance(route, APIRoute):\n                 combined_responses = {**responses, **route.responses}\n+                route.dependency_overrides_provider = self\n                 self.add_api_route(\n                     prefix + route.path,\n                     route.endpoint,\n@@ -570,6 +571,7 @@ class APIRouter(routing.Router):\n                     name=route.name,\n                 )\n             elif isinstance(route, APIWebSocketRoute):\n+                route.dependency_overrides_provider = self\n                 self.add_api_websocket_route(\n                     prefix + route.path, route.endpoint, name=route.name\n                 )\ndiff --git a/tests/test_ws_router.py b/tests/test_ws_router.py\nindex fd19e650..dd045612 100644\n--- a/tests/test_ws_router.py\n+++ b/tests/test_ws_router.py\n@@ -1,4 +1,4 @@\n-from fastapi import APIRouter, FastAPI, WebSocket\n+from fastapi import APIRouter, Depends, FastAPI, WebSocket\n from fastapi.testclient import TestClient\n \n router = APIRouter()\n@@ -34,6 +34,19 @@ async def routerindex(websocket: WebSocket):\n     await websocket.close()\n \n \n+async def ws_dependency():\n+    return \"Socket Dependency\"\n+\n+\n+@router.websocket(\"/router-ws-depends/\")\n+async def router_ws_decorator_depends(\n+    websocket: WebSocket, data=Depends(ws_dependency)\n+):\n+    await websocket.accept()\n+    await websocket.send_text(data)\n+    await websocket.close()\n+\n+\n app.include_router(router)\n app.include_router(prefix_router, prefix=\"/prefix\")\n \n@@ -64,3 +77,16 @@ def test_router2():\n     with client.websocket_connect(\"/router2\") as websocket:\n         data = websocket.receive_text()\n         assert data == \"Hello, router!\"\n+\n+\n+def test_router_ws_depends():\n+    client = TestClient(app)\n+    with client.websocket_connect(\"/router-ws-depends/\") as websocket:\n+        assert websocket.receive_text() == \"Socket Dependency\"\n+\n+\n+def test_router_ws_depends_with_override():\n+    client = TestClient(app)\n+    app.dependency_overrides[ws_dependency] = lambda: \"Override\"\n+    with client.websocket_connect(\"/router-ws-depends/\") as websocket:\n+        assert websocket.receive_text() == \"Override\"\n"
+  },
+  "timestamp": "2026-06-25 16:50:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "fastapi",
+    "bug_id": "fastapi_2",
+    "repo_path": "/BugsInPy/framework/bin/temp/fastapi_2/fastapi",
+    "github_url": "https://github.com/tiangolo/fastapi",
+    "description": "",
+    "commit_message": ":bug: Fix dependency overrides in WebSockets (#1122)",
+    "fault_locations": [
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 404,
+        "end_line": 404,
+        "suspiciousness": 0.660409,
+        "rank": 1
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 405,
+        "end_line": 405,
+        "suspiciousness": 0.660409,
+        "rank": 2
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 450,
+        "end_line": 450,
+        "suspiciousness": 0.660409,
+        "rank": 3
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 451,
+        "end_line": 451,
+        "suspiciousness": 0.660409,
+        "rank": 4
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 452,
+        "end_line": 452,
+        "suspiciousness": 0.660409,
+        "rank": 5
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 454,
+        "end_line": 454,
+        "suspiciousness": 0.660409,
+        "rank": 6
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 455,
+        "end_line": 455,
+        "suspiciousness": 0.660409,
+        "rank": 7
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 457,
+        "end_line": 457,
+        "suspiciousness": 0.660409,
+        "rank": 8
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 472,
+        "end_line": 472,
+        "suspiciousness": 0.660409,
+        "rank": 9
+      },
+      {
+        "file": "fastapi/dependencies/utils.py",
+        "start_line": 473,
+        "end_line": 473,
+        "suspiciousness": 0.660409,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_ws_router.py::test_router_ws_depends_with_override"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 404,
+      "end_line": 404,
+      "suspiciousness": 0.660409,
+      "rank": 1
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 405,
+      "end_line": 405,
+      "suspiciousness": 0.660409,
+      "rank": 2
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 450,
+      "end_line": 450,
+      "suspiciousness": 0.660409,
+      "rank": 3
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 451,
+      "end_line": 451,
+      "suspiciousness": 0.660409,
+      "rank": 4
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 452,
+      "end_line": 452,
+      "suspiciousness": 0.660409,
+      "rank": 5
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 454,
+      "end_line": 454,
+      "suspiciousness": 0.660409,
+      "rank": 6
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 455,
+      "end_line": 455,
+      "suspiciousness": 0.660409,
+      "rank": 7
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 457,
+      "end_line": 457,
+      "suspiciousness": 0.660409,
+      "rank": 8
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 472,
+      "end_line": 472,
+      "suspiciousness": 0.660409,
+      "rank": 9
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "start_line": 473,
+      "end_line": 473,
+      "suspiciousness": 0.660409,
+      "rank": 10
+    }
+  ]
+}

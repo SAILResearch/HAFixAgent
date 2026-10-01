@@ -1,0 +1,62 @@
+{
+  "project_name": "Lang",
+  "bug_id": "44",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-11 00:34:04",
+      "end_time": "2025-10-11 00:38:31",
+      "duration_seconds": 266,
+      "duration_human": "4m 26s"
+    },
+    "model_cost": 0.0415,
+    "model_calls": 42,
+    "token_usage": {
+      "input_tokens": 505704,
+      "output_tokens": 4500,
+      "total_tokens": 510204,
+      "cached_input_tokens": 485696,
+      "uncached_input_tokens": 20008
+    },
+    "agent_steps": 42,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/lang/NumberUtils.java b/src/java/org/apache/commons/lang/NumberUtils.java\nindex 18a05efe2..291738d1b 100644\n--- a/src/java/org/apache/commons/lang/NumberUtils.java\n+++ b/src/java/org/apache/commons/lang/NumberUtils.java\n@@ -192,7 +192,7 @@ public final class NumberUtils {\n                 case 'L' :\n                     if (dec == null\n                         && exp == null\n-                        && (numeric.charAt(0) == '-' && isDigits(numeric.substring(1)) || isDigits(numeric))) {\n+                        && numeric.length() > 0 && ((numeric.charAt(0) == '-' && isDigits(numeric.substring(1)) || isDigits(numeric))) {\n                         try {\n                             return createLong(numeric);\n                         } catch (NumberFormatException nfe) {\n"
+  },
+  "timestamp": "2025-10-10 20:38:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Lang",
+    "bug_id": "Lang_44",
+    "repo_path": "/defects4j/framework/bin/temp/Lang_44",
+    "github_url": "https://github.com/apache/commons-lang.git",
+    "description": "NumberUtils createNumber thows a StringIndexOutOfBoundsException when only an \"l\" is passed in.\nSeems to be similar to LANG-300, except that if you don't place a digit in front of the \"l\" or \"L\" it throws a StringIndexOutOfBoundsException instead.",
+    "commit_message": "Applying test/fix from LANG-457 - getting a StringIndexOutOfBounds from createNumber rather than a NumberFormatException",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/lang/NumberUtils.java",
+        "start_line": 144,
+        "end_line": 144,
+        "line_numbers": [
+          144
+        ],
+        "function_name": "createNumber",
+        "class_name": "NumberUtils",
+        "filename": "NumberUtils.java",
+        "code_snippet": "    public static Number createNumber(String val) throws NumberFormatException {\n        if (val == null) {\n            return null;\n        }\n        if (val.length() == 0) {\n            throw new NumberFormatException(\"\\\"\\\" is not a valid number.\");\n        }\n        if (val.startsWith(\"--\")) {\n            // this is protection for poorness in java.lang.BigDecimal.\n            // it accepts this as a legal value, but it does not appear \n            // to be in specification of class. OS X Java parses it to \n            // a wrong value.\n            return null;\n        }\n        if (val.startsWith(\"0x\") || val.startsWith(\"-0x\")) {\n            return createInteger(val);\n        }   \n        char lastChar = val.charAt(val.length() - 1);\n        String mant;\n        String dec;\n        String exp;\n        int decPos = val.indexOf('.');\n        int expPos = val.indexOf('e') + val.indexOf('E') + 1;\n\n        if (decPos > -1) {\n\n            if (expPos > -1) {\n                if (expPos < decPos) {\n                    throw new NumberFormatException(val + \" is not a valid number.\");\n                }\n                dec = val.substring(decPos + 1, expPos);\n            } else {\n                dec = val.substring(decPos + 1);\n            }\n            mant = val.substring(0, decPos);\n        } else {\n            if (expPos > -1) {\n                mant = val.substring(0, expPos);\n            } else {\n                mant = val;\n            }\n            dec = null;\n        }\n        if (!Character.isDigit(lastChar)) {\n            if (expPos > -1 && expPos < val.length() - 1) {\n                exp = val.substring(expPos + 1, val.length() - 1);\n            } else {\n                exp = null;\n            }\n            //Requesting a specific type..\n            String numeric = val.substring(0, val.length() - 1);\n            boolean allZeros = isAllZeros(mant) && isAllZeros(exp);\n            switch (lastChar) {\n                case 'l' :\n                case 'L' :\n                    if (dec == null\n                        && exp == null\n                        && (numeric.charAt(0) == '-' && isDigits(numeric.substring(1)) || isDigits(numeric))) {\n                        try {\n                            return createLong(numeric);\n                        } catch (NumberFormatException nfe) {\n                            //Too big for a long\n                        }\n                        return createBigInteger(numeric);\n\n                    }\n                    throw new NumberFormatException(val + \" is not a valid number.\");\n                case 'f' :\n                case 'F' :\n                    try {\n                        Float f = NumberUtils.createFloat(numeric);\n                        if (!(f.isInfinite() || (f.floatValue() == 0.0F && !allZeros))) {\n                            //If it's too big for a float or the float value = 0 and the string\n                            //has non-zeros in it, then float does not have the precision we want\n                            return f;\n                        }\n\n                    } catch (NumberFormatException e) {\n                        // ignore the bad number\n                    }\n                    //Fall through\n                case 'd' :\n                case 'D' :\n                    try {\n                        Double d = NumberUtils.createDouble(numeric);\n                        if (!(d.isInfinite() || (d.floatValue() == 0.0D && !allZeros))) {\n                            return d;\n                        }\n                    } catch (NumberFormatException nfe) {\n                        // empty catch\n                    }\n                    try {\n                        return createBigDecimal(numeric);\n                    } catch (NumberFormatException e) {\n                        // empty catch\n                    }\n                    //Fall through\n                default :\n                    throw new NumberFormatException(val + \" is not a valid number.\");\n\n            }\n        } else {\n            //User doesn't have a preference on the return type, so let's start\n            //small and go from there...\n            if (expPos > -1 && expPos < val.length() - 1) {\n                exp = val.substring(expPos + 1, val.length());\n            } else {\n                exp = null;\n            }\n            if (dec == null && exp == null) {\n                //Must be an int,long,bigint\n                try {\n                    return createInteger(val);\n                } catch (NumberFormatException nfe) {\n                    // empty catch\n                }\n                try {\n                    return createLong(val);\n                } catch (NumberFormatException nfe) {\n                    // empty catch\n                }\n                return createBigInteger(val);\n\n            } else {\n                //Must be a float,double,BigDec\n                boolean allZeros = isAllZeros(mant) && isAllZeros(exp);\n                try {\n                    Float f = createFloat(val);\n                    if (!(f.isInfinite() || (f.floatValue() == 0.0F && !allZeros))) {\n                        return f;\n                    }\n                } catch (NumberFormatException nfe) {\n                    // empty catch\n                }\n                try {\n                    Double d = createDouble(val);\n                    if (!(d.isInfinite() || (d.doubleValue() == 0.0D && !allZeros))) {\n                        return d;\n                    }\n                } catch (NumberFormatException nfe) {\n                    // empty catch\n                }\n\n                return createBigDecimal(val);\n\n            }\n\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.lang.NumberUtilsTest::testLang457"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/lang/NumberUtils.java b/src/java/org/apache/commons/lang/NumberUtils.java\nindex c5ca8cd..18a05ef 100644\n--- a/src/java/org/apache/commons/lang/NumberUtils.java\n+++ b/src/java/org/apache/commons/lang/NumberUtils.java\n@@ -142,9 +142,6 @@ public final class NumberUtils {\n         if (val.length() == 0) {\n             throw new NumberFormatException(\"\\\"\\\" is not a valid number.\");\n         }\n+        if (val.length() == 1 && !Character.isDigit(val.charAt(0))) {\n+            throw new NumberFormatException(val + \" is not a valid number.\");\n+        }\n         if (val.startsWith(\"--\")) {\n             // this is protection for poorness in java.lang.BigDecimal.\n             // it accepts this as a legal value, but it does not appear",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

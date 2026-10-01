@@ -1,0 +1,220 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "5",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 06:59:21",
+      "end_time": "2025-09-30 07:01:57",
+      "duration_seconds": 156,
+      "duration_human": "2m 36s"
+    },
+    "model_cost": 0.0276,
+    "model_calls": 24,
+    "token_usage": {
+      "input_tokens": 295390,
+      "output_tokens": 2050,
+      "total_tokens": 297440,
+      "cached_input_tokens": 266496,
+      "uncached_input_tokens": 28894
+    },
+    "agent_steps": 25,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\nindex d6e44ab58..bac514106 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n@@ -653,7 +653,7 @@ public final class AnnotatedClass\n                      * until we find the real method (mixIn methods are\n                      * just placeholder, can't be called)\n                      */\n-                } else {\n+                } else if (mixIns.find(m) == null) {\n                     // Well, or, as per [Issue#515], multi-level merge within mixins...\n                         mixIns.add(_constructMethod(m));\n                 }\n"
+  },
+  "timestamp": "2025-09-30 07:01:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_5",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_5",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Mixin annotations lost when using a mixin class hierarchy with non-mixin interfaces\nIn summary, mixin annotations are lost when Jackson scans a parent mixin class with Json annotations followed by an interface implemented by the parent mixin class that does not have the same Json annotations.\nJackson version: 2.4.0\n\nDetail:\nI have the following class structure\n\n``` java\npublic interface Contact {\n    String getCity();\n}\n\npublic class ContactImpl implements Contact {\n    public String getCity() { ... }\n}\n\npublic class ContactMixin implements Contact {\n    @JsonProperty\n    public String getCity() { return null; }\n}\n\npublic interface Person extends Contact {}\n\npublic class PersonImpl extends ContactImpl implements Person {}\n\npublic class PersonMixin extends ContactMixin implements Person {}\n```\n\nand I configure a module as\n\n``` java\n// There are other getters/properties in the Impl class that do not need to be serialized and so\n// I am using the Mixin to match the interface and explicitly annotate all the inherited methods\nmodule.disable(MapperFeature.ALLOW_FINAL_FIELDS_AS_MUTATORS)\n    .disable(MapperFeature.AUTO_DETECT_FIELDS)\n    .disable(MapperFeature.AUTO_DETECT_GETTERS)\n    .disable(MapperFeature.AUTO_DETECT_IS_GETTERS)\n    .disable(MapperFeature.INFER_PROPERTY_MUTATORS);\nmodule.setMixInAnnotation(Person.class, PersonMixin.class);\n```\n\nWhen a `PersonImpl` instance is serialized, `city` is not included.\n\nI debugged the code and this is what happens:\nIn `AnnotatedClass.resolveMemberMethods()` the supertypes of `PersonImpl` are `[Person.class, Contact.class, ContactImpl.class]` in that order.\n\nIt starts with `Person` for which it finds `PersonMixin` and proceeds to `AnnotatedClass._addMethodMixIns()`. Here the `parents` list has `[PersonMixin, ContactMixin, Contact]`. When it processes `ContactMixin` it adds `getCity()` with the `JsonProperty` annotation. Then it processes `Contact`, doesn't find `getCity()` in `methods` map and so creates a new `AnnotatedMethod` for `getCity()` with the one from the interface which has no annotation which replaces the one from `ContactMixin`\n\nThe workaround for this issue is to explicitly add any parent mixins to the module i.e.\n\n``` java\nmodule.setMixInAnnotation(Contact.class, ContactMixin.class);\n```\n\n",
+    "commit_message": "Fix #515",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+        "start_line": 657,
+        "end_line": 657,
+        "line_numbers": [
+          657
+        ],
+        "function_name": "_addMethodMixIns",
+        "class_name": "AnnotatedClass",
+        "filename": "AnnotatedClass.java",
+        "code_snippet": "    protected void _addMethodMixIns(Class<?> targetClass, AnnotatedMethodMap methods,\n            Class<?> mixInCls, AnnotatedMethodMap mixIns)\n    {\n        List<Class<?>> parents = new ArrayList<Class<?>>();\n        parents.add(mixInCls);\n        ClassUtil.findSuperTypes(mixInCls, targetClass, parents);\n        for (Class<?> mixin : parents) {\n            for (Method m : mixin.getDeclaredMethods()) {\n                if (!_isIncludableMemberMethod(m)) {\n                    continue;\n                }\n                AnnotatedMethod am = methods.find(m);\n                /* Do we already have a method to augment (from sub-class\n                 * that will mask this mixIn)? If so, add if visible\n                 * without masking (no such annotation)\n                 */\n                if (am != null) {\n                    _addMixUnders(m, am);\n                    /* Otherwise will have precedence, but must wait\n                     * until we find the real method (mixIn methods are\n                     * just placeholder, can't be called)\n                     */\n                } else {\n                    // Well, or, as per [Issue#515], multi-level merge within mixins...\n                        mixIns.add(_constructMethod(m));\n                }\n            }\n        }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+        "start_line": 662,
+        "end_line": 662,
+        "line_numbers": [
+          662
+        ],
+        "function_name": "_addMethodMixIns",
+        "class_name": "AnnotatedClass",
+        "filename": "AnnotatedClass.java",
+        "code_snippet": "    protected void _addMethodMixIns(Class<?> targetClass, AnnotatedMethodMap methods,\n            Class<?> mixInCls, AnnotatedMethodMap mixIns)\n    {\n        List<Class<?>> parents = new ArrayList<Class<?>>();\n        parents.add(mixInCls);\n        ClassUtil.findSuperTypes(mixInCls, targetClass, parents);\n        for (Class<?> mixin : parents) {\n            for (Method m : mixin.getDeclaredMethods()) {\n                if (!_isIncludableMemberMethod(m)) {\n                    continue;\n                }\n                AnnotatedMethod am = methods.find(m);\n                /* Do we already have a method to augment (from sub-class\n                 * that will mask this mixIn)? If so, add if visible\n                 * without masking (no such annotation)\n                 */\n                if (am != null) {\n                    _addMixUnders(m, am);\n                    /* Otherwise will have precedence, but must wait\n                     * until we find the real method (mixIn methods are\n                     * just placeholder, can't be called)\n                     */\n                } else {\n                    // Well, or, as per [Issue#515], multi-level merge within mixins...\n                        mixIns.add(_constructMethod(m));\n                }\n            }\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.introspect.TestMixinMerging::testDisappearingMixins515"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\nindex fa379b104..d6e44ab58 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n@@ -655,12 +655,7 @@ public final class AnnotatedClass\n                      */\n                 } else {\n                     // Well, or, as per [Issue#515], multi-level merge within mixins...\n+                    am = mixIns.find(m);\n+                    if (am != null) {\n+                        _addMixUnders(m, am);\n+                    } else {\n                         mixIns.add(_constructMethod(m));\n+                    }\n                 }\n             }\n         }",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2012-04-28 03:43:34",
+        "commit_message": "Fixed [Issue-14]: parent types of mix-in annotations were not resolved for fields, methods",
+        "commit_hash": "1b30b1a9acc9e267a22ed0c8e0372d9d158b257c"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "_addFieldMixIns",
+          "_addMethodMixIns"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "_addFieldMixIns",
+          "_addMethodMixIns"
+        ],
+        "functions_name_modified_file": [
+          "_addFactoryMixIns",
+          "resolveClassAnnotations",
+          "findMethod",
+          "getAnnotations",
+          "_constructField",
+          "_constructConstructor",
+          "_isAnnotationBundle",
+          "constructWithoutSuperTypes",
+          "resolveCreators",
+          "_addMethodMixIns",
+          "_addMixUnders",
+          "hasAnnotations",
+          "getMemberMethodCount",
+          "construct",
+          "_addAnnotationsIfNotPresent",
+          "_addMixOvers",
+          "toString",
+          "_addFieldMixIns",
+          "getModifiers",
+          "_isIncludableField",
+          "getFieldCount",
+          "getGenericType",
+          "getAnnotated",
+          "AnnotatedClass",
+          "_constructMethod",
+          "getDefaultConstructor",
+          "_addClassMixIns",
+          "getConstructors",
+          "resolveFields",
+          "getStaticMethods",
+          "getAllAnnotations",
+          "getRawType",
+          "_isIncludableMemberMethod",
+          "_addMemberMethods",
+          "_emptyAnnotationMap",
+          "memberMethods",
+          "withAnnotations",
+          "_constructCreatorMethod",
+          "_findFields",
+          "_addOrOverrideAnnotations",
+          "_collectRelevantAnnotations",
+          "getName",
+          "fields",
+          "resolveMemberMethods",
+          "_addConstructorMixIns"
+        ],
+        "functions_name_all_files": [
+          "_addFactoryMixIns",
+          "resolveClassAnnotations",
+          "ClassUtil",
+          "findMethod",
+          "canBeABeanType",
+          "getAnnotations",
+          "isLocalType",
+          "defaultValue",
+          "throwAsIAE",
+          "_constructField",
+          "_constructConstructor",
+          "_isAnnotationBundle",
+          "constructWithoutSuperTypes",
+          "resolveCreators",
+          "isConcrete",
+          "throwRootCause",
+          "_addMethodMixIns",
+          "locateField",
+          "_addMixUnders",
+          "hasAnnotations",
+          "getMemberMethodCount",
+          "construct",
+          "_addAnnotationsIfNotPresent",
+          "get",
+          "_addMixOvers",
+          "toString",
+          "_addFieldMixIns",
+          "getModifiers",
+          "isJacksonStdImpl",
+          "_isIncludableField",
+          "getFieldCount",
+          "getGenericType",
+          "getAnnotated",
+          "AnnotatedClass",
+          "hasGetterSignature",
+          "_addSuperTypes",
+          "_constructMethod",
+          "getDefaultConstructor",
+          "_addClassMixIns",
+          "checkAndFixAccess",
+          "getConstructors",
+          "getClassDescription",
+          "resolveFields",
+          "wrapperType",
+          "getStaticMethods",
+          "getAllAnnotations",
+          "getRootCause",
+          "getRawType",
+          "_isIncludableMemberMethod",
+          "_addMemberMethods",
+          "_emptyAnnotationMap",
+          "getOuterClass",
+          "memberMethods",
+          "withAnnotations",
+          "_constructCreatorMethod",
+          "_findFields",
+          "_addOrOverrideAnnotations",
+          "unwrapAndThrowAsIAE",
+          "isProxyType",
+          "findClass",
+          "EnumTypeLocator",
+          "_collectRelevantAnnotations",
+          "getName",
+          "fields",
+          "isCollectionMapOrArray",
+          "resolveMemberMethods",
+          "_addConstructorMixIns"
+        ],
+        "function_code_before": "                _addMethodMixIns(_memberMethods, mixin, mixins);\n            }\n        }\n\n        /* Any unmatched mix-ins? Most likely error cases (not matching\n         * any method); but there is one possible real use case:\n         * exposing Object#hashCode (alas, Object#getClass can NOT be\n         * exposed, see [JACKSON-140])\n         */\n        // 14-Feb-2011, tatu: AnnotationIntrospector is null if annotations not enabled; if so, can skip:\n        if (_annotationIntrospector != null) {\n            if (!mixins.isEmpty()) {",
+        "function_code_after": "                _addMethodMixIns(_class, _memberMethods, mixin, mixins);\n            }\n        }\n\n        /* Any unmatched mix-ins? Most likely error cases (not matching\n         * any method); but there is one possible real use case:\n         * exposing Object#hashCode (alas, Object#getClass can NOT be\n         * exposed, see [JACKSON-140])\n         */\n        // 14-Feb-2011, tatu: AnnotationIntrospector is null if annotations not enabled; if so, can skip:\n        if (_annotationIntrospector != null) {\n            if (!mixins.isEmpty()) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java",
+          "src/main/java/com/fasterxml/jackson/databind/util/ClassUtil.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\nindex fe17f7a2d..666e3bc7d 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/AnnotatedClass.java\n@@ -427,7 +427,7 @@ public final class AnnotatedClass\n         if (_mixInResolver != null) {\n             Class<?> mixin = _mixInResolver.findMixInClassFor(Object.class);\n             if (mixin != null) {\n-                _addMethodMixIns(_memberMethods, mixin, mixins);\n+                _addMethodMixIns(_class, _memberMethods, mixin, mixins);\n             }\n         }\n \n@@ -500,7 +500,7 @@ public final class AnnotatedClass\n         _addAnnotationsIfNotPresent(annotations, mixin.getDeclaredAnnotations());\n \n         /* And then from its supertypes, if any. But note that we will\n-         *  only consider super-types up until reaching the masked\n+         * only consider super-types up until reaching the masked\n          * class (if found); this because often mix-in class\n          * is a sub-class (for convenience reasons). And if so, we\n          * absolutely must NOT include super types of masked class,\n@@ -586,7 +586,7 @@ public final class AnnotatedClass\n     {\n         // first, mixIns, since they have higher priority then class methods\n         if (mixInCls != null) {\n-            _addMethodMixIns(methods, mixInCls, mixIns);\n+            _addMethodMixIns(cls, methods, mixInCls, mixIns);\n         }        \n         if (cls == null) { // just so caller need not check when passing super-class\n             return;\n@@ -626,26 +626,31 @@ public final class AnnotatedClass\n         }\n     }\n \n-    protected void _addMethodMixIns(AnnotatedMethodMap methods,\n+    protected void _addMethodMixIns(Class<?> targetClass, AnnotatedMethodMap methods,\n             Class<?> mixInCls, AnnotatedMethodMap mixIns)\n     {\n-        for (Method m : mixInCls.getDeclaredMethods()) {\n-            if (!_isIncludableMemberMethod(m)) {\n-                continue;\n-            }\n-            AnnotatedMethod am = methods.find(m);\n-            /* Do we already have a method to augment (from sub-class\n-             * that will mask this mixIn)? If so, add if visible\n-             * without masking (no such annotation)\n-             */\n-            if (am != null) {\n-                _addMixUnders(m, am);\n-                /* Otherwise will have precedence, but must wait\n-                 * until we find the real method (mixIn methods are\n-                 * just placeholder, can't be called)\n+        List<Class<?>> parents = new ArrayList<Class<?>>();\n+        parents.add(mixInCls);\n+        ClassUtil.findSuperTypes(mixInCls, targetClass, parents);\n+        for (Class<?> mixin : parents) {\n+            for (Method m : mixin.getDeclaredMethods()) {\n+                if (!_isIncludableMemberMethod(m)) {\n+                    continue;\n+                }\n+                AnnotatedMethod am = methods.find(m);\n+                /* Do we already have a method to augment (from sub-class\n+                 * that will mask this mixIn)? If so, add if visible\n+                 * without masking (no such annotation)\n                  */\n-            } else {\n-                mixIns.add(_constructMethod(m));\n+                if (am != null) {\n+                    _addMixUnders(m, am);\n+                    /* Otherwise will have precedence, but must wait\n+                     * until we find the real method (mixIn methods are\n+                     * just placeholder, can't be called)\n+                     */\n+                } else {\n+                    mixIns.add(_constructMethod(m));\n+                }\n             }\n         }\n     }\n@@ -689,7 +694,7 @@ public final class AnnotatedClass\n             if (_mixInResolver != null) {\n                 Class<?> mixin = _mixInResolver.findMixInClassFor(c);\n                 if (mixin != null) {\n-                    _addFieldMixIns(mixin, fields);\n+                    _addFieldMixIns(parent, mixin, fields);\n                 }\n             }\n         }\n@@ -701,20 +706,24 @@ public final class AnnotatedClass\n      * into already collected actual fields (from introspected classes and their\n      * super-classes)\n      */\n-    protected void _addFieldMixIns(Class<?> mixin, Map<String,AnnotatedField> fields)\n+    protected void _addFieldMixIns(Class<?> targetClass, Class<?> mixInCls,\n+            Map<String,AnnotatedField> fields)\n     {\n-        for (Field mixinField : mixin.getDeclaredFields()) {\n-            /* there are some dummy things (static, synthetic); better\n-             * ignore\n-             */\n-            if (!_isIncludableField(mixinField)) {\n-                continue;\n-            }\n-            String name = mixinField.getName();\n-            // anything to mask? (if not, quietly ignore)\n-            AnnotatedField maskedField = fields.get(name);\n-            if (maskedField != null) {\n-                _addOrOverrideAnnotations(maskedField, mixinField.getDeclaredAnnotations());\n+        List<Class<?>> parents = new ArrayList<Class<?>>();\n+        parents.add(mixInCls);\n+        ClassUtil.findSuperTypes(mixInCls, targetClass, parents);\n+        for (Class<?> mixin : parents) {\n+            for (Field mixinField : mixin.getDeclaredFields()) {\n+                // there are some dummy things (static, synthetic); better ignore\n+                if (!_isIncludableField(mixinField)) {\n+                    continue;\n+                }\n+                String name = mixinField.getName();\n+                // anything to mask? (if not, quietly ignore)\n+                AnnotatedField maskedField = fields.get(name);\n+                if (maskedField != null) {\n+                    _addOrOverrideAnnotations(maskedField, mixinField.getDeclaredAnnotations());\n+                }\n             }\n         }\n     }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

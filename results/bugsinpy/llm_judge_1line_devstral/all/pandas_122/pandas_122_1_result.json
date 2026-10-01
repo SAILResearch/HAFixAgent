@@ -1,0 +1,60 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_122",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:27:21",
+      "end_time": "2026-06-27 18:29:34",
+      "duration_seconds": 133,
+      "duration_human": "2m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 397221,
+      "output_tokens": 7490,
+      "total_tokens": 404711,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 397221
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/internals/managers.py b/pandas/core/internals/managers.py\nindex 8a9410c076..fe8513782c 100644\n--- a/pandas/core/internals/managers.py\n+++ b/pandas/core/internals/managers.py\n@@ -1399,48 +1399,12 @@ class BlockManager(PandasObject):\n         # blocks (say, Categorical) which can only be distinguished by\n         # the iteration order\n         def canonicalize(block):\n-            return (block.dtype.name, block.mgr_locs.as_array.tolist())\n-\n+            return (block.dtype.name, block.mgr_locs.as_array.tolist(), block.values.tolist())\n         self_blocks = sorted(self.blocks, key=canonicalize)\n         other_blocks = sorted(other.blocks, key=canonicalize)\n-        return all(\n+        return len(self_blocks) == len(other_blocks) and all(\n             block.equals(oblock) for block, oblock in zip(self_blocks, other_blocks)\n         )\n-\n-    def unstack(self, unstacker_func, fill_value):\n-        \"\"\"Return a blockmanager with all blocks unstacked.\n-\n-        Parameters\n-        ----------\n-        unstacker_func : callable\n-            A (partially-applied) ``pd.core.reshape._Unstacker`` class.\n-        fill_value : Any\n-            fill_value for newly introduced missing values.\n-\n-        Returns\n-        -------\n-        unstacked : BlockManager\n-        \"\"\"\n-        n_rows = self.shape[-1]\n-        dummy = unstacker_func(np.empty((0, 0)), value_columns=self.items)\n-        new_columns = dummy.get_new_columns()\n-        new_index = dummy.get_new_index()\n-        new_blocks = []\n-        columns_mask = []\n-\n-        for blk in self.blocks:\n-            blocks, mask = blk._unstack(\n-                partial(unstacker_func, value_columns=self.items[blk.mgr_locs.indexer]),\n-                new_columns,\n-                n_rows,\n-                fill_value,\n-            )\n-\n-            new_blocks.extend(blocks)\n-            columns_mask.extend(mask)\n-\n-        new_columns = new_columns[columns_mask]\n-\n         bm = BlockManager(new_blocks, [new_columns, new_index])\n         return bm\n \n@@ -1900,133 +1864,3 @@ def _consolidate(blocks):\n def _compare_or_regex_search(a, b, regex=False):\n     \"\"\"\n     Compare two array_like inputs of the same shape or two scalar values\n-\n-    Calls operator.eq or re.search, depending on regex argument. If regex is\n-    True, perform an element-wise regex matching.\n-\n-    Parameters\n-    ----------\n-    a : array_like or scalar\n-    b : array_like or scalar\n-    regex : bool, default False\n-\n-    Returns\n-    -------\n-    mask : array_like of bool\n-    \"\"\"\n-    if not regex:\n-        op = lambda x: operator.eq(x, b)\n-    else:\n-        op = np.vectorize(\n-            lambda x: bool(re.search(b, x)) if isinstance(x, str) else False\n-        )\n-\n-    is_a_array = isinstance(a, np.ndarray)\n-    is_b_array = isinstance(b, np.ndarray)\n-\n-    result = op(a)\n-\n-    if is_scalar(result) and (is_a_array or is_b_array):\n-        type_names = [type(a).__name__, type(b).__name__]\n-\n-        if is_a_array:\n-            type_names[0] = \"ndarray(dtype={dtype})\".format(dtype=a.dtype)\n-\n-        if is_b_array:\n-            type_names[1] = \"ndarray(dtype={dtype})\".format(dtype=b.dtype)\n-\n-        raise TypeError(\n-            \"Cannot compare types {a!r} and {b!r}\".format(\n-                a=type_names[0], b=type_names[1]\n-            )\n-        )\n-    return result\n-\n-\n-def _transform_index(index, func, level=None):\n-    \"\"\"\n-    Apply function to all values found in index.\n-\n-    This includes transforming multiindex entries separately.\n-    Only apply function to one level of the MultiIndex if level is specified.\n-\n-    \"\"\"\n-    if isinstance(index, MultiIndex):\n-        if level is not None:\n-            items = [\n-                tuple(func(y) if i == level else y for i, y in enumerate(x))\n-                for x in index\n-            ]\n-        else:\n-            items = [tuple(func(y) for y in x) for x in index]\n-        return MultiIndex.from_tuples(items, names=index.names)\n-    else:\n-        items = [func(x) for x in index]\n-        return Index(items, name=index.name, tupleize_cols=False)\n-\n-\n-def _fast_count_smallints(arr):\n-    \"\"\"Faster version of set(arr) for sequences of small numbers.\"\"\"\n-    counts = np.bincount(arr.astype(np.int_))\n-    nz = counts.nonzero()[0]\n-    return np.c_[nz, counts[nz]]\n-\n-\n-def _preprocess_slice_or_indexer(slice_or_indexer, length, allow_fill):\n-    if isinstance(slice_or_indexer, slice):\n-        return (\n-            \"slice\",\n-            slice_or_indexer,\n-            libinternals.slice_len(slice_or_indexer, length),\n-        )\n-    elif (\n-        isinstance(slice_or_indexer, np.ndarray) and slice_or_indexer.dtype == np.bool_\n-    ):\n-        return \"mask\", slice_or_indexer, slice_or_indexer.sum()\n-    else:\n-        indexer = np.asanyarray(slice_or_indexer, dtype=np.int64)\n-        if not allow_fill:\n-            indexer = maybe_convert_indices(indexer, length)\n-        return \"fancy\", indexer, len(indexer)\n-\n-\n-def concatenate_block_managers(mgrs_indexers, axes, concat_axis, copy):\n-    \"\"\"\n-    Concatenate block managers into one.\n-\n-    Parameters\n-    ----------\n-    mgrs_indexers : list of (BlockManager, {axis: indexer,...}) tuples\n-    axes : list of Index\n-    concat_axis : int\n-    copy : bool\n-\n-    \"\"\"\n-    concat_plans = [\n-        get_mgr_concatenation_plan(mgr, indexers) for mgr, indexers in mgrs_indexers\n-    ]\n-    concat_plan = combine_concat_plans(concat_plans, concat_axis)\n-    blocks = []\n-\n-    for placement, join_units in concat_plan:\n-\n-        if len(join_units) == 1 and not join_units[0].indexers:\n-            b = join_units[0].block\n-            values = b.values\n-            if copy:\n-                values = values.copy()\n-            else:\n-                values = values.view()\n-            b = b.make_block_same_class(values, placement=placement)\n-        elif is_uniform_join_units(join_units):\n-            b = join_units[0].block.concat_same_type(\n-                [ju.block for ju in join_units], placement=placement\n-            )\n-        else:\n-            b = make_block(\n-                concatenate_join_units(join_units, concat_axis, copy=copy),\n-                placement=placement,\n-            )\n-        blocks.append(b)\n-\n-    return BlockManager(blocks, axes)\ndiff --git a/pandas/tests/internals/test_internals.py b/pandas/tests/internals/test_internals.py\nindex dbd84f15d1..c98bdab0df 100644\n--- a/pandas/tests/internals/test_internals.py\n+++ b/pandas/tests/internals/test_internals.py\n@@ -1297,3 +1297,10 @@ def test_make_block_no_pandas_array():\n     result = make_block(arr.to_numpy(), slice(len(arr)), dtype=arr.dtype)\n     assert result.is_integer is True\n     assert result.is_extension is False\n+\n+\n+def test_dataframe_not_equal():\n+    # see GH28839\n+    df1 = pd.DataFrame({\"a\": [1, 2], \"b\": [\"s\", \"d\"]})\n+    df2 = pd.DataFrame({\"a\": [\"s\", \"d\"], \"b\": [1, 2]})\n+    assert df1.equals(df2) is False\n"
+  },
+  "timestamp": "2026-06-27 18:29:34 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_122",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_122/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: resolved problem with DataFrame.equals() (#28839) (#29657)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 1397,
+        "end_line": 1398,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/internals/managers.py",
+        "start_line": 1402,
+        "end_line": 1402,
+        "function_name": "canonicalize",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/internals/test_internals.py::test_dataframe_not_equal"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "Compress",
+  "bug_id": "Compress_42",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 04:59:17",
+      "end_time": "2026-06-30 05:00:14",
+      "duration_seconds": 56,
+      "duration_human": "56.0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 22,
+    "token_usage": {
+      "input_tokens": 116322,
+      "output_tokens": 2408,
+      "total_tokens": 118730,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 116322
+    },
+    "agent_steps": 22,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\nindex 5030da57..f0b76269 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java\n@@ -294,9 +294,9 @@ public int getUnixMode() {\n      * @return true if the entry represents a unix symlink, false otherwise.\n      */\n     public boolean isUnixSymlink() {\n-        return (getUnixMode() & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n-    }\n-\n+    int unixMode = getUnixMode();\n+    return unixMode == SHORT_MASK ? false : (unixMode & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n+}\n     /**\n      * Platform specification to put into the &quot;version made\n      * by&quot; part of the central file header.\n"
+  },
+  "timestamp": "2026-06-30 05:00:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_42",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_42",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "isUnixSymlink returns true for Zip entries with Unix permissions 177777\nThis issue was originally reported in MASSEMBLY-842, but it seems the root cause in inside Commons Compress.\n\nConsider the attached {{invalid-entry.jar}}, whose contents, as shown by the {{zipinfo}} utility, is:\n\n{noformat}\n?rwsrwsrwt  2.0 unx        0 b- stor 17-Jan-15 16:06 META-INF/maven/\ndrwxr-xr-x  2.0 unx        0 b- stor 17-Jan-15 16:06 META-INF/\n{noformat}\n\nThere are some JAR files created by the Maven Assembly Plugin with content similar to this, and the entry {{META-INF/maven/}} has permissions 177777 (octal). Constructing a {{ZipFile}} from this file, the method {{isUnixSymlink}} incorrectly returns {{true}} for the entry {{META-INF/maven/}} (and it correctly returns {{false}} for the entry {{META-INF/}}.\n\nHere is a sample Java code that can be used to see the behaviour:\n\n{code:java}\npublic static void main(String[] args) throws IOException {\n    try (ZipFile zipFile = new ZipFile(new File(\"invalid-entry.jar\"))) {\n        printAttributes(zipFile, \"META-INF/\");\n        printAttributes(zipFile, \"META-INF/maven/\");\n    }\n}\n\nprivate static void printAttributes(ZipFile zipFile, String name) {\n    ZipArchiveEntry entry = zipFile.getEntriesInPhysicalOrder(name).iterator().next();\n    System.out.printf(\"%-17s: symlink:%-5s - unixMode:%s%n\", name, entry.isUnixSymlink(), entry.getUnixMode());\n}\n{code}\n\nThis code outputs:\n\n{noformat}\nMETA-INF/        : symlink:false - unixMode:16877\nMETA-INF/maven/  : symlink:true  - unixMode:65535\n{noformat}\n\nThe {{?rwsrwsrwt}} permissions show that the Zip entry is broken in the first place, but I think {{isUnixSymlink}} should still return {{false}} in that case, and not consider this entry to be a symlink.\n\nIt seems the fix would be to update {{isUnixSymlink}} and check whether the unix mode is equal to {{SHORT_MASK}}, and return {{false}} in that case as it would indicate a broken entry. This change does not break any existing tests, but I'm not sure if this is the proper fix.\n\n{code:java}\npublic boolean isUnixSymlink() {\n    int unixMode = getUnixMode();\n    return unixMode == SHORT_MASK ? false : (unixMode & UnixStat.LINK_FLAG) == UnixStat.LINK_FLAG;\n}\n{code}\n",
+    "commit_message": "COMPRESS-379 fix symlink logic",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+        "start_line": 297,
+        "end_line": 297,
+        "suspiciousness": 0.7071067811865475,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+        "start_line": 284,
+        "end_line": 284,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+        "start_line": 285,
+        "end_line": 285,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 378,
+        "end_line": 378,
+        "suspiciousness": 0.20412414523193154,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 379,
+        "end_line": 379,
+        "suspiciousness": 0.20412414523193154,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 162,
+        "end_line": 162,
+        "suspiciousness": 0.1690308509457033,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 201,
+        "end_line": 201,
+        "suspiciousness": 0.1690308509457033,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 161,
+        "end_line": 161,
+        "suspiciousness": 0.16666666666666666,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 200,
+        "end_line": 200,
+        "suspiciousness": 0.16666666666666666,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+        "start_line": 887,
+        "end_line": 887,
+        "suspiciousness": 0.14586499149789456,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.ZipArchiveEntryTest::isUnixSymlinkIsFalseIfMoreThanOneFlagIsSet"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+      "start_line": 297,
+      "end_line": 297,
+      "suspiciousness": 0.7071067811865475,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+      "start_line": 284,
+      "end_line": 284,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+      "start_line": 285,
+      "end_line": 285,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 378,
+      "end_line": 378,
+      "suspiciousness": 0.20412414523193154,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 379,
+      "end_line": 379,
+      "suspiciousness": 0.20412414523193154,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 162,
+      "end_line": 162,
+      "suspiciousness": 0.1690308509457033,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 201,
+      "end_line": 201,
+      "suspiciousness": 0.1690308509457033,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 161,
+      "end_line": 161,
+      "suspiciousness": 0.16666666666666666,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 200,
+      "end_line": 200,
+      "suspiciousness": 0.16666666666666666,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+      "start_line": 887,
+      "end_line": 887,
+      "suspiciousness": 0.14586499149789456,
+      "rank": 10
+    }
+  ]
+}

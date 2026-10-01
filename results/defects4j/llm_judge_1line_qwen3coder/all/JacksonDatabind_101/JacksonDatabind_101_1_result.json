@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "101",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:30:44",
+      "end_time": "2026-06-20 00:34:29",
+      "duration_seconds": 225,
+      "duration_human": "3m 45s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 802934,
+      "output_tokens": 7386,
+      "total_tokens": 810320,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 802934
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:34:29 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_101",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_101",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`@JsonUnwrapped` fields are skipped when using `PropertyBasedCreator` if they appear after the last creator property\nExample:\r\n\r\n```java\r\n    static class Bean {\r\n        int x;\r\n        int y;\r\n\r\n        @JsonUnwrapped\r\n        UnwrappedBean w;\r\n\r\n        public Bean(@JsonProperty(\"x\") int x, @JsonProperty(\"y\") int y) {\r\n            this.x = x;\r\n            this.y = y;\r\n        }\r\n\r\n        public void setW(UnwrappedBean w) {\r\n            this.w = w;\r\n        }\r\n    }\r\n\r\n    static class UnwrappedBean {\r\n        int a;\r\n        int b;\r\n\r\n        public UnwrappedBean(@JsonProperty(\"a\") int a, @JsonProperty(\"b\") int b) {\r\n            this.a = a;\r\n            this.b = b;\r\n        }\r\n    }\r\n```\r\n\r\n```json\r\n    {\"x\": 1, \"a\": 2, \"y\": 3, \"b\": 4}\r\n```\r\n\r\n`x`, `y`, and `a` are deserialized as expected. `b` is skipped entirely. I think I've found the root cause and the fix doesn't appear to break any tests; opening a PR for further review.\n",
+    "commit_message": "Fix #2088",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java",
+        "start_line": 771,
+        "end_line": 771,
+        "line_numbers": [
+          771
+        ],
+        "function_name": "deserializeUsingPropertyBasedWithUnwrapped",
+        "class_name": "BeanDeserializer",
+        "filename": "BeanDeserializer.java",
+        "code_snippet": "    protected Object deserializeUsingPropertyBasedWithUnwrapped(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        // 01-Dec-2016, tatu: Note: This IS legal to call, but only when unwrapped\n        //    value itself is NOT passed via `CreatorProperty` (which isn't supported).\n        //    Ok however to pass via setter or field.\n        \n        final PropertyBasedCreator creator = _propertyBasedCreator;\n        PropertyValueBuffer buffer = creator.startBuilding(p, ctxt, _objectIdReader);\n\n        TokenBuffer tokens = new TokenBuffer(p, ctxt);\n        tokens.writeStartObject();\n\n        JsonToken t = p.getCurrentToken();\n        for (; t == JsonToken.FIELD_NAME; t = p.nextToken()) {\n            String propName = p.getCurrentName();\n            p.nextToken(); // to point to value\n            // creator property?\n            SettableBeanProperty creatorProp = creator.findCreatorProperty(propName);\n            if (creatorProp != null) {\n                // Last creator property to set?\n                if (buffer.assignParameter(creatorProp,\n                        _deserializeWithErrorWrapping(p, ctxt, creatorProp))) {\n                    t = p.nextToken(); // to move to following FIELD_NAME/END_OBJECT\n                    Object bean;\n                    try {\n                        bean = creator.build(ctxt, buffer);\n                    } catch (Exception e) {\n                        bean = wrapInstantiationProblem(e, ctxt);\n                    }\n                    // [databind#631]: Assign current value, to be accessible by custom serializers\n                    p.setCurrentValue(bean);\n                    // if so, need to copy all remaining tokens into buffer\n                    while (t == JsonToken.FIELD_NAME) {\n                        // NOTE: do NOT skip name as it needs to be copied; `copyCurrentStructure` does that\n                        p.nextToken();\n                        tokens.copyCurrentStructure(p);\n                        t = p.nextToken();\n                    }\n                    // 28-Aug-2018, tatu: Let's add sanity check here, easier to catch off-by-some\n                    //    problems if we maintain invariants\n                    tokens.writeEndObject();\n                    if (bean.getClass() != _beanType.getRawClass()) {\n                        // !!! 08-Jul-2011, tatu: Could probably support; but for now\n                        //   it's too complicated, so bail out\n                        ctxt.reportInputMismatch(creatorProp,\n                                \"Cannot create polymorphic instances with unwrapped values\");\n                        return null;\n                    }\n                    return _unwrappedPropertyHandler.processUnwrapped(p, ctxt, bean, tokens);\n                }\n                continue;\n            }\n            // Object Id property?\n            if (buffer.readIdProperty(propName)) {\n                continue;\n            }\n            // regular property? needs buffering\n            SettableBeanProperty prop = _beanProperties.find(propName);\n            if (prop != null) {\n                buffer.bufferProperty(prop, _deserializeWithErrorWrapping(p, ctxt, prop));\n                continue;\n            }\n            // Things marked as ignorable should not be passed to any setter\n            if (_ignorableProps != null && _ignorableProps.contains(propName)) {\n                handleIgnoredProperty(p, ctxt, handledType(), propName);\n                continue;\n            }\n            // 29-Nov-2016, tatu: probably should try to avoid sending content\n            //    both to any setter AND buffer... but, for now, the only thing\n            //    we can do.\n            // how about any setter? We'll get copies but...\n            if (_anySetter == null) {\n                // but... others should be passed to unwrapped property deserializers\n                tokens.writeFieldName(propName);\n                tokens.copyCurrentStructure(p);\n            } else {\n                // Need to copy to a separate buffer first\n                TokenBuffer b2 = TokenBuffer.asCopyOfValue(p);\n                tokens.writeFieldName(propName);\n                tokens.append(b2);\n                try {\n                    buffer.bufferAnyProperty(_anySetter, propName,\n                            _anySetter.deserialize(b2.asParserOnFirstToken(), ctxt));\n                } catch (Exception e) {\n                    wrapAndThrow(e, _beanType.getRawClass(), propName, ctxt);\n                }\n                continue;\n            }\n        }\n\n        // We hit END_OBJECT, so:\n        Object bean;\n        try {\n            bean = creator.build(ctxt, buffer);\n        } catch (Exception e) {\n            wrapInstantiationProblem(e, ctxt);\n            return null; // never gets here\n        }\n        return _unwrappedPropertyHandler.processUnwrapped(p, ctxt, bean, tokens);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.struct.TestUnwrapped::testIssue2088UnwrappedFieldsAfterLastCreatorProp"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\nindex 88051e75d..e1f54c234 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n@@ -768,16 +768,12 @@ public class BeanDeserializer\n                     // if so, need to copy all remaining tokens into buffer\n                     while (t == JsonToken.FIELD_NAME) {\n                         // NOTE: do NOT skip name as it needs to be copied; `copyCurrentStructure` does that\n-                        p.nextToken();\n                         tokens.copyCurrentStructure(p);\n                         t = p.nextToken();\n                     }\n                     // 28-Aug-2018, tatu: Let's add sanity check here, easier to catch off-by-some\n                     //    problems if we maintain invariants\n+                    if (t != JsonToken.END_OBJECT) {\n+                        ctxt.reportWrongTokenException(this, JsonToken.END_OBJECT, \n+                                \"Attempted to unwrap '%s' value\",\n+                                handledType().getName());\n+                    }\n                     tokens.writeEndObject();\n                     if (bean.getClass() != _beanType.getRawClass()) {\n                         // !!! 08-Jul-2011, tatu: Could probably support; but for now",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

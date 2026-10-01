@@ -1,0 +1,198 @@
+{
+  "project_name": "Math",
+  "bug_id": "Math_102",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 07:06:02",
+      "end_time": "2026-06-30 07:07:26",
+      "duration_seconds": 85,
+      "duration_human": "1m 25s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 38,
+    "token_usage": {
+      "input_tokens": 322483,
+      "output_tokens": 3464,
+      "total_tokens": 325947,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 322483
+    },
+    "agent_steps": 38,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex 91e5054b4..8864c5723 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -69,7 +69,8 @@\n   <target name=\"compile\" description=\"o Compile the code\" depends=\"get-deps\">\n     <mkdir dir=\"${classesdir}\">\n     </mkdir>\n-    <javac destdir=\"${classesdir}\" deprecation=\"true\" target=\"1.6\" source=\"1.6\" debug=\"true\" optimize=\"false\" excludes=\"**/package.html\">\n+    <javac destdir=\"${classesdir}\" deprecation=\"true\" encoding=\"UTF-8\" target=\"1.6\" source=\"1.6\" debug=\"true\" optimize=\"false\" excludes=\"**/package.html\">\n+      <compilerarg value=\"-encoding\"/>      <compilerarg value=\"UTF-8\"/>\n       <src>\n         <pathelement location=\"${basedir}/src/java\">\n         </pathelement>\n@@ -146,7 +147,7 @@\n   <target name=\"compile-tests\" if=\"Junit.present\" depends=\"junit-present,compile\">\n     <mkdir dir=\"${testclassesdir}\">\n     </mkdir>\n-    <javac destdir=\"${testclassesdir}\" deprecation=\"true\" target=\"1.6\" source=\"1.6\" debug=\"true\" optimize=\"false\" excludes=\"**/package.html\">\n+    <javac destdir=\"${testclassesdir}\" deprecation=\"true\" encoding=\"UTF-8\" target=\"1.6\" source=\"1.6\" debug=\"true\" optimize=\"false\" excludes=\"**/package.html\">\n       <src>\n         <pathelement location=\"${basedir}/src/test\">\n         </pathelement>\ndiff --git a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\nindex c87b0101f..63565c9e4 100644\n--- a/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n+++ b/src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java\n@@ -73,9 +73,20 @@ public class ChiSquareTestImpl implements UnknownDistributionChiSquareTest {\n         }\n         double sumSq = 0.0d;\n         double dev = 0.0d;\n+        double sumObserved = 0.0d;\n+        double sumExpected = 0.0d;\n         for (int i = 0; i < observed.length; i++) {\n-                dev = ((double) observed[i] - expected[i]);\n-                sumSq += dev * dev / expected[i];\n+            sumObserved += observed[i];\n+            sumExpected += expected[i];\n+        }\n+        double scaleFactor = sumObserved / sumExpected;\n+        double[] scaledExpected = new double[expected.length];\n+        for (int i = 0; i < expected.length; i++) {\n+            scaledExpected[i] = expected[i] * scaleFactor;\n+        }\n+        for (int i = 0; i < observed.length; i++) {\n+                dev = ((double) observed[i] - scaledExpected[i]);\n+                sumSq += dev * dev / scaledExpected[i];\n         }\n         return sumSq;\n     }\n"
+  },
+  "timestamp": "2026-06-30 07:07:26 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_102",
+    "repo_path": "/defects4j/framework/bin/temp/Math_102",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "chiSquare(double[] expected, long[] observed) is returning incorrect test statistic\nChiSquareTestImpl is returning incorrect chi-squared value. An implicit assumption of public double chiSquare(double[] expected, long[] observed) is that the sum of expected and observed are equal. That is, in the code:\nfor (int i = 0; i < observed.length; i++) {\n            dev = ((double) observed[i] - expected[i]);\n            sumSq += dev * dev / expected[i];\n        }\nthis calculation is only correct if sum(observed)==sum(expected). When they are not equal then one must rescale the expected value by sum(observed) / sum(expected) so that they are.\nIronically, it is an example in the unit test ChiSquareTestTest that highlights the error:\n\nlong[] observed1 = { 500, 623, 72, 70, 31 };\n        double[] expected1 = { 485, 541, 82, 61, 37 };\n        assertEquals( \"chi-square test statistic\", 16.4131070362, testStatistic.chiSquare(expected1, observed1), 1E-10);\n        assertEquals(\"chi-square p-value\", 0.002512096, testStatistic.chiSquareTest(expected1, observed1), 1E-9);\n\n16.413 is not correct because the expected values do not make sense, they should be: 521.19403 581.37313  88.11940  65.55224  39.76119 so that the sum of expected equals 1296 which is the sum of observed.\n\nHere is some R code (r-project.org) which proves it:\n> o1\n[1] 500 623  72  70  31\n> e1\n[1] 485 541  82  61  37\n> chisq.test(o1,p=e1,rescale.p=TRUE)\n\n        Chi-squared test for given probabilities\n\ndata:  o1 \nX-squared = 9.0233, df = 4, p-value = 0.06052\n\n> chisq.test(o1,p=e1,rescale.p=TRUE)$observed\n[1] 500 623  72  70  31\n> chisq.test(o1,p=e1,rescale.p=TRUE)$expected\n[1] 521.19403 581.37313  88.11940  65.55224  39.76119\n\n\n\n\n\n ",
+    "commit_message": "Added check and rescaling of expected counts to sum to sum of expected counts if necessary in ChiSquare test. JIRA: MATH-175 Reported and patched by Carl Anderson.",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 66,
+        "end_line": 66,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 70,
+        "end_line": 70,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 74,
+        "end_line": 74,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 75,
+        "end_line": 75,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 76,
+        "end_line": 76,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 77,
+        "end_line": 77,
+        "suspiciousness": 1.0,
+        "rank": 6
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 1.0,
+        "rank": 7
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 1.0,
+        "rank": 8
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 97,
+        "end_line": 97,
+        "suspiciousness": 1.0,
+        "rank": 9
+      },
+      {
+        "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+        "start_line": 98,
+        "end_line": 98,
+        "suspiciousness": 1.0,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math.stat.inference.ChiSquareFactoryTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.ChiSquareFactoryTest::testChiSquare",
+      "org.apache.commons.math.stat.inference.ChiSquareTestTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.ChiSquareTestTest::testChiSquare",
+      "org.apache.commons.math.stat.inference.TestUtilsTest::testChiSquareLargeTestStatistic",
+      "org.apache.commons.math.stat.inference.TestUtilsTest::testChiSquare"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 66,
+      "end_line": 66,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 70,
+      "end_line": 70,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 74,
+      "end_line": 74,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 75,
+      "end_line": 75,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 76,
+      "end_line": 76,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 77,
+      "end_line": 77,
+      "suspiciousness": 1.0,
+      "rank": 6
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 1.0,
+      "rank": 7
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 1.0,
+      "rank": 8
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 97,
+      "end_line": 97,
+      "suspiciousness": 1.0,
+      "rank": 9
+    },
+    {
+      "file": "src/java/org/apache/commons/math/stat/inference/ChiSquareTestImpl.java",
+      "start_line": 98,
+      "end_line": 98,
+      "suspiciousness": 1.0,
+      "rank": 10
+    }
+  ]
+}

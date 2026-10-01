@@ -1,0 +1,104 @@
+{
+  "project_name": "Collections",
+  "bug_id": "18",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:44:27",
+      "end_time": "2026-06-26 21:46:14",
+      "duration_seconds": 106,
+      "duration_human": "1m 46s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 11,
+    "token_usage": {
+      "input_tokens": 33380,
+      "output_tokens": 1284,
+      "total_tokens": 34664,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 33380
+    },
+    "agent_steps": 11,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java b/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\nindex ce6926fa..44916062 100644\n--- a/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\n+++ b/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\n@@ -226,7 +226,9 @@ public class ListOrderedSet<E>\n \n     @Override\n     public boolean retainAll(Collection<?> coll) {\n-        boolean result = collection.retainAll(coll);\n+        // Convert coll to a set for O(1) lookups to avoid quadratic performance\n+        Set<?> set = new HashSet(coll);\n+        boolean result = collection.retainAll(set);\n         if (result == false) {\n             return false;\n         }\n"
+  },
+  "timestamp": "2026-06-26 21:46:14 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Collections",
+    "bug_id": "Collections_18",
+    "repo_path": "/defects4j/framework/bin/temp/Collections_18",
+    "github_url": "https://github.com/apache/commons-collections.git",
+    "description": "performance problem in ListOrderedSet.retainAll()\nHi,\n\nI am encountering a performance problem in ListOrderedSet.retainAll().\nIt appears in version 3.2.1 and also in revision 1365132.  I attached\na test that exposes this problem and a patch that fixes it.  On my\nmachine, for this test, the patch provides a 263X speedup.\n\nTo run the test, just do:\n\n$ java Test\n\nThe output for the un-patched version is:\nTime is 3682\n\nThe output for the patched version is:\nTime is 14\n\nThe problem is that the code for method\n\"ListOrderedSet.retainAll(Collection<?> coll)\" is:\n\n{code:java|borderStyle=solid}\npublic boolean retainAll(Collection<?> coll) {\n    boolean result = collection.retainAll(coll);\n....\n}\n{code}\n\nbecause \"collection.retainAll(coll)\" has quadratic complexity if\nparameter \"coll\" is a List.  Conceptually, the solution is to call\n\"coll.retainAll(collection)\" which has linear complexity (not\nquadratic), because \"collection\" is always a HashSet (we know this,\nbecause \"collection\" is an inherited field of ListOrderedSet, and thus\ncannot have another type).  See the\n\"java.util.AbstractCollection.retainAll()\" code inlined below for why\none call has quadratic complexity, and the other has linear\ncomplexity.\n\nDirectly calling \"coll.retainAll(collection)\" would change the\nbehavior of ListOrderedSet.retainAll(), which is why the patch seems a\nbit involved.  In reality, the patch simulates the behavior of\n\"coll.retainAll(collection)\" (which is just the intersection of two\ncollections).  You can easily see this by looking at the patch and at\nthe \"java.util.AbstractCollection.retainAll()\" code inlined below.\n\n\"collection.retainAll(coll)\" is \"java.util.HashSet.retainAll()\", which\nis \"java.util.AbstractCollection.retainAll()\", which has the code:\n\n{code:java|borderStyle=solid}\npublic boolean retainAll(Collection<?> c) {\n    boolean modified = false;\n    Iterator<E> e = iterator();\n    while (e.hasNext()) {\n        if (!c.contains(e.next())) {\n            e.remove();\n            modified = true;\n        }\n    }\n    return modified;\n}\n{code} \n\n\nIs this a bug, or am I misunderstanding the intended behavior?  If so,\ncan you please confirm if the patch is correct?\n\nThanks,\n\nAdrian\n",
+    "commit_message": "COLLECTIONS-426 patch applied.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/collections/set/ListOrderedSet.java",
+        "start_line": 229,
+        "end_line": 230,
+        "line_numbers": [
+          229,
+          230
+        ],
+        "function_name": "retainAll",
+        "class_name": "ListOrderedSet",
+        "filename": "ListOrderedSet.java",
+        "code_snippet": "    public boolean retainAll(Collection<?> coll) {\n        boolean result = collection.retainAll(coll);\n        if (result == false) {\n            return false;\n        }\n        if (collection.size() == 0) {\n            setOrder.clear();\n        } else {\n            for (Iterator<E> it = setOrder.iterator(); it.hasNext();) {\n                if (!collection.contains(it.next())) {\n                    it.remove();\n                }\n            }\n        }\n        return result;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/collections/set/ListOrderedSet.java",
+        "start_line": 233,
+        "end_line": 234,
+        "line_numbers": [
+          233,
+          234
+        ],
+        "function_name": "retainAll",
+        "class_name": "ListOrderedSet",
+        "filename": "ListOrderedSet.java",
+        "code_snippet": "    public boolean retainAll(Collection<?> coll) {\n        boolean result = collection.retainAll(coll);\n        if (result == false) {\n            return false;\n        }\n        if (collection.size() == 0) {\n            setOrder.clear();\n        } else {\n            for (Iterator<E> it = setOrder.iterator(); it.hasNext();) {\n                if (!collection.contains(it.next())) {\n                    it.remove();\n                }\n            }\n        }\n        return result;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/collections/set/ListOrderedSet.java",
+        "start_line": 236,
+        "end_line": 237,
+        "line_numbers": [
+          236,
+          237
+        ],
+        "function_name": "retainAll",
+        "class_name": "ListOrderedSet",
+        "filename": "ListOrderedSet.java",
+        "code_snippet": "    public boolean retainAll(Collection<?> coll) {\n        boolean result = collection.retainAll(coll);\n        if (result == false) {\n            return false;\n        }\n        if (collection.size() == 0) {\n            setOrder.clear();\n        } else {\n            for (Iterator<E> it = setOrder.iterator(); it.hasNext();) {\n                if (!collection.contains(it.next())) {\n                    it.remove();\n                }\n            }\n        }\n        return result;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/collections/set/ListOrderedSet.java",
+        "start_line": 242,
+        "end_line": 242,
+        "line_numbers": [
+          242
+        ],
+        "function_name": "retainAll",
+        "class_name": "ListOrderedSet",
+        "filename": "ListOrderedSet.java",
+        "code_snippet": "    public boolean retainAll(Collection<?> coll) {\n        boolean result = collection.retainAll(coll);\n        if (result == false) {\n            return false;\n        }\n        if (collection.size() == 0) {\n            setOrder.clear();\n        } else {\n            for (Iterator<E> it = setOrder.iterator(); it.hasNext();) {\n                if (!collection.contains(it.next())) {\n                    it.remove();\n                }\n            }\n        }\n        return result;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.collections.set.ListOrderedSetTest::testRetainAllCollections426"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java b/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\nindex 48cab8ef..ce6926fa 100644\n--- a/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\n+++ b/src/main/java/org/apache/commons/collections/set/ListOrderedSet.java\n@@ -226,26 +226,20 @@ public class ListOrderedSet<E>\n \n     @Override\n     public boolean retainAll(Collection<?> coll) {\n+        Set<Object> collectionRetainAll = new HashSet<Object>();\n+        for (Iterator<?> it = coll.iterator(); it.hasNext();) {\n+            Object next = it.next();\n+            if (collection.contains(next)) {\n+                collectionRetainAll.add(next);\n+            }\n+        }\n+        if (collectionRetainAll.size() == collection.size()) {\n-        boolean result = collection.retainAll(coll);\n-        if (result == false) {\n             return false;\n         }\n+        if (collectionRetainAll.size() == 0) {\n+            clear();\n-        if (collection.size() == 0) {\n-            setOrder.clear();\n         } else {\n+            for (Iterator<E> it = iterator(); it.hasNext();) {\n+                if (!collectionRetainAll.contains(it.next())) {\n-            for (Iterator<E> it = setOrder.iterator(); it.hasNext();) {\n-                if (!collection.contains(it.next())) {\n                     it.remove();\n                 }\n             }\n         }\n+        return true;\n-        return result;\n     }\n \n     @Override",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

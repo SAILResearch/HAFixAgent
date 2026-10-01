@@ -1,0 +1,109 @@
+{
+  "project_name": "PySnooper",
+  "bug_id": "PySnooper_2",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:02:54",
+      "end_time": "2026-03-23 07:17:41",
+      "duration_seconds": 887,
+      "duration_human": "14m 47s"
+    },
+    "model_cost": 0.0668,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 433648,
+      "output_tokens": 22405,
+      "total_tokens": 456053,
+      "cached_input_tokens": 220096,
+      "uncached_input_tokens": 213552
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pysnooper/tracer.py b/pysnooper/tracer.py\nindex 089b817..a709ab7 100644\n--- a/pysnooper/tracer.py\n+++ b/pysnooper/tracer.py\n@@ -19,11 +19,29 @@ from . import utils, pycompat\n ipython_filename_pattern = re.compile('^<ipython-input-([0-9]+)-.*>$')\n \n \n-def get_local_reprs(frame, watch=()):\n+def get_local_reprs(frame, watch=(), custom_repr=()):\n     code = frame.f_code\n     vars_order = code.co_varnames + code.co_cellvars + code.co_freevars + tuple(frame.f_locals.keys())\n \n-    result_items = [(key, utils.get_shortish_repr(value)) for key, value in frame.f_locals.items()]\n+    result_items = []\n+    for key, value in frame.f_locals.items():\n+        repr_value = utils.get_shortish_repr(value)\n+        for entry in custom_repr:\n+            if len(entry) == 2 and isinstance(entry[0], type) and callable(entry[1]):\n+                type_, func = entry\n+                if isinstance(value, type_):\n+                    repr_value = func(value)\n+                    break\n+            elif isinstance(entry, tuple) and len(entry) == 2:\n+                # Already a pair\n+                type_, func = entry\n+                if isinstance(value, type_):\n+                    repr_value = func(value)\n+                    break\n+            if isinstance(value, type_):\n+                repr_value = func(value)\n+                break\n+        result_items.append((key, repr_value))\n     result_items.sort(key=lambda key_value: vars_order.index(key_value[0]))\n     result = collections.OrderedDict(result_items)\n \n@@ -186,6 +204,7 @@ class Tracer:\n             prefix='',\n             overwrite=False,\n             thread_info=False,\n+            custom_repr=(),\n     ):\n         self._write = get_write_function(output, overwrite)\n \n@@ -196,6 +215,7 @@ class Tracer:\n              v if isinstance(v, BaseVariable) else Exploding(v)\n              for v in utils.ensure_tuple(watch_explode)\n         ]\n+        self.custom_repr = utils.ensure_tuple(custom_repr)\n         self.frame_to_local_reprs = {}\n         self.depth = depth\n         self.prefix = prefix\n@@ -206,8 +226,18 @@ class Tracer:\n         self.target_frames = set()\n         self.thread_local = threading.local()\n \n-    def __call__(self, function):\n-        self.target_codes.add(function.__code__)\n+    def _get_repr(self, item):\n+        for entry in self.custom_repr:\n+            if len(entry) == 2 and isinstance(entry[0], type) and callable(entry[1]):\n+                type_, func = entry\n+                if isinstance(item, type_):\n+                    return func(item)\n+            elif isinstance(entry, tuple) and len(entry) == 2:\n+                # Already a pair\n+                type_, func = entry\n+                if isinstance(item, type_):\n+                    return func(item)\n+        return utils.get_shortish_repr(item)\n \n         @functools.wraps(function)\n         def simple_wrapper(*args, **kwargs):\n@@ -307,7 +337,7 @@ class Tracer:\n         #                                                                     #\n         old_local_reprs = self.frame_to_local_reprs.get(frame, {})\n         self.frame_to_local_reprs[frame] = local_reprs = \\\n-                                       get_local_reprs(frame, watch=self.watch)\n+                                       get_local_reprs(frame, watch=self.watch, custom_repr=self.custom_repr)\n \n         newish_string = ('Starting var:.. ' if event == 'call' else\n                                                             'New var:....... ')\n@@ -380,7 +410,7 @@ class Tracer:\n             thread_global.depth -= 1\n \n             if not ended_by_exception:\n-                return_value_repr = utils.get_shortish_repr(arg)\n+                return_value_repr = self._get_repr(arg)\n                 self.write('{indent}Return value:.. {return_value_repr}'.\n                            format(**locals()))\n \ndiff --git a/tests/test_pysnooper.py b/tests/test_pysnooper.py\nindex fcb33b1..930dd5d 100644\n--- a/tests/test_pysnooper.py\n+++ b/tests/test_pysnooper.py\n@@ -5,10 +5,10 @@ import io\n import textwrap\n import threading\n import types\n+import os\n import sys\n \n from pysnooper.utils import truncate\n-from python_toolbox import sys_tools, temp_file_tools\n import pytest\n \n import pysnooper\n@@ -16,6 +16,7 @@ from pysnooper.variables import needs_parentheses\n from .utils import (assert_output, assert_sample_output, VariableEntry,\n                     CallEntry, LineEntry, ReturnEntry, OpcodeEntry,\n                     ReturnValueEntry, ExceptionEntry)\n+from . import mini_toolbox\n \n \n def test_string_io():\n@@ -54,8 +55,8 @@ def test_thread_info():\n         y = 8\n         return y + x\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function('baba')\n     assert result == 15\n     output = output_capturer.string_io.getvalue()\n@@ -83,8 +84,8 @@ def test_multi_thread_info():\n         y = 8\n         return y + x\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         my_function('baba')\n         t1 = threading.Thread(target=my_function, name=\"test123\",args=['bubu'])\n         t1.start()\n@@ -206,8 +207,8 @@ def test_watch():\n         for i in range(2):\n             foo.square()\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result is None\n     output = output_capturer.string_io.getvalue()\n@@ -252,8 +253,8 @@ def test_watch_explode():\n         lst = [7, 8, 9]\n         lst.append(10)\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result is None\n     output = output_capturer.string_io.getvalue()\n@@ -306,8 +307,8 @@ def test_variables_classes():\n         _s = WithSlots()\n         _lst = list(range(1000))\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result is None\n     output = output_capturer.string_io.getvalue()\n@@ -351,8 +352,8 @@ def test_single_watch_no_comma():\n         for i in range(2):\n             foo.square()\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result is None\n     output = output_capturer.string_io.getvalue()\n@@ -382,8 +383,8 @@ def test_long_variable():\n         foo = list(range(1000))\n         return foo\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result == list(range(1000))\n     output = output_capturer.string_io.getvalue()\n@@ -410,8 +411,8 @@ def test_repr_exception():\n     def my_function():\n         bad = Bad()\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = my_function()\n     assert result is None\n     output = output_capturer.string_io.getvalue()\n@@ -500,8 +501,8 @@ def test_method_and_prefix():\n \n     baz = Baz()\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = baz.square()\n     assert result is baz\n     assert result.x == 4\n@@ -525,7 +526,7 @@ def test_method_and_prefix():\n \n \n def test_file_output():\n-    with temp_file_tools.create_temp_folder(prefix='pysnooper') as folder:\n+    with mini_toolbox.create_temp_folder(prefix='pysnooper') as folder:\n         path = folder / 'foo.log'\n \n         @pysnooper.snoop(path)\n@@ -615,8 +616,8 @@ def test_lambda():\n \n \n def test_unavailable_source():\n-    with temp_file_tools.create_temp_folder(prefix='pysnooper') as folder, \\\n-            sys_tools.TempSysPathAdder(str(folder)):\n+    with mini_toolbox.create_temp_folder(prefix='pysnooper') as folder, \\\n+                                    mini_toolbox.TempSysPathAdder(str(folder)):\n         module_name = 'iaerojajsijf'\n         python_file_path = folder / ('%s.py' % (module_name,))\n         content = textwrap.dedent(u'''\n@@ -629,8 +630,8 @@ def test_unavailable_source():\n             python_file.write(content)\n         module = __import__(module_name)\n         python_file_path.unlink()\n-        with sys_tools.OutputCapturer(stdout=False,\n-                                      stderr=True) as output_capturer:\n+        with mini_toolbox.OutputCapturer(stdout=False,\n+                                         stderr=True) as output_capturer:\n             result = getattr(module, 'f')(7)\n         assert result == 7\n         output = output_capturer.output\n@@ -647,7 +648,7 @@ def test_unavailable_source():\n \n \n def test_no_overwrite_by_default():\n-    with temp_file_tools.create_temp_folder(prefix='pysnooper') as folder:\n+    with mini_toolbox.create_temp_folder(prefix='pysnooper') as folder:\n         path = folder / 'foo.log'\n         with path.open('w') as output_file:\n             output_file.write(u'lala')\n@@ -679,7 +680,7 @@ def test_no_overwrite_by_default():\n \n \n def test_overwrite():\n-    with temp_file_tools.create_temp_folder(prefix='pysnooper') as folder:\n+    with mini_toolbox.create_temp_folder(prefix='pysnooper') as folder:\n         path = folder / 'foo.log'\n         with path.open('w') as output_file:\n             output_file.write(u'lala')\n@@ -721,7 +722,7 @@ def test_overwrite():\n \n \n def test_error_in_overwrite_argument():\n-    with temp_file_tools.create_temp_folder(prefix='pysnooper') as folder:\n+    with mini_toolbox.create_temp_folder(prefix='pysnooper') as folder:\n         with pytest.raises(Exception, match='can only be used when writing'):\n             @pysnooper.snoop(overwrite=True)\n             def my_function(foo):\n@@ -783,8 +784,8 @@ def test_with_block():\n     def qux():\n         return 9  # not traced, mustn't show up\n \n-    with sys_tools.OutputCapturer(stdout=False,\n-                                  stderr=True) as output_capturer:\n+    with mini_toolbox.OutputCapturer(stdout=False,\n+                                     stderr=True) as output_capturer:\n         result = foo(2)\n     assert result == 2\n     output = output_capturer.string_io.getvalue()\n@@ -1131,4 +1132,83 @@ def test_generator():\n     )\n \n \n+def test_custom_repr():\n+    string_io = io.StringIO()\n+\n+    def large(l):\n+        return isinstance(l, list) and len(l) > 5\n+\n+    def print_list_size(l):\n+        return 'list(size={})'.format(len(l))\n+\n+    def print_dict(d):\n+        return 'dict(keys={})'.format(sorted(list(d.keys())))\n+\n+    def evil_condition(x):\n+        return large(x) or isinstance(x, dict)\n+\n+    @pysnooper.snoop(string_io, custom_repr=(\n+        (large, print_list_size),\n+        (dict, print_dict),\n+        (evil_condition, lambda x: 'I am evil')))\n+    def sum_to_x(x):\n+        l = list(range(x))\n+        a = {'1': 1, '2': 2}\n+        return sum(l)\n+\n+    result = sum_to_x(10000)\n+\n+    output = string_io.getvalue()\n+    assert_output(\n+        output,\n+        (\n+            VariableEntry('x', '10000'),\n+            CallEntry(),\n+            LineEntry(),\n+            VariableEntry('l', 'list(size=10000)'),\n+            LineEntry(),\n+            VariableEntry('a', \"dict(keys=['1', '2'])\"),\n+            LineEntry(),\n+            ReturnEntry(),\n+            ReturnValueEntry('49995000'),\n+        )\n+    )\n+\n+def test_custom_repr_single():\n+    string_io = io.StringIO()\n+\n+    @pysnooper.snoop(string_io, custom_repr=(list, lambda l: 'foofoo!'))\n+    def sum_to_x(x):\n+        l = list(range(x))\n+        return 7\n \n+    result = sum_to_x(10000)\n+\n+    output = string_io.getvalue()\n+    assert_output(\n+        output,\n+        (\n+            VariableEntry('x', '10000'),\n+            CallEntry(),\n+            LineEntry(),\n+            VariableEntry('l', 'foofoo!'),\n+            LineEntry(),\n+            ReturnEntry(),\n+            ReturnValueEntry('7'),\n+        )\n+    )\n+\n+\n+def test_disable():\n+    string_io = io.StringIO()\n+\n+    def my_function(foo):\n+        x = 7\n+        y = 8\n+        return x + y\n+\n+    with mini_toolbox.TempValueSetter((pysnooper.tracer, 'DISABLED'), True):\n+        with pysnooper.snoop(string_io):\n+            result = my_function('baba')\n+    output = string_io.getvalue()\n+    assert not output\n"
+  },
+  "timestamp": "2026-03-23 03:17:41 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "PySnooper",
+    "bug_id": "PySnooper_2",
+    "repo_path": "/BugsInPy/framework/bin/temp/PySnooper_2/PySnooper",
+    "github_url": "https://github.com/cool-RR/PySnooper",
+    "description": "",
+    "commit_message": "Support single tuple to `custom_repr`, fix #144",
+    "fault_locations": [
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 22,
+        "end_line": 22,
+        "function_name": "get_local_reprs",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 26,
+        "end_line": 26,
+        "function_name": "get_local_reprs",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 87,
+        "end_line": 87,
+        "function_name": "get_source_from_frame",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 133,
+        "end_line": 133,
+        "function_name": "write",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 139,
+        "end_line": 139,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 250,
+        "end_line": 250,
+        "function_name": "__enter__",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 270,
+        "end_line": 270,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 310,
+        "end_line": 310,
+        "function_name": "trace",
+        "class_name": ""
+      },
+      {
+        "file": "pysnooper/tracer.py",
+        "start_line": 383,
+        "end_line": 383,
+        "function_name": "trace",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest -q -s tests/test_pysnooper.py::test_custom_repr_single"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": null
+}

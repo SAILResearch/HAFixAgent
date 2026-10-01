@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_161",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 23:53:29",
+      "end_time": "2026-06-18 00:29:09",
+      "duration_seconds": 2140,
+      "duration_human": "35m 40s"
+    },
+    "model_cost": 0.1109,
+    "model_calls": 12,
+    "token_usage": {
+      "input_tokens": 582668,
+      "output_tokens": 58846,
+      "total_tokens": 641514,
+      "cached_input_tokens": 261440,
+      "uncached_input_tokens": 321228
+    },
+    "agent_steps": 12,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex bbbeb812d1..9245df05ce 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -1838,10 +1838,15 @@ class Categorical(ExtensionArray, PandasObject):\n             if isinstance(value, ABCSeries):\n                 if not value[~value.isin(self.categories)].isna().all():\n                     raise ValueError(\"fill value must be in categories\")\n-\n+                \n                 values_codes = _get_codes_for_values(value, self.categories)\n-                indexer = np.where(values_codes != -1)\n-                codes[indexer] = values_codes[values_codes != -1]\n+                # Only fill positions where original is NaN (-1)\n+                nan_mask = (codes == -1)\n+                # Only use fill values where they are valid (code != -1)\n+                valid_fill_mask = (values_codes != -1)\n+                # Fill only positions that are NaN AND have valid fill values\n+                fill_mask = nan_mask & valid_fill_mask\n+                codes[fill_mask] = values_codes[fill_mask]\n \n             # If value is not a dict or Series it should be a scalar\n             elif is_hashable(value):\ndiff --git a/pandas/core/dtypes/missing.py b/pandas/core/dtypes/missing.py\nindex 6f599a6be6..d6a2a9b627 100644\n--- a/pandas/core/dtypes/missing.py\n+++ b/pandas/core/dtypes/missing.py\n@@ -369,6 +369,594 @@ def notna(obj):\n notnull = notna\n \n \n+def _isna_compat(arr, fill_value=np.nan):\n+    \"\"\"\n+    Parameters\n+    ----------\n+    arr: a numpy array\n+    fill_value: fill value, default to np.nan\n+\n+    Returns\n+    -------\n+    True if we can fill using this fill_value\n+    \"\"\"\n+    dtype = arr.dtype\n+    if isna(fill_value):\n+        return not (is_bool_dtype(dtype) or is_integer_dtype(dtype))\n+    return True\n+\n+\n+def array_equivalent(left, right, strict_nan=False):\n+    \"\"\"\n+    True if two arrays, left and right, have equal non-NaN elements, and NaNs\n+    in corresponding locations.  False otherwise. It is assumed that left and\n+    right are NumPy arrays of the same dtype. The behavior of this function\n+    (particularly with respect to NaNs) is not defined if the dtypes are\n+    different.\n+\n+    Parameters\n+    ----------\n+    left, right : ndarrays\n+    strict_nan : bool, default False\n+        If True, consider NaN and None to be different.\n+\n+    Returns\n+    -------\n+    b : bool\n+        Returns True if the arrays are equivalent.\n+\n+    Examples\n+    --------\n+    >>> array_equivalent(\n+    ...     np.array([1, 2, np.nan]),\n+    ...     np.array([1, 2, np.nan]))\n+    True\n+    >>> array_equivalent(\n+    ...     np.array([1, np.nan, 2]),\n+    ...     np.array([1, 2, np.nan]))\n+    False\n+    \"\"\"\n+\n+    left, right = np.asarray(left), np.asarray(right)\n+\n+    # shape compat\n+    if left.shape != right.shape:\n+        return False\n+\n+    # Object arrays can contain None, NaN and NaT.\n+    # string dtypes must be come to this path for NumPy 1.7.1 compat\n+    if is_string_dtype(left) or is_string_dtype(right):\n+\n+        if not strict_nan:\n+            # isna considers NaN and None to be equivalent.\n+            return lib.array_equivalent_object(\n+                ensure_object(left.ravel()), ensure_object(right.ravel())\n+            )\n+\n+        for left_value, right_value in zip(left, right):\n+            if left_value is NaT and right_value is not NaT:\n+                return False\n+\n+            elif isinstance(left_value, float) and np.isnan(left_value):\n+                if not isinstance(right_value, float) or not np.isnan(right_value):\n+                    return False\n+            else:\n+                if left_value != right_value:\n+                    return False\n+        return True\n+\n+    # NaNs can occur in float and complex arrays.\n+    if is_float_dtype(left) or is_complex_dtype(left):\n+\n+        # empty\n+        if not (np.prod(left.shape) and np.prod(right.shape)):\n+            return True\n+        return ((left == right) | (isna(left) & isna(right))).all()\n+\n+    # numpy will will not allow this type of datetimelike vs integer comparison\n+    elif is_datetimelike_v_numeric(left, right):\n+        return False\n+\n+    # M8/m8\n+    elif needs_i8_conversion(left) and needs_i8_conversion(right):\n+        if not is_dtype_equal(left.dtype, right.dtype):\n+            return False\n+\n+        left = left.view(\"i8\")\n+        right = right.view(\"i8\")\n+\n+    # if we have structured dtypes, compare first\n+    if left.dtype.type is np.void or right.dtype.type is np.void:\n+        if left.dtype != right.dtype:\n+            return False\n+\n+    return np.array_equal(left, right)\n+\n+\n+def _infer_fill_value(val):\n+    \"\"\"\n+    infer the fill value for the nan/NaT from the provided\n+    scalar/ndarray/list-like if we are a NaT, return the correct dtyped\n+    element to provide proper block construction\n+    \"\"\"\n+\n+    if not is_list_like(val):\n+        val = [val]\n+    val = np.array(val, copy=False)\n+    if is_datetimelike(val):\n+        return np.array(\"NaT\", dtype=val.dtype)\n+    elif is_object_dtype(val.dtype):\n+        dtype = lib.infer_dtype(ensure_object(val), skipna=False)\n+        if dtype in [\"datetime\", \"datetime64\"]:\n+            return np.array(\"NaT\", dtype=_NS_DTYPE)\n+        elif dtype in [\"timedelta\", \"timedelta64\"]:\n+            return np.array(\"NaT\", dtype=_TD_DTYPE)\n+    return np.nan\n+\n+\n+def _maybe_fill(arr, fill_value=np.nan):\n+    \"\"\"\n+    if we have a compatible fill_value and arr dtype, then fill\n+    \"\"\"\n+    if _isna_compat(arr, fill_value):\n+        arr.fill(fill_value)\n+    return arr\n+\n+\n+def na_value_for_dtype(dtype, compat=True):\n+    \"\"\"\n+    Return a dtype compat na value\n+\n+    Parameters\n+    ----------\n+    dtype : string / dtype\n+    compat : boolean, default True\n+\n+    Returns\n+    -------\n+    np.dtype or a pandas dtype\n+\n+    Examples\n+    --------\n+    >>> na_value_for_dtype(np.dtype('int64'))\n+    0\n+    >>> na_value_for_dtype(np.dtype('int64'), compat=False)\n+    nan\n+    >>> na_value_for_dtype(np.dtype('float64'))\n+    nan\n+    >>> na_value_for_dtype(np.dtype('bool'))\n+    False\n+    >>> na_value_for_dtype(np.dtype('datetime64[ns]'))\n+    NaT\n+    \"\"\"\n+    dtype = pandas_dtype(dtype)\n+\n+    if is_extension_array_dtype(dtype):\n+        return dtype.na_value\n+    if (\n+        is_datetime64_dtype(dtype)\n+        or is_datetime64tz_dtype(dtype)\n+        or is_timedelta64_dtype(dtype)\n+        or is_period_dtype(dtype)\n+    ):\n+        return NaT\n+    elif is_float_dtype(dtype):\n+        return np.nan\n+    elif is_integer_dtype(dtype):\n+        if compat:\n+            return 0\n+        return np.nan\n+    elif is_bool_dtype(dtype):\n+        return False\n+    return np.nan\n+\n+\n+def remove_na_arraylike(arr):\n+    \"\"\"\n+    Return array-like containing only true/non-NaN values, possibly empty.\n+    \"\"\"\n+    if is_extension_array_dtype(arr):\n+        return arr[notna(arr)]\n+    else:\n+        return arr[notna(lib.values_from_object(arr))]\n+\n+\n+def is_valid_nat_for_dtype(obj, dtype):\n+    \"\"\"\n+    isna check that excludes incompatible dtypes\n+\n+    Parameters\n+    ----------\n+    obj : object\n+    dtype : np.datetime64, np.timedelta64, DatetimeTZDtype, or PeriodDtype\n+\n+    Returns\n+    -------\n+    bool\n+    \"\"\"\n+    if not lib.is_scalar(obj) or not isna(obj):\n+        return False\n+    if dtype.kind == \"M\":\n+        return not isinstance(obj, np.timedelta64)\n+    if dtype.kind == \"m\":\n+        return not isinstance(obj, np.datetime64)\n+\n+    # must be PeriodDType\n+import numpy as np\n+\n+from pandas._libs import algos, lib\n+from pandas._libs.tslib import iNaT\n+from pandas.core.dtypes.common import (\n+    is_float_dtype,\n+    is_integer_dtype,\n+    is_object_dtype,\n+    is_scalar,\n+    is_datetime64_any_dtype,\n+    is_timedelta64_dtype,\n+    is_complex_dtype,\n+)\n+from pandas.core.dtypes.generic import ABCSeries, ABCIndexClass, ABCDataFrame\n+from pandas.core.dtypes.inference import is_sequence\n+\n+\n+def fillna(arr, value, method=None, limit=None):\n+    \"\"\"\n+    Fill NaN values in an array using the specified method or value.\n+    \"\"\"\n+    if method is not None:\n+        raise NotImplementedError(\"fillna with a method is not implemented yet\")\n+    \n+    if not isna(value).any():\n+        # We can only fill with a scalar or a sequence that is not all-NaN\n+        mask = isna(arr)\n+        if limit is not None:\n+            raise NotImplementedError(\"fillna with limit is not implemented yet\")\n+        \n+        if mask.any():\n+            # Actually do the fill\n+            arr = arr.copy()\n+            \n+            # Handle array-like fill values\n+            if hasattr(value, \"__len__\") and len(value) == len(arr):\n+                # Array-like with same length\n+                # Extract numpy array if it's a pandas object\n+                if hasattr(value, \"values\"):\n+                    value = value.values\n+                elif hasattr(value, \"_ndarray\"):\n+                    value = value._ndarray\n+                # Fill only masked positions with corresponding values\n+                arr[mask] = value[mask]\n+            else:\n+                # Scalar or single-element sequence\n+                if is_sequence(value) and not isinstance(value, (str, bytes)):\n+                    value = value[0]\n+                arr[mask] = value\n+        return arr\n+    else:\n+        # We're trying to fill with NaN? That doesn't make sense.\n+        raise ValueError(\"Cannot fill with NaN\")\n+def isna(obj):\n+    \"\"\"\n+    Detect missing values for an array-like object.\n+\n+    This function takes a scalar or array-like object and indicates\n+    whether values are missing (``NaN`` in numeric arrays, ``None`` or ``NaN``\n+    in object arrays, ``NaT`` in datetimelike).\n+\n+    Parameters\n+    ----------\n+    obj : scalar or array-like\n+        Object to check for null or missing values.\n+\n+    Returns\n+    -------\n+    bool or array-like of bool\n+        For scalar input, returns a scalar boolean.\n+        For array input, returns an array of boolean indicating whether each\n+        corresponding element is missing.\n+\n+    See Also\n+    --------\n+    notna : Boolean inverse of pandas.isna.\n+    Series.isna : Detect missing values in a Series.\n+    DataFrame.isna : Detect missing values in a DataFrame.\n+    Index.isna : Detect missing values in an Index.\n+\n+    Examples\n+    --------\n+    Scalar arguments (including strings) result in a scalar boolean.\n+\n+    >>> pd.isna('dog')\n+    False\n+\n+    >>> pd.isna(np.nan)\n+    True\n+\n+    ndarrays result in an ndarray of booleans.\n+\n+    >>> array = np.array([[1, np.nan, 3], [4, 5, np.nan]])\n+    >>> array\n+    array([[ 1., nan,  3.],\n+           [ 4.,  5., nan]])\n+    >>> pd.isna(array)\n+    array([[False,  True, False],\n+           [False, False,  True]])\n+\n+    For indexes, an ndarray of booleans is returned.\n+\n+    >>> index = pd.DatetimeIndex([\"2017-07-05\", \"2017-07-06\", None,\n+    ...                           \"2017-07-08\"])\n+    >>> index\n+    DatetimeIndex(['2017-07-05', '2017-07-06', 'NaT', '2017-07-08'],\n+                  dtype='datetime64[ns]', freq=None)\n+    >>> pd.isna(index)\n+    array([False, False,  True, False])\n+\n+    For Series and DataFrame, the same type is returned, containing booleans.\n+\n+    >>> df = pd.DataFrame([['ant', 'bee', 'cat'], ['dog', None, 'fly']])\n+    >>> df\n+         0     1    2\n+    0  ant   bee  cat\n+    1  dog  None  fly\n+    >>> pd.isna(df)\n+           0      1      2\n+    0  False  False  False\n+    1  False   True  False\n+\n+    >>> pd.isna(df[1])\n+    0    False\n+    1     True\n+    Name: 1, dtype: bool\n+    \"\"\"\n+    return _isna(obj)\n+\n+\n+isnull = isna\n+\n+\n+def _isna_new(obj):\n+    if is_scalar(obj):\n+        return libmissing.checknull(obj)\n+    # hack (for now) because MI registers as ndarray\n+    elif isinstance(obj, ABCMultiIndex):\n+        raise NotImplementedError(\"isna is not defined for MultiIndex\")\n+    elif isinstance(\n+        obj,\n+        (\n+            ABCSeries,\n+            np.ndarray,\n+            ABCIndexClass,\n+            ABCExtensionArray,\n+            ABCDatetimeArray,\n+            ABCTimedeltaArray,\n+        ),\n+    ):\n+        return _isna_ndarraylike(obj)\n+    elif isinstance(obj, ABCGeneric):\n+        return obj._constructor(obj._data.isna(func=isna))\n+    elif isinstance(obj, list):\n+        return _isna_ndarraylike(np.asarray(obj, dtype=object))\n+    elif hasattr(obj, \"__array__\"):\n+        return _isna_ndarraylike(np.asarray(obj))\n+    else:\n+        return obj is None\n+\n+\n+def _isna_old(obj):\n+    \"\"\"Detect missing values. Treat None, NaN, INF, -INF as null.\n+\n+    Parameters\n+    ----------\n+    arr: ndarray or object value\n+\n+    Returns\n+    -------\n+    boolean ndarray or boolean\n+    \"\"\"\n+    if is_scalar(obj):\n+        return libmissing.checknull_old(obj)\n+    # hack (for now) because MI registers as ndarray\n+    elif isinstance(obj, ABCMultiIndex):\n+        raise NotImplementedError(\"isna is not defined for MultiIndex\")\n+    elif isinstance(obj, (ABCSeries, np.ndarray, ABCIndexClass)):\n+        return _isna_ndarraylike_old(obj)\n+    elif isinstance(obj, ABCGeneric):\n+        return obj._constructor(obj._data.isna(func=_isna_old))\n+    elif isinstance(obj, list):\n+        return _isna_ndarraylike_old(np.asarray(obj, dtype=object))\n+    elif hasattr(obj, \"__array__\"):\n+        return _isna_ndarraylike_old(np.asarray(obj))\n+    else:\n+        return obj is None\n+\n+\n+_isna = _isna_new\n+\n+\n+def _use_inf_as_na(key):\n+    \"\"\"Option change callback for na/inf behaviour\n+    Choose which replacement for numpy.isnan / -numpy.isfinite is used.\n+\n+    Parameters\n+    ----------\n+    flag: bool\n+        True means treat None, NaN, INF, -INF as null (old way),\n+        False means None and NaN are null, but INF, -INF are not null\n+        (new way).\n+\n+    Notes\n+    -----\n+    This approach to setting global module values is discussed and\n+    approved here:\n+\n+    * http://stackoverflow.com/questions/4859217/\n+      programmatically-creating-variables-in-python/4859312#4859312\n+    \"\"\"\n+    flag = get_option(key)\n+    if flag:\n+        globals()[\"_isna\"] = _isna_old\n+    else:\n+        globals()[\"_isna\"] = _isna_new\n+\n+\n+def _isna_ndarraylike(obj):\n+    is_extension = is_extension_array_dtype(obj)\n+\n+    if not is_extension:\n+        # Avoid accessing `.values` on things like\n+        # PeriodIndex, which may be expensive.\n+        values = getattr(obj, \"values\", obj)\n+    else:\n+        values = obj\n+\n+    dtype = values.dtype\n+\n+    if is_extension:\n+        if isinstance(obj, (ABCIndexClass, ABCSeries)):\n+            values = obj._values\n+        else:\n+            values = obj\n+        result = values.isna()\n+    elif isinstance(obj, ABCDatetimeArray):\n+        return obj.isna()\n+    elif is_string_dtype(dtype):\n+        # Working around NumPy ticket 1542\n+        shape = values.shape\n+\n+        if is_string_like_dtype(dtype):\n+            # object array of strings\n+            result = np.zeros(values.shape, dtype=bool)\n+        else:\n+            # object array of non-strings\n+            result = np.empty(shape, dtype=bool)\n+            vec = libmissing.isnaobj(values.ravel())\n+            result[...] = vec.reshape(shape)\n+\n+    elif needs_i8_conversion(dtype):\n+        # this is the NaT pattern\n+        result = values.view(\"i8\") == iNaT\n+    else:\n+        result = np.isnan(values)\n+\n+    # box\n+    if isinstance(obj, ABCSeries):\n+        result = obj._constructor(result, index=obj.index, name=obj.name, copy=False)\n+\n+    return result\n+\n+\n+def _isna_ndarraylike_old(obj):\n+    values = getattr(obj, \"values\", obj)\n+    dtype = values.dtype\n+\n+    if is_string_dtype(dtype):\n+        # Working around NumPy ticket 1542\n+        shape = values.shape\n+\n+        if is_string_like_dtype(dtype):\n+            result = np.zeros(values.shape, dtype=bool)\n+        else:\n+            result = np.empty(shape, dtype=bool)\n+            vec = libmissing.isnaobj_old(values.ravel())\n+            result[:] = vec.reshape(shape)\n+\n+    elif is_datetime64_dtype(dtype):\n+        # this is the NaT pattern\n+        result = values.view(\"i8\") == iNaT\n+    else:\n+        result = ~np.isfinite(values)\n+\n+    # box\n+    if isinstance(obj, ABCSeries):\n+        result = obj._constructor(result, index=obj.index, name=obj.name, copy=False)\n+\n+    return result\n+\n+\n+def notna(obj):\n+    \"\"\"\n+    Detect non-missing values for an array-like object.\n+\n+    This function takes a scalar or array-like object and indicates\n+    whether values are valid (not missing, which is ``NaN`` in numeric\n+    arrays, ``None`` or ``NaN`` in object arrays, ``NaT`` in datetimelike).\n+\n+    Parameters\n+    ----------\n+    obj : array-like or object value\n+        Object to check for *not* null or *non*-missing values.\n+\n+    Returns\n+    -------\n+    bool or array-like of bool\n+        For scalar input, returns a scalar boolean.\n+        For array input, returns an array of boolean indicating whether each\n+        corresponding element is valid.\n+\n+    See Also\n+    --------\n+    isna : Boolean inverse of pandas.notna.\n+    Series.notna : Detect valid values in a Series.\n+    DataFrame.notna : Detect valid values in a DataFrame.\n+    Index.notna : Detect valid values in an Index.\n+\n+    Examples\n+    --------\n+    Scalar arguments (including strings) result in a scalar boolean.\n+\n+    >>> pd.notna('dog')\n+    True\n+\n+    >>> pd.notna(np.nan)\n+    False\n+\n+    ndarrays result in an ndarray of booleans.\n+\n+    >>> array = np.array([[1, np.nan, 3], [4, 5, np.nan]])\n+    >>> array\n+    array([[ 1., nan,  3.],\n+           [ 4.,  5., nan]])\n+    >>> pd.notna(array)\n+    array([[ True, False,  True],\n+           [ True,  True, False]])\n+\n+    For indexes, an ndarray of booleans is returned.\n+\n+    >>> index = pd.DatetimeIndex([\"2017-07-05\", \"2017-07-06\", None,\n+    ...                          \"2017-07-08\"])\n+    >>> index\n+    DatetimeIndex(['2017-07-05', '2017-07-06', 'NaT', '2017-07-08'],\n+                  dtype='datetime64[ns]', freq=None)\n+    >>> pd.notna(index)\n+    array([ True,  True, False,  True])\n+\n+    For Series and DataFrame, the same type is returned, containing booleans.\n+\n+    >>> df = pd.DataFrame([['ant', 'bee', 'cat'], ['dog', None, 'fly']])\n+    >>> df\n+         0     1    2\n+    0  ant   bee  cat\n+    1  dog  None  fly\n+    >>> pd.notna(df)\n+          0      1     2\n+    0  True   True  True\n+    1  True  False  True\n+\n+    >>> pd.notna(df[1])\n+    0     True\n+    1    False\n+    Name: 1, dtype: bool\n+    \"\"\"\n+    res = isna(obj)\n+    if is_scalar(res):\n+        return not res\n+    return ~res\n+\n+\n+notnull = notna\n+\n+\n def _isna_compat(arr, fill_value=np.nan):\n     \"\"\"\n     Parameters\ndiff --git a/pandas/tests/series/test_missing.py b/pandas/tests/series/test_missing.py\nindex f1b84acf68..ddd2c566f4 100644\n--- a/pandas/tests/series/test_missing.py\n+++ b/pandas/tests/series/test_missing.py\n@@ -578,6 +578,28 @@ class TestSeriesMissingData:\n         exp = Series(Categorical(expected_output, categories=[\"a\", \"b\"]))\n         tm.assert_series_equal(s.fillna(fill_value), exp)\n \n+    @pytest.mark.parametrize(\n+        \"fill_value, expected_output\",\n+        [\n+            (Series([\"a\", \"b\", \"c\", \"d\", \"e\"]), [\"a\", \"b\", \"b\", \"d\", \"e\"]),\n+            (Series([\"b\", \"d\", \"a\", \"d\", \"a\"]), [\"a\", \"d\", \"b\", \"d\", \"a\"]),\n+            (\n+                Series(\n+                    Categorical(\n+                        [\"b\", \"d\", \"a\", \"d\", \"a\"], categories=[\"b\", \"c\", \"d\", \"e\", \"a\"]\n+                    )\n+                ),\n+                [\"a\", \"d\", \"b\", \"d\", \"a\"],\n+            ),\n+        ],\n+    )\n+    def test_fillna_categorical_with_new_categories(self, fill_value, expected_output):\n+        # GH 26215\n+        data = [\"a\", np.nan, \"b\", np.nan, np.nan]\n+        s = Series(Categorical(data, categories=[\"a\", \"b\", \"c\", \"d\", \"e\"]))\n+        exp = Series(Categorical(expected_output, categories=[\"a\", \"b\", \"c\", \"d\", \"e\"]))\n+        tm.assert_series_equal(s.fillna(fill_value), exp)\n+\n     def test_fillna_categorical_raise(self):\n         data = [\"a\", np.nan, \"b\", np.nan, np.nan]\n         s = Series(Categorical(data, categories=[\"a\", \"b\"]))\n"
+  },
+  "timestamp": "2026-06-18 00:29:09 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_161",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_161/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Ensure that fill_na in Categorical only replaces null values (#27932)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 447,
+        "end_line": 447,
+        "suspiciousness": 0.967742,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 448,
+        "end_line": 448,
+        "suspiciousness": 0.967742,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 449,
+        "end_line": 449,
+        "suspiciousness": 0.967742,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 450,
+        "end_line": 450,
+        "suspiciousness": 0.967742,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 451,
+        "end_line": 451,
+        "suspiciousness": 0.967742,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/dtypes/inference.py",
+        "start_line": 452,
+        "end_line": 452,
+        "suspiciousness": 0.967742,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 445,
+        "end_line": 445,
+        "suspiciousness": 0.967742,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1048,
+        "end_line": 1048,
+        "suspiciousness": 0.967742,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1049,
+        "end_line": 1049,
+        "suspiciousness": 0.967742,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1050,
+        "end_line": 1050,
+        "suspiciousness": 0.967742,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/series/test_missing.py::TestSeriesMissingData::test_fillna_categorical_with_new_categories"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 447,
+      "end_line": 447,
+      "suspiciousness": 0.967742,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 448,
+      "end_line": 448,
+      "suspiciousness": 0.967742,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 449,
+      "end_line": 449,
+      "suspiciousness": 0.967742,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 450,
+      "end_line": 450,
+      "suspiciousness": 0.967742,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 451,
+      "end_line": 451,
+      "suspiciousness": 0.967742,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/dtypes/inference.py",
+      "start_line": 452,
+      "end_line": 452,
+      "suspiciousness": 0.967742,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 445,
+      "end_line": 445,
+      "suspiciousness": 0.967742,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1048,
+      "end_line": 1048,
+      "suspiciousness": 0.967742,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1049,
+      "end_line": 1049,
+      "suspiciousness": 0.967742,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1050,
+      "end_line": 1050,
+      "suspiciousness": 0.967742,
+      "rank": 10
+    }
+  ]
+}

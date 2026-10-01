@@ -1,0 +1,55 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_114",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 04:41:13",
+      "end_time": "2026-03-24 05:08:06",
+      "duration_seconds": 1613,
+      "duration_human": "26m 53s"
+    },
+    "model_cost": 0.1264,
+    "model_calls": 16,
+    "token_usage": {
+      "input_tokens": 422800,
+      "output_tokens": 42700,
+      "total_tokens": 465500,
+      "cached_input_tokens": 19456,
+      "uncached_input_tokens": 403344
+    },
+    "agent_steps": 16,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/base.py b/pandas/core/indexes/base.py\nindex b99e60f8c6..751b486c28 100644\n--- a/pandas/core/indexes/base.py\n+++ b/pandas/core/indexes/base.py\n@@ -4483,8 +4483,11 @@ class Index(IndexOpsMixin, PandasObject):\n             A value in the Series with the index of the key value in self.\n         \"\"\"\n \n-    @Appender(_index_shared_docs[\"get_value\"] % _index_doc_kwargs)\n     def get_value(self, series, key):\n+        \"\"\"\n+        Fast lookup of value from 1-dimensional ndarray. Only use this if you\n+        know what you're doing.\n+        \"\"\"\n \n         # if we have something that is Index-like, then\n         # use this, e.g. DatetimeIndex\n@@ -4501,23 +4504,27 @@ class Index(IndexOpsMixin, PandasObject):\n                 iloc = self.get_loc(key)\n                 return s[iloc]\n             except KeyError:\n-                if len(self) > 0 and (self.holds_integer() or self.is_boolean()):\n+                if (len(self) > 0 and\n+                        (self.holds_integer() or self.is_boolean())):\n                     raise\n                 elif is_integer(key):\n                     return s[key]\n+                else:\n+                    raise\n \n         s = com.values_from_object(series)\n         k = com.values_from_object(key)\n \n         k = self._convert_scalar_indexer(k, kind=\"getitem\")\n         try:\n-            return self._engine.get_value(s, k, tz=getattr(series.dtype, \"tz\", None))\n+            return self._engine.get_value(s, k,\n+                                          tz=getattr(series.dtype, 'tz', None))\n         except KeyError as e1:\n             if len(self) > 0 and (self.holds_integer() or self.is_boolean()):\n                 raise\n \n             try:\n-                return libindex.get_value_at(s, key)\n+                return libindex.get_value_box(s, key)\n             except IndexError:\n                 raise\n             except TypeError:\n@@ -4533,7 +4540,6 @@ class Index(IndexOpsMixin, PandasObject):\n             if is_scalar(key):\n                 raise IndexError(key)\n             raise InvalidIndexError(key)\n-\n     def set_value(self, arr, key, value):\n         \"\"\"\n         Fast lookup of value from 1-dimensional ndarray.\ndiff --git a/pandas/tests/extension/decimal/test_decimal.py b/pandas/tests/extension/decimal/test_decimal.py\nindex ce819c13c4..b5c3abd8ce 100644\n--- a/pandas/tests/extension/decimal/test_decimal.py\n+++ b/pandas/tests/extension/decimal/test_decimal.py\n@@ -478,3 +478,24 @@ def test_groupby_agg_ea_method(monkeypatch):\n     s = pd.Series(DecimalArray(data))\n     result = s.groupby(np.array([0, 0, 0, 1, 1])).agg(lambda x: x.values.my_sum())\n     tm.assert_series_equal(result, expected, check_names=False)\n+\n+\n+def test_indexing_no_materialize(monkeypatch):\n+    # See https://github.com/pandas-dev/pandas/issues/29708\n+    # Ensure that indexing operations do not materialize (convert to a numpy\n+    # array) the ExtensionArray unnecessary\n+\n+    def DecimalArray__array__(self, dtype=None):\n+        raise Exception(\"tried to convert a DecimalArray to a numpy array\")\n+\n+    monkeypatch.setattr(DecimalArray, \"__array__\", DecimalArray__array__, raising=False)\n+\n+    data = make_data()\n+    s = pd.Series(DecimalArray(data))\n+    df = pd.DataFrame({\"a\": s, \"b\": range(len(s))})\n+\n+    # ensure the following operations do not raise an error\n+    s[s > 0.5]\n+    df[s > 0.5]\n+    s.at[0]\n+    df.at[0, \"a\"]\n"
+  },
+  "timestamp": "2026-03-24 01:08:06 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_114",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_114/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Index.get_value implementation for ExtensionArray (#29926)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 4492,
+        "end_line": 4507,
+        "function_name": "get_value",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/extension/decimal/test_decimal.py::test_indexing_no_materialize"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_15",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 16:56:35",
+      "end_time": "2026-03-23 17:30:16",
+      "duration_seconds": 2021,
+      "duration_human": "33m 41s"
+    },
+    "model_cost": 0.1133,
+    "model_calls": 36,
+    "token_usage": {
+      "input_tokens": 954181,
+      "output_tokens": 67889,
+      "total_tokens": 1022070,
+      "cached_input_tokens": 637568,
+      "uncached_input_tokens": 316613
+    },
+    "agent_steps": 36,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex d67beb9e..71a92038 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -482,145 +482,18 @@ class SimpleTaskState(object):\n     def get_necessary_tasks(self):\n         necessary_tasks = set()\n         for task in self.get_active_tasks():\n-            if task.status not in (DONE, DISABLED) or \\\n-                    getattr(task, 'scheduler_disable_time', None) is not None:\n-                necessary_tasks.update(task.deps)\n+            # Only nurture tasks that are not UNKNOWN\n+            if task.status != UNKNOWN:\n                 necessary_tasks.add(task.id)\n+                # Add dependencies that are not DONE, DISABLED, or UNKNOWN (or have scheduler_disable_time)\n+                for dep in task.deps:\n+                    dep_task = self.get_task(dep)\n+                    if dep_task:\n+                        if dep_task.status not in (DONE, DISABLED, UNKNOWN) or \\\n+                                getattr(dep_task, 'scheduler_disable_time', None) is not None:\n+                            necessary_tasks.add(dep)\n         return necessary_tasks\n \n-\n-class CentralPlannerScheduler(Scheduler):\n-    \"\"\"\n-    Async scheduler that can handle multiple workers, etc.\n-\n-    Can be run locally or on a server (using RemoteScheduler + server.Server).\n-    \"\"\"\n-\n-    def __init__(self, config=None, resources=None, task_history_impl=None, **kwargs):\n-        \"\"\"\n-        Keyword Arguments:\n-        :param config: an object of class \"scheduler\" or None (in which the global instance will be used)\n-        :param resources: a dict of str->int constraints\n-        :param task_history_override: ignore config and use this object as the task history\n-        \"\"\"\n-        self._config = config or scheduler(**kwargs)\n-        self._state = SimpleTaskState(self._config.state_path)\n-\n-        if task_history_impl:\n-            self._task_history = task_history_impl\n-        elif self._config.record_task_history:\n-            from luigi import db_task_history  # Needs sqlalchemy, thus imported here\n-            self._task_history = db_task_history.DbTaskHistory()\n-        else:\n-            self._task_history = history.NopHistory()\n-        self._resources = resources or configuration.get_config().getintdict('resources')  # TODO: Can we make this a Parameter?\n-        self._make_task = functools.partial(\n-            Task, disable_failures=self._config.disable_failures,\n-            disable_hard_timeout=self._config.disable_hard_timeout,\n-            disable_window=self._config.disable_window)\n-        self._worker_requests = {}\n-\n-    def load(self):\n-        self._state.load()\n-\n-    def dump(self):\n-        self._state.dump()\n-\n-    def prune(self):\n-        logger.info(\"Starting pruning of task graph\")\n-        self._prune_workers()\n-        self._prune_tasks()\n-        logger.info(\"Done pruning task graph\")\n-\n-    def _prune_workers(self):\n-        remove_workers = []\n-        for worker in self._state.get_active_workers():\n-            if worker.prune(self._config):\n-                logger.info(\"Worker %s timed out (no contact for >=%ss)\", worker, self._config.worker_disconnect_delay)\n-                remove_workers.append(worker.id)\n-\n-        self._state.inactivate_workers(remove_workers)\n-\n-    def _prune_tasks(self):\n-        assistant_ids = set(w.id for w in self._state.get_assistants())\n-        remove_tasks = []\n-\n-        if assistant_ids:\n-            necessary_tasks = self._state.get_necessary_tasks()\n-        else:\n-            necessary_tasks = ()\n-\n-        for task in self._state.get_active_tasks():\n-            self._state.fail_dead_worker_task(task, self._config, assistant_ids)\n-            self._state.update_status(task, self._config)\n-            if self._state.may_prune(task) and task.id not in necessary_tasks:\n-                logger.info(\"Removing task %r\", task.id)\n-                remove_tasks.append(task.id)\n-\n-        self._state.inactivate_tasks(remove_tasks)\n-\n-    def update(self, worker_id, worker_reference=None, get_work=False):\n-        \"\"\"\n-        Keep track of whenever the worker was last active.\n-        \"\"\"\n-        worker = self._state.get_worker(worker_id)\n-        worker.update(worker_reference, get_work=get_work)\n-        return not getattr(worker, 'disabled', False)\n-\n-    def _update_priority(self, task, prio, worker):\n-        \"\"\"\n-        Update priority of the given task.\n-\n-        Priority can only be increased.\n-        If the task doesn't exist, a placeholder task is created to preserve priority when the task is later scheduled.\n-        \"\"\"\n-        task.priority = prio = max(prio, task.priority)\n-        for dep in task.deps or []:\n-            t = self._state.get_task(dep)\n-            if t is not None and prio > t.priority:\n-                self._update_priority(t, prio, worker)\n-\n-    def add_task(self, task_id=None, status=PENDING, runnable=True,\n-                 deps=None, new_deps=None, expl=None, resources=None,\n-                 priority=0, family='', module=None, params=None,\n-                 assistant=False, tracking_url=None, **kwargs):\n-        \"\"\"\n-        * add task identified by task_id if it doesn't exist\n-        * if deps is not None, update dependency list\n-        * update status of task\n-        * add additional workers/stakeholders\n-        * update priority when needed\n-        \"\"\"\n-        worker_id = kwargs['worker']\n-        worker_enabled = self.update(worker_id)\n-\n-        if worker_enabled:\n-            _default_task = self._make_task(\n-                task_id=task_id, status=PENDING, deps=deps, resources=resources,\n-                priority=priority, family=family, module=module, params=params,\n-            )\n-        else:\n-            _default_task = None\n-\n-        task = self._state.get_task(task_id, setdefault=_default_task)\n-\n-        if task is None or (task.status != RUNNING and not worker_enabled):\n-            return\n-\n-        # for setting priority, we'll sometimes create tasks with unset family and params\n-        if not task.family:\n-            task.family = family\n-        if not getattr(task, 'module', None):\n-            task.module = module\n-        if not task.params:\n-            task.params = _get_default(params, {})\n-\n-        if tracking_url is not None or task.status != RUNNING:\n-            task.tracking_url = tracking_url\n-\n-        if task.remove is not None:\n-            task.remove = None  # unmark task for removal so it isn't removed after being added\n-\n         if expl is not None:\n             task.expl = expl\n \ndiff --git a/test/central_planner_test.py b/test/central_planner_test.py\nindex e03685d3..2f3e47ec 100644\n--- a/test/central_planner_test.py\n+++ b/test/central_planner_test.py\n@@ -21,7 +21,8 @@ from helpers import unittest\n from nose.plugins.attrib import attr\n \n import luigi.notifications\n-from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, CentralPlannerScheduler\n+from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, \\\n+    UNKNOWN, CentralPlannerScheduler\n \n luigi.notifications.DEBUG = True\n WORKER = 'myworker'\n@@ -1086,5 +1087,42 @@ class CentralPlannerTest(unittest.TestCase):\n             self.assertTrue(0 <= res < NUM_PENDING)\n             self.sch.add_task(worker=WORKER, task_id=str(res), status=DONE)\n \n-if __name__ == '__main__':\n-    unittest.main()\n+    def test_assistants_dont_nurture_finished_statuses(self):\n+        \"\"\"\n+        Assistants should not affect longevity of DONE tasks\n+\n+        Also check for statuses DISABLED and UNKNOWN.\n+        \"\"\"\n+        self.sch = CentralPlannerScheduler(retry_delay=100000000000)  # Never pendify failed tasks\n+        self.setTime(1)\n+        self.sch.add_worker('assistant', [('assistant', True)])\n+        self.sch.ping(worker='assistant')\n+        self.sch.add_task(worker='uploader', task_id='running', status=PENDING)\n+        self.assertEqual(self.sch.get_work(worker='assistant', assistant=True)['task_id'], 'running')\n+\n+        self.setTime(2)\n+        self.sch.add_task(worker='uploader', task_id='done', status=DONE)\n+        self.sch.add_task(worker='uploader', task_id='disabled', status=DISABLED)\n+        self.sch.add_task(worker='uploader', task_id='pending', status=PENDING)\n+        self.sch.add_task(worker='uploader', task_id='failed', status=FAILED)\n+        self.sch.add_task(worker='uploader', task_id='unknown', status=UNKNOWN)\n+\n+        self.setTime(100000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+\n+        self.setTime(200000)\n+        self.sch.ping(worker='assistant')\n+        self.sch.prune()\n+        nurtured_statuses = ['PENDING', 'FAILED', 'RUNNING']\n+        not_nurtured_statuses = ['DONE', 'UNKNOWN', 'DISABLED']\n+\n+        for status in nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([status.lower()]), set(self.sch.task_list(status, '')))\n+\n+        for status in not_nurtured_statuses:\n+            print(status)\n+            self.assertEqual(set([]), set(self.sch.task_list(status, '')))\n+\n+        self.assertEqual(3, len(self.sch.task_list(None, '')))  # None == All statuses\n"
+  },
+  "timestamp": "2026-03-23 13:30:16 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_15",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_15/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "assistants bugfix: Also prune UNKNOWN tasks",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 485,
+        "end_line": 486,
+        "function_name": "get_necessary_tasks",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/central_planner_test.py::CentralPlannerTest::test_assistants_dont_nurture_finished_statuses"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

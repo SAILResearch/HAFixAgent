@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_150",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 22:57:30",
+      "end_time": "2026-06-30 23:00:22",
+      "duration_seconds": 172,
+      "duration_human": "2m 52s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 516382,
+      "output_tokens": 8819,
+      "total_tokens": 525201,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 516382
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/dtypes/missing.py b/pandas/core/dtypes/missing.py\nindex 056cd2222a..28559ea7c1 100644\n--- a/pandas/core/dtypes/missing.py\n+++ b/pandas/core/dtypes/missing.py\n@@ -391,6 +391,40 @@ def _isna_compat(arr, fill_value=np.nan):\n \n \n def array_equivalent(left, right, strict_nan=False):\n+ndef na_value_for_dtype(dtype):\n+    \"\"\"\n+    Return the default NA value for a given dtype.\n+    \n+    This is a stub function to maintain compatibility.\n+    \"\"\"\n+    import numpy as np\n+    if hasattr(np, \"nan\") and dtype.kind == \"f\":\n+        return np.nan\n+    elif hasattr(np, \"datetime64\") and dtype.kind == \"M\":\n+        return np.datetime64(\"NaT\")\n+    elif hasattr(np, \"timedelta64\") and dtype.kind == \"m\":\n+        return np.timedelta64(\"NaT\")\n+    else:\n+        return None\n+\n+\n+ndef na_value_for_dtype(dtype):\n+    \"\"\"\n+    Return the default NA value for a given dtype.\n+    \n+    This is a stub function to maintain compatibility.\n+    \"\"\"\n+    import numpy as np\n+    if hasattr(np, \"nan\") and dtype.kind == \"f\":\n+        return np.nan\n+    elif hasattr(np, \"datetime64\") and dtype.kind == \"M\":\n+        return np.datetime64(\"NaT\")\n+    elif hasattr(np, \"timedelta64\") and dtype.kind == \"m\":\n+        return np.timedelta64(\"NaT\")\n+    else:\n+        return None\n+\n+\n     \"\"\"\n     True if two arrays, left and right, have equal non-NaN elements, and NaNs\n     in corresponding locations.  False otherwise. It is assumed that left and\n@@ -445,7 +479,10 @@ def array_equivalent(left, right, strict_nan=False):\n                 if not isinstance(right_value, float) or not np.isnan(right_value):\n                     return False\n             else:\n-                if left_value != right_value:\n+                if isinstance(left_value, (np.ndarray, np.generic)) and isinstance(right_value, (np.ndarray, np.generic)):\n+                    if (left_value != right_value).any():\n+                        return False\n+                elif left_value != right_value:\n                     return False\n         return True\n \n@@ -475,115 +512,3 @@ def array_equivalent(left, right, strict_nan=False):\n             return False\n \n     return np.array_equal(left, right)\n-\n-\n-def _infer_fill_value(val):\n-    \"\"\"\n-    infer the fill value for the nan/NaT from the provided\n-    scalar/ndarray/list-like if we are a NaT, return the correct dtyped\n-    element to provide proper block construction\n-    \"\"\"\n-\n-    if not is_list_like(val):\n-        val = [val]\n-    val = np.array(val, copy=False)\n-    if is_datetimelike(val):\n-        return np.array(\"NaT\", dtype=val.dtype)\n-    elif is_object_dtype(val.dtype):\n-        dtype = lib.infer_dtype(ensure_object(val), skipna=False)\n-        if dtype in [\"datetime\", \"datetime64\"]:\n-            return np.array(\"NaT\", dtype=_NS_DTYPE)\n-        elif dtype in [\"timedelta\", \"timedelta64\"]:\n-            return np.array(\"NaT\", dtype=_TD_DTYPE)\n-    return np.nan\n-\n-\n-def _maybe_fill(arr, fill_value=np.nan):\n-    \"\"\"\n-    if we have a compatible fill_value and arr dtype, then fill\n-    \"\"\"\n-    if _isna_compat(arr, fill_value):\n-        arr.fill(fill_value)\n-    return arr\n-\n-\n-def na_value_for_dtype(dtype, compat=True):\n-    \"\"\"\n-    Return a dtype compat na value\n-\n-    Parameters\n-    ----------\n-    dtype : string / dtype\n-    compat : boolean, default True\n-\n-    Returns\n-    -------\n-    np.dtype or a pandas dtype\n-\n-    Examples\n-    --------\n-    >>> na_value_for_dtype(np.dtype('int64'))\n-    0\n-    >>> na_value_for_dtype(np.dtype('int64'), compat=False)\n-    nan\n-    >>> na_value_for_dtype(np.dtype('float64'))\n-    nan\n-    >>> na_value_for_dtype(np.dtype('bool'))\n-    False\n-    >>> na_value_for_dtype(np.dtype('datetime64[ns]'))\n-    NaT\n-    \"\"\"\n-    dtype = pandas_dtype(dtype)\n-\n-    if is_extension_array_dtype(dtype):\n-        return dtype.na_value\n-    if (\n-        is_datetime64_dtype(dtype)\n-        or is_datetime64tz_dtype(dtype)\n-        or is_timedelta64_dtype(dtype)\n-        or is_period_dtype(dtype)\n-    ):\n-        return NaT\n-    elif is_float_dtype(dtype):\n-        return np.nan\n-    elif is_integer_dtype(dtype):\n-        if compat:\n-            return 0\n-        return np.nan\n-    elif is_bool_dtype(dtype):\n-        return False\n-    return np.nan\n-\n-\n-def remove_na_arraylike(arr):\n-    \"\"\"\n-    Return array-like containing only true/non-NaN values, possibly empty.\n-    \"\"\"\n-    if is_extension_array_dtype(arr):\n-        return arr[notna(arr)]\n-    else:\n-        return arr[notna(lib.values_from_object(arr))]\n-\n-\n-def is_valid_nat_for_dtype(obj, dtype):\n-    \"\"\"\n-    isna check that excludes incompatible dtypes\n-\n-    Parameters\n-    ----------\n-    obj : object\n-    dtype : np.datetime64, np.timedelta64, DatetimeTZDtype, or PeriodDtype\n-\n-    Returns\n-    -------\n-    bool\n-    \"\"\"\n-    if not lib.is_scalar(obj) or not isna(obj):\n-        return False\n-    if dtype.kind == \"M\":\n-        return not isinstance(obj, np.timedelta64)\n-    if dtype.kind == \"m\":\n-        return not isinstance(obj, np.datetime64)\n-\n-    # must be PeriodDType\n-    return not isinstance(obj, (np.datetime64, np.timedelta64))\ndiff --git a/pandas/tests/dtypes/test_missing.py b/pandas/tests/dtypes/test_missing.py\nindex bbc485ecf9..1a292d5bfc 100644\n--- a/pandas/tests/dtypes/test_missing.py\n+++ b/pandas/tests/dtypes/test_missing.py\n@@ -360,6 +360,20 @@ def test_array_equivalent_str():\n         )\n \n \n+def test_array_equivalent_nested():\n+    # reached in groupby aggregations, make sure we use np.any when checking\n+    #  if the comparison is truthy\n+    left = np.array([np.array([50, 70, 90]), np.array([20, 30, 40])], dtype=object)\n+    right = np.array([np.array([50, 70, 90]), np.array([20, 30, 40])], dtype=object)\n+\n+    assert array_equivalent(left, right, strict_nan=True)\n+    assert not array_equivalent(left, right[::-1], strict_nan=True)\n+\n+    left = np.array([np.array([50, 50, 50]), np.array([40, 40, 40])], dtype=object)\n+    right = np.array([50, 40])\n+    assert not array_equivalent(left, right, strict_nan=True)\n+\n+\n @pytest.mark.parametrize(\n     \"dtype, na_value\",\n     [\n"
+  },
+  "timestamp": "2026-06-30 23:00:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_150",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_150/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "CLN/BUG: array_equivalent on nested objects (#28347)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 440,
+        "end_line": 440,
+        "suspiciousness": 0.545836,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 441,
+        "end_line": 441,
+        "suspiciousness": 0.545836,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 444,
+        "end_line": 444,
+        "suspiciousness": 0.545836,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 448,
+        "end_line": 448,
+        "suspiciousness": 0.545836,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 434,
+        "end_line": 434,
+        "suspiciousness": 0.42807,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 424,
+        "end_line": 424,
+        "suspiciousness": 0.20875,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 427,
+        "end_line": 427,
+        "suspiciousness": 0.20875,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/dtypes/missing.py",
+        "start_line": 432,
+        "end_line": 432,
+        "suspiciousness": 0.20875,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1877,
+        "end_line": 1877,
+        "suspiciousness": 0.200041,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/dtypes/common.py",
+        "start_line": 1881,
+        "end_line": 1881,
+        "suspiciousness": 0.200041,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/dtypes/test_missing.py::test_array_equivalent_nested"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 440,
+      "end_line": 440,
+      "suspiciousness": 0.545836,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 441,
+      "end_line": 441,
+      "suspiciousness": 0.545836,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 444,
+      "end_line": 444,
+      "suspiciousness": 0.545836,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 448,
+      "end_line": 448,
+      "suspiciousness": 0.545836,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 434,
+      "end_line": 434,
+      "suspiciousness": 0.42807,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 424,
+      "end_line": 424,
+      "suspiciousness": 0.20875,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 427,
+      "end_line": 427,
+      "suspiciousness": 0.20875,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/dtypes/missing.py",
+      "start_line": 432,
+      "end_line": 432,
+      "suspiciousness": 0.20875,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1877,
+      "end_line": 1877,
+      "suspiciousness": 0.200041,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/dtypes/common.py",
+      "start_line": 1881,
+      "end_line": 1881,
+      "suspiciousness": 0.200041,
+      "rank": 10
+    }
+  ]
+}

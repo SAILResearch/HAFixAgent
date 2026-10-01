@@ -1,0 +1,195 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_6",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 18:35:02",
+      "end_time": "2026-06-28 18:42:32",
+      "duration_seconds": 449,
+      "duration_human": "7m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 916560,
+      "output_tokens": 6411,
+      "total_tokens": 922971,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 916560
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/TypeValidator.java b/src/com/google/javascript/jscomp/TypeValidator.java\nindex 8cdb02a41..6e8f40eb7 100644\n--- a/src/com/google/javascript/jscomp/TypeValidator.java\n+++ b/src/com/google/javascript/jscomp/TypeValidator.java\n@@ -363,7 +363,9 @@ class TypeValidator {\n       JSType leftType, Node owner, String propName) {\n     // The NoType check is a hack to make typedefs work OK.\n     if (!leftType.isNoType() && !rightType.canAssignTo(leftType)) {\n-      if ((leftType.isConstructor() || leftType.isEnumType()) && (rightType.isConstructor() || rightType.isEnumType())) {\n+      if (bothIntrinsics(rightType, leftType)) {\n+        // We have a superior warning for this mistake, which gives you\n+        // the line numbers of both types.\n         registerMismatch(rightType, leftType, null);\n       } else {\n       // Do not type-check interface methods, because we expect that\n@@ -402,7 +404,9 @@ class TypeValidator {\n   boolean expectCanAssignTo(NodeTraversal t, Node n, JSType rightType,\n       JSType leftType, String msg) {\n     if (!rightType.canAssignTo(leftType)) {\n-      if ((leftType.isConstructor() || leftType.isEnumType()) && (rightType.isConstructor() || rightType.isEnumType())) {\n+      if (bothIntrinsics(rightType, leftType)) {\n+        // We have a superior warning for this mistake, which gives you\n+        // the line numbers of both types.\n         registerMismatch(rightType, leftType, null);\n       } else {\n       mismatch(t, n, msg, rightType, leftType);\n@@ -423,6 +427,11 @@ class TypeValidator {\n    * @param callNode The call node, to help with the warning message.\n    * @param ordinal The argument ordinal, to help with the warning message.\n    */\n+  private boolean bothIntrinsics(JSType rightType, JSType leftType) {\n+    return (leftType.isConstructor() || leftType.isEnumType()) &&\n+        (rightType.isConstructor() || rightType.isEnumType());\n+  }\n+\n   void expectArgumentMatchesParameter(NodeTraversal t, Node n, JSType argType,\n       JSType paramType, Node callNode, int ordinal) {\n     if (!argType.canAssignTo(paramType)) {\ndiff --git a/src/com/google/javascript/rhino/jstype/FunctionType.java b/src/com/google/javascript/rhino/jstype/FunctionType.java\nindex ba82d2a53..178c4433f 100644\n--- a/src/com/google/javascript/rhino/jstype/FunctionType.java\n+++ b/src/com/google/javascript/rhino/jstype/FunctionType.java\n@@ -1012,9 +1012,13 @@ public class FunctionType extends PrototypeObjectType {\n       // should be contravariant. However, this causes problems because\n       // of the way we enforce overrides. Because function(this:SubFoo)\n       // is not a subtype of function(this:Foo), our override check treats\n-      // this as an error. Let's punt on all this for now.\n+      // this as an error. It also screws up out standard method\n+      // for aliasing constructors. Let's punt on all this for now.\n       // TODO(nicksantos): fix this.\n       boolean treatThisTypesAsCovariant =\n+        // If either one of these is a ctor, skip 'this' checking.\n+        isConstructor() || other.isConstructor() ||\n+\n         // An interface 'this'-type is non-restrictive.\n         // In practical terms, if C implements I, and I has a method m,\n         // then any m doesn't necessarily have to C#m's 'this'\ndiff --git a/test/com/google/javascript/jscomp/LooseTypeCheckTest.java b/test/com/google/javascript/jscomp/LooseTypeCheckTest.java\nindex 94ee207a7..5f03ac64a 100644\n--- a/test/com/google/javascript/jscomp/LooseTypeCheckTest.java\n+++ b/test/com/google/javascript/jscomp/LooseTypeCheckTest.java\n@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;\n \n import com.google.common.base.Joiner;\n import com.google.common.collect.Lists;\n-import com.google.common.collect.Sets;\n import com.google.javascript.jscomp.CheckLevel;\n import com.google.javascript.jscomp.Scope.Var;\n import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;\n@@ -6937,12 +6936,10 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {\n           0, compiler.getWarningCount());\n     } else {\n       assertEquals(descriptions.size(), compiler.getWarningCount());\n-      Set<String> actualWarningDescriptions = Sets.newHashSet();\n       for (int i = 0; i < descriptions.size(); i++) {\n-        actualWarningDescriptions.add(compiler.getWarnings()[i].description);\n+        assertEquals(descriptions.get(i),\n+            compiler.getWarnings()[i].description);\n       }\n-      assertEquals(\n-          Sets.newHashSet(descriptions), actualWarningDescriptions);\n     }\n   }\n \ndiff --git a/test/com/google/javascript/jscomp/TypeCheckTest.java b/test/com/google/javascript/jscomp/TypeCheckTest.java\nindex ad43d218d..7c672fb6b 100644\n--- a/test/com/google/javascript/jscomp/TypeCheckTest.java\n+++ b/test/com/google/javascript/jscomp/TypeCheckTest.java\n@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;\n \n import com.google.common.base.Joiner;\n import com.google.common.collect.Lists;\n-import com.google.common.collect.Sets;\n import com.google.javascript.jscomp.Scope.Var;\n import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;\n import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;\n@@ -10877,12 +10876,10 @@ public class TypeCheckTest extends CompilerTypeTestCase {\n           \"unexpected warning(s) : \" +\n           Joiner.on(\", \").join(compiler.getWarnings()),\n           descriptions.size(), compiler.getWarningCount());\n-      Set<String> actualWarningDescriptions = Sets.newHashSet();\n       for (int i = 0; i < descriptions.size(); i++) {\n-        actualWarningDescriptions.add(compiler.getWarnings()[i].description);\n+        assertEquals(descriptions.get(i),\n+            compiler.getWarnings()[i].description);\n       }\n-      assertEquals(\n-          Sets.newHashSet(descriptions), actualWarningDescriptions);\n     }\n   }\n \n"
+  },
+  "timestamp": "2026-06-28 18:42:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_6",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_6",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "better 'this' type checking\n/** @constructor */\r\nfunction F() {}\r\nF.prototype.bar = function() { this.baz(); };\r\nF.prototype.baz = function() { };\r\n\r\n/** @constructor */\r\nfunction G() {}\r\nG.prototype.bar = F.prototype.bar;\r\n\r\nWe should notice that &quot;F.prototype.bar&quot; and &quot;G.prototype.bar&quot; have different &quot;this&quot; types, and emit a warning.",
+    "commit_message": "Fix parts of issue 635, mostly by deleting hacks that are now obsolete",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 367,
+        "end_line": 367,
+        "suspiciousness": 0.8164965809277261,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 406,
+        "end_line": 406,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+        "start_line": 839,
+        "end_line": 839,
+        "suspiciousness": 0.5773502691896258,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/rhino/jstype/EnumType.java",
+        "start_line": 145,
+        "end_line": 145,
+        "suspiciousness": 0.2581988897471611,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+        "start_line": 1856,
+        "end_line": 1856,
+        "suspiciousness": 0.2182178902359924,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 534,
+        "end_line": 534,
+        "suspiciousness": 0.20739033894608505,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 577,
+        "end_line": 577,
+        "suspiciousness": 0.1849000654084097,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 578,
+        "end_line": 578,
+        "suspiciousness": 0.1849000654084097,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 579,
+        "end_line": 579,
+        "suspiciousness": 0.1849000654084097,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+        "start_line": 580,
+        "end_line": 580,
+        "suspiciousness": 0.1849000654084097,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.LooseTypeCheckTest::testTypeRedefinition",
+      "com.google.javascript.jscomp.TypeCheckTest::testIssue635b",
+      "com.google.javascript.jscomp.TypeCheckTest::testTypeRedefinition"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 367,
+      "end_line": 367,
+      "suspiciousness": 0.8164965809277261,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 406,
+      "end_line": 406,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+      "start_line": 839,
+      "end_line": 839,
+      "suspiciousness": 0.5773502691896258,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/rhino/jstype/EnumType.java",
+      "start_line": 145,
+      "end_line": 145,
+      "suspiciousness": 0.2581988897471611,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+      "start_line": 1856,
+      "end_line": 1856,
+      "suspiciousness": 0.2182178902359924,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 534,
+      "end_line": 534,
+      "suspiciousness": 0.20739033894608505,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 577,
+      "end_line": 577,
+      "suspiciousness": 0.1849000654084097,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 578,
+      "end_line": 578,
+      "suspiciousness": 0.1849000654084097,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 579,
+      "end_line": 579,
+      "suspiciousness": 0.1849000654084097,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/TypeValidator.java",
+      "start_line": 580,
+      "end_line": 580,
+      "suspiciousness": 0.1849000654084097,
+      "rank": 10
+    }
+  ]
+}

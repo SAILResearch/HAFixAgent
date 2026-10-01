@@ -1,0 +1,62 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "39",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 23:30:06",
+      "end_time": "2025-10-10 23:31:36",
+      "duration_seconds": 90,
+      "duration_human": "1m 30s"
+    },
+    "model_cost": 0.0047,
+    "model_calls": 14,
+    "token_usage": {
+      "input_tokens": 46055,
+      "output_tokens": 1269,
+      "total_tokens": 47324,
+      "cached_input_tokens": 41408,
+      "uncached_input_tokens": 4647
+    },
+    "agent_steps": 14,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex d43bfe43..44f85be2 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -116,6 +116,7 @@ public class DataUtil {\n             docData = Charset.forName(defaultCharset).decode(byteData).toString();\n             docData = docData.substring(1);\n             charsetName = defaultCharset;\n+            doc = null;\n         }\n         if (doc == null) {\n             doc = parser.parseInput(docData, baseUri);\n"
+  },
+  "timestamp": "2025-10-10 23:31:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_39",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_39",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "JSoup incorrectly moves content from the <head> section into <body> for sample URL\nIf you load the following URL:\n\n```\nhttp://jornutzon.sydneyoperahouse.com/home.htm\n```\n\ninto:\n\n```\nhttp://try.jsoup.org/\n```\n\nthen it will move the content from the \"head\" section into the \"body\" section. The URL\nbeing parsed validates using the W3C validator:\n\nhttp://validator.w3.org/check?uri=http%3A%2F%2Fjornutzon.sydneyoperahouse.com%2Fhome.htm&charset=%28detect+automatically%29&doctype=Inline&ss=1&group=0&user-agent=W3C_Validator%2F1.3+http%3A%2F%2Fvalidator.w3.org%2Fservices\n\nWe are using JSoup 1.7.2\n\n",
+    "commit_message": "Fix issue with UTF-8 BOM when charset only in HTML.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/helper/DataUtil.java",
+        "start_line": 118,
+        "end_line": 118,
+        "line_numbers": [
+          118
+        ],
+        "function_name": "parseByteData",
+        "class_name": "DataUtil",
+        "filename": "DataUtil.java",
+        "code_snippet": "    static Document parseByteData(ByteBuffer byteData, String charsetName, String baseUri, Parser parser) {\n        String docData;\n        Document doc = null;\n        if (charsetName == null) { // determine from meta. safe parse as UTF-8\n            // look for <meta http-equiv=\"Content-Type\" content=\"text/html;charset=gb2312\"> or HTML5 <meta charset=\"gb2312\">\n            docData = Charset.forName(defaultCharset).decode(byteData).toString();\n            doc = parser.parseInput(docData, baseUri);\n            Element meta = doc.select(\"meta[http-equiv=content-type], meta[charset]\").first();\n            if (meta != null) { // if not found, will keep utf-8 as best attempt\n                String foundCharset;\n                if (meta.hasAttr(\"http-equiv\")) {\n                    foundCharset = getCharsetFromContentType(meta.attr(\"content\"));\n                    if (foundCharset == null && meta.hasAttr(\"charset\")) {\n                        try {\n                            if (Charset.isSupported(meta.attr(\"charset\"))) {\n                                foundCharset = meta.attr(\"charset\");\n                            }\n                        } catch (IllegalCharsetNameException e) {\n                            foundCharset = null;\n                        }\n                    }\n                } else {\n                    foundCharset = meta.attr(\"charset\");\n                }\n\n                if (foundCharset != null && foundCharset.length() != 0 && !foundCharset.equals(defaultCharset)) { // need to re-decode\n                    foundCharset = foundCharset.trim().replaceAll(\"[\\\"']\", \"\");\n                    charsetName = foundCharset;\n                    byteData.rewind();\n                    docData = Charset.forName(foundCharset).decode(byteData).toString();\n                    doc = null;\n                }\n            }\n        } else { // specified by content type header (or by user on file load)\n            Validate.notEmpty(charsetName, \"Must set charset arg to character set of file to parse. Set to null to attempt to detect from HTML\");\n            docData = Charset.forName(charsetName).decode(byteData).toString();\n        }\n        // UTF-8 BOM indicator. takes precedence over everything else. rarely used. re-decodes incase above decoded incorrectly\n        if (docData.length() > 0 && docData.charAt(0) == 65279) {\n            byteData.rewind();\n            docData = Charset.forName(defaultCharset).decode(byteData).toString();\n            docData = docData.substring(1);\n            charsetName = defaultCharset;\n        }\n        if (doc == null) {\n            doc = parser.parseInput(docData, baseUri);\n            doc.outputSettings().charset(charsetName);\n        }\n        return doc;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.helper.DataUtilTest::discardsSpuriousByteOrderMarkWhenNoCharsetSet"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/jsoup/helper/DataUtil.java b/src/main/java/org/jsoup/helper/DataUtil.java\nindex 44f85be..d43bfe4 100644\n--- a/src/main/java/org/jsoup/helper/DataUtil.java\n+++ b/src/main/java/org/jsoup/helper/DataUtil.java\n@@ -116,7 +116,6 @@ public class DataUtil {\n             docData = Charset.forName(defaultCharset).decode(byteData).toString();\n             docData = docData.substring(1);\n             charsetName = defaultCharset;\n+            doc = null;\n         }\n         if (doc == null) {\n             doc = parser.parseInput(docData, baseUri);",
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

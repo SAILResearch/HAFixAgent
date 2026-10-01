@@ -1,0 +1,71 @@
+{
+  "project_name": "ansible",
+  "bug_id": "ansible_6",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 15:49:10",
+      "end_time": "2026-03-23 16:10:32",
+      "duration_seconds": 1282,
+      "duration_human": "21m 22s"
+    },
+    "model_cost": 0.1496,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1041509,
+      "output_tokens": 42242,
+      "total_tokens": 1083751,
+      "cached_input_tokens": 551680,
+      "uncached_input_tokens": 489829
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py\nindex 24b13d97a1..40a71034c8 100644\n--- a/lib/ansible/galaxy/collection.py\n+++ b/lib/ansible/galaxy/collection.py\n@@ -121,24 +121,34 @@ class CollectionRequirement:\n         if len(new_versions) == 0:\n             if self.skip:\n                 force_flag = '--force-with-deps' if parent else '--force'\n-                version = self.latest_version if self.latest_version != '*' else 'unknown'\n-                msg = \"Cannot meet requirement %s:%s as it is already installed at version '%s'. Use %s to overwrite\" \\\n+            if self.skip and self.latest_version == \"*\":\n+                # For an installed collection with unknown version, we cannot validate the requirement.\n+                # Issue a warning and return without changing versions.\n+                display.warning(\"Failed to validate the collection requirement 047%s:%s047 for %s\" % (to_text(self), requirement, parent if parent else \"base\"))\n+                return\n+            elif self.skip:\n+                force_flag = \"--force-with-deps\" if parent else \"--force\"\n+                version = self.latest_version if self.latest_version != \"*\" else \"unknown\"\n+                msg = \"Cannot meet requirement %s:%s as it is already installed at version 047%s047. Use %s to overwrite\" \\\n                       % (to_text(self), requirement, version, force_flag)\n                 raise AnsibleError(msg)\n             elif parent is None:\n                 msg = \"Cannot meet requirement %s for dependency %s\" % (requirement, to_text(self))\n             else:\n-                msg = \"Cannot meet dependency requirement '%s:%s' for collection %s\" \\\n+                msg = \"Cannot meet dependency requirement 047%s:%s047 for collection %s\" \\\n                       % (to_text(self), requirement, parent)\n \n-            collection_source = to_text(self.b_path, nonstring='passthru') or self.api.api_server\n+            collection_source = to_text(self.b_path, nonstring=\"passthru\") or self.api.api_server\n             req_by = \"\\n\".join(\n-                \"\\t%s - '%s:%s'\" % (to_text(p) if p else 'base', to_text(self), r)\n+                \"\\t%s - 047%s:%s047\" % (to_text(p) if p else \"base\", to_text(self), r)\n                 for p, r in self.required_by\n             )\n \n             versions = \", \".join(sorted(self.versions, key=LooseVersion))\n             raise AnsibleError(\n+                \"%s from source 047%s047. Available versions before last requirement added: %s\\nRequirements from:\\n%s\"\n+                % (msg, collection_source, versions, req_by)\n+            )\n                 \"%s from source '%s'. Available versions before last requirement added: %s\\nRequirements from:\\n%s\"\n                 % (msg, collection_source, versions, req_by)\n             )\n@@ -192,9 +202,17 @@ class CollectionRequirement:\n         self._get_metadata()\n \n     def _get_metadata(self):\n-        if self._metadata:\n-            return\n-        self._metadata = self.api.get_collection_version_metadata(self.namespace, self.name, self.latest_version)\n+    def set_latest_version(self):\n+        if self.versions:\n+            # Find the latest version\n+            if \"*\" in self.versions:\n+                self._latest_version = \"*\"\n+            else:\n+                sorted_versions = sorted(self.versions, key=LooseVersion)\n+                self._latest_version = sorted_versions[-1]\n+        else:\n+            self._latest_version = None\n+        self._get_metadata()\n \n     def _meets_requirements(self, version, requirements, parent):\n         \"\"\"\n@@ -213,17 +231,20 @@ class CollectionRequirement:\n         for req in list(requirements.split(',')):\n             op_pos = 2 if len(req) > 1 and req[1] == '=' else 1\n             op = op_map.get(req[:op_pos])\n-\n-            requirement = req[op_pos:]\n-            if not op:\n-                requirement = req\n-                op = operator.eq\n-\n-                # In the case we are checking a new requirement on a base requirement (parent != None) we can't accept\n-                # version as '*' (unknown version) unless the requirement is also '*'.\n-                if parent and version == '*' and requirement != '*':\n+                # If the version we are checking is unknown, we cannot verify any specific requirement.\n+                if version == \"*\":\n+                    if requirement == \"*\":\n+                        continue\n+                    else:\n+                        break\n+                # If the requirement is any version, we can skip the check.\n+                if requirement == \"*\":\n+                    continue\n+                # If the version we are checking is unknown, we cannot verify any specific requirement.\n+                if version == '*' and requirement != '*':\n                     break\n-                elif requirement == '*' or version == '*':\n+                # If the requirement is any version, we can skip the check.\n+                if requirement == '*':\n                     continue\n \n             if not op(LooseVersion(version), LooseVersion(requirement)):\ndiff --git a/test/units/galaxy/test_collection_install.py b/test/units/galaxy/test_collection_install.py\nindex 3efd833b18..fc437db681 100644\n--- a/test/units/galaxy/test_collection_install.py\n+++ b/test/units/galaxy/test_collection_install.py\n@@ -165,13 +165,14 @@ def test_build_requirement_from_path(collection_artifact):\n     assert actual.dependencies == {}\n \n \n-def test_build_requirement_from_path_with_manifest(collection_artifact):\n+@pytest.mark.parametrize('version', ['1.1.1', 1.1, 1])\n+def test_build_requirement_from_path_with_manifest(version, collection_artifact):\n     manifest_path = os.path.join(collection_artifact[0], b'MANIFEST.json')\n     manifest_value = json.dumps({\n         'collection_info': {\n             'namespace': 'namespace',\n             'name': 'name',\n-            'version': '1.1.1',\n+            'version': version,\n             'dependencies': {\n                 'ansible_namespace.collection': '*'\n             }\n@@ -188,8 +189,8 @@ def test_build_requirement_from_path_with_manifest(collection_artifact):\n     assert actual.b_path == collection_artifact[0]\n     assert actual.api is None\n     assert actual.skip is True\n-    assert actual.versions == set([u'1.1.1'])\n-    assert actual.latest_version == u'1.1.1'\n+    assert actual.versions == set([to_text(version)])\n+    assert actual.latest_version == to_text(version)\n     assert actual.dependencies == {'ansible_namespace.collection': '*'}\n \n \n@@ -203,6 +204,42 @@ def test_build_requirement_from_path_invalid_manifest(collection_artifact):\n         collection.CollectionRequirement.from_path(collection_artifact[0], True)\n \n \n+def test_build_requirement_from_path_no_version(collection_artifact, monkeypatch):\n+    manifest_path = os.path.join(collection_artifact[0], b'MANIFEST.json')\n+    manifest_value = json.dumps({\n+        'collection_info': {\n+            'namespace': 'namespace',\n+            'name': 'name',\n+            'version': '',\n+            'dependencies': {}\n+        }\n+    })\n+    with open(manifest_path, 'wb') as manifest_obj:\n+        manifest_obj.write(to_bytes(manifest_value))\n+\n+    mock_display = MagicMock()\n+    monkeypatch.setattr(Display, 'display', mock_display)\n+\n+    actual = collection.CollectionRequirement.from_path(collection_artifact[0], True)\n+\n+    # While the folder name suggests a different collection, we treat MANIFEST.json as the source of truth.\n+    assert actual.namespace == u'namespace'\n+    assert actual.name == u'name'\n+    assert actual.b_path == collection_artifact[0]\n+    assert actual.api is None\n+    assert actual.skip is True\n+    assert actual.versions == set(['*'])\n+    assert actual.latest_version == u'*'\n+    assert actual.dependencies == {}\n+\n+    assert mock_display.call_count == 1\n+\n+    actual_warn = ' '.join(mock_display.mock_calls[0][1][0].split('\\n'))\n+    expected_warn = \"Collection at '%s' does not have a valid version set, falling back to '*'. Found version: ''\" \\\n+        % to_text(collection_artifact[0])\n+    assert expected_warn in actual_warn\n+\n+\n def test_build_requirement_from_tar(collection_artifact):\n     actual = collection.CollectionRequirement.from_tar(collection_artifact[1], True, True)\n \n@@ -497,13 +534,20 @@ def test_add_collection_requirements(versions, requirement, expected_filter, exp\n     assert req.latest_version == expected_latest\n \n \n-def test_add_collection_requirement_to_unknown_installed_version():\n+def test_add_collection_requirement_to_unknown_installed_version(monkeypatch):\n+    mock_display = MagicMock()\n+    monkeypatch.setattr(Display, 'display', mock_display)\n+\n     req = collection.CollectionRequirement('namespace', 'name', None, 'https://galaxy.com', ['*'], '*', False,\n                                            skip=True)\n \n-    expected = \"Cannot meet requirement namespace.name:1.0.0 as it is already installed at version 'unknown'.\"\n-    with pytest.raises(AnsibleError, match=expected):\n-        req.add_requirement(str(req), '1.0.0')\n+    req.add_requirement('parent.collection', '1.0.0')\n+    assert req.latest_version == '*'\n+\n+    assert mock_display.call_count == 1\n+\n+    actual_warn = ' '.join(mock_display.mock_calls[0][1][0].split('\\n'))\n+    assert \"Failed to validate the collection requirement 'namespace.name:1.0.0' for parent.collection\" in actual_warn\n \n \n def test_add_collection_wildcard_requirement_to_unknown_installed_version():\n"
+  },
+  "timestamp": "2026-03-23 12:10:32 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "ansible",
+    "bug_id": "ansible_6",
+    "repo_path": "/BugsInPy/framework/bin/temp/ansible_6/ansible",
+    "github_url": "https://github.com/ansible/ansible",
+    "description": "",
+    "commit_message": "galaxy - Fix collection install dep resolver for bad versions (#67405)",
+    "fault_locations": [
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 222,
+        "end_line": 227,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 289,
+        "end_line": 289,
+        "function_name": "from_path",
+        "class_name": ""
+      },
+      {
+        "file": "lib/ansible/galaxy/collection.py",
+        "start_line": 880,
+        "end_line": 880,
+        "function_name": "_get_collection_info",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/units/galaxy/test_collection_install.py::test_build_requirement_from_path_with_manifest",
+      "pytest test/units/galaxy/test_collection_install.py::test_build_requirement_from_path_no_version",
+      "pytest test/units/galaxy/test_collection_install.py::test_add_collection_requirement_to_unknown_installed_version"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

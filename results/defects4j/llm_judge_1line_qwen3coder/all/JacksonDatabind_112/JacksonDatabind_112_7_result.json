@@ -1,0 +1,112 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "112",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 07:39:56",
+      "end_time": "2026-06-20 07:42:42",
+      "duration_seconds": 167,
+      "duration_human": "2m 47s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 940158,
+      "output_tokens": 5558,
+      "total_tokens": 945716,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 940158
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\nindex f50ca3629..0f84470ad 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n@@ -104,9 +104,9 @@ public final class StringCollectionDeserializer\n         JsonDeserializer<Object> delegate = null;\n         if (_valueInstantiator != null) {\n             // [databind#2324]: check both array-delegating and delegating\n-            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n+            AnnotatedWithParams delegateCreator = _valueInstantiator.getArrayDelegateCreator();\n             if (delegateCreator != null) {\n-                JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n+                JavaType delegateType = _valueInstantiator.getArrayDelegateType(ctxt.getConfig());\n                 delegate = findDeserializer(ctxt, delegateType, property);\n             }\n         }\n"
+  },
+  "timestamp": "2026-06-20 07:42:42 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_112",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_112",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`StringCollectionDeserializer` fails with custom collection\nSeeing this with Jackson 2.9.8.\r\n\r\nWe have a custom collection implementation, which is wired to use its \"immutable\" version for deserialization. The rationale is that we don't want accidental modifications to the data structures that come from the wire, so they all are forced to be immutable.\r\n\r\nAfter upgrade from 2.6.3 to 2.9.8, the deserialization started breaking with the message:\r\n\r\n>Cannot construct instance of `XXX` (although at least one Creator exists): no default no-arguments constructor found\r\n\r\n\r\nThis happens ONLY when you deserialize a custom collection of strings as a property of the other object. Deserializing the custom collection of strings directly works fine, and so does the deserialization of custom collection of non-strings. I believe either the `StringCollectionDeserializer` should not be invoked for custom collections, or perhaps it does not handle the delegation as expected.\r\n\r\nPlease see comments for repro and workaround.\r\n\r\nThanks!\n",
+    "commit_message": "Fix #2324",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java",
+        "start_line": 107,
+        "end_line": 107,
+        "line_numbers": [
+          107
+        ],
+        "function_name": "createContextual",
+        "class_name": "StringCollectionDeserializer",
+        "filename": "StringCollectionDeserializer.java",
+        "code_snippet": "    public JsonDeserializer<?> createContextual(DeserializationContext ctxt,\n            BeanProperty property) throws JsonMappingException\n    {\n        // May need to resolve types for delegate-based creators:\n        JsonDeserializer<Object> delegate = null;\n        if (_valueInstantiator != null) {\n            // [databind#2324]: check both array-delegating and delegating\n            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n            if (delegateCreator != null) {\n                JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n                delegate = findDeserializer(ctxt, delegateType, property);\n            }\n        }\n        JsonDeserializer<?> valueDeser = _valueDeserializer;\n        final JavaType valueType = _containerType.getContentType();\n        if (valueDeser == null) {\n            // [databind#125]: May have a content converter\n            valueDeser = findConvertingContentDeserializer(ctxt, property, valueDeser);\n            if (valueDeser == null) {\n            // And we may also need to get deserializer for String\n                valueDeser = ctxt.findContextualValueDeserializer(valueType, property);\n            }\n        } else { // if directly assigned, probably not yet contextual, so:\n            valueDeser = ctxt.handleSecondaryContextualization(valueDeser, property, valueType);\n        }\n        // 11-Dec-2015, tatu: Should we pass basic `Collection.class`, or more refined? Mostly\n        //   comes down to \"List vs Collection\" I suppose... for now, pass Collection\n        Boolean unwrapSingle = findFormatFeature(ctxt, property, Collection.class,\n                JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY);\n        NullValueProvider nuller = findContentNullProvider(ctxt, property, valueDeser);\n        if (isDefaultDeserializer(valueDeser)) {\n            valueDeser = null;\n        }\n        return withResolved(delegate, valueDeser, nuller, unwrapSingle);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.creators.DelegatingArrayCreator2324Test::testDeserializeBagOfStrings"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\nindex 0bf2e12a1..f50ca3629 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n@@ -104,11 +104,8 @@ public final class StringCollectionDeserializer\n         JsonDeserializer<Object> delegate = null;\n         if (_valueInstantiator != null) {\n             // [databind#2324]: check both array-delegating and delegating\n+            AnnotatedWithParams delegateCreator = _valueInstantiator.getArrayDelegateCreator();\n-            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n             if (delegateCreator != null) {\n+                JavaType delegateType = _valueInstantiator.getArrayDelegateType(ctxt.getConfig());\n+                delegate = findDeserializer(ctxt, delegateType, property);\n+            } else if ((delegateCreator = _valueInstantiator.getDelegateCreator()) != null) {\n                 JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n                 delegate = findDeserializer(ctxt, delegateType, property);\n             }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2012-01-30 01:30:13",
+        "commit_message": "Start rewriting most ResolvableDeserializers as ContextualDeserializers",
+        "commit_hash": "995e377e3657493e136d92e9878624e2958f0abb"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "createContextual",
+          "StringCollectionDeserializer",
+          "resolve"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "createContextual",
+          "StringCollectionDeserializer",
+          "resolve"
+        ],
+        "functions_name_modified_file": [
+          "handleNonArray",
+          "deserializeUsingCustom",
+          "StringCollectionDeserializer",
+          "getContentDeserializer",
+          "deserializeWithType",
+          "deserialize",
+          "getContentType",
+          "createContextual"
+        ],
+        "functions_name_all_files": [
+          "handleNonArray",
+          "deserializeUsingCustom",
+          "StringCollectionDeserializer",
+          "getContentDeserializer",
+          "deserializeWithType",
+          "deserialize",
+          "getContentType",
+          "createContextual"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    /**********************************************************\n     */\n\n    @Override\n    @SuppressWarnings(\"unchecked\")\n    public JsonDeserializer<?> createContextual(DeserializationContext ctxt,\n            BeanProperty property) throws JsonMappingException\n    {\n        // May need to resolve types for delegate-based creators:\n        JsonDeserializer<Object> delegate = null;\n        if (_valueInstantiator != null) {\n            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n            if (delegateCreator != null) {\n                JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n                delegate = findDeserializer(ctxt, delegateType, property);\n            }\n        }\n        JsonDeserializer<?> valueDeser = _valueDeserializer;\n        if (_valueDeserializer == null) {\n            // And we may also need to get deserializer for String\n            JsonDeserializer<?> deser = ctxt.findContextualValueDeserializer(_collectionType.getContentType(), property);\n            valueDeser = (JsonDeserializer<String>) deser;\n            if (isDefaultDeserializer(valueDeser)) {\n                valueDeser = null;\n            }\n        }\n        return new StringCollectionDeserializer(_collectionType,\n                (JsonDeserializer<String>)valueDeser, _valueInstantiator, delegate);\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\nindex 672b8336a..3815207d9 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringCollectionDeserializer.java\n@@ -6,6 +6,7 @@ import java.util.Collection;\n import com.fasterxml.jackson.core.*;\n import com.fasterxml.jackson.databind.*;\n import com.fasterxml.jackson.databind.annotation.JacksonStdImpl;\n+import com.fasterxml.jackson.databind.deser.ContextualDeserializer;\n import com.fasterxml.jackson.databind.deser.ResolvableDeserializer;\n import com.fasterxml.jackson.databind.deser.ValueInstantiator;\n import com.fasterxml.jackson.databind.introspect.AnnotatedWithParams;\n@@ -19,19 +20,17 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;\n @JacksonStdImpl\n public final class StringCollectionDeserializer\n     extends ContainerDeserializerBase<Collection<String>>\n-    implements ResolvableDeserializer\n+    implements ContextualDeserializer\n {\n     // // Configuration\n \n     protected final JavaType _collectionType;\n-\n-    protected final BeanProperty _property;\n     \n     /**\n      * Value deserializer to use, if NOT the standard one\n      * (if it is, will be null).\n      */\n-    protected JsonDeserializer<String> _valueDeserializer;\n+    protected final JsonDeserializer<String> _valueDeserializer;\n \n     // // Instance construction settings:\n     \n@@ -44,7 +43,7 @@ public final class StringCollectionDeserializer\n      * Deserializer that is used iff delegate-based creator is\n      * to be used for deserializing from JSON Object.\n      */\n-    protected JsonDeserializer<Object> _delegateDeserializer;\n+    protected final JsonDeserializer<Object> _delegateDeserializer;\n \n     // NOTE: no PropertyBasedCreator, as JSON Arrays have no properties\n \n@@ -55,50 +54,55 @@ public final class StringCollectionDeserializer\n      */\n     \n     @SuppressWarnings(\"unchecked\")\n-    public StringCollectionDeserializer(JavaType collectionType, BeanProperty prop,\n-            JsonDeserializer<?> valueDeser,\n-            ValueInstantiator valueInstantiator)\n+    public StringCollectionDeserializer(JavaType collectionType,\n+            JsonDeserializer<?> valueDeser, ValueInstantiator valueInstantiator)\n+    {\n+        this(collectionType, (JsonDeserializer<String>) valueDeser,\n+                valueInstantiator, null);\n+    }\n+\n+    protected StringCollectionDeserializer(JavaType collectionType,\n+            JsonDeserializer<String> valueDeser, ValueInstantiator valueInstantiator,\n+            JsonDeserializer<Object> delegateDeser)\n     {\n         super(collectionType.getRawClass());\n-        _property = prop;\n         _collectionType = collectionType;\n-        _valueDeserializer = (JsonDeserializer<String>) valueDeser;\n+        _valueDeserializer = valueDeser;\n         _valueInstantiator = valueInstantiator;\n+        _delegateDeserializer = delegateDeser;\n     }\n-\n+    \n     /*\n     /**********************************************************\n-    /* Validation, post-processing (ResolvableDeserializer)\n+    /* Validation, post-processing\n     /**********************************************************\n      */\n \n-    @SuppressWarnings(\"unchecked\")\n-    /**\n-     * Method called to finalize setup of this deserializer,\n-     * after deserializer itself has been registered. This\n-     * is needed to handle recursive and transitive dependencies.\n-     */\n     @Override\n-    public void resolve(DeserializationContext ctxt)\n-        throws JsonMappingException\n+    @SuppressWarnings(\"unchecked\")\n+    public JsonDeserializer<?> createContextual(DeserializationContext ctxt,\n+            BeanProperty property) throws JsonMappingException\n     {\n         // May need to resolve types for delegate-based creators:\n-        AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n-        if (delegateCreator != null) {\n-            JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n-            // Need to create a temporary property to allow contextual deserializers:\n-            BeanProperty.Std property = new BeanProperty.Std(null,\n-                    delegateType, null, delegateCreator);\n-            _delegateDeserializer = findDeserializer(ctxt, delegateType, property);\n+        JsonDeserializer<Object> delegate = null;\n+        if (_valueInstantiator != null) {\n+            AnnotatedWithParams delegateCreator = _valueInstantiator.getDelegateCreator();\n+            if (delegateCreator != null) {\n+                JavaType delegateType = _valueInstantiator.getDelegateType(ctxt.getConfig());\n+                delegate = findDeserializer(ctxt, delegateType, property);\n+            }\n         }\n+        JsonDeserializer<?> valueDeser = _valueDeserializer;\n         if (_valueDeserializer == null) {\n             // And we may also need to get deserializer for String\n-            JsonDeserializer<?> deser = ctxt.findValueDeserializer(_collectionType.getContentType(), _property);\n-            _valueDeserializer = (JsonDeserializer<String>) deser;\n-        }\n-        if (isDefaultDeserializer(_valueDeserializer)) {\n-            _valueDeserializer = null;\n+            JsonDeserializer<?> deser = ctxt.findContextualValueDeserializer(_collectionType.getContentType(), property);\n+            valueDeser = (JsonDeserializer<String>) deser;\n+            if (isDefaultDeserializer(valueDeser)) {\n+                valueDeser = null;\n+            }\n         }\n+        return new StringCollectionDeserializer(_collectionType,\n+                (JsonDeserializer<String>)valueDeser, _valueInstantiator, delegate);\n     }\n     \n     /*\n@@ -213,5 +217,4 @@ public final class StringCollectionDeserializer\n         result.add(value);\n         return result;\n     }\n-    \n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

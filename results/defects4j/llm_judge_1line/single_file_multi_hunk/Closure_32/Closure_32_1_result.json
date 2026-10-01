@@ -1,0 +1,67 @@
+{
+  "project_name": "Closure",
+  "bug_id": "32",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-09-30 14:35:58",
+      "end_time": "2025-09-30 14:44:40",
+      "duration_seconds": 522,
+      "duration_human": "8m 42s"
+    },
+    "model_cost": 0.0357,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 438274,
+      "output_tokens": 5299,
+      "total_tokens": 443573,
+      "cached_input_tokens": 424768,
+      "uncached_input_tokens": 13506
+    },
+    "agent_steps": 51,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java b/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\nindex f6a64007c..82da54bb1 100644\n--- a/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\n+++ b/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\n@@ -1340,7 +1340,9 @@ public final class JsDocInfoParser {\n \n     // Read the content from the first line.\n     String line = stream.getRemainingJSDocLine();\n-    if (option != WhitespaceOption.PRESERVE) {\n+    if (option == WhitespaceOption.PRESERVE) {\n+      // Do nothing - preserve all whitespace\n+    } else {\n       line = line.trim();\n     }\n \n@@ -1396,7 +1398,9 @@ public final class JsDocInfoParser {\n                option != WhitespaceOption.PRESERVE)) {\n             String multilineText = builder.toString();\n \n-            if (option != WhitespaceOption.PRESERVE) {\n+            if (option == WhitespaceOption.PRESERVE) {\n+              // Do nothing - preserve all whitespace\n+            } else {\n               multilineText = multilineText.trim();\n             }\n \n@@ -1418,7 +1422,9 @@ public final class JsDocInfoParser {\n \n           line = stream.getRemainingJSDocLine();\n \n-          if (option != WhitespaceOption.PRESERVE) {\n+          if (option == WhitespaceOption.PRESERVE) {\n+            // Do nothing - preserve all whitespace\n+          } else {\n             line = trimEnd(line);\n           }\n \n"
+  },
+  "timestamp": "2025-09-30 14:44:40 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_32",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_32",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Preserve doesn't preserve whitespace at start of line\n<b>What steps will reproduce the problem?</b>\n\r\nCode such as:\r\n/**\r\n * @preserve\r\n\r\nThis\r\n  was\r\n    ASCII\r\n       Art\r\n\r\n*/\r\n\r\n<b>What is the expected output? What do you see instead?</b>\n\r\nThe words line up on the left:\r\n/*\r\nThis\r\nwas\r\nASCII\r\nArt\r\n*/\r\n\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\n\r\nLive web verison.\r\n\r\n\r\n<b>Please provide any additional information below.</b>",
+    "commit_message": "preserve whitespace at the beginning of license blocks makes the <code> in closure docs look a lot better fixes issue 701",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java",
+        "start_line": 1414,
+        "end_line": 1416,
+        "line_numbers": [
+          1414,
+          1415,
+          1416
+        ],
+        "function_name": "extractMultilineTextualBlock",
+        "class_name": "ExtendedTypeInfo",
+        "filename": "JsDocInfoParser.java",
+        "code_snippet": "  private ExtractionInfo extractMultilineTextualBlock(JsDocToken token,\n                                                      WhitespaceOption option) {\n\n    if (token == JsDocToken.EOC || token == JsDocToken.EOL ||\n        token == JsDocToken.EOF) {\n      return new ExtractionInfo(\"\", token);\n    }\n\n    stream.update();\n    int startLineno = stream.getLineno();\n    int startCharno = stream.getCharno() + 1;\n\n    // Read the content from the first line.\n    String line = stream.getRemainingJSDocLine();\n    if (option != WhitespaceOption.PRESERVE) {\n      line = line.trim();\n    }\n\n    StringBuilder builder = new StringBuilder();\n    builder.append(line);\n\n    state = State.SEARCHING_ANNOTATION;\n    token = next();\n\n    boolean ignoreStar = false;\n\n    // Track the start of the line to count whitespace that\n    // the tokenizer skipped. Because this case is rare, it's easier\n    // to do this here than in the tokenizer.\n\n    do {\n      switch (token) {\n        case STAR:\n          if (ignoreStar) {\n            // Mark the position after the star as the new start of the line.\n          } else {\n            // The star is part of the comment.\n            if (builder.length() > 0) {\n              builder.append(' ');\n            }\n\n            builder.append('*');\n          }\n\n          token = next();\n          continue;\n\n        case EOL:\n          if (option != WhitespaceOption.SINGLE_LINE) {\n            builder.append(\"\\n\");\n          }\n\n          ignoreStar = true;\n          token = next();\n          continue;\n\n        default:\n          ignoreStar = false;\n          state = State.SEARCHING_ANNOTATION;\n\n              // All tokens must be separated by a space.\n\n          if (token == JsDocToken.EOC ||\n              token == JsDocToken.EOF ||\n              // When we're capturing a license block, annotations\n              // in the block are ok.\n              (token == JsDocToken.ANNOTATION &&\n               option != WhitespaceOption.PRESERVE)) {\n            String multilineText = builder.toString();\n\n            if (option != WhitespaceOption.PRESERVE) {\n              multilineText = multilineText.trim();\n            }\n\n            int endLineno = stream.getLineno();\n            int endCharno = stream.getCharno();\n\n            if (multilineText.length() > 0) {\n              jsdocBuilder.markText(multilineText, startLineno, startCharno,\n                  endLineno, endCharno);\n            }\n\n            return new ExtractionInfo(multilineText, token);\n          }\n\n          if (builder.length() > 0) {\n            builder.append(' ');\n          }\n          builder.append(toString(token));\n\n          line = stream.getRemainingJSDocLine();\n\n          if (option != WhitespaceOption.PRESERVE) {\n            line = trimEnd(line);\n          }\n\n          builder.append(line);\n          token = next();\n      }\n    } while (true);\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.IntegrationTest::testIssue701",
+      "com.google.javascript.jscomp.parsing.JsDocInfoParserTest::testParseLicense",
+      "com.google.javascript.jscomp.parsing.JsDocInfoParserTest::testParsePreserve",
+      "com.google.javascript.jscomp.parsing.JsDocInfoParserTest::testParseLicenseAscii"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java b/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\nindex cfdccbe..f6a6400 100644\n--- a/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\n+++ b/src/com/google/javascript/jscomp/parsing/JsDocInfoParser.java\n@@ -1355,14 +1355,12 @@ public final class JsDocInfoParser {\n     // Track the start of the line to count whitespace that\n     // the tokenizer skipped. Because this case is rare, it's easier\n     // to do this here than in the tokenizer.\n+    int lineStartChar = -1;\n \n     do {\n       switch (token) {\n         case STAR:\n           if (ignoreStar) {\n             // Mark the position after the star as the new start of the line.\n+            lineStartChar = stream.getCharno() + 1;\n           } else {\n             // The star is part of the comment.\n             if (builder.length() > 0) {\n@@ -1381,7 +1379,6 @@ public final class JsDocInfoParser {\n           }\n \n           ignoreStar = true;\n+          lineStartChar = 0;\n           token = next();\n           continue;\n \n@@ -1389,19 +1386,7 @@ public final class JsDocInfoParser {\n           ignoreStar = false;\n           state = State.SEARCHING_ANNOTATION;\n \n+          boolean isEOC = token == JsDocToken.EOC;\n+          if (!isEOC) {\n+            if (lineStartChar != -1 && option == WhitespaceOption.PRESERVE) {\n+              int numSpaces = stream.getCharno() - lineStartChar;\n+              for (int i = 0; i < numSpaces; i++) {\n+                builder.append(' ');\n+              }\n+              lineStartChar = -1;\n+            } else if (builder.length() > 0) {\n               // All tokens must be separated by a space.\n+              builder.append(' ');\n+            }\n+          }\n \n           if (token == JsDocToken.EOC ||\n               token == JsDocToken.EOF ||\n@@ -1426,6 +1411,9 @@ public final class JsDocInfoParser {\n             return new ExtractionInfo(multilineText, token);\n           }\n \n-          if (builder.length() > 0) {\n-            builder.append(' ');\n-          }\n           builder.append(toString(token));\n \n           line = stream.getRemainingJSDocLine();",
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

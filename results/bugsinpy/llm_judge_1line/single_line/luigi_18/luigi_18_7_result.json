@@ -1,0 +1,55 @@
+{
+  "project_name": "luigi",
+  "bug_id": "luigi_18",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 23:07:45",
+      "end_time": "2026-03-23 23:20:35",
+      "duration_seconds": 770,
+      "duration_human": "12m 50s"
+    },
+    "model_cost": 0.0338,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 257844,
+      "output_tokens": 27912,
+      "total_tokens": 285756,
+      "cached_input_tokens": 174976,
+      "uncached_input_tokens": 82868
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/luigi/scheduler.py b/luigi/scheduler.py\nindex 7c4d4718..7a60b87d 100644\n--- a/luigi/scheduler.py\n+++ b/luigi/scheduler.py\n@@ -387,10 +387,6 @@ class SimpleTaskState(object):\n         task.scheduler_disable_time = None\n         task.failures.clear()\n         if config:\n-            self.set_status(task, FAILED, config)\n-            task.failures.clear()\n-\n-    def set_status(self, task, new_status, config=None):\n         if new_status == FAILED:\n             assert config is not None\n \n@@ -402,14 +398,18 @@ class SimpleTaskState(object):\n                 self.re_enable(task)\n \n             # don't allow workers to override a scheduler disable\n-            elif task.scheduler_disable_time is not None:\n+            elif task.scheduler_disable_time is not None and new_status != DISABLED:\n                 return\n \n+        # Track if we set the disable time in the auto-disable block\n+        set_by_auto_disable = False\n+\n         if new_status == FAILED and task.can_disable() and task.status != DISABLED:\n             task.add_failure()\n             if task.has_excessive_failures():\n                 task.scheduler_disable_time = time.time()\n                 new_status = DISABLED\n+                set_by_auto_disable = True\n                 notifications.send_error_email(\n                     'Luigi Scheduler: DISABLED {task} due to excessive failures'.format(task=task.id),\n                     '{task} failed {failures} times in the last {window} seconds, so it is being '\n@@ -419,15 +419,13 @@ class SimpleTaskState(object):\n                         window=config.disable_window,\n                         persist=config.disable_persist,\n                     ))\n-        elif new_status == DISABLED:\n+\n+        if new_status == DISABLED and not set_by_auto_disable:\n             task.scheduler_disable_time = None\n \n         self._status_tasks[task.status].pop(task.id)\n         self._status_tasks[new_status][task.id] = task\n         task.status = new_status\n-\n-    def fail_dead_worker_task(self, task, config, assistants):\n-        # If a running worker disconnects, tag all its jobs as FAILED and subject it to the same retry logic\n         if task.status == RUNNING and task.worker_running and task.worker_running not in task.stakeholders | assistants:\n             logger.info(\"Task %r is marked as running by disconnected worker %r -> marking as \"\n                         \"FAILED with retry delay of %rs\", task.id, task.worker_running,\ndiff --git a/test/central_planner_test.py b/test/central_planner_test.py\nindex f2e8029c..9219f668 100644\n--- a/test/central_planner_test.py\n+++ b/test/central_planner_test.py\n@@ -675,6 +675,35 @@ class CentralPlannerTest(unittest.TestCase):\n         self.setTime(101)\n         self.assertEqual(FAILED, self.sch.task_list('', '')['A']['status'])\n \n+    def test_no_automatic_re_enable_after_manual_disable(self):\n+        self.sch = CentralPlannerScheduler(disable_persist=100)\n+        self.setTime(0)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=DISABLED)\n+\n+        # should be disabled now\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+        # should not re-enable after 100 seconds\n+        self.setTime(101)\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+    def test_no_automatic_re_enable_after_auto_then_manual_disable(self):\n+        self.sch = CentralPlannerScheduler(disable_failures=2, disable_persist=100)\n+        self.setTime(0)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=FAILED)\n+        self.sch.add_task(worker=WORKER, task_id='A', status=FAILED)\n+\n+        # should be disabled now\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+        # should remain disabled once set\n+        self.sch.add_task(worker=WORKER, task_id='A', status=DISABLED)\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n+        # should not re-enable after 100 seconds\n+        self.setTime(101)\n+        self.assertEqual(DISABLED, self.sch.task_list('', '')['A']['status'])\n+\n     def test_disable_by_worker(self):\n         self.sch.add_task(worker=WORKER, task_id='A', status=DISABLED)\n         self.assertEqual(len(self.sch.task_list('DISABLED', '')), 1)\n"
+  },
+  "timestamp": "2026-03-23 19:20:35 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "luigi",
+    "bug_id": "luigi_18",
+    "repo_path": "/BugsInPy/framework/bin/temp/luigi_18/luigi",
+    "github_url": "https://github.com/spotify/luigi",
+    "description": "",
+    "commit_message": "Overrides scheduler disable with manual disable by worker",
+    "fault_locations": [
+      {
+        "file": "luigi/scheduler.py",
+        "start_line": 405,
+        "end_line": 405,
+        "function_name": "set_status",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest test/central_planner_test.py::CentralPlannerTest::test_no_automatic_re_enable_after_auto_then_manual_disable"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

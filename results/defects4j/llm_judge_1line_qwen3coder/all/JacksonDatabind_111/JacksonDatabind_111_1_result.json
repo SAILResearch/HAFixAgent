@@ -1,0 +1,166 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "111",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 00:31:25",
+      "end_time": "2026-06-20 00:33:59",
+      "duration_seconds": 154,
+      "duration_human": "2m 34s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 787255,
+      "output_tokens": 4413,
+      "total_tokens": 791668,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 787255
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 00:34:00 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_111",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_111",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Deserialize null, when java type is \"TypeRef of TypeRef of T\", does not provide \"Type(Type(null))\"\n**Dependency**\r\n\r\n    jackson = '2.9.7'\r\n    compile \"com.fasterxml.jackson.core:jackson-databind:$jackson\"\r\n\r\n**Short explanation**\r\n\r\nIn Kotlin, I got an issue when I deserialize the value in the context of a reference type that include another reference type. I provide here a reproduction scenario in Java based on AtomicReference (I don't think there is a real use-case that use an AR of AR of Integer, but with a kind of DSL, it may happen to have a similar inclusion...)\r\n\r\nSo, when we deserialize an 22, we get an AR of AR of 22 as expected. But when we deserialize the null value, we get an AR of null (instead of AR of AR of null).\r\n\r\nI think there is 2 issues:\r\n\r\n(1) the getNull method of AtomicReference always returns \"new AtomicReference()\". I think it should be smarter and use contextual information such fullType or simply call _valueDeserializer.getNull() -- but _valueDeserializer was null during my tests because of (2).\r\n\r\n(2) the bean propertyCreator has distinct deserializer and nullProvider. In the case of ReferenceTypeDeserializer, a new contextual deserializer is created, which is able to deserialize its content. Then the deserializer of the bean propertyCreator is updated, but not its nullProvider\r\n\r\n**To reproduce**\r\n\r\n    class MyBean {\r\n        private AtomicReference<AtomicReference<Integer>> refRef;\r\n        public AtomicReference<AtomicReference<Integer>> getRefRef() {\r\n            return refRef;\r\n        }\r\n        public void setRefRef(AtomicReference<AtomicReference<Integer>> refRef) {\r\n            this.refRef = refRef;\r\n        }\r\n    }\r\n\r\n    @Test\r\n    void myTest() throws IOException {\r\n        ObjectMapper objectMapper = new ObjectMapper();\r\n        ObjectReader objectReader = objectMapper.readerFor(MyBean.class);\r\n\r\n        MyBean intRef = objectReader.readValue(\" {\\\"refRef\\\": 2 } \");\r\n        Assertions.assertNotNull(intRef.refRef); // succeeds\r\n        Assertions.assertNotNull(intRef.refRef.get()); // succeeds\r\n        Assertions.assertEquals(intRef.refRef.get().get(), new Integer(2)); // succeeds\r\n\r\n        MyBean nullRef = objectReader.readValue(\" {\\\"refRef\\\": null } \");\r\n        Assertions.assertNotNull(intRef.refRef); // succeeds\r\n        Assertions.assertNotNull(intRef.refRef.get()); // fails\r\n        Assertions.assertNull(intRef.refRef.get().get()); // fails\r\n    }\r\n\r\n\n",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java",
+        "start_line": 135,
+        "end_line": 135,
+        "line_numbers": [
+          135
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "CreatorProperty",
+        "filename": "CreatorProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new CreatorProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java",
+        "start_line": 93,
+        "end_line": 93,
+        "line_numbers": [
+          93
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "FieldProperty",
+        "filename": "FieldProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new FieldProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java",
+        "start_line": 217,
+        "end_line": 217,
+        "line_numbers": [
+          217
+        ],
+        "function_name": "",
+        "class_name": "FieldProperty",
+        "filename": "FieldProperty.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/MethodProperty.java",
+        "start_line": 84,
+        "end_line": 84,
+        "line_numbers": [
+          84
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "MethodProperty",
+        "filename": "MethodProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new MethodProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdReferenceProperty.java",
+        "start_line": 54,
+        "end_line": 54,
+        "line_numbers": [
+          54
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "ObjectIdReferenceProperty",
+        "filename": "ObjectIdReferenceProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new ObjectIdReferenceProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdValueProperty.java",
+        "start_line": 55,
+        "end_line": 55,
+        "line_numbers": [
+          55
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "ObjectIdValueProperty",
+        "filename": "ObjectIdValueProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new ObjectIdValueProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java",
+        "start_line": 68,
+        "end_line": 68,
+        "line_numbers": [
+          68
+        ],
+        "function_name": "withValueDeserializer",
+        "class_name": "SetterlessProperty",
+        "filename": "SetterlessProperty.java",
+        "code_snippet": "    public SettableBeanProperty withValueDeserializer(JsonDeserializer<?> deser) {\n        if (_valueDeserializer == deser) {\n            return this;\n        }\n        // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n        return new SetterlessProperty(this, deser, _nullProvider);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java",
+        "start_line": 156,
+        "end_line": 156,
+        "line_numbers": [
+          156
+        ],
+        "function_name": "",
+        "class_name": "SetterlessProperty",
+        "filename": "SetterlessProperty.java",
+        "code_snippet": "",
+        "granularity": "class"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/AtomicReferenceDeserializer.java",
+        "start_line": 43,
+        "end_line": 43,
+        "line_numbers": [
+          43
+        ],
+        "function_name": "getNullValue",
+        "class_name": "AtomicReferenceDeserializer",
+        "filename": "AtomicReferenceDeserializer.java",
+        "code_snippet": "    public AtomicReference<Object> getNullValue(DeserializationContext ctxt) throws JsonMappingException {\n        return new AtomicReference<Object>();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.jdk.JDKAtomicTypesDeserTest::testNullWithinNested"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java\nindex f9badf80a..f93a9dbfa 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java\n@@ -132,8 +132,7 @@ public class CreatorProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new CreatorProperty(this, deser, nvp);\n-        return new CreatorProperty(this, deser, _nullProvider);\n     }\n \n     @Override\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java\nindex 973c85b54..b51b1ea45 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/FieldProperty.java\n@@ -90,8 +90,7 @@ public final class FieldProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new FieldProperty(this, deser, nvp);\n-        return new FieldProperty(this, deser, _nullProvider);\n     }\n \n     @Override\n@@ -215,4 +214,4 @@ public final class FieldProperty\n     Object readResolve() {\n         return new FieldProperty(this);\n     }\n+}\n\\ No newline at end of file\n-}\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/MethodProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/MethodProperty.java\nindex 08111d4b4..2bad734aa 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/MethodProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/MethodProperty.java\n@@ -81,8 +81,7 @@ public final class MethodProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new MethodProperty(this, deser, nvp);\n-        return new MethodProperty(this, deser, _nullProvider);\n     }\n \n     @Override\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdReferenceProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdReferenceProperty.java\nindex 449cc7990..b96ce7ad5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdReferenceProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdReferenceProperty.java\n@@ -51,8 +51,7 @@ public class ObjectIdReferenceProperty extends SettableBeanProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new ObjectIdReferenceProperty(this, deser, nvp);\n-        return new ObjectIdReferenceProperty(this, deser, _nullProvider);\n     }\n \n     @Override\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdValueProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdValueProperty.java\nindex 7fe91fcf1..206f4ae75 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdValueProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/ObjectIdValueProperty.java\n@@ -52,8 +52,7 @@ public final class ObjectIdValueProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new ObjectIdValueProperty(this, deser, nvp);\n-        return new ObjectIdValueProperty(this, deser, _nullProvider);\n     }\n \n     @Override\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java b/src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java\nindex a901f079f..f5596615e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/impl/SetterlessProperty.java\n@@ -65,8 +65,7 @@ public final class SetterlessProperty\n             return this;\n         }\n         // 07-May-2019, tatu: As per [databind#2303], must keep VD/NVP in-sync if they were\n+        NullValueProvider nvp = (_valueDeserializer == _nullProvider) ? deser : _nullProvider;\n+        return new SetterlessProperty(this, deser, nvp);\n-        return new SetterlessProperty(this, deser, _nullProvider);\n     }\n \n     @Override\n@@ -154,4 +153,4 @@ public final class SetterlessProperty\n         set(instance, value);\n         return instance;\n     }\n+}\n\\ No newline at end of file\n-}\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/AtomicReferenceDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/AtomicReferenceDeserializer.java\nindex 486106c65..9d5c3ded5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/AtomicReferenceDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/AtomicReferenceDeserializer.java\n@@ -40,7 +40,7 @@ public class AtomicReferenceDeserializer\n \n     @Override\n     public AtomicReference<Object> getNullValue(DeserializationContext ctxt) throws JsonMappingException {\n+        return new AtomicReference<Object>(_valueDeserializer.getNullValue(ctxt));\n-        return new AtomicReference<Object>();\n     }\n \n     @Override",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "project_name": "httpie",
+  "bug_id": "httpie_1",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-20 16:35:12",
+      "end_time": "2026-06-20 16:43:36",
+      "duration_seconds": 504,
+      "duration_human": "8m 24s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 982582,
+      "output_tokens": 5514,
+      "total_tokens": 988096,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 982582
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/httpie/downloads.py b/httpie/downloads.py\nindex b49e335..02cddcb 100644\n--- a/httpie/downloads.py\n+++ b/httpie/downloads.py\n@@ -6,6 +6,7 @@ Download mode implementation.\n from __future__ import division\n import os\n import re\n+import errno\n import sys\n import mimetypes\n import threading\n@@ -135,12 +136,44 @@ def filename_from_url(url, content_type):\n     return fn\n \n \n+\n+def trim_filename(filename, max_len):\n+    if len(filename) > max_len:\n+        trim_by = len(filename) - max_len\n+        name, ext = os.path.splitext(filename)\n+        if trim_by >= len(name):\n+            filename = filename[:-trim_by]\n+        else:\n+            filename = name[:-trim_by] + ext\n+    return filename\n+\n+\n+def get_filename_max_length(directory):\n+    try:\n+        max_len = os.pathconf(directory, 'PC_NAME_MAX')\n+    except OSError as e:\n+        if e.errno == errno.EINVAL:\n+            max_len = 255\n+        else:\n+            raise\n+    return max_len\n+\n+\n+def trim_filename_if_needed(filename, directory='.', extra=0):\n+    max_len = get_filename_max_length(directory) - extra\n+    if len(filename) > max_len:\n+        filename = trim_filename(filename, max_len)\n+    return filename\n+\n+\n def get_unique_filename(filename, exists=os.path.exists):\n     attempt = 0\n     while True:\n         suffix = '-' + str(attempt) if attempt > 0 else ''\n-        if not exists(filename + suffix):\n-            return filename + suffix\n+        try_filename = trim_filename_if_needed(filename, extra=len(suffix))\n+        try_filename += suffix\n+        if not exists(try_filename):\n+            return try_filename\n         attempt += 1\n \n \ndiff --git a/tests/test_downloads.py b/tests/test_downloads.py\nindex 2d973c3..e09bdde 100644\n--- a/tests/test_downloads.py\n+++ b/tests/test_downloads.py\n@@ -2,6 +2,7 @@ import os\n import time\n \n import pytest\n+import mock\n from requests.structures import CaseInsensitiveDict\n \n from httpie.compat import urlopen\n@@ -74,7 +75,31 @@ class TestDownloadUtils:\n             content_type='x-foo/bar'\n         )\n \n-    def test_unique_filename(self):\n+    @pytest.mark.parametrize(\n+        'orig_name, unique_on_attempt, expected',\n+        [\n+            # Simple\n+            ('foo.bar', 0, 'foo.bar'),\n+            ('foo.bar', 1, 'foo.bar-1'),\n+            ('foo.bar', 10, 'foo.bar-10'),\n+            # Trim\n+            ('A' * 20, 0, 'A' * 10),\n+            ('A' * 20, 1, 'A' * 8 + '-1'),\n+            ('A' * 20, 10, 'A' * 7 + '-10'),\n+            # Trim before ext\n+            ('A' * 20 + '.txt', 0, 'A' * 6 + '.txt'),\n+            ('A' * 20 + '.txt', 1, 'A' * 4 + '.txt-1'),\n+            # Trim at the end\n+            ('foo.' + 'A' * 20, 0, 'foo.' + 'A' * 6),\n+            ('foo.' + 'A' * 20, 1, 'foo.' + 'A' * 4 + '-1'),\n+            ('foo.' + 'A' * 20, 10, 'foo.' + 'A' * 3 + '-10'),\n+        ]\n+    )\n+    @mock.patch('httpie.downloads.get_filename_max_length')\n+    def test_unique_filename(self, get_filename_max_length,\n+                             orig_name, unique_on_attempt,\n+                             expected):\n+\n         def attempts(unique_on_attempt=0):\n             # noinspection PyUnresolvedReferences,PyUnusedLocal\n             def exists(filename):\n@@ -86,9 +111,10 @@ class TestDownloadUtils:\n             exists.attempt = 0\n             return exists\n \n-        assert 'foo.bar' == get_unique_filename('foo.bar', attempts(0))\n-        assert 'foo.bar-1' == get_unique_filename('foo.bar', attempts(1))\n-        assert 'foo.bar-10' == get_unique_filename('foo.bar', attempts(10))\n+        get_filename_max_length.return_value = 10\n+\n+        actual = get_unique_filename(orig_name, attempts(unique_on_attempt))\n+        assert expected == actual\n \n \n class TestDownloads:\n"
+  },
+  "timestamp": "2026-06-20 16:43:36 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "httpie",
+    "bug_id": "httpie_1",
+    "repo_path": "/BugsInPy/framework/bin/temp/httpie_1/httpie",
+    "github_url": "https://github.com/jakubroztocil/httpie/",
+    "description": "",
+    "commit_message": "Fixed #451 - OSError: [Errno 36] File name too long",
+    "fault_locations": [
+      {
+        "file": "httpie/downloads.py",
+        "start_line": 142,
+        "end_line": 143,
+        "function_name": "get_unique_filename",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/test_downloads.py::TestDownloadUtils::test_unique_filename"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

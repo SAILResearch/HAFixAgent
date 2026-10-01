@@ -1,0 +1,62 @@
+{
+  "project_name": "JxPath",
+  "bug_id": "3",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 16:42:04",
+      "end_time": "2026-06-26 16:43:38",
+      "duration_seconds": 94,
+      "duration_human": "1m 34s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 369327,
+      "output_tokens": 4241,
+      "total_tokens": 373568,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 369327
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/model/dynamic/DynamicPropertyPointer.java b/src/java/org/apache/commons/jxpath/ri/model/dynamic/DynamicPropertyPointer.java\nindex 3f3531a..5f2e574 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/dynamic/DynamicPropertyPointer.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/dynamic/DynamicPropertyPointer.java\n@@ -205,37 +205,7 @@ public class DynamicPropertyPointer extends PropertyPointer {\n         }\n     }\n \n-    public NodePointer createPath(JXPathContext context) {\n-        // Ignore the name passed to us, use our own data\n-        Object collection = getBaseValue();\n-        if (collection == null) {\n-            AbstractFactory factory = getAbstractFactory(context);\n-            boolean success =\n-                factory.createObject(\n-                    context,\n-                    this,\n-                    getBean(),\n-                    getPropertyName(),\n-                    0);\n-            if (!success) {\n-                throw new JXPathAbstractFactoryException(\n-                    \"Factory could not create an object for path: \" + asPath());\n-            }\n-            collection = getBaseValue();\n-        }\n-\n-        if (index != WHOLE_COLLECTION) {\n-            if (index < 0) {\n-                throw new JXPathInvalidAccessException(\"Index is less than 1: \"\n-                        + asPath());\n-            }\n \n-            if (index >= getLength()) {\n-                collection = ValueUtils.expandCollection(collection, index + 1);\n-                handler.setProperty(getBean(), getPropertyName(), collection);\n-            }\n-        }\n-        \n         return this;\n     }\n     \n@@ -320,4 +290,40 @@ public class DynamicPropertyPointer extends PropertyPointer {\n         }\n         return factory;\n     }\n-}\n\\ No newline at end of file\n+}    public NodePointer createPath(JXPathContext context) {\n+        // Ignore the name passed to us, use our own data\n+        Object collection = getBaseValue();\n+        if (collection == null) {\n+            AbstractFactory factory = getAbstractFactory(context);\n+            boolean success =\n+                factory.createObject(\n+                    context,\n+                    this,\n+                    getBean(),\n+                    getPropertyName(),\n+                    0);\n+            if (!success) {\n+                throw new JXPathAbstractFactoryException(\n+                    \"Factory could not create an object for path: \" + asPath());\n+            }\n+            collection = getBaseValue();\n+        }\n+\n+        if (index != WHOLE_COLLECTION) {\n+            if (index < 0) {\n+                throw new JXPathInvalidAccessException(\"Index is less than 1: \"\n+                        + asPath());\n+            }\n+\n+            if (index >= getLength()) {\n+                collection = ValueUtils.expandCollection(collection, index + 1);\n+                handler.setProperty(getBean(), getPropertyName(), collection);\n+            }\n+        }\n+\n+        // Check if collection contains null elements to avoid infinite recursion\n+        if (collection instanceof Collection && ((Collection) collection).contains(null)) {\n+            return this;\n+        }\n+        return this;\n+    }\n"
+  },
+  "timestamp": "2026-06-26 16:43:38 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JxPath",
+    "bug_id": "JxPath_3",
+    "repo_path": "/defects4j/framework/bin/temp/JxPath_3",
+    "github_url": "https://github.com/apache/commons-jxpath.git",
+    "description": "StackOverflow error on a call to 'JXPathContext.createPath()'\nI'm running into a StackOverflow error on a call to\n'JXPathContext.createPath()' whenever I have a path that looks like\n'a/b[1]/c'.  I took a quick look at the code and it appears JXPath, when\ntrying to create its parent pointer, simply recreates an equivalent\npointer(???).\n\nHere is code to reproduce the problem.\n\n\n    Map map = new HashMap();\n    map.put(\"a\", null);\n    \n    JXPathContext pathContext = JXPathContext.newContext(map);\n    pathContext.setFactory(new AbstractFactory() {\n      public boolean createObject(\n          JXPathContext context, Pointer pointer, Object parent, String\nname, int index) {\n\n        Map parentMap = (Map)parent;\n        System.out.println(parent + \":\" + name + \":\" + index);\n        if (index > -1) {\n          List list = (List)parentMap.get(name);\n          if (list == null) {\n            list = new ArrayList();\n          }\n          int size = list.size();\n          for (int i = size; i <= index; i++) {\n            list.add(i, null);\n          }\n          parentMap.put(name, list);\n        } else {\n          parentMap.put(name, new HashMap());\n        }\n        return true;\n      }\n      \n    });\n    pathContext.createPath(\"a/b[1]/c\");\n\n***************\n\nI have continued looking into this, and found that the problem is that, if\nthe List is created with a 'null' element, JXPath gets stuck in infinite\nrecursion.\n\nTo discover this, I changed my Factory to implement the following method:\n\n      public boolean createObject(\n          JXPathContext context, Pointer pointer, Object parent, \n          String name, int index) {\n\n        if (pointer instanceof NodePointer) {\n          index = ((NodePointer)pointer).getIndex();\n        }\n        System.out.println(parent + \":\" + name + \":\" + index);\n        Map parentMap = (Map)parent;\n        if (index > -1) {\n          List list = (List)parentMap.get(name);\n          if (list == null) {\n            list = new ArrayList();\n          }\n          int size = list.size();\n          for (int i = size; i <= index; i++) {\n            list.add(i, new HashMap());  // !!!!!!  Don't set to 'null'\n          }\n          parentMap.put(name, list);\n        } else {\n          parentMap.put(name, new HashMap());\n        }\n        return true;\n      }\n\nThen I ran the following code:\n\n    pathContext.createPath(\"a/b[1]/c\");\n    pathContext.createPath(\"a/b[2]/c\");  // STACK OVERFLOW HERE\n\nHere is the stack trace at the beginning, where\n'ValueUtils.expandCollection()' is called.  It puts 'null' into the list,\nthus causing the stack overflow as we cycle between createPath() &\ncreateChild().\n\nThread [main] (Suspended (breakpoint at line 227 in DynamicPropertyPointer))\n\tDynamicPropertyPointer.createPath(JXPathContext) line: 227\n\tDynamicPropertyPointer(PropertyPointer).createChild(JXPathContext,\nQName, int) line: 188\n\tNullElementPointer.createPath(JXPathContext) line: 82\n\tNullPointer.createPath(JXPathContext) line: 86\n\tNullPropertyPointer.createPath(JXPathContext) line: 103\n\tNullPointer.createPath(JXPathContext) line: 86\n\tNullPropertyPointer.createPath(JXPathContext) line: 103\n\tJXPathContextReferenceImpl.createPath(String, Expression) line: 447\n\tJXPathContextReferenceImpl.createPath(String) line: 427\n\tTest.test4() line: 75\n\tTest.main(String[]) line: 38",
+    "commit_message": "[JXPATH-68] Throw meaningful exception when imminent stack overflow is detected",
+    "fault_locations": [
+      {
+        "file": "src/java/org/apache/commons/jxpath/ri/model/beans/NullPropertyPointer.java",
+        "start_line": 224,
+        "end_line": 224,
+        "line_numbers": [
+          224
+        ],
+        "function_name": "",
+        "class_name": "NullPropertyPointer",
+        "filename": "NullPropertyPointer.java",
+        "code_snippet": "",
+        "granularity": "class"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.jxpath.ri.model.beans.BadlyImplementedFactoryTest::testBadFactoryImplementation"
+    ],
+    "golden_patch": "diff --git a/src/java/org/apache/commons/jxpath/ri/model/beans/NullPropertyPointer.java b/src/java/org/apache/commons/jxpath/ri/model/beans/NullPropertyPointer.java\nindex b9c02bf..8cbd118 100644\n--- a/src/java/org/apache/commons/jxpath/ri/model/beans/NullPropertyPointer.java\n+++ b/src/java/org/apache/commons/jxpath/ri/model/beans/NullPropertyPointer.java\n@@ -16,8 +16,6 @@\n  */\n package org.apache.commons.jxpath.ri.model.beans;\n \n+import org.apache.commons.jxpath.AbstractFactory;\n+import org.apache.commons.jxpath.JXPathAbstractFactoryException;\n import org.apache.commons.jxpath.JXPathContext;\n import org.apache.commons.jxpath.JXPathInvalidAccessException;\n import org.apache.commons.jxpath.ri.QName;\n@@ -108,9 +106,6 @@ public class NullPropertyPointer extends PropertyPointer {\n             return newParent.createAttribute(context, getName());\n         }\n         else {\n+            if (parent instanceof NullPointer && parent.equals(newParent)) {\n+                throw createBadFactoryException(context.getFactory());\n+            }\n             // Consider these two use cases:\n             // 1. The parent pointer of NullPropertyPointer is \n             //    a PropertyOwnerPointer other than NullPointer. When we call \n@@ -140,9 +135,6 @@ public class NullPropertyPointer extends PropertyPointer {\n             return pointer;\n         }\n         else {\n+            if (parent instanceof NullPointer && parent.equals(newParent)) {\n+                throw createBadFactoryException(context.getFactory());\n+            }\n             if (newParent instanceof PropertyOwnerPointer) {\n                 PropertyOwnerPointer pop = (PropertyOwnerPointer) newParent;\n                 newParent = pop.getPropertyPointer();\n@@ -229,10 +221,4 @@ public class NullPropertyPointer extends PropertyPointer {\n         }\n         return string;\n     }\n+\n+    private JXPathAbstractFactoryException createBadFactoryException(AbstractFactory factory) {\n+        return new JXPathAbstractFactoryException(\"Factory \" + factory\n+                + \" reported success creating object for path: \" + asPath()\n+                + \" but object was null.  Terminating to avoid stack recursion.\");\n+    }\n+}\n\\ No newline at end of file\n-}",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

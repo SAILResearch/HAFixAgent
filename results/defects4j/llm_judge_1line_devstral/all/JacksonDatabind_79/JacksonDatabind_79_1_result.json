@@ -1,0 +1,90 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "79",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 21:06:45",
+      "end_time": "2026-06-26 21:08:13",
+      "duration_seconds": 88,
+      "duration_human": "1m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 729888,
+      "output_tokens": 4878,
+      "total_tokens": 734766,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 729888
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex d74a2e99f..379ec44a8 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -576,6 +576,10 @@ public class JacksonAnnotationIntrospector\n     @Override\n     public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n         JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n+        if (ref == null) {\n+            // Check for class-level annotation if not found on accessor\n+            ref = _findAnnotation(ann.getRawType(), JsonIdentityReference.class);\n+        }\n         if (ref != null) {\n             objectIdInfo = objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n         }\n"
+  },
+  "timestamp": "2026-06-26 21:08:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_79",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_79",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "@JsonIdentityReference not used when setup on class only\nI am trying to setup @JsonIdentityInfo/@JsonIdentityReference in order to serialize all references to a given class as Object Id (and deserialize them later using a custom ObjectIdResolver to retrieve the proper referenced instance)\r\n\r\nI use @JsonIdentityReference(alwaysAsId=true) in order to enforce exporting the object id in all cases.\r\nIt does not work as expected when I define the annotation only on the class (but it works fine when I set it directly on the property). I would rather not have to define it on every property as I will probably miss some...\r\n\r\nFrom what I see in [BeanSerializerBase](https://github.com/FasterXML/jackson-databind/blob/fea0d29eabcb8e4825a318501b35f8a759c91426/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java#L473), the alwaysAsId is reset when not ObjectIdInfo is found on the accessor:\r\n\r\n```java\r\n            ObjectIdInfo objectIdInfo = intr.findObjectIdInfo(accessor);\r\n            if (objectIdInfo == null) {\r\n                // no ObjectId override, but maybe ObjectIdRef?\r\n                if (oiw != null) {\r\n                    objectIdInfo = intr.findObjectReferenceInfo(accessor,\r\n                            new ObjectIdInfo(NAME_FOR_OBJECT_REF, null, null, null));\r\noiw = _objectIdWriter.withAlwaysAsId(objectIdInfo.getAlwaysAsId());\r\n```\r\n\r\nShouldn't it be kept to the current value when no override is found ?\r\nI tried to set it back in the default ObjectIdInfo created with NAME_FOR_OBJECT_REF but I am not sure if this is the right way to fix this.\r\n\r\nHere is test I added in [TestObjectIdSerialization](https://github.com/vboulaye/jackson-databind/blob/master/src/test/java/com/fasterxml/jackson/databind/objectid/TestObjectIdSerialization.java#L324) for this case:\r\n```java\r\n\r\n    @JsonIdentityInfo(generator=ObjectIdGenerators.IntSequenceGenerator.class, property=\"id\")\r\n    @JsonIdentityReference(alwaysAsId=true)\r\n    static class ReallyAlwaysAsId\r\n    {\r\n        public int value;\r\n\r\n        public ReallyAlwaysAsId() { this(0); }\r\n        public ReallyAlwaysAsId(int v) {\r\n            value = v;\r\n        }\r\n    }\r\n\r\n    @JsonPropertyOrder(alphabetic=true)\r\n    static class ReallyAlwaysContainer\r\n    {\r\n\r\n        @JsonIdentityReference(alwaysAsId=true)\r\n        public AlwaysAsId a = new AlwaysAsId(13);\r\n\r\n        public ReallyAlwaysAsId b = new ReallyAlwaysAsId(13);\r\n\r\n    }\r\n\r\n    public void testReallyAlwaysAsId() throws Exception\r\n    {\r\n        String json = MAPPER.writeValueAsString(new ReallyAlwaysContainer());\r\n        assertEquals(\"{\\\"a\\\":1,\\\"b\\\":2}\", json);\r\n    }\r\n\r\n```\n",
+    "commit_message": "Fix #1607",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 579,
+        "end_line": 580,
+        "line_numbers": [
+          579,
+          580
+        ],
+        "function_name": "findObjectReferenceInfo",
+        "class_name": "JacksonAnnotationIntrospector",
+        "filename": "JacksonAnnotationIntrospector.java",
+        "code_snippet": "    public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n        JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n        if (ref != null) {\n            objectIdInfo = objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n        }\n        return objectIdInfo;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 582,
+        "end_line": 582,
+        "line_numbers": [
+          582
+        ],
+        "function_name": "findObjectReferenceInfo",
+        "class_name": "JacksonAnnotationIntrospector",
+        "filename": "JacksonAnnotationIntrospector.java",
+        "code_snippet": "    public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n        JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n        if (ref != null) {\n            objectIdInfo = objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n        }\n        return objectIdInfo;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java",
+        "start_line": 432,
+        "end_line": 433,
+        "line_numbers": [
+          432,
+          433
+        ],
+        "function_name": "createContextual",
+        "class_name": "BeanSerializerBase",
+        "filename": "BeanSerializerBase.java",
+        "code_snippet": "    public JsonSerializer<?> createContextual(SerializerProvider provider,\n            BeanProperty property)\n        throws JsonMappingException\n    {\n        final AnnotationIntrospector intr = provider.getAnnotationIntrospector();\n        final AnnotatedMember accessor = (property == null || intr == null)\n                ? null : property.getMember();\n        final SerializationConfig config = provider.getConfig();\n        \n        // Let's start with one big transmutation: Enums that are annotated\n        // to serialize as Objects may want to revert\n        JsonFormat.Shape shape = null;\n        if (accessor != null) {\n            JsonFormat.Value format = intr.findFormat((Annotated) accessor);\n\n            if (format != null) {\n                shape = format.getShape();\n                // or, alternatively, asked to revert \"back to\" other representations...\n                if (shape != _serializationShape) {\n                    if (_handledType.isEnum()) {\n                        switch (shape) {\n                        case STRING:\n                        case NUMBER:\n                        case NUMBER_INT:\n                            // 12-Oct-2014, tatu: May need to introspect full annotations... but\n                            //   for now, just do class ones\n                            BeanDescription desc = config.introspectClassAnnotations(_handledType);\n                            JsonSerializer<?> ser = EnumSerializer.construct(_handledType,\n                                    provider.getConfig(), desc, format);\n                            return provider.handlePrimaryContextualization(ser, property);\n                        }\n                    }\n                }\n            }\n        }\n\n        ObjectIdWriter oiw = _objectIdWriter;\n        String[] ignorals = null;\n        Object newFilterId = null;\n        \n        // Then we may have an override for Object Id\n        if (accessor != null) {\n            ignorals = intr.findPropertiesToIgnore(accessor, true);\n            ObjectIdInfo objectIdInfo = intr.findObjectIdInfo(accessor);\n            if (objectIdInfo == null) {\n                // no ObjectId override, but maybe ObjectIdRef?\n                if (oiw != null) {\n                    objectIdInfo = intr.findObjectReferenceInfo(accessor,\n                            new ObjectIdInfo(NAME_FOR_OBJECT_REF, null, null, null));\n                        oiw = _objectIdWriter.withAlwaysAsId(objectIdInfo.getAlwaysAsId());\n                }\n            } else {\n                // Ugh: mostly copied from BeanDeserializerBase: but can't easily change it\n                // to be able to move to SerializerProvider (where it really belongs)\n                \n                // 2.1: allow modifications by \"id ref\" annotations as well:\n                objectIdInfo = intr.findObjectReferenceInfo(accessor, objectIdInfo);\n                ObjectIdGenerator<?> gen;\n                Class<?> implClass = objectIdInfo.getGeneratorType();\n                JavaType type = provider.constructType(implClass);\n                JavaType idType = provider.getTypeFactory().findTypeParameters(type, ObjectIdGenerator.class)[0];\n                // Property-based generator is trickier\n                if (implClass == ObjectIdGenerators.PropertyGenerator.class) { // most special one, needs extra work\n                    String propName = objectIdInfo.getPropertyName().getSimpleName();\n                    BeanPropertyWriter idProp = null;\n\n                    for (int i = 0, len = _props.length ;; ++i) {\n                        if (i == len) {\n                            throw new IllegalArgumentException(\"Invalid Object Id definition for \"+_handledType.getName()\n                                    +\": can not find property with name '\"+propName+\"'\");\n                        }\n                        BeanPropertyWriter prop = _props[i];\n                        if (propName.equals(prop.getName())) {\n                            idProp = prop;\n                            /* Let's force it to be the first property to output\n                             * (although it may still get rearranged etc)\n                             */\n                            if (i > 0) { // note: must shuffle both regular properties and filtered\n                                System.arraycopy(_props, 0, _props, 1, i);\n                                _props[0] = idProp;\n                                if (_filteredProps != null) {\n                                    BeanPropertyWriter fp = _filteredProps[i];\n                                    System.arraycopy(_filteredProps, 0, _filteredProps, 1, i);\n                                    _filteredProps[0] = fp;\n                                }\n                            }\n                            break;\n                        }\n                    }\n                    idType = idProp.getType();\n                    gen = new PropertyBasedObjectIdGenerator(objectIdInfo, idProp);\n                    oiw = ObjectIdWriter.construct(idType, (PropertyName) null, gen, objectIdInfo.getAlwaysAsId());\n                } else { // other types need to be simpler\n                    gen = provider.objectIdGeneratorInstance(accessor, objectIdInfo);\n                    oiw = ObjectIdWriter.construct(idType, objectIdInfo.getPropertyName(), gen,\n                            objectIdInfo.getAlwaysAsId());\n                }\n            }\n            \n            // Or change Filter Id in use?\n            Object filterId = intr.findFilterId(accessor);\n            if (filterId != null) {\n                // but only consider case of adding a new filter id (no removal via annotation)\n                if (_propertyFilterId == null || !filterId.equals(_propertyFilterId)) {\n                    newFilterId = filterId;\n                }\n            }\n        }\n        // either way, need to resolve serializer:\n        BeanSerializerBase contextual = this;\n        if (oiw != null) {\n            JsonSerializer<?> ser = provider.findValueSerializer(oiw.idType, property);\n            oiw = oiw.withSerializer(ser);\n            if (oiw != _objectIdWriter) {\n                contextual = contextual.withObjectIdWriter(oiw);\n            }\n        }\n        // And possibly add more properties to ignore\n        if (ignorals != null && ignorals.length != 0) {\n            contextual = contextual.withIgnorals(ignorals);\n        }\n        if (newFilterId != null) {\n            contextual = contextual.withFilterId(newFilterId);\n        }\n        if (shape == null) {\n            shape = _serializationShape;\n        }\n        if (shape == JsonFormat.Shape.ARRAY) {\n            return contextual.asArraySerializer();\n        }\n        return contextual;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.objectid.AlwaysAsReferenceFirstTest::testIssue1607"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex f2bc1cad7..d74a2e99f 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -576,13 +576,10 @@ public class JacksonAnnotationIntrospector\n     @Override\n     public ObjectIdInfo findObjectReferenceInfo(Annotated ann, ObjectIdInfo objectIdInfo) {\n         JsonIdentityReference ref = _findAnnotation(ann, JsonIdentityReference.class);\n+        if (ref == null) {\n+            return objectIdInfo;\n-        if (ref != null) {\n-            objectIdInfo = objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n         }\n+        if (objectIdInfo == null) {\n+            objectIdInfo = ObjectIdInfo.empty();\n+        }\n+        return objectIdInfo.withAlwaysAsId(ref.alwaysAsId());\n-        return objectIdInfo;\n     }\n \n     /*\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/ObjectIdInfo.java b/src/main/java/com/fasterxml/jackson/databind/introspect/ObjectIdInfo.java\nindex 049ab3530..93c3dd51c 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/ObjectIdInfo.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/ObjectIdInfo.java\n@@ -22,7 +22,6 @@ public class ObjectIdInfo\n     /**\n      * @since 2.8.9\n      */\n+    private final static ObjectIdInfo EMPTY = new ObjectIdInfo(PropertyName.NO_NAME, Object.class, null, false, null);\n \n     public ObjectIdInfo(PropertyName name, Class<?> scope, Class<? extends ObjectIdGenerator<?>> gen,\n             Class<? extends ObjectIdResolver> resolver)\n@@ -61,9 +60,6 @@ public class ObjectIdInfo\n         _resolver = resolver;\n     }\n \n+    public static ObjectIdInfo empty() {\n+        return EMPTY;\n+    }\n \n     public ObjectIdInfo withAlwaysAsId(boolean state) {\n         if (_alwaysAsId == state) {\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java\nindex 3b838cc8b..1f1d2e3e2 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java\n@@ -429,10 +429,9 @@ public abstract class BeanSerializerBase\n             if (objectIdInfo == null) {\n                 // no ObjectId override, but maybe ObjectIdRef?\n                 if (oiw != null) {\n+                    objectIdInfo = intr.findObjectReferenceInfo(accessor, null);\n+                    if (objectIdInfo != null) {\n-                    objectIdInfo = intr.findObjectReferenceInfo(accessor,\n-                            new ObjectIdInfo(NAME_FOR_OBJECT_REF, null, null, null));\n                         oiw = _objectIdWriter.withAlwaysAsId(objectIdInfo.getAlwaysAsId());\n+                    }\n                 }\n             } else {\n                 // Ugh: mostly copied from BeanDeserializerBase: but can't easily change it",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

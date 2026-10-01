@@ -1,0 +1,68 @@
+{
+  "project_name": "Time",
+  "bug_id": "24",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-11 00:10:40",
+      "end_time": "2025-10-11 00:16:30",
+      "duration_seconds": 350,
+      "duration_human": "5m 50s"
+    },
+    "model_cost": 0.032,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 397078,
+      "output_tokens": 5247,
+      "total_tokens": 402325,
+      "cached_input_tokens": 387584,
+      "uncached_input_tokens": 9494
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/joda/time/format/DateTimeParserBucket.java b/src/main/java/org/joda/time/format/DateTimeParserBucket.java\nindex b985cefd..56ac91d5 100644\n--- a/src/main/java/org/joda/time/format/DateTimeParserBucket.java\n+++ b/src/main/java/org/joda/time/format/DateTimeParserBucket.java\n@@ -341,7 +341,7 @@ public class DateTimeParserBucket {\n             DurationField months = DurationFieldType.months().getField(iChrono);\n             DurationField days = DurationFieldType.days().getField(iChrono);\n             DurationField first = savedFields[0].iField.getDurationField();\n-            if (compareReverse(first, months) >= 0 && compareReverse(first, days) <= 0) {\n+            if (compareReverse(first, months) >= 0 && compareReverse(first, days) <= 0 && !hasWeekField(savedFields, count)) {\n                 saveField(DateTimeFieldType.year(), iDefaultYear);\n                 return computeMillis(resetFields, text);\n             }\n@@ -490,6 +490,18 @@ public class DateTimeParserBucket {\n         }\n     }\n \n+    \n+    static boolean hasWeekField(SavedField[] savedFields, int count) {\n+        for (int i = 0; i < count; i++) {\n+            DateTimeFieldType type = savedFields[i].iField.getType();\n+            if (type == DateTimeFieldType.weekyear() || type == DateTimeFieldType.weekOfWeekyear()) {\n+                return true;\n+            }\n+        }\n+        return false;\n+    }\n+\n+\n     static int compareReverse(DurationField a, DurationField b) {\n         if (a == null || !a.isSupported()) {\n             if (b == null || !b.isSupported()) {\n"
+  },
+  "timestamp": "2025-10-10 20:16:30 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Time",
+    "bug_id": "Time_24",
+    "repo_path": "/defects4j/framework/bin/temp/Time_24",
+    "github_url": "https://github.com/JodaOrg/joda-time.git",
+    "description": "#107 Incorrect date parsed when week and month used together\nI have following code snippet :\n    DateTimeFormatter dtf = DateTimeFormat.forPattern(\"xxxxMM'w'ww\");\nDateTime dt = dtf.parseDateTime(\"201101w01\");       \nSystem.out.println(dt);\n\nIt should print 2011-01-03 but it is printing 2010-01-04. \nPlease let me know if I am doing something wrong here.",
+    "commit_message": "Conversion from parsed values to a date-time handles weird sets of fields better [3161586] This change is mostly for combinations like weekyear-month-week The new code doesn't handle all combinations perfectly, but its better than it was",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/joda/time/format/DateTimeParserBucket.java",
+        "start_line": 354,
+        "end_line": 354,
+        "line_numbers": [
+          354
+        ],
+        "function_name": "computeMillis",
+        "class_name": "DateTimeParserBucket",
+        "filename": "DateTimeParserBucket.java",
+        "code_snippet": "    public long computeMillis(boolean resetFields, String text) {\n        SavedField[] savedFields = iSavedFields;\n        int count = iSavedFieldsCount;\n        if (iSavedFieldsShared) {\n            iSavedFields = savedFields = (SavedField[])iSavedFields.clone();\n            iSavedFieldsShared = false;\n        }\n        sort(savedFields, count);\n        if (count > 0) {\n            // alter base year for parsing if first field is month or day\n            DurationField months = DurationFieldType.months().getField(iChrono);\n            DurationField days = DurationFieldType.days().getField(iChrono);\n            DurationField first = savedFields[0].iField.getDurationField();\n            if (compareReverse(first, months) >= 0 && compareReverse(first, days) <= 0) {\n                saveField(DateTimeFieldType.year(), iDefaultYear);\n                return computeMillis(resetFields, text);\n            }\n        }\n\n        long millis = iMillis;\n        try {\n            for (int i = 0; i < count; i++) {\n                millis = savedFields[i].set(millis, resetFields);\n            }\n        } catch (IllegalFieldValueException e) {\n            if (text != null) {\n                e.prependMessage(\"Cannot parse \\\"\" + text + '\"');\n            }\n            throw e;\n        }\n        \n        if (iZone == null) {\n            millis -= iOffset;\n        } else {\n            int offset = iZone.getOffsetFromLocal(millis);\n            millis -= offset;\n            if (offset != iZone.getOffset(millis)) {\n                String message =\n                    \"Illegal instant due to time zone offset transition (\" + iZone + ')';\n                if (text != null) {\n                    message = \"Cannot parse \\\"\" + text + \"\\\": \" + message;\n                }\n                throw new IllegalArgumentException(message);\n            }\n        }\n        \n        return millis;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_weekyear_month_week_2010",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_weekyear_month_week_2011",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_weekyear_month_week_2012",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_year_month_week_2010",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_year_month_week_2011",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_year_month_week_2012",
+      "org.joda.time.format.TestDateTimeFormatter::testParseLocalDate_year_month_week_2016"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/joda/time/format/DateTimeParserBucket.java b/src/main/java/org/joda/time/format/DateTimeParserBucket.java\nindex 7c37fc1..b985cef 100644\n--- a/src/main/java/org/joda/time/format/DateTimeParserBucket.java\n+++ b/src/main/java/org/joda/time/format/DateTimeParserBucket.java\n@@ -352,11 +352,6 @@ public class DateTimeParserBucket {\n             for (int i = 0; i < count; i++) {\n                 millis = savedFields[i].set(millis, resetFields);\n             }\n+            if (resetFields) {\n+                for (int i = 0; i < count; i++) {\n+                    millis = savedFields[i].set(millis, i == (count - 1));\n+                }\n+            }\n         } catch (IllegalFieldValueException e) {\n             if (text != null) {\n                 e.prependMessage(\"Cannot parse \\\"\" + text + '\"');",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

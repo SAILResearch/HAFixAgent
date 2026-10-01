@@ -1,0 +1,107 @@
+{
+  "project_name": "Closure",
+  "bug_id": "155",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:26:59",
+      "end_time": "2026-06-19 23:28:28",
+      "duration_seconds": 89,
+      "duration_human": "1m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 749037,
+      "output_tokens": 3106,
+      "total_tokens": 752143,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 749037
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/Scope.java b/src/com/google/javascript/jscomp/Scope.java\nindex 806ca2742..9436e67d3 100644\n--- a/src/com/google/javascript/jscomp/Scope.java\n+++ b/src/com/google/javascript/jscomp/Scope.java\n@@ -59,6 +59,7 @@ public class Scope implements StaticScope<JSType> {\n \n   /** Whether this is a bottom scope for the purposes of type inference. */\n   private final boolean isBottom;\n+  private Var arguments;\n \n \n   /** Stores info about a variable */\n"
+  },
+  "timestamp": "2026-06-19 23:28:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_155",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_155",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Overzealous arguments optimisation\nConsider the following JavaScript code:\r\n\r\nfunction d3_call(callback) {\r\n  var f = callback;\r\n  arguments[0] = this;\r\n  f.apply(this, arguments);\r\n  return this;\r\n}\r\n\r\nThis is optimised to:\r\n\r\nfunction d3_call(a){arguments[0]=this;a.apply(this,arguments);return this};\r\n\r\nHowever, the use of a temporary variable `f` is necessary to avoid `arguments[0] = this` from overwriting the first argument.\r\n\r\nIn the above optimised code, `arguments[0] = this` causes `this` to be assigned to `a`.\r\n\r\nVerified on latest SVN r878.\r\n\r\nSee also: https://github.com/mbostock/d3/issues/closed#issue/68",
+    "commit_message": "Don't inline alias if \"arguments\" are modified or escaped. Fixes issue 378",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/InlineVariables.java",
+        "start_line": 220,
+        "end_line": 220,
+        "line_numbers": [
+          220
+        ],
+        "function_name": "doInlinesForScope",
+        "class_name": "InliningBehavior",
+        "filename": "InlineVariables.java",
+        "code_snippet": "    private void doInlinesForScope(NodeTraversal t,\n        Map<Var, ReferenceCollection> referenceMap) {\n\n      for (Iterator<Var> it = t.getScope().getVars(); it.hasNext();) {\n        Var v = it.next();\n\n        ReferenceCollection referenceInfo = referenceMap.get(v);\n\n        // referenceInfo will be null if we're in constants-only mode\n        // and the variable is not a constant.\n        if (referenceInfo == null || isVarInlineForbidden(v)) {\n          // Never try to inline exported variables or variables that\n          // were not collected or variables that have already been inlined.\n          continue;\n        } else if (isInlineableDeclaredConstant(v, referenceInfo)) {\n          Reference init = referenceInfo.getInitializingReferenceForConstants();\n          Node value = init.getAssignedValue();\n          inlineDeclaredConstant(v, value, referenceInfo.references);\n          staleVars.add(v);\n        } else if (mode == Mode.CONSTANTS_ONLY) {\n          // If we're in constants-only mode, don't run more aggressive\n          // inlining heuristics. See InlineConstantsTest.\n          continue;\n        } else {\n          inlineNonConstants(v, referenceInfo);\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/InlineVariables.java",
+        "start_line": 230,
+        "end_line": 230,
+        "line_numbers": [
+          230
+        ],
+        "function_name": "inlineNonConstants",
+        "class_name": "InliningBehavior",
+        "filename": "InlineVariables.java",
+        "code_snippet": "    private void inlineNonConstants(\n        Var v, ReferenceCollection referenceInfo) {\n      int refCount = referenceInfo.references.size();\n      Reference declaration = referenceInfo.references.get(0);\n      Reference init = referenceInfo.getInitializingReference();\n      int firstRefAfterInit = (declaration == init) ? 2 : 3;\n\n      if (refCount > 1 &&\n          isImmutableAndWellDefinedVariable(v, referenceInfo)) {\n        // if the variable is referenced more than once, we can only\n        // inline it if it's immutable and never defined before referenced.\n        Node value;\n        if (init != null) {\n          value = init.getAssignedValue();\n        } else {\n          // Create a new node for variable that is never initialized.\n          Node srcLocation = declaration.getNameNode();\n          value = NodeUtil.newUndefinedNode(srcLocation);\n        }\n        Preconditions.checkNotNull(value);\n        inlineWellDefinedVariable(v, value, referenceInfo.references);\n        staleVars.add(v);\n      } else if (refCount == firstRefAfterInit) {\n        // The variable likely only read once, try some more\n        // complex inlining heuristics.\n        Reference reference = referenceInfo.references.get(\n            firstRefAfterInit - 1);\n        if (canInline(declaration, init, reference)) {\n          inline(v, declaration, init, reference);\n          staleVars.add(v);\n        }\n      } else if (declaration != init && refCount == 2) {\n        if (isValidDeclaration(declaration) && isValidInitialization(init)) {\n          // The only reference is the initialization, remove the assignment and\n          // the variable declaration.\n          Node value = init.getAssignedValue();\n          Preconditions.checkNotNull(value);\n          inlineWellDefinedVariable(v, value, referenceInfo.references);\n          staleVars.add(v);\n        }\n      }\n\n      // If this variable was not inlined normally, check if we can\n      // inline an alias of it. (If the variable was inlined, then the\n      // reference data is out of sync. We're better off just waiting for\n      // the next pass.)\n      if (\n          !staleVars.contains(v) && referenceInfo.isWellDefined() &&\n          referenceInfo.isAssignedOnceInLifetime()) {\n        List<Reference> refs = referenceInfo.references;\n        for (int i = 1 /* start from a read */; i < refs.size(); i++) {\n          Node nameNode = refs.get(i).getNameNode();\n          if (aliasCandidates.containsKey(nameNode)) {\n            AliasCandidate candidate = aliasCandidates.get(nameNode);\n            if (!staleVars.contains(candidate.alias) &&\n                !isVarInlineForbidden(candidate.alias)) {\n              Reference aliasInit;\n              aliasInit = candidate.refInfo.getInitializingReference();\n              Node value = aliasInit.getAssignedValue();\n              Preconditions.checkNotNull(value);\n              inlineWellDefinedVariable(candidate.alias,\n                  value,\n                  candidate.refInfo.references);\n              staleVars.add(candidate.alias);\n            }\n          }\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/InlineVariables.java",
+        "start_line": 275,
+        "end_line": 275,
+        "line_numbers": [
+          275
+        ],
+        "function_name": "inlineNonConstants",
+        "class_name": "InliningBehavior",
+        "filename": "InlineVariables.java",
+        "code_snippet": "    private void inlineNonConstants(\n        Var v, ReferenceCollection referenceInfo) {\n      int refCount = referenceInfo.references.size();\n      Reference declaration = referenceInfo.references.get(0);\n      Reference init = referenceInfo.getInitializingReference();\n      int firstRefAfterInit = (declaration == init) ? 2 : 3;\n\n      if (refCount > 1 &&\n          isImmutableAndWellDefinedVariable(v, referenceInfo)) {\n        // if the variable is referenced more than once, we can only\n        // inline it if it's immutable and never defined before referenced.\n        Node value;\n        if (init != null) {\n          value = init.getAssignedValue();\n        } else {\n          // Create a new node for variable that is never initialized.\n          Node srcLocation = declaration.getNameNode();\n          value = NodeUtil.newUndefinedNode(srcLocation);\n        }\n        Preconditions.checkNotNull(value);\n        inlineWellDefinedVariable(v, value, referenceInfo.references);\n        staleVars.add(v);\n      } else if (refCount == firstRefAfterInit) {\n        // The variable likely only read once, try some more\n        // complex inlining heuristics.\n        Reference reference = referenceInfo.references.get(\n            firstRefAfterInit - 1);\n        if (canInline(declaration, init, reference)) {\n          inline(v, declaration, init, reference);\n          staleVars.add(v);\n        }\n      } else if (declaration != init && refCount == 2) {\n        if (isValidDeclaration(declaration) && isValidInitialization(init)) {\n          // The only reference is the initialization, remove the assignment and\n          // the variable declaration.\n          Node value = init.getAssignedValue();\n          Preconditions.checkNotNull(value);\n          inlineWellDefinedVariable(v, value, referenceInfo.references);\n          staleVars.add(v);\n        }\n      }\n\n      // If this variable was not inlined normally, check if we can\n      // inline an alias of it. (If the variable was inlined, then the\n      // reference data is out of sync. We're better off just waiting for\n      // the next pass.)\n      if (\n          !staleVars.contains(v) && referenceInfo.isWellDefined() &&\n          referenceInfo.isAssignedOnceInLifetime()) {\n        List<Reference> refs = referenceInfo.references;\n        for (int i = 1 /* start from a read */; i < refs.size(); i++) {\n          Node nameNode = refs.get(i).getNameNode();\n          if (aliasCandidates.containsKey(nameNode)) {\n            AliasCandidate candidate = aliasCandidates.get(nameNode);\n            if (!staleVars.contains(candidate.alias) &&\n                !isVarInlineForbidden(candidate.alias)) {\n              Reference aliasInit;\n              aliasInit = candidate.refInfo.getInitializingReference();\n              Node value = aliasInit.getAssignedValue();\n              Preconditions.checkNotNull(value);\n              inlineWellDefinedVariable(candidate.alias,\n                  value,\n                  candidate.refInfo.references);\n              staleVars.add(candidate.alias);\n            }\n          }\n        }\n      }\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ReferenceCollectingCallback.java",
+        "start_line": 123,
+        "end_line": 123,
+        "line_numbers": [
+          123
+        ],
+        "function_name": "visit",
+        "class_name": "ReferenceCollectingCallback",
+        "filename": "ReferenceCollectingCallback.java",
+        "code_snippet": "  public void visit(NodeTraversal t, Node n, Node parent) {\n    if (n.getType() == Token.NAME) {\n      Var v = t.getScope().getVar(n.getString());\n      if (v != null && varFilter.apply(v)) {\n        addReference(t, v,\n            new Reference(n, parent, t, blockStack.peek()));\n      }\n    }\n\n    if (isBlockBoundary(n, parent)) {\n      blockStack.pop();\n    }\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.InlineVariablesTest::testArgumentsModifiedInInnerFunction",
+      "com.google.javascript.jscomp.InlineVariablesTest::testArgumentsModifiedInOuterFunction",
+      "com.google.javascript.jscomp.InlineVariablesTest::testIssue378ModifiedArguments1",
+      "com.google.javascript.jscomp.InlineVariablesTest::testIssue378ModifiedArguments2",
+      "com.google.javascript.jscomp.InlineVariablesTest::testIssue378EscapedArguments1",
+      "com.google.javascript.jscomp.InlineVariablesTest::testIssue378EscapedArguments2",
+      "com.google.javascript.jscomp.InlineVariablesTest::testIssue378EscapedArguments4"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/InlineVariables.java b/src/com/google/javascript/jscomp/InlineVariables.java\nindex 7d99778c8..18c9fbe2c 100644\n--- a/src/com/google/javascript/jscomp/InlineVariables.java\n+++ b/src/com/google/javascript/jscomp/InlineVariables.java\n@@ -196,8 +196,6 @@ class InlineVariables implements CompilerPass {\n     private void doInlinesForScope(NodeTraversal t,\n         Map<Var, ReferenceCollection> referenceMap) {\n \n+      boolean maybeModifiedArguments =\n+          maybeEscapedOrModifiedArguments(t.getScope(), referenceMap);\n       for (Iterator<Var> it = t.getScope().getVars(); it.hasNext();) {\n         Var v = it.next();\n \n@@ -219,44 +217,17 @@ class InlineVariables implements CompilerPass {\n           // inlining heuristics. See InlineConstantsTest.\n           continue;\n         } else {\n+          inlineNonConstants(v, referenceInfo, maybeModifiedArguments);\n-          inlineNonConstants(v, referenceInfo);\n         }\n       }\n     }\n \n+    private boolean maybeEscapedOrModifiedArguments(\n+        Scope scope, Map<Var, ReferenceCollection> referenceMap) {\n+      if (scope.isLocal()) {\n+        Var arguments = scope.getArgumentsVar();\n+        ReferenceCollection refs = referenceMap.get(arguments);\n+        if (refs != null && !refs.references.isEmpty()) {\n+          for (Reference ref : refs.references) {\n+            Node refNode = ref.getNameNode();\n+            Node refParent = ref.getParent();\n             // Any reference that is not a read of the arguments property\n             // consider a escape of the arguments object.\n+            if (!(NodeUtil.isGet(refParent)\n+                && refNode == ref.getParent().getFirstChild()\n+                && !isLValue(refParent))) {\n+              return true;\n+            }\n+          }\n+        }\n+      }\n+      return false;\n+    }\n \n+    private boolean isLValue(Node n) {\n+      Node parent = n.getParent();\n+      return (parent.getType() == Token.INC\n+          || parent.getType() == Token.DEC\n+          || (NodeUtil.isAssignmentOp(parent)\n+          && parent.getFirstChild() == n));\n+    }\n \n     private void inlineNonConstants(\n+        Var v, ReferenceCollection referenceInfo,\n+        boolean maybeModifiedArguments) {\n-        Var v, ReferenceCollection referenceInfo) {\n       int refCount = referenceInfo.references.size();\n       Reference declaration = referenceInfo.references.get(0);\n       Reference init = referenceInfo.getInitializingReference();\n@@ -301,7 +272,7 @@ class InlineVariables implements CompilerPass {\n       // inline an alias of it. (If the variable was inlined, then the\n       // reference data is out of sync. We're better off just waiting for\n       // the next pass.)\n+      if (!maybeModifiedArguments &&\n-      if (\n           !staleVars.contains(v) && referenceInfo.isWellDefined() &&\n           referenceInfo.isAssignedOnceInLifetime()) {\n         List<Reference> refs = referenceInfo.references;\ndiff --git a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\nindex 4c00d60e6..e3edbb4d6 100644\n--- a/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n+++ b/src/com/google/javascript/jscomp/ReferenceCollectingCallback.java\n@@ -120,12 +120,7 @@ class ReferenceCollectingCallback implements ScopedCallback, CompilerPass {\n    */\n   public void visit(NodeTraversal t, Node n, Node parent) {\n     if (n.getType() == Token.NAME) {\n+      Var v;\n+      if (n.getString().equals(\"arguments\")) {\n+        v = t.getScope().getArgumentsVar();\n+      } else {\n+        v = t.getScope().getVar(n.getString());\n+      }\n-      Var v = t.getScope().getVar(n.getString());\n       if (v != null && varFilter.apply(v)) {\n         addReference(t, v,\n             new Reference(n, parent, t, blockStack.peek()));\ndiff --git a/src/com/google/javascript/jscomp/Scope.java b/src/com/google/javascript/jscomp/Scope.java\nindex 19ac9d2bc..806ca2742 100644\n--- a/src/com/google/javascript/jscomp/Scope.java\n+++ b/src/com/google/javascript/jscomp/Scope.java\n@@ -60,7 +60,6 @@ public class Scope implements StaticScope<JSType> {\n   /** Whether this is a bottom scope for the purposes of type inference. */\n   private final boolean isBottom;\n \n+  private Var arguments;\n \n   /** Stores info about a variable */\n   public static class Var implements StaticSlot<JSType> {\n@@ -288,35 +287,10 @@ public class Scope implements StaticScope<JSType> {\n    * scope.\n    */\n   // TODO(johnlenz): Include this the list of Vars for the scope.\n+  public static class Arguments extends Var {\n+    Arguments(Scope scope) {\n+      super(\n+        false, // no inferred\n+        \"arguments\", // always arguments\n+        null,  // no declaration node\n         // TODO(johnlenz): provide the type of \"Arguments\".\n+        null,  // no type info\n+        scope,\n+        -1,    // no variable index\n+        null,  // input,\n+        false, // not a define\n+        null   // no jsdoc\n+        );\n+    }\n \n+    @Override public boolean equals(Object other) {\n+      if (!(other instanceof Arguments)) {\n+        return false;\n+      }\n \n+      Arguments otherVar = (Arguments) other;\n+      return otherVar.scope.getRootNode() == scope.getRootNode();\n+    }\n \n+    @Override public int hashCode() {\n+      return System.identityHashCode(this);\n+    }\n+  }\n \n   /**\n    * Creates a Scope given the parent Scope and the root node of the scope.\n@@ -482,12 +456,6 @@ public class Scope implements StaticScope<JSType> {\n   /**\n    * Get a unique VAR object to represents \"arguments\" within this scope\n    */\n+  public Var getArgumentsVar() {\n+    if (arguments == null) {\n+      arguments = new Arguments(this);\n+    }\n+    return arguments;\n+  }\n \n   /**\n    * Returns true if a variable is declared.",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_22",
+  "history_category": "baseline_function_code_pair_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 05:29:39",
+      "end_time": "2026-06-30 05:31:09",
+      "duration_seconds": 89,
+      "duration_human": "1m 29s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1145807,
+      "output_tokens": 4598,
+      "total_tokens": 1150405,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1145807
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\nindex 992b364a3..0d082eacb 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\n@@ -167,16 +167,13 @@ public class BeanSerializerFactory\n         return new StdDelegatingSerializer(conv, delegateType, ser);\n     }\n \n+    protected JsonSerializer<?> _createSerializer2(SerializerProvider prov,\n     protected JsonSerializer<?> _createSerializer2(SerializerProvider prov,\n             JavaType type, BeanDescription beanDesc, boolean staticTyping)\n         throws JsonMappingException\n     {\n-        JsonSerializer<?> ser = findSerializerByAnnotations(prov, type, beanDesc);\n-        if (ser != null) {\n-            return ser;\n-        }\n         final SerializationConfig config = prov.getConfig();\n-        \n+\n         // Container types differ from non-container types\n         // (note: called method checks for module-provided serializers)\n         if (type.isContainerType()) {\n@@ -194,22 +191,67 @@ public class BeanSerializerFactory\n                 */\n             }\n             // 03-Aug-2012, tatu: As per [Issue#40], may require POJO serializer...\n-            ser =  buildContainerSerializer(prov, type, beanDesc, staticTyping);\n+            JsonSerializer<?> ser = buildContainerSerializer(prov, type, beanDesc, staticTyping);\n             // Will return right away, since called method does post-processing:\n             if (ser != null) {\n                 return ser;\n             }\n         } else {\n-            // Modules may provide serializers of POJO types:\n+            // Modules may provide serializers of POJO types: these should take precedence\n+            // over @JsonValue and other annotations\n+            JsonSerializer<?> ser = null;\n             for (Serializers serializers : customSerializers()) {\n                 ser = serializers.findSerializer(config, type, beanDesc);\n                 if (ser != null) {\n                     break;\n                 }\n             }\n-            // 25-Jun-2015, tatu: Then JsonSerializable, @JsonValue etc. NOTE! Prior to 2.6,\n-            //    this call was BEFORE custom serializer lookup, which was wrong.\n+            if (ser == null) {\n+                ser = findSerializerByAnnotations(prov, type, beanDesc);\n+            }\n+            if (ser != null) {\n+                return ser;\n+            }\n         }\n+\n+        if (ser == null) {\n+            // Otherwise, we will check \"primary types\"; both marker types that\n+            // indicate specific handling (JsonSerializable), or main types that have\n+            // precedence over container types\n+            ser = findSerializerByLookup(type, config, beanDesc, staticTyping);\n+            if (ser == null) {\n+                ser = findSerializerByPrimaryType(prov, type, beanDesc, staticTyping);\n+                if (ser == null) {\n+                    // And this is where this class comes in: if type is not a\n+                    // known \"primary JDK type\", perhaps it's a bean? We can still\n+                    // get a null, if we can't find a single suitable bean property.\n+                    ser = findBeanSerializer(prov, type, beanDesc);\n+                    // Finally: maybe we can still deal with it as an implementation of some basic JDK interface?\n+                    if (ser == null) {\n+                        ser = findSerializerByAddonType(config, type, beanDesc, staticTyping);\n+                        // 18-Sep-2014, tatu: Actually, as per [jackson-databind#539], need to get\n+                        //   'unknown' serializer assigned earlier, here, so that it gets properly\n+                        //   post-processed\n+                        if (ser == null) {\n+                            ser = prov.getUnknownTypeSerializer(beanDesc.getBeanClass());\n+                        }\n+                    }\n+                }\n+            }\n+        }\n+        if (ser != null) {\n+            // [databind#120]: Allow post-processing\n+            if (_factoryConfig.hasSerializerModifiers()) {\n+                for (BeanSerializerModifier mod : _factoryConfig.serializerModifiers()) {\n+                    ser = mod.modifySerializer(config, beanDesc, ser);\n+                }\n+            }\n+        }\n+        return ser;\n+    }\n+            JavaType type, BeanDescription beanDesc, boolean staticTyping)\n+        throws JsonMappingException\n+    {\n         \n         if (ser == null) {\n             // Otherwise, we will check \"primary types\"; both marker types that\n"
+  },
+  "timestamp": "2026-06-30 05:31:09 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_22",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_22",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Custom serializer not used if POJO has `@JsonValue`\nLooks like serializers constructed for `@JsonValue` have higher precedence than custom serializers; that is, registered custom serializer is not found if POJO type has `@JsonValue` annotation.\nThis is wrong.\n\n",
+    "commit_message": "Fix #848",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 98,
+        "end_line": 98,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 94,
+        "end_line": 94,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 37,
+        "end_line": 37,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 38,
+        "end_line": 38,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 40,
+        "end_line": 40,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 41,
+        "end_line": 41,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 48,
+        "end_line": 48,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 55,
+        "end_line": 55,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 60,
+        "end_line": 60,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+        "start_line": 65,
+        "end_line": 65,
+        "suspiciousness": 0.35355339059327373,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.TestJsonValue::testJsonValueWithCustomOverride"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 98,
+      "end_line": 98,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 94,
+      "end_line": 94,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 37,
+      "end_line": 37,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 38,
+      "end_line": 38,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 40,
+      "end_line": 40,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 41,
+      "end_line": 41,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 48,
+      "end_line": 48,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 55,
+      "end_line": 55,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 60,
+      "end_line": 60,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/module/SimpleModule.java",
+      "start_line": 65,
+      "end_line": 65,
+      "suspiciousness": 0.35355339059327373,
+      "rank": 10
+    }
+  ]
+}

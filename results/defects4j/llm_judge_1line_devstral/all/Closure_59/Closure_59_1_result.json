@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "59",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 18:31:42",
+      "end_time": "2026-06-26 18:41:10",
+      "duration_seconds": 568,
+      "duration_human": "9m 28s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 282358,
+      "output_tokens": 2424,
+      "total_tokens": 284782,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 282358
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java\nindex b3ca246a6..8bae98308 100644\n--- a/src/com/google/javascript/jscomp/Compiler.java\n+++ b/src/com/google/javascript/jscomp/Compiler.java\n@@ -256,8 +256,11 @@ public class Compiler extends AbstractCompiler {\n       options.setWarningLevel(\n           DiagnosticGroups.GLOBAL_THIS,\n           options.checkGlobalThisLevel);\n+    } else if (options.disables(DiagnosticGroups.GLOBAL_THIS)) {\n+      options.setWarningLevel(\n+          DiagnosticGroups.GLOBAL_THIS,\n+          CheckLevel.OFF);\n     }\n-\n     if (options.getLanguageIn() == LanguageMode.ECMASCRIPT5_STRICT) {\n       options.setWarningLevel(\n           DiagnosticGroups.ES5_STRICT,\n"
+  },
+  "timestamp": "2026-06-26 18:41:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_59",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_59",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Cannot exclude globalThis checks through command line\n<b>What steps will reproduce the problem?</b>\n1. Run command line utility\r\n2. Supply flags --warning_level VERBOSE --jscomp_off globalThis --jscomp_off nonStandardJsDocs\r\n\r\n<b>What is the expected output? What do you see instead?</b>\nI expect that globalThis and nonStandardJsDocs warnings will be ignored. Only nonStandardJsDocs warnings are ignored.\r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nVersion 1180\r\nSun OS 5.10\r\n\r\n<b>Please provide any additional information below.</b>\n--jscomp_error also doesn't work with globalThis (works with nonStandardJSDocs).",
+    "commit_message": "Fix order of operations of GLOBAL_THIS options. Fixes issue 521",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/Compiler.java",
+        "start_line": 255,
+        "end_line": 255,
+        "line_numbers": [
+          255
+        ],
+        "function_name": "initOptions",
+        "class_name": "Compiler",
+        "filename": "Compiler.java",
+        "code_snippet": "  public void initOptions(CompilerOptions options) {\n    this.options = options;\n    if (errorManager == null) {\n      if (outStream == null) {\n        setErrorManager(\n            new LoggerErrorManager(createMessageFormatter(), logger));\n      } else {\n        PrintStreamErrorManager printer =\n            new PrintStreamErrorManager(createMessageFormatter(), outStream);\n        printer.setSummaryDetailLevel(options.summaryDetailLevel);\n        setErrorManager(printer);\n      }\n    }\n\n    // DiagnosticGroups override the plain checkTypes option.\n    if (options.enables(DiagnosticGroups.CHECK_TYPES)) {\n      options.checkTypes = true;\n    } else if (options.disables(DiagnosticGroups.CHECK_TYPES)) {\n      options.checkTypes = false;\n    } else if (!options.checkTypes) {\n      // If DiagnosticGroups did not override the plain checkTypes\n      // option, and checkTypes is enabled, then turn off the\n      // parser type warnings.\n      options.setWarningLevel(\n          DiagnosticGroup.forType(\n              RhinoErrorReporter.TYPE_PARSE_ERROR),\n          CheckLevel.OFF);\n    }\n\n    if (options.checkGlobalThisLevel.isOn()) {\n      options.setWarningLevel(\n          DiagnosticGroups.GLOBAL_THIS,\n          options.checkGlobalThisLevel);\n    }\n\n    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT5_STRICT) {\n      options.setWarningLevel(\n          DiagnosticGroups.ES5_STRICT,\n          CheckLevel.ERROR);\n    }\n\n    // Initialize the warnings guard.\n    List<WarningsGuard> guards = Lists.newArrayList();\n    guards.add(\n        new SuppressDocWarningsGuard(\n            getDiagnosticGroups().getRegisteredGroups()));\n    guards.add(options.getWarningsGuard());\n\n    ComposeWarningsGuard composedGuards = new ComposeWarningsGuard(guards);\n\n    // All passes must run the variable check. This synthesizes\n    // variables later so that the compiler doesn't crash. It also\n    // checks the externs file for validity. If you don't want to warn\n    // about missing variable declarations, we shut that specific\n    // error off.\n    if (!options.checkSymbols &&\n        !composedGuards.enables(DiagnosticGroups.CHECK_VARIABLES)) {\n      composedGuards.addGuard(new DiagnosticGroupWarningsGuard(\n          DiagnosticGroups.CHECK_VARIABLES, CheckLevel.OFF));\n    }\n\n    this.warningsGuard = composedGuards;\n  }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.CommandLineRunnerTest::testCheckGlobalThisOff"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java\nindex 1d6e494..b3ca246 100644\n--- a/src/com/google/javascript/jscomp/Compiler.java\n+++ b/src/com/google/javascript/jscomp/Compiler.java\n@@ -252,8 +252,7 @@ public class Compiler extends AbstractCompiler {\n           CheckLevel.OFF);\n     }\n \n+    if (options.checkGlobalThisLevel.isOn() &&\n+        !options.disables(DiagnosticGroups.GLOBAL_THIS)) {\n-    if (options.checkGlobalThisLevel.isOn()) {\n       options.setWarningLevel(\n           DiagnosticGroups.GLOBAL_THIS,\n           options.checkGlobalThisLevel);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

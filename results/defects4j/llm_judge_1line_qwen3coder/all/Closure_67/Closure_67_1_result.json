@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "67",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-19 23:09:01",
+      "end_time": "2026-06-19 23:17:28",
+      "duration_seconds": 507,
+      "duration_human": "8m 27s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 941361,
+      "output_tokens": 25728,
+      "total_tokens": 967089,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 941361
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java b/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\nindex 30b19e0b3..6331747a3 100644\n--- a/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\n+++ b/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\n@@ -375,11 +375,24 @@ class AnalyzePrototypeProperties implements CompilerPass {\n           Node parent = n.getParent();\n           Node grandParent = parent.getParent();\n \n+          // Find the EXPR_RESULT node that contains the assignment\n+          Node exprNode = grandParent;\n+          if (exprNode.getType() != Token.EXPR_RESULT) {\n+            // In the case of chained assignments, grandParent might be an ASSIGN\n+            // that's a child of an EXPR_RESULT.\n+            if (exprNode.getParent().getType() == Token.EXPR_RESULT &&\n+                exprNode.getParent().getFirstChild() == exprNode) {\n+              exprNode = exprNode.getParent();\n+            } else {\n+              // Not a valid assignment statement\n+              return;\n+            }\n+          }\n+\n           if (dest.getType() == Token.STRING &&\n-              NodeUtil.isExprAssign(grandParent) &&\n               NodeUtil.isVarOrSimpleAssignLhs(n, parent)) {\n             String name = dest.getString();\n-            Property prop = new AssignmentProperty(grandParent, t.getModule());\n+            Property prop = new AssignmentProperty(exprNode, t.getModule());\n             getNameInfoForName(name, PROPERTY).getDeclarations().add(prop);\n           }\n           break;\n"
+  },
+  "timestamp": "2026-06-19 23:17:28 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_67",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_67",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Advanced compilations renames a function and then deletes it, leaving a reference to a renamed but non-existent function\nIf we provide the below code to advanced:\r\n\r\n\r\nfunction A() {\r\nthis._x = 1;\r\n}\r\n\r\nA.prototype['func1'] = // done to save public reference to func1\r\nA.prototype.func1 = function() {\r\n  this._x = 2;\r\n  this.func2();\r\n}\r\n\r\nA.prototype.func2 = function() {\r\n  this._x = 3;\r\n  this.func3();\r\n}\r\n\r\nwindow['A'] = A;\r\n\r\n\r\nWe get the output:\r\n\r\n\r\nfunction a() {\r\n  this.a = 1\r\n}\r\na.prototype.func1 = a.prototype.b = function() {\r\n  this.a = 2;\r\n  this.c() // Problem!\r\n};\r\nwindow.A = a;\r\n\r\n\r\nSo the compiler emits no errors, and renames 'func2' to 'c' but ends up throwing away the definition of that function!\r\n\r\nThe problem arises when I use:\r\n\r\nA.prototype['func1'] = // done to save public reference to func1\r\nA.prototype.func1 = function() {\r\n...\r\n}\r\n\r\nThe ['func1'] line is apparently enough to save the reference correctly, but also has the side effect of causing the function innards to do the wrong thing.\r\n\r\nI can of course instead write it as:\r\n\r\nA.prototype['func1'] = A.prototype.func1;\r\nA.prototype.func1 = function() {\r\n  this._x = 2;\r\n  this.func2();\r\n}\r\n\r\nIn which case Advanced will compile correctly and the results will also be valid.\r\n\r\nfunction a() {\r\n  this.a = 1\r\n}\r\na.prototype.func1 = a.prototype.b;\r\na.prototype.b = function() {\r\n  this.a = 2;\r\n  this.a = 3 // func2, correctly minified\r\n};\r\nwindow.A = a;\r\n\r\n\r\nFor now I can just use the expected way of declaring that func1 export, but since the compiler returns with no errors or warnings and creates a function with no definition, it seems worth reporting.",
+    "commit_message": "Only remove prototype properties defined with simple assigment statements. Fixes issue 459.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java",
+        "start_line": 318,
+        "end_line": 318,
+        "line_numbers": [
+          318
+        ],
+        "function_name": "isPrototypePropertyAssign",
+        "class_name": "ProcessProperties",
+        "filename": "AnalyzePrototypeProperties.java",
+        "code_snippet": "    private boolean isPrototypePropertyAssign(Node assign) {\n      Node n = assign.getFirstChild();\n      if (n != null && NodeUtil.isVarOrSimpleAssignLhs(n, assign)\n          && n.getType() == Token.GETPROP\n          ) {\n        // We want to exclude the assignment itself from the usage list\n        boolean isChainedProperty =\n            n.getFirstChild().getType() == Token.GETPROP;\n\n        if (isChainedProperty) {\n          Node child = n.getFirstChild().getFirstChild().getNext();\n\n          if (child.getType() == Token.STRING &&\n              child.getString().equals(\"prototype\")) {\n            return true;\n          }\n        }\n      }\n\n      return false;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.RemoveUnusedPrototypePropertiesTest::testAliasing7"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java b/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\nindex 4472638..30b19e0 100644\n--- a/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\n+++ b/src/com/google/javascript/jscomp/AnalyzePrototypeProperties.java\n@@ -315,7 +315,7 @@ class AnalyzePrototypeProperties implements CompilerPass {\n       Node n = assign.getFirstChild();\n       if (n != null && NodeUtil.isVarOrSimpleAssignLhs(n, assign)\n           && n.getType() == Token.GETPROP\n+          && assign.getParent().getType() == Token.EXPR_RESULT) {\n-          ) {\n         // We want to exclude the assignment itself from the usage list\n         boolean isChainedProperty =\n             n.getFirstChild().getType() == Token.GETPROP;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

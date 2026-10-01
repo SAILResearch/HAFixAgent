@@ -1,0 +1,193 @@
+{
+  "project_name": "matplotlib",
+  "bug_id": "matplotlib_21",
+  "history_category": "baseline_file_code_patch_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 04:24:16",
+      "end_time": "2026-06-26 04:33:07",
+      "duration_seconds": 531,
+      "duration_human": "8m 51s"
+    },
+    "model_cost": 0.0969,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 691756,
+      "output_tokens": 10973,
+      "total_tokens": 702729,
+      "cached_input_tokens": 349632,
+      "uncached_input_tokens": 342124
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex 623173a23d..7ca858fb55 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -254,17 +254,16 @@ def _logged_cached(fmt, func=None):\n     called = False\n     ret = None\n \n+    called = [False]\n+    ret = [None]\n+\n     @functools.wraps(func)\n     def wrapper():\n-        nonlocal called, ret\n-        if not called:\n-            ret = func()\n-            called = True\n-            _log.debug(fmt, ret)\n-        return ret\n-\n-    return wrapper\n-\n+        if not called[0]:\n+            ret[0] = func()\n+            called[0] = True\n+            _log.debug(fmt.format(ret[0]))\n+        return ret[0]\n \n _ExecInfo = namedtuple(\"_ExecInfo\", \"executable version\")\n \n@@ -322,16 +321,16 @@ def _get_executable_info(name):\n             if ignore_exit_code:\n                 output = _cpe.output\n             else:\n-                raise ExecutableNotFoundError(str(_cpe)) from _cpe\n+                raise ExecutableNotFoundError(str(_cpe))\n         except OSError as _ose:\n-            raise ExecutableNotFoundError(str(_ose)) from _ose\n+            raise ExecutableNotFoundError(str(_ose))\n         match = re.search(regex, output)\n         if match:\n             version = LooseVersion(match.group(1))\n             if min_ver is not None and version < min_ver:\n                 raise ExecutableNotFoundError(\n-                    f\"You have {args[0]} version {version} but the minimum \"\n-                    f\"version supported by Matplotlib is {min_ver}.\")\n+                    \"You have {} version {} but the minimum \".format(args[0], version)\n+                    \"version supported by Matplotlib is {}.\".format(min_ver))\n             return _ExecInfo(args[0], version)\n         else:\n             raise ExecutableNotFoundError(\ndiff --git a/lib/matplotlib/axes/_axes.py b/lib/matplotlib/axes/_axes.py\nindex 152d00b0e4..63ab3d8fc4 100644\n--- a/lib/matplotlib/axes/_axes.py\n+++ b/lib/matplotlib/axes/_axes.py\n@@ -2395,7 +2395,7 @@ class Axes(_AxesBase):\n                 try:\n                     left = x - width / 2\n                 except TypeError as e:\n-                    raise TypeError(f'the dtypes of parameters x ({x.dtype}) '\n+                    raise TypeError('the dtypes of parameters x ({} and width ({}) are incompatible'.format(x.dtype, width.dtype)\n                                     f'and width ({width.dtype}) '\n                                     f'are incompatible') from e\n                 bottom = y\n@@ -2403,7 +2403,7 @@ class Axes(_AxesBase):\n                 try:\n                     bottom = y - height / 2\n                 except TypeError as e:\n-                    raise TypeError(f'the dtypes of parameters y ({y.dtype}) '\n+                    raise TypeError('the dtypes of parameters y ({} and height ({}) are incompatible'.format(y.dtype, height.dtype)\n                                     f'and height ({height.dtype}) '\n                                     f'are incompatible') from e\n                 left = x\n@@ -3912,11 +3912,14 @@ class Axes(_AxesBase):\n \n         def line_props_with_rcdefaults(subkey, explicit, zdelta=0):\n             d = {k.split('.')[-1]: v for k, v in rcParams.items()\n-                 if k.startswith(f'boxplot.{subkey}')}\n+                 if k.startswith('boxplot.%s' % subkey)}\n             d['zorder'] = zorder + zdelta\n             if explicit is not None:\n                 d.update(\n                     cbook.normalize_kwargs(explicit, mlines.Line2D._alias_map))\n+            # Ensure marker is empty for boxplot lines unless explicitly set\n+            if \"marker\" not in d and subkey in [\"whiskerprops\", \"capprops\", \"boxprops\", \"medianprops\"]:\n+                d[\"marker\"] = \"\"\n             return d\n \n         # box properties\n@@ -3935,13 +3938,21 @@ class Axes(_AxesBase):\n                         boxprops, mpatches.PathPatch._alias_map))\n         else:\n             final_boxprops = line_props_with_rcdefaults('boxprops', boxprops)\n+    if \"marker\" not in final_boxprops:\n+        final_boxprops[\"marker\"] = \"\"\n         final_whiskerprops = line_props_with_rcdefaults(\n+    if \"marker\" not in final_whiskerprops:\n+        final_whiskerprops[\"marker\"] = \"\"\n             'whiskerprops', whiskerprops)\n         final_capprops = line_props_with_rcdefaults(\n+    if \"marker\" not in final_capprops:\n+        final_capprops[\"marker\"] = \"\"\n             'capprops', capprops)\n         final_flierprops = line_props_with_rcdefaults(\n             'flierprops', flierprops)\n         final_medianprops = line_props_with_rcdefaults(\n+    if \"marker\" not in final_medianprops:\n+        final_medianprops[\"marker\"] = \"\"\n             'medianprops', medianprops, zdelta)\n         final_meanprops = line_props_with_rcdefaults(\n             'meanprops', meanprops, zdelta)\ndiff --git a/lib/matplotlib/tests/test_axes.py b/lib/matplotlib/tests/test_axes.py\nindex c631960564..b7fbfe4125 100644\n--- a/lib/matplotlib/tests/test_axes.py\n+++ b/lib/matplotlib/tests/test_axes.py\n@@ -2701,6 +2701,24 @@ def test_boxplot_bad_ci_2():\n         ax.boxplot([x, x], conf_intervals=[[1, 2], [1]])\n \n \n+def test_boxplot_marker_behavior():\n+    plt.rcParams['lines.marker'] = 's'\n+    plt.rcParams['boxplot.flierprops.marker'] = 'o'\n+    plt.rcParams['boxplot.meanprops.marker'] = '^'\n+    fig, ax = plt.subplots()\n+    test_data = np.arange(100)\n+    test_data[-1] = 150  # a flier point\n+    bxp_handle = ax.boxplot(test_data, showmeans=True)\n+    for bxp_lines in ['whiskers', 'caps', 'boxes', 'medians']:\n+        for each_line in bxp_handle[bxp_lines]:\n+            # Ensure that the rcParams['lines.marker'] is overridden by ''\n+            assert each_line.get_marker() == ''\n+\n+    # Ensure that markers for fliers and means aren't overridden with ''\n+    assert bxp_handle['fliers'][0].get_marker() == 'o'\n+    assert bxp_handle['means'][0].get_marker() == '^'\n+\n+\n @image_comparison(['boxplot_mod_artists_after_plotting.png'],\n                   remove_text=True, savefig_kwarg={'dpi': 40}, style='default')\n def test_boxplot_mod_artist_after_plotting():\n"
+  },
+  "timestamp": "2026-06-26 04:33:08 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "matplotlib",
+    "bug_id": "matplotlib_21",
+    "repo_path": "/BugsInPy/framework/bin/temp/matplotlib_21/matplotlib",
+    "github_url": "https://github.com/matplotlib/matplotlib",
+    "description": "",
+    "commit_message": "added a new argument use_marker=True to fix the issue with line markers showing up on boxplots. added a test.",
+    "fault_locations": [
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6570,
+        "end_line": 6570,
+        "suspiciousness": 0.490552,
+        "rank": 1
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6571,
+        "end_line": 6571,
+        "suspiciousness": 0.490552,
+        "rank": 2
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6573,
+        "end_line": 6573,
+        "suspiciousness": 0.490552,
+        "rank": 3
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6576,
+        "end_line": 6576,
+        "suspiciousness": 0.490552,
+        "rank": 4
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6580,
+        "end_line": 6580,
+        "suspiciousness": 0.490552,
+        "rank": 5
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6581,
+        "end_line": 6581,
+        "suspiciousness": 0.490552,
+        "rank": 6
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6582,
+        "end_line": 6582,
+        "suspiciousness": 0.490552,
+        "rank": 7
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6583,
+        "end_line": 6583,
+        "suspiciousness": 0.490552,
+        "rank": 8
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6584,
+        "end_line": 6584,
+        "suspiciousness": 0.490552,
+        "rank": 9
+      },
+      {
+        "file": "lib/matplotlib/axes/_axes.py",
+        "start_line": 6586,
+        "end_line": 6586,
+        "suspiciousness": 0.490552,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest lib/matplotlib/tests/test_axes.py::test_boxplot_marker_behavior"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6570,
+      "end_line": 6570,
+      "suspiciousness": 0.490552,
+      "rank": 1
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6571,
+      "end_line": 6571,
+      "suspiciousness": 0.490552,
+      "rank": 2
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6573,
+      "end_line": 6573,
+      "suspiciousness": 0.490552,
+      "rank": 3
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6576,
+      "end_line": 6576,
+      "suspiciousness": 0.490552,
+      "rank": 4
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6580,
+      "end_line": 6580,
+      "suspiciousness": 0.490552,
+      "rank": 5
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6581,
+      "end_line": 6581,
+      "suspiciousness": 0.490552,
+      "rank": 6
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6582,
+      "end_line": 6582,
+      "suspiciousness": 0.490552,
+      "rank": 7
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6583,
+      "end_line": 6583,
+      "suspiciousness": 0.490552,
+      "rank": 8
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6584,
+      "end_line": 6584,
+      "suspiciousness": 0.490552,
+      "rank": 9
+    },
+    {
+      "file": "lib/matplotlib/axes/_axes.py",
+      "start_line": 6586,
+      "end_line": 6586,
+      "suspiciousness": 0.490552,
+      "rank": 10
+    }
+  ]
+}

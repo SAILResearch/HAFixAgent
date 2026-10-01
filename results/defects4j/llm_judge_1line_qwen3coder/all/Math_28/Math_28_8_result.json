@@ -1,0 +1,185 @@
+{
+  "project_name": "Math",
+  "bug_id": "28",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 11:31:31",
+      "end_time": "2026-06-20 11:39:25",
+      "duration_seconds": 474,
+      "duration_human": "7m 54s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 31,
+    "token_usage": {
+      "input_tokens": 432719,
+      "output_tokens": 2077,
+      "total_tokens": 434796,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 432719
+    },
+    "agent_steps": 31,
+    "checkout_success": true,
+    "patch": "diff --git a/build.xml b/build.xml\nindex a836fbe9b..866989881 100644\n--- a/build.xml\n+++ b/build.xml\n@@ -155,7 +155,7 @@\n \n   <target name=\"compile\" depends=\"init\" description=\"Compile\">\n \n-    <javac  srcdir=\"${source.home}\"\n+    <javac encoding=\"UTF-8\"  srcdir=\"${source.home}\"\n            destdir=\"${build.home}/classes\"\n              source=\"${compile.source}\"\n              target=\"${compile.target}\"\n@@ -172,7 +172,7 @@\n \n     <target name=\"compile.tests\" depends=\"compile, download-dependencies\" description=\"Compile unit tests.\">\n \n-      <javac srcdir=\"${test.home}\"\n+      <javac encoding=\"UTF-8\" srcdir=\"${test.home}\"\n              destdir=\"${build.home}/test-classes\"\n              debug=\"${compile.debug}\"\n              deprecation=\"${compile.deprecation}\"\ndiff --git a/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java b/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\nindex a84438d9b..3e508b87b 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\n@@ -116,6 +116,7 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n             // there's a degeneracy as indicated by a tie in the minimum ratio test\n \n             // 1. check if there's an artificial variable that can be forced out of the basis\n+            if (tableau.getNumArtificialVariables() > 0) {\n                 for (Integer row : minRatioPositions) {\n                     for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                         int column = i + tableau.getArtificialVariableOffset();\n@@ -126,6 +127,7 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n                     }\n                 }\n \n+            }\n             // 2. apply Bland's rule to prevent cycling:\n             //    take the row for which the corresponding basic variable has the smallest index\n             //\n@@ -135,6 +137,7 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n             // Additional heuristic: if we did not get a solution after half of maxIterations\n             //                       revert to the simple case of just returning the top-most row\n             // This heuristic is based on empirical data gathered while investigating MATH-828.\n+            if (getIterations() < getMaxIterations() / 2) {\n                 Integer minRow = null;\n                 int minIndex = tableau.getWidth();\n                 for (Integer row : minRatioPositions) {\n@@ -149,6 +152,7 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n                     }\n                 }\n                 return minRow;\n+            }\n         }\n         return minRatioPositions.get(0);\n     }\n"
+  },
+  "timestamp": "2026-06-20 11:39:25 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Math",
+    "bug_id": "Math_28",
+    "repo_path": "/defects4j/framework/bin/temp/Math_28",
+    "github_url": "https://github.com/apache/commons-math.git",
+    "description": "Not expected UnboundedSolutionException\nSimplexSolver throws UnboundedSolutionException when trying to solve minimization linear programming problem. The number of exception thrown depends on the number of variables.\n\nIn order to see that behavior of SimplexSolver first try to run JUnit test setting a final variable ENTITIES_COUNT = 2 and that will give almost good result and then set it to 15 and you'll get a massive of unbounded exceptions.\nFirst iteration is runned with predefined set of input data with which the Solver gives back an appropriate result.\n\nThe problem itself is well tested by it's authors (mathematicians who I believe know what they developed) using Matlab 10 with no unbounded solutions on the same rules of creatnig random variables values.\n\nWhat is strange to me is the dependence of the number of UnboundedSolutionException exceptions on the number of variables in the problem.\n\nThe problem is formulated as\nmin(1*t + 0*L) (for every r-th subject)\ns.t.\n-q(r) + QL >= 0\nx(r)t - XL >= 0\nL >= 0\nwhere \nr = 1..R, \nL = {l(1), l(2), ..., l(R)} (vector of R rows and 1 column),\nQ - coefficients matrix MxR\nX - coefficients matrix NxR ",
+    "commit_message": "[MATH-828] Add additional heuristic for rare cases in pivotRow selection.",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java",
+        "start_line": 118,
+        "end_line": 118,
+        "line_numbers": [
+          118
+        ],
+        "function_name": "getPivotRow",
+        "class_name": "SimplexSolver",
+        "filename": "SimplexSolver.java",
+        "code_snippet": "    private Integer getPivotRow(SimplexTableau tableau, final int col) {\n        // create a list of all the rows that tie for the lowest score in the minimum ratio test\n        List<Integer> minRatioPositions = new ArrayList<Integer>();\n        double minRatio = Double.MAX_VALUE;\n        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getHeight(); i++) {\n            final double rhs = tableau.getEntry(i, tableau.getWidth() - 1);\n            final double entry = tableau.getEntry(i, col);\n\n            if (Precision.compareTo(entry, 0d, maxUlps) > 0) {\n                final double ratio = rhs / entry;\n                // check if the entry is strictly equal to the current min ratio\n                // do not use a ulp/epsilon check\n                final int cmp = Double.compare(ratio, minRatio);\n                if (cmp == 0) {\n                    minRatioPositions.add(i);\n                } else if (cmp < 0) {\n                    minRatio = ratio;\n                    minRatioPositions = new ArrayList<Integer>();\n                    minRatioPositions.add(i);\n                }\n            }\n        }\n\n        if (minRatioPositions.size() == 0) {\n            return null;\n        } else if (minRatioPositions.size() > 1) {\n            // there's a degeneracy as indicated by a tie in the minimum ratio test\n\n            // 1. check if there's an artificial variable that can be forced out of the basis\n                for (Integer row : minRatioPositions) {\n                    for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                        int column = i + tableau.getArtificialVariableOffset();\n                        final double entry = tableau.getEntry(row, column);\n                        if (Precision.equals(entry, 1d, maxUlps) && row.equals(tableau.getBasicRow(column))) {\n                            return row;\n                        }\n                    }\n                }\n\n            // 2. apply Bland's rule to prevent cycling:\n            //    take the row for which the corresponding basic variable has the smallest index\n            //\n            // see http://www.stanford.edu/class/msande310/blandrule.pdf\n            // see http://en.wikipedia.org/wiki/Bland%27s_rule (not equivalent to the above paper)\n            //\n            // Additional heuristic: if we did not get a solution after half of maxIterations\n            //                       revert to the simple case of just returning the top-most row\n            // This heuristic is based on empirical data gathered while investigating MATH-828.\n                Integer minRow = null;\n                int minIndex = tableau.getWidth();\n                for (Integer row : minRatioPositions) {\n                    int i = tableau.getNumObjectiveFunctions();\n                    for (; i < tableau.getWidth() - 1 && minRow != row; i++) {\n                        if (row == tableau.getBasicRow(i)) {\n                            if (i < minIndex) {\n                                minIndex = i;\n                                minRow = row;\n                            }\n                        }\n                    }\n                }\n                return minRow;\n        }\n        return minRatioPositions.get(0);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java",
+        "start_line": 128,
+        "end_line": 128,
+        "line_numbers": [
+          128
+        ],
+        "function_name": "getPivotRow",
+        "class_name": "SimplexSolver",
+        "filename": "SimplexSolver.java",
+        "code_snippet": "    private Integer getPivotRow(SimplexTableau tableau, final int col) {\n        // create a list of all the rows that tie for the lowest score in the minimum ratio test\n        List<Integer> minRatioPositions = new ArrayList<Integer>();\n        double minRatio = Double.MAX_VALUE;\n        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getHeight(); i++) {\n            final double rhs = tableau.getEntry(i, tableau.getWidth() - 1);\n            final double entry = tableau.getEntry(i, col);\n\n            if (Precision.compareTo(entry, 0d, maxUlps) > 0) {\n                final double ratio = rhs / entry;\n                // check if the entry is strictly equal to the current min ratio\n                // do not use a ulp/epsilon check\n                final int cmp = Double.compare(ratio, minRatio);\n                if (cmp == 0) {\n                    minRatioPositions.add(i);\n                } else if (cmp < 0) {\n                    minRatio = ratio;\n                    minRatioPositions = new ArrayList<Integer>();\n                    minRatioPositions.add(i);\n                }\n            }\n        }\n\n        if (minRatioPositions.size() == 0) {\n            return null;\n        } else if (minRatioPositions.size() > 1) {\n            // there's a degeneracy as indicated by a tie in the minimum ratio test\n\n            // 1. check if there's an artificial variable that can be forced out of the basis\n                for (Integer row : minRatioPositions) {\n                    for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                        int column = i + tableau.getArtificialVariableOffset();\n                        final double entry = tableau.getEntry(row, column);\n                        if (Precision.equals(entry, 1d, maxUlps) && row.equals(tableau.getBasicRow(column))) {\n                            return row;\n                        }\n                    }\n                }\n\n            // 2. apply Bland's rule to prevent cycling:\n            //    take the row for which the corresponding basic variable has the smallest index\n            //\n            // see http://www.stanford.edu/class/msande310/blandrule.pdf\n            // see http://en.wikipedia.org/wiki/Bland%27s_rule (not equivalent to the above paper)\n            //\n            // Additional heuristic: if we did not get a solution after half of maxIterations\n            //                       revert to the simple case of just returning the top-most row\n            // This heuristic is based on empirical data gathered while investigating MATH-828.\n                Integer minRow = null;\n                int minIndex = tableau.getWidth();\n                for (Integer row : minRatioPositions) {\n                    int i = tableau.getNumObjectiveFunctions();\n                    for (; i < tableau.getWidth() - 1 && minRow != row; i++) {\n                        if (row == tableau.getBasicRow(i)) {\n                            if (i < minIndex) {\n                                minIndex = i;\n                                minRow = row;\n                            }\n                        }\n                    }\n                }\n                return minRow;\n        }\n        return minRatioPositions.get(0);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java",
+        "start_line": 139,
+        "end_line": 139,
+        "line_numbers": [
+          139
+        ],
+        "function_name": "getPivotRow",
+        "class_name": "SimplexSolver",
+        "filename": "SimplexSolver.java",
+        "code_snippet": "    private Integer getPivotRow(SimplexTableau tableau, final int col) {\n        // create a list of all the rows that tie for the lowest score in the minimum ratio test\n        List<Integer> minRatioPositions = new ArrayList<Integer>();\n        double minRatio = Double.MAX_VALUE;\n        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getHeight(); i++) {\n            final double rhs = tableau.getEntry(i, tableau.getWidth() - 1);\n            final double entry = tableau.getEntry(i, col);\n\n            if (Precision.compareTo(entry, 0d, maxUlps) > 0) {\n                final double ratio = rhs / entry;\n                // check if the entry is strictly equal to the current min ratio\n                // do not use a ulp/epsilon check\n                final int cmp = Double.compare(ratio, minRatio);\n                if (cmp == 0) {\n                    minRatioPositions.add(i);\n                } else if (cmp < 0) {\n                    minRatio = ratio;\n                    minRatioPositions = new ArrayList<Integer>();\n                    minRatioPositions.add(i);\n                }\n            }\n        }\n\n        if (minRatioPositions.size() == 0) {\n            return null;\n        } else if (minRatioPositions.size() > 1) {\n            // there's a degeneracy as indicated by a tie in the minimum ratio test\n\n            // 1. check if there's an artificial variable that can be forced out of the basis\n                for (Integer row : minRatioPositions) {\n                    for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                        int column = i + tableau.getArtificialVariableOffset();\n                        final double entry = tableau.getEntry(row, column);\n                        if (Precision.equals(entry, 1d, maxUlps) && row.equals(tableau.getBasicRow(column))) {\n                            return row;\n                        }\n                    }\n                }\n\n            // 2. apply Bland's rule to prevent cycling:\n            //    take the row for which the corresponding basic variable has the smallest index\n            //\n            // see http://www.stanford.edu/class/msande310/blandrule.pdf\n            // see http://en.wikipedia.org/wiki/Bland%27s_rule (not equivalent to the above paper)\n            //\n            // Additional heuristic: if we did not get a solution after half of maxIterations\n            //                       revert to the simple case of just returning the top-most row\n            // This heuristic is based on empirical data gathered while investigating MATH-828.\n                Integer minRow = null;\n                int minIndex = tableau.getWidth();\n                for (Integer row : minRatioPositions) {\n                    int i = tableau.getNumObjectiveFunctions();\n                    for (; i < tableau.getWidth() - 1 && minRow != row; i++) {\n                        if (row == tableau.getBasicRow(i)) {\n                            if (i < minIndex) {\n                                minIndex = i;\n                                minRow = row;\n                            }\n                        }\n                    }\n                }\n                return minRow;\n        }\n        return minRatioPositions.get(0);\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java",
+        "start_line": 154,
+        "end_line": 154,
+        "line_numbers": [
+          154
+        ],
+        "function_name": "getPivotRow",
+        "class_name": "SimplexSolver",
+        "filename": "SimplexSolver.java",
+        "code_snippet": "    private Integer getPivotRow(SimplexTableau tableau, final int col) {\n        // create a list of all the rows that tie for the lowest score in the minimum ratio test\n        List<Integer> minRatioPositions = new ArrayList<Integer>();\n        double minRatio = Double.MAX_VALUE;\n        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getHeight(); i++) {\n            final double rhs = tableau.getEntry(i, tableau.getWidth() - 1);\n            final double entry = tableau.getEntry(i, col);\n\n            if (Precision.compareTo(entry, 0d, maxUlps) > 0) {\n                final double ratio = rhs / entry;\n                // check if the entry is strictly equal to the current min ratio\n                // do not use a ulp/epsilon check\n                final int cmp = Double.compare(ratio, minRatio);\n                if (cmp == 0) {\n                    minRatioPositions.add(i);\n                } else if (cmp < 0) {\n                    minRatio = ratio;\n                    minRatioPositions = new ArrayList<Integer>();\n                    minRatioPositions.add(i);\n                }\n            }\n        }\n\n        if (minRatioPositions.size() == 0) {\n            return null;\n        } else if (minRatioPositions.size() > 1) {\n            // there's a degeneracy as indicated by a tie in the minimum ratio test\n\n            // 1. check if there's an artificial variable that can be forced out of the basis\n                for (Integer row : minRatioPositions) {\n                    for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                        int column = i + tableau.getArtificialVariableOffset();\n                        final double entry = tableau.getEntry(row, column);\n                        if (Precision.equals(entry, 1d, maxUlps) && row.equals(tableau.getBasicRow(column))) {\n                            return row;\n                        }\n                    }\n                }\n\n            // 2. apply Bland's rule to prevent cycling:\n            //    take the row for which the corresponding basic variable has the smallest index\n            //\n            // see http://www.stanford.edu/class/msande310/blandrule.pdf\n            // see http://en.wikipedia.org/wiki/Bland%27s_rule (not equivalent to the above paper)\n            //\n            // Additional heuristic: if we did not get a solution after half of maxIterations\n            //                       revert to the simple case of just returning the top-most row\n            // This heuristic is based on empirical data gathered while investigating MATH-828.\n                Integer minRow = null;\n                int minIndex = tableau.getWidth();\n                for (Integer row : minRatioPositions) {\n                    int i = tableau.getNumObjectiveFunctions();\n                    for (; i < tableau.getWidth() - 1 && minRow != row; i++) {\n                        if (row == tableau.getBasicRow(i)) {\n                            if (i < minIndex) {\n                                minIndex = i;\n                                minRow = row;\n                            }\n                        }\n                    }\n                }\n                return minRow;\n        }\n        return minRatioPositions.get(0);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.math3.optimization.linear.SimplexSolverTest::testMath828Cycle"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java b/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\nindex dec310b..a84438d 100644\n--- a/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\n+++ b/src/main/java/org/apache/commons/math3/optimization/linear/SimplexSolver.java\n@@ -116,7 +116,6 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n             // there's a degeneracy as indicated by a tie in the minimum ratio test\n \n             // 1. check if there's an artificial variable that can be forced out of the basis\n+            if (tableau.getNumArtificialVariables() > 0) {\n                 for (Integer row : minRatioPositions) {\n                     for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n                         int column = i + tableau.getArtificialVariableOffset();\n@@ -126,7 +125,6 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n                         }\n                     }\n                 }\n+            }\n \n             // 2. apply Bland's rule to prevent cycling:\n             //    take the row for which the corresponding basic variable has the smallest index\n@@ -137,7 +135,6 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n             // Additional heuristic: if we did not get a solution after half of maxIterations\n             //                       revert to the simple case of just returning the top-most row\n             // This heuristic is based on empirical data gathered while investigating MATH-828.\n+            if (getIterations() < getMaxIterations() / 2) {\n                 Integer minRow = null;\n                 int minIndex = tableau.getWidth();\n                 for (Integer row : minRatioPositions) {\n@@ -152,7 +149,6 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n                     }\n                 }\n                 return minRow;\n+            }\n         }\n         return minRatioPositions.get(0);\n     }",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Luc Maisonobe",
+        "commit_date": "2009-09-08 04:40:12",
+        "commit_message": "added Benjamin's patch from 2009-09-07",
+        "commit_hash": "e5a77a7651775ecaa0efe9b479698c0b6ec3d73a"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "isOptimal",
+          "doOptimize",
+          "solvePhase1",
+          "getPivotRow",
+          "isPhase1Solved"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "isOptimal",
+          "doOptimize",
+          "solvePhase1",
+          "getBasicRow",
+          "getPivotRow",
+          "isPhase1Solved",
+          "getNumVariables"
+        ],
+        "functions_name_modified_file": [
+          "SimplexSolver",
+          "doOptimize",
+          "solvePhase1",
+          "doIteration",
+          "getPivotColumn",
+          "getPivotRow"
+        ],
+        "functions_name_all_files": [
+          "SimplexSolver",
+          "getConstraintTypeCounts",
+          "getRhsOffset",
+          "divideRow",
+          "setEntry",
+          "getArtificialVariableOffset",
+          "equals",
+          "copyArray",
+          "readObject",
+          "normalize",
+          "subtractRow",
+          "getSlackVariableOffset",
+          "getSolution",
+          "getOriginalNumDecisionVariables",
+          "writeObject",
+          "getEntry",
+          "getNumObjectiveFunctions",
+          "getNumSlackVariables",
+          "getNumArtificialVariables",
+          "normalizeConstraints",
+          "initialize",
+          "discardArtificialVariables",
+          "getHeight",
+          "isOptimal",
+          "doOptimize",
+          "SimplexTableau",
+          "solvePhase1",
+          "doIteration",
+          "getPivotColumn",
+          "getPivotRow",
+          "getWidth",
+          "getNegativeDecisionVariableOffset",
+          "getInvertedCoeffiecientSum",
+          "getBasicRowForSolution",
+          "getBasicRow",
+          "hashCode",
+          "getNumDecisionVariables"
+        ],
+        "function_code_before": "    /**\n     * Returns the row with the minimum ratio as given by the minimum ratio test (MRT).\n     * @param tableau simple tableau for the problem\n     * @param col the column to test the ratio of.  See {@link #getPivotColumn(SimplexTableau)}",
+        "function_code_after": "    /**\n     * Returns the row with the minimum ratio as given by the minimum ratio test (MRT).\n     * @param tableau simple tableau for the problem\n     * @param col the column to test the ratio of.  See {@link #getPivotColumn(SimplexTableau)}"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java",
+          "src/main/java/org/apache/commons/math/optimization/linear/SimplexTableau.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java": "diff --git a/src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java b/src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java\nindex 9a1a24b0e..b7c01e921 100644\n--- a/src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java\n+++ b/src/main/java/org/apache/commons/math/optimization/linear/SimplexSolver.java\n@@ -17,6 +17,9 @@\n \n package org.apache.commons.math.optimization.linear;\n \n+import java.util.ArrayList;\n+import java.util.List;\n+\n import org.apache.commons.math.optimization.OptimizationException;\n import org.apache.commons.math.optimization.RealPointValuePair;\n import org.apache.commons.math.util.MathUtils;\n@@ -73,23 +76,42 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n      * @param col the column to test the ratio of.  See {@link #getPivotColumn(SimplexTableau)}\n      * @return row with the minimum ratio\n      */\n-    private Integer getPivotRow(final int col, final SimplexTableau tableau) {\n+    private Integer getPivotRow(SimplexTableau tableau, final int col) {\n+        // create a list of all the rows that tie for the lowest score in the minimum ratio test\n+        List<Integer> minRatioPositions = new ArrayList<Integer>();\n         double minRatio = Double.MAX_VALUE;\n-        Integer minRatioPos = null;\n         for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getHeight(); i++) {\n             final double rhs = tableau.getEntry(i, tableau.getWidth() - 1);\n             final double entry = tableau.getEntry(i, col);\n             if (MathUtils.compareTo(entry, 0, epsilon) > 0) {\n                 final double ratio = rhs / entry;\n-                if (ratio < minRatio) {\n+                if (MathUtils.equals(ratio, minRatio, epsilon)) {\n+                    minRatioPositions.add(i);\n+                } else if (ratio < minRatio) {\n                     minRatio = ratio;\n-                    minRatioPos = i;\n+                    minRatioPositions = new ArrayList<Integer>();\n+                    minRatioPositions.add(i);\n                 }\n             }\n         }\n-        return minRatioPos;\n-    }\n \n+        if (minRatioPositions.size() == 0) {\n+          return null;\n+        } else if (minRatioPositions.size() > 1) {\n+          // there's a degeneracy as indicated by a tie in the minimum ratio test\n+          // check if there's an artificial variable that can be forced out of the basis\n+          for (Integer row : minRatioPositions) {\n+            for (int i = 0; i < tableau.getNumArtificialVariables(); i++) {\n+              int column = i + tableau.getArtificialVariableOffset();\n+              if (MathUtils.equals(tableau.getEntry(row, column), 1, epsilon) &&\n+                  row.equals(tableau.getBasicRow(column))) {\n+                return row;\n+              }\n+            }\n+          }\n+        }\n+        return minRatioPositions.get(0);\n+    }\n \n     /**\n      * Runs one iteration of the Simplex method on the given model.\n@@ -103,7 +125,7 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n         incrementIterationsCounter();\n \n         Integer pivotCol = getPivotColumn(tableau);\n-        Integer pivotRow = getPivotRow(pivotCol, tableau);\n+        Integer pivotRow = getPivotRow(tableau, pivotCol);\n         if (pivotRow == null) {\n             throw new UnboundedSolutionException();\n         }\n@@ -121,40 +143,6 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n         }\n     }\n \n-    /**\n-     * Checks whether Phase 1 is solved.\n-     * @param tableau simple tableau for the problem\n-     * @return whether Phase 1 is solved\n-     */\n-    private boolean isPhase1Solved(final SimplexTableau tableau) {\n-        if (tableau.getNumArtificialVariables() == 0) {\n-            return true;\n-        }\n-        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getWidth() - 1; i++) {\n-            if (MathUtils.compareTo(tableau.getEntry(0, i), 0, epsilon) < 0) {\n-                return false;\n-            }\n-        }\n-        return true;\n-    }\n-\n-    /**\n-     * Returns whether the problem is at an optimal state.\n-     * @param tableau simple tableau for the problem\n-     * @return whether the model has been solved\n-     */\n-    public boolean isOptimal(final SimplexTableau tableau) {\n-        if (tableau.getNumArtificialVariables() > 0) {\n-            return false;\n-        }\n-        for (int i = tableau.getNumObjectiveFunctions(); i < tableau.getWidth() - 1; i++) {\n-            if (MathUtils.compareTo(tableau.getEntry(0, i), 0, epsilon) < 0) {\n-                return false;\n-            }\n-        }\n-        return true;\n-    }\n-\n     /**\n      * Solves Phase 1 of the Simplex method.\n      * @param tableau simple tableau for the problem\n@@ -162,14 +150,14 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n      * exceeded, or if the problem is found not to have a bounded solution, or\n      * if there is no feasible solution\n      */\n-    protected void solvePhase1(final SimplexTableau tableau)\n-        throws OptimizationException {\n+    protected void solvePhase1(final SimplexTableau tableau) throws OptimizationException {\n+\n         // make sure we're in Phase 1\n         if (tableau.getNumArtificialVariables() == 0) {\n             return;\n         }\n \n-        while (!isPhase1Solved(tableau)) {\n+        while (!tableau.isOptimal()) {\n             doIteration(tableau);\n         }\n \n@@ -181,13 +169,14 @@ public class SimplexSolver extends AbstractLinearOptimizer {\n \n     /** {@inheritDoc} */\n     @Override\n-    public RealPointValuePair doOptimize()\n-        throws OptimizationException {\n+    public RealPointValuePair doOptimize() throws OptimizationException {\n         final SimplexTableau tableau =\n             new SimplexTableau(function, linearConstraints, goal, nonNegative, epsilon);\n+\n         solvePhase1(tableau);\n         tableau.discardArtificialVariables();\n-        while (!isOptimal(tableau)) {\n+\n+        while (!tableau.isOptimal()) {\n             doIteration(tableau);\n         }\n         return tableau.getSolution();"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

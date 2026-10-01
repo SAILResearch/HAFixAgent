@@ -1,0 +1,74 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_83",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 18:20:44",
+      "end_time": "2026-06-27 18:21:57",
+      "duration_seconds": 73,
+      "duration_human": "1m 13s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 435005,
+      "output_tokens": 3358,
+      "total_tokens": 438363,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 435005
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/api.py b/pandas/core/indexes/api.py\nindex 4072d06b94..a0e62c7838 100644\n--- a/pandas/core/indexes/api.py\n+++ b/pandas/core/indexes/api.py\n@@ -63,7 +63,7 @@ __all__ = [\n \n \n def get_objs_combined_axis(\n-    objs, intersect: bool = False, axis=0, sort: bool = True\n+    objs, intersect: bool = False, axis=0, sort: bool = True, copy: bool = True\n ) -> Index:\n     \"\"\"\n     Extract combined index: return intersection or union (depending on the\n@@ -87,7 +87,7 @@ def get_objs_combined_axis(\n     Index\n     \"\"\"\n     obs_idxes = [obj._get_axis(axis) for obj in objs]\n-    return _get_combined_index(obs_idxes, intersect=intersect, sort=sort)\n+    return _get_combined_index(obs_idxes, intersect=intersect, sort=sort, copy=copy)\n \n \n def _get_distinct_objs(objs: List[Index]) -> List[Index]:\n@@ -105,7 +105,7 @@ def _get_distinct_objs(objs: List[Index]) -> List[Index]:\n \n \n def _get_combined_index(\n-    indexes: List[Index], intersect: bool = False, sort: bool = False\n+    indexes: List[Index], intersect: bool = False, sort: bool = False, copy: bool = True\n ) -> Index:\n     \"\"\"\n     Return the union or intersection of indexes.\n@@ -127,7 +127,7 @@ def _get_combined_index(\n     # TODO: handle index names!\n     indexes = _get_distinct_objs(indexes)\n     if len(indexes) == 0:\n-        index = Index([])\n+        index = indexes[0].copy() if copy else indexes[0]\n     elif len(indexes) == 1:\n         index = indexes[0]\n     elif intersect:\ndiff --git a/pandas/core/reshape/concat.py b/pandas/core/reshape/concat.py\nindex 9528de36a3..fe89c2a315 100644\n--- a/pandas/core/reshape/concat.py\n+++ b/pandas/core/reshape/concat.py\n@@ -517,16 +517,17 @@ class _Concatenator:\n     def _get_comb_axis(self, i: int) -> Index:\n         data_axis = self.objs[0]._get_block_manager_axis(i)\n         return get_objs_combined_axis(\n-            self.objs, axis=data_axis, intersect=self.intersect, sort=self.sort\n+            self.objs, axis=data_axis, intersect=self.intersect, sort=self.sort, copy=self.copy\n         )\n \n     def _get_concat_axis(self) -> Index:\n         \"\"\"\n-        Return index to be used along concatenation axis.\n         \"\"\"\n         if self._is_series:\n             if self.axis == 0:\n                 indexes = [x.index for x in self.objs]\n+                concat_axis = _concat_indexes(indexes)\n+                return concat_axis\n             elif self.ignore_index:\n                 idx = ibase.default_index(len(self.objs))\n                 return idx\n@@ -570,6 +571,8 @@ class _Concatenator:\n \n         return concat_axis\n \n+        return concat_axis\n+\n     def _maybe_check_integrity(self, concat_index: Index):\n         if self.verify_integrity:\n             if not concat_index.is_unique:\ndiff --git a/pandas/tests/reshape/test_concat.py b/pandas/tests/reshape/test_concat.py\nindex b3b2c5a05c..5811f3bc19 100644\n--- a/pandas/tests/reshape/test_concat.py\n+++ b/pandas/tests/reshape/test_concat.py\n@@ -2750,3 +2750,17 @@ def test_concat_sparse():\n     )\n     result = pd.concat([a, a], axis=1)\n     tm.assert_frame_equal(result, expected)\n+\n+\n+@pytest.mark.parametrize(\"test_series\", [True, False])\n+def test_concat_copy_index(test_series, axis):\n+    # GH 29879\n+    if test_series:\n+        ser = Series([1, 2])\n+        comb = concat([ser, ser], axis=axis, copy=True)\n+        assert comb.index is not ser.index\n+    else:\n+        df = DataFrame([[1, 2], [3, 4]], columns=[\"a\", \"b\"])\n+        comb = concat([df, df], axis=axis, copy=True)\n+        assert comb.index is not df.index\n+        assert comb.columns is not df.columns\n"
+  },
+  "timestamp": "2026-06-27 18:21:57 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_83",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_83/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: concat not copying index and columns when copy=True (#31119)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 66,
+        "end_line": 66,
+        "function_name": "get_objs_combined_axis",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 90,
+        "end_line": 90,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/api.py",
+        "start_line": 108,
+        "end_line": 108,
+        "function_name": "_get_combined_index",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/reshape/concat.py",
+        "start_line": 520,
+        "end_line": 520,
+        "function_name": "_get_comb_axis",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/reshape/test_concat.py::test_concat_copy_index"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

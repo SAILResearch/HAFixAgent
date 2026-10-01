@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_85",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-28 20:45:16",
+      "end_time": "2026-06-28 20:52:10",
+      "duration_seconds": 414,
+      "duration_human": "6m 54s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1252226,
+      "output_tokens": 4100,
+      "total_tokens": 1256326,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 1252226
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\nindex df3205c4e..7e385f014 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/std/DateTimeSerializerBase.java\n@@ -64,36 +64,64 @@ public abstract class DateTimeSerializerBase<T>\n \n         // 08-Jun-2017, tatu: With [databind#1648], this gets bit tricky..\n         // First: custom pattern will override things\n-                if ((shape == JsonFormat.Shape.STRING) || format.hasPattern()\n-                                || format.hasLocale() || format.hasTimeZone()) {\n-                    TimeZone tz = format.getTimeZone();\n-                    final String pattern = format.hasPattern()\n-                                    ? format.getPattern()\n-                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\n+        if (format.hasPattern()) {\n             final Locale loc = format.hasLocale()\n                             ? format.getLocale()\n                             : serializers.getLocale();\n-                    SimpleDateFormat df = new SimpleDateFormat(pattern, loc);\n-                    if (tz == null) {\n-                        tz = serializers.getTimeZone();\n-                    }\n+            SimpleDateFormat df = new SimpleDateFormat(format.getPattern(), loc);\n+            TimeZone tz = format.hasTimeZone() ? format.getTimeZone()\n+                    : serializers.getTimeZone();\n             df.setTimeZone(tz);\n             return withFormat(Boolean.FALSE, df);\n         }\n \n         // Otherwise, need one of these changes:\n+        final boolean hasLocale = format.hasLocale();\n+        final boolean hasTZ = format.hasTimeZone();\n+        final boolean asString = (shape == JsonFormat.Shape.STRING);\n \n+        if (!hasLocale && !hasTZ && !asString) {\n+            return this;\n+        }\n \n+        DateFormat df0 = serializers.getConfig().getDateFormat();\n         // Jackson's own `StdDateFormat` is quite easy to deal with...\n+        if (df0 instanceof StdDateFormat) {\n+            StdDateFormat std = (StdDateFormat) df0;\n+            if (format.hasLocale()) {\n+                std = std.withLocale(format.getLocale());\n+            }\n+            if (format.hasTimeZone()) {\n+                std = std.withTimeZone(format.getTimeZone());\n+            }\n+            return withFormat(Boolean.FALSE, std);\n+        }\n \n         // 08-Jun-2017, tatu: Unfortunately there's no generally usable\n         //    mechanism for changing `DateFormat` instances (or even clone()ing)\n         //    So: require it be `SimpleDateFormat`; can't config other types\n+        if (!(df0 instanceof SimpleDateFormat)) {\n //            serializers.reportBadDefinition(handledType(), String.format(\n+            serializers.reportMappingProblem(\n+\"Configured `DateFormat` (%s) not a `SimpleDateFormat`; can not configure `Locale` or `TimeZone`\",\n+df0.getClass().getName());\n+        }\n+        SimpleDateFormat df = (SimpleDateFormat) df0;\n+        if (hasLocale) {\n             // Ugh. No way to change `Locale`, create copy; must re-crete completely:\n-        return this;\n+            df = new SimpleDateFormat(df.toPattern(), format.getLocale());\n+        } else {\n+            df = (SimpleDateFormat) df.clone();\n+        }\n+        TimeZone newTz = format.getTimeZone();\n+        boolean changeTZ = (newTz != null) && !newTz.equals(df.getTimeZone());\n+        if (changeTZ) {\n+            df.setTimeZone(newTz);\n+        }\n+        return withFormat(Boolean.FALSE, df);\n     }\n \n+\n     /*\n     /**********************************************************\n     /* Accessors\n"
+  },
+  "timestamp": "2026-06-28 20:52:10 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_85",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_85",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`DateTimeSerializerBase` ignores configured date format when creating contextual \n`DateTimeSerializerBase#createContextual` creates a new serializer with `StdDateFormat.DATE_FORMAT_STR_ISO8601` format instead of re-using the actual format that may have been specified on the configuration. See the following code:\r\n\r\n```\r\nfinal String pattern = format.hasPattern()\r\n                                    ? format.getPattern()\r\n                                    : StdDateFormat.DATE_FORMAT_STR_ISO8601;\r\n```\r\n\r\nUsing the `@JsonFormat` annotation on a field will therefore reset the format to Jackson's default even if the annotation doesn't specify any custom format.\r\n\r\n\r\n`DateBasedDeserializer#createContextual` behaves differently and tries to re-use the configured format:\r\n\r\n```\r\nDateFormat df = ctxt.getConfig().getDateFormat();\r\n// one shortcut: with our custom format, can simplify handling a bit\r\nif (df.getClass() == StdDateFormat.class) {\r\n   ...\r\n   StdDateFormat std = (StdDateFormat) df;\r\n   std = std.withTimeZone(tz);\r\n   ...\r\n} else {\r\n  // otherwise need to clone, re-set timezone:\r\n  df = (DateFormat) df.clone();\r\n  df.setTimeZone(tz);\r\n}\r\n```\r\n\r\nShouldn't the serializer follow the same approach ?\r\n\n",
+    "commit_message": "",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 280,
+        "end_line": 280,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 281,
+        "end_line": 281,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 285,
+        "end_line": 285,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9932700367239811,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.DateSerializationTest::testFormatWithoutPattern"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 280,
+      "end_line": 280,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 281,
+      "end_line": 281,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 285,
+      "end_line": 285,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9932700367239811,
+      "rank": 10
+    }
+  ]
+}

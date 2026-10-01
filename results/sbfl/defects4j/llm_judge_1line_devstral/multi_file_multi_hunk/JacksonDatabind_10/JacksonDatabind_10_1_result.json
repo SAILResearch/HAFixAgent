@@ -1,0 +1,191 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_10",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-29 14:17:37",
+      "end_time": "2026-06-29 14:19:37",
+      "duration_seconds": 120,
+      "duration_human": "2m 0s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 566581,
+      "output_tokens": 5753,
+      "total_tokens": 572334,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 566581
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java b/src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java\nindex 2cd7bb7b6..14a158d57 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java\n@@ -24,6 +24,11 @@ public class AnyGetterWriter\n \n     protected MapSerializer _mapSerializer;\n     \n+    /**\n+     * Custom serializer to use instead of default MapSerializer\n+     */\n+    protected JsonSerializer<Object> _customSerializer;\n+    \n     @SuppressWarnings(\"unchecked\")\n     public AnyGetterWriter(BeanProperty property,\n             AnnotatedMember accessor, MapSerializer serializer)\n@@ -31,6 +36,16 @@ public class AnyGetterWriter\n         _accessor = accessor;\n         _property = property;\n             _mapSerializer = (MapSerializer) serializer;\n+        _customSerializer = null;\n+    }\n+    \n+    @SuppressWarnings(\"unchecked\")\n+    public AnyGetterWriter(BeanProperty property,\n+            AnnotatedMember accessor, JsonSerializer<?> customSerializer) {\n+        _accessor = accessor;\n+        _property = property;\n+        _mapSerializer = null;\n+        _customSerializer = customSerializer;\n     }\n \n     public void getAndSerialize(Object bean, JsonGenerator gen, SerializerProvider provider)\n@@ -38,6 +53,14 @@ public class AnyGetterWriter\n     {\n         Object value = _accessor.getValue(bean);\n         if (value == null) {\n+        if (_customSerializer != null) {\n+            _customSerializer.serialize(value, gen, provider);\n+            return;\n+        }\n+        if (_customSerializer != null) {\n+            _customSerializer.serialize(value, gen, provider);\n+            return;\n+        }\n             return;\n         }\n         if (!(value instanceof Map<?,?>)) {\n@@ -60,6 +83,14 @@ public class AnyGetterWriter\n     {\n         Object value = _accessor.getValue(bean);\n         if (value == null) {\n+        if (_customSerializer != null) {\n+            _customSerializer.serialize(value, gen, provider);\n+            return;\n+        }\n+        if (_customSerializer != null) {\n+            _customSerializer.serialize(value, gen, provider);\n+            return;\n+        }\n             return;\n         }\n         if (!(value instanceof Map<?,?>)) {\ndiff --git a/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\nindex 25e7e3f93..0d5b72ac0 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerFactory.java\n@@ -392,14 +392,20 @@ public class BeanSerializerFactory\n             TypeSerializer typeSer = createTypeSerializer(config, valueType);\n             // last 2 nulls; don't know key, value serializers (yet)\n             // 23-Feb-2015, tatu: As per [#705], need to support custom serializers\n-            MapSerializer anySer = MapSerializer.construct(null, type, staticTyping, typeSer, null, null, null);\n-                // TODO: support '@JsonIgnoreProperties' with any setter?\n-            // TODO: can we find full PropertyName?\n+            // Check for custom serializer annotation first (for #705)\n+            JsonSerializer<?> annotatedSerializer = findSerializerFromAnnotation(prov, anyGetter);\n             PropertyName name = new PropertyName(anyGetter.getName());\n             BeanProperty.Std anyProp = new BeanProperty.Std(name, valueType, null,\n                     beanDesc.getClassAnnotations(), anyGetter, PropertyMetadata.STD_OPTIONAL);\n-            builder.setAnyGetter(new AnyGetterWriter(anyProp, anyGetter, anySer));\n-        }\n+            \n+            if (annotatedSerializer != null) {\n+                // If custom serializer is specified, use it directly\n+                builder.setAnyGetter(new AnyGetterWriter(anyProp, anyGetter, annotatedSerializer));\n+            } else {\n+                // Otherwise, use default MapSerializer\n+                MapSerializer anySer = MapSerializer.construct(null, type, staticTyping, typeSer, null, null, null);\n+                builder.setAnyGetter(new AnyGetterWriter(anyProp, anyGetter, anySer));\n+            }\n         // Next: need to gather view information, if any:\n         processViews(config, builder);\n \n"
+  },
+  "timestamp": "2026-06-29 14:19:37 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_10",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_10",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "JsonAnyGetter doesn't work with JsonSerialize (except with keyUsing)\n(This is happening with 2.5.0. Haven't tried 2.5.1 but I couldn't see any related issue anyway)\n\nJackson ignores JsonSerialize annotation when there is JsonAnyGetter annotation.\n\n``` java\n  @JsonSerialize(using = MySerializer.class)\n  // or\n  @JsonSerialize(converter = MyConverter.class)\n  @JsonAnyGetter\n  public Map<String, String> getParameters(){\n    return parameters;\n  }\n```\n\nexcept \n\n``` Java\n@JsonSerialize(keyUsing = MyKeySerializer.class)\n```\n\n(haven't tried each setting. Only tried keyUsing because I've seen a different issue (#661) with it)\nThen it works. But I need the converter, so..\n\nFor the time being I will use\n\n``` Java\n  @JsonAnyGetter\n  public Map<String, JsonNode> getParameters(){\n    return new MyConverter().convert(parameters);\n  }\n```\n\nbut I'd prefer to stick to annotations.\n\n",
+    "commit_message": "Fix #705 for 2.5.2",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerBuilder.java",
+        "start_line": 179,
+        "end_line": 179,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java",
+        "start_line": 668,
+        "end_line": 668,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 39,
+        "end_line": 39,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 40,
+        "end_line": 40,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 43,
+        "end_line": 43,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 48,
+        "end_line": 48,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 49,
+        "end_line": 49,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+        "start_line": 50,
+        "end_line": 50,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/BasicBeanDescription.java",
+        "start_line": 361,
+        "end_line": 361,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/BasicBeanDescription.java",
+        "start_line": 362,
+        "end_line": 362,
+        "suspiciousness": 0.31622776601683794,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.ser.TestAnyGetter::testIssue705"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/BeanSerializerBuilder.java",
+      "start_line": 179,
+      "end_line": 179,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/std/BeanSerializerBase.java",
+      "start_line": 668,
+      "end_line": 668,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 39,
+      "end_line": 39,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 40,
+      "end_line": 40,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 43,
+      "end_line": 43,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 48,
+      "end_line": 48,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 49,
+      "end_line": 49,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ser/AnyGetterWriter.java",
+      "start_line": 50,
+      "end_line": 50,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/BasicBeanDescription.java",
+      "start_line": 361,
+      "end_line": 361,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/introspect/BasicBeanDescription.java",
+      "start_line": 362,
+      "end_line": 362,
+      "suspiciousness": 0.31622776601683794,
+      "rank": 10
+    }
+  ]
+}

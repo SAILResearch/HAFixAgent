@@ -1,0 +1,75 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "67",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 20:52:24",
+      "end_time": "2026-06-26 20:53:54",
+      "duration_seconds": 91,
+      "duration_human": "1m 31s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 10,
+    "token_usage": {
+      "input_tokens": 179256,
+      "output_tokens": 5153,
+      "total_tokens": 184409,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 179256
+    },
+    "agent_steps": 10,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\nindex 7d6a7bf5e..d00adf720 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n@@ -1400,6 +1400,16 @@ public abstract class BasicDeserializerFactory\n         // the only non-standard thing is this:\n         if (deser == null) {\n             if (type.isEnumType()) {\n+\n+        // Check for deserializer modifiers before creating enum deserializer\n+        if (_factoryConfig.hasDeserializerModifiers()) {\n+            for (BeanDeserializerModifier mod : _factoryConfig.deserializerModifiers()) {\n+                deser = mod.modifyKeyDeserializer(config, type, deser);\n+                if (deser != null) {\n+                    return deser;\n+                }\n+            }\n+        }\n                 return _createEnumKeyDeserializer(ctxt, type);\n             }\n             deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n"
+  },
+  "timestamp": "2026-06-26 20:53:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_67",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_67",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Map key deserializerModifiers ignored\nWe have a module that extends simple model to allow us to accept enum names in lower case in a fairly generic manner\r\nInside that we add the `modifyKeyDeserializer`\r\n\r\nThe incoming class (using immutables) is mapped to a guava immutable map.\r\nWalking through the code:\r\n\r\n> com.fasterxml.jackson.datatype.guava.deser.ImmutableMapDeserializer.createContextual\r\n>  calls DeserializationContext.findKeyDeserializer\r\n>  calls DeserializerCache.findKeyDeserializer\r\n>  calls BasicDeserializerFactory.createKeyDeserializer\r\n\r\nwhich has the code:\r\n```java\r\n        // the only non-standard thing is this:\r\n        if (deser == null) {\r\n            if (type.isEnumType()) {\r\n                return _createEnumKeyDeserializer(ctxt, type);\r\n            }\r\n            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\r\n        }\r\n```\r\n\r\nSince we are an enum type, it returns the value in the `_createEnumKeyDeserializer`, which is the standard enum deserializer.\r\nBelow that block is the check for the hasDeserializerModifiers, but since we have returned already, it is never called, so we can't override the behaviour.\r\n\r\nModule fragment:\r\n```java\r\n    setDeserializerModifier(new BeanDeserializerModifier() {\r\n                @Override\r\n                @SuppressWarnings(\"unchecked\")\r\n                public JsonDeserializer<Enum> modifyEnumDeserializer(\r\n                        DeserializationConfig config,\r\n                        final JavaType type,\r\n                        BeanDescription beanDesc,\r\n                        final JsonDeserializer<?> deserializer) {\r\n                    return new JsonDeserializer<Enum>() {\r\n                        @Override\r\n                        public Enum deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException {\r\n                            Class<? extends Enum> rawClass = (Class<Enum<?>>) type.getRawClass();\r\n                            return Enum.valueOf(rawClass, jp.getValueAsString().toUpperCase());\r\n                        }\r\n                    };\r\n                }\r\n\r\n                @Override\r\n                public KeyDeserializer modifyKeyDeserializer(\r\n                        DeserializationConfig config,\r\n                        JavaType type,\r\n                        KeyDeserializer deserializer) {\r\n                    if (!type.isEnumType()) {\r\n                        return super.modifyKeyDeserializer(config, type, deserializer);\r\n                    }\r\n                    return new KeyDeserializer() {\r\n                        @Override\r\n                        @SuppressWarnings(\"unchecked\")\r\n                        public Object deserializeKey(String key, DeserializationContext ctxt)\r\n                                throws IOException, JsonProcessingException {\r\n                            Class<? extends Enum> rawClass = (Class<Enum<?>>) type.getRawClass();\r\n                            return Enum.valueOf(rawClass, key.toUpperCase());\r\n                        }\r\n                    };\r\n                }\r\n            });\r\n```\r\n\r\nI appreciate the code around here is fairly complex.\r\n\r\n\r\nRelated issues (possibly):\r\nhttps://github.com/FasterXML/jackson-databind/issues/749\r\nhttps://github.com/FasterXML/jackson-databind/issues/1313\n",
+    "commit_message": "Fix #1445",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+        "start_line": 1403,
+        "end_line": 1403,
+        "line_numbers": [
+          1403
+        ],
+        "function_name": "createKeyDeserializer",
+        "class_name": "BasicDeserializerFactory",
+        "filename": "BasicDeserializerFactory.java",
+        "code_snippet": "    public KeyDeserializer createKeyDeserializer(DeserializationContext ctxt,\n            JavaType type)\n        throws JsonMappingException\n    {\n        final DeserializationConfig config = ctxt.getConfig();\n        KeyDeserializer deser = null;\n        if (_factoryConfig.hasKeyDeserializers()) {\n            BeanDescription beanDesc = config.introspectClassAnnotations(type.getRawClass());\n            for (KeyDeserializers d  : _factoryConfig.keyDeserializers()) {\n                deser = d.findKeyDeserializer(type, config, beanDesc);\n                if (deser != null) {\n                    break;\n                }\n            }\n        }\n        // the only non-standard thing is this:\n        if (deser == null) {\n            if (type.isEnumType()) {\n                return _createEnumKeyDeserializer(ctxt, type);\n            }\n            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n        }\n        // and then post-processing\n        if (deser != null) {\n            if (_factoryConfig.hasDeserializerModifiers()) {\n                for (BeanDeserializerModifier mod : _factoryConfig.deserializerModifiers()) {\n                    deser = mod.modifyKeyDeserializer(config, type, deser);\n                }\n            }\n        }\n        return deser;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+        "start_line": 1405,
+        "end_line": 1405,
+        "line_numbers": [
+          1405
+        ],
+        "function_name": "createKeyDeserializer",
+        "class_name": "BasicDeserializerFactory",
+        "filename": "BasicDeserializerFactory.java",
+        "code_snippet": "    public KeyDeserializer createKeyDeserializer(DeserializationContext ctxt,\n            JavaType type)\n        throws JsonMappingException\n    {\n        final DeserializationConfig config = ctxt.getConfig();\n        KeyDeserializer deser = null;\n        if (_factoryConfig.hasKeyDeserializers()) {\n            BeanDescription beanDesc = config.introspectClassAnnotations(type.getRawClass());\n            for (KeyDeserializers d  : _factoryConfig.keyDeserializers()) {\n                deser = d.findKeyDeserializer(type, config, beanDesc);\n                if (deser != null) {\n                    break;\n                }\n            }\n        }\n        // the only non-standard thing is this:\n        if (deser == null) {\n            if (type.isEnumType()) {\n                return _createEnumKeyDeserializer(ctxt, type);\n            }\n            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n        }\n        // and then post-processing\n        if (deser != null) {\n            if (_factoryConfig.hasDeserializerModifiers()) {\n                for (BeanDeserializerModifier mod : _factoryConfig.deserializerModifiers()) {\n                    deser = mod.modifyKeyDeserializer(config, type, deser);\n                }\n            }\n        }\n        return deser;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.module.TestCustomEnumKeyDeserializer::testCustomEnumValueAndKeyViaModifier"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\nindex ade4b73f2..7d6a7bf5e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java\n@@ -1400,10 +1400,9 @@ public abstract class BasicDeserializerFactory\n         // the only non-standard thing is this:\n         if (deser == null) {\n             if (type.isEnumType()) {\n+                deser = _createEnumKeyDeserializer(ctxt, type);\n+            } else {\n+                deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n-                return _createEnumKeyDeserializer(ctxt, type);\n             }\n-            deser = StdKeyDeserializers.findStringBasedKeyDeserializer(config, type);\n         }\n         // and then post-processing\n         if (deser != null) {",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

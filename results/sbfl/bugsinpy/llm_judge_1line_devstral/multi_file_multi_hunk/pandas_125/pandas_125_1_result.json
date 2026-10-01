@@ -1,0 +1,192 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_125",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-30 16:08:38",
+      "end_time": "2026-06-30 16:11:11",
+      "duration_seconds": 152,
+      "duration_human": "2m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 746628,
+      "output_tokens": 5904,
+      "total_tokens": 752532,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 746628
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/categorical.py b/pandas/core/arrays/categorical.py\nindex 53689b6bc2..dc4377ba77 100644\n--- a/pandas/core/arrays/categorical.py\n+++ b/pandas/core/arrays/categorical.py\n@@ -456,25 +456,25 @@ class Categorical(ExtensionArray, PandasObject):\n         self._dtype = new_dtype\n \n     @property\n-    def ordered(self) -> Ordered:\n+    def ordered(self):\n         \"\"\"\n         Whether the categories have an ordered relationship.\n         \"\"\"\n         return self.dtype._ordered\n \n     @property\n-    def dtype(self) -> CategoricalDtype:\n+    def dtype(self):\n         \"\"\"\n         The :class:`~pandas.api.types.CategoricalDtype` for this instance.\n         \"\"\"\n         return self._dtype\n \n     @property\n-    def _ndarray_values(self) -> np.ndarray:\n+    def _ndarray_values(self):\n         return self.codes\n \n     @property\n-    def _constructor(self) -> Type[\"Categorical\"]:\n+    def _constructor(self):\n         return Categorical\n \n     @classmethod\n@@ -485,7 +485,7 @@ class Categorical(ExtensionArray, PandasObject):\n         # Defer to CategoricalFormatter's formatter.\n         return None\n \n-    def copy(self) -> \"Categorical\":\n+    def copy(self):\n         \"\"\"\n         Copy constructor.\n         \"\"\"\n@@ -493,7 +493,7 @@ class Categorical(ExtensionArray, PandasObject):\n             values=self._codes.copy(), dtype=self.dtype, fastpath=True\n         )\n \n-    def astype(self, dtype: Dtype, copy: bool = True) -> ArrayLike:\n+    def astype(self, dtype: Dtype, copy: bool = True):\n         \"\"\"\n         Coerce this type to another dtype\n \n@@ -522,20 +522,20 @@ class Categorical(ExtensionArray, PandasObject):\n         return np.array(self, dtype=dtype, copy=copy)\n \n     @cache_readonly\n-    def size(self) -> int:\n+    def size(self):\n         \"\"\"\n         return the len of myself\n         \"\"\"\n         return self._codes.size\n \n     @cache_readonly\n-    def itemsize(self) -> int:\n+    def itemsize(self):\n         \"\"\"\n         return the size of a single category\n         \"\"\"\n         return self.categories.itemsize\n \n-    def tolist(self) -> list:\n+    def tolist(self):\n         \"\"\"\n         Return a list of the values.\n \n@@ -548,7 +548,7 @@ class Categorical(ExtensionArray, PandasObject):\n     to_list = tolist\n \n     @property\n-    def base(self) -> None:\n+    def base(self):\n         \"\"\"\n         compat, we are always our own object\n         \"\"\"\n@@ -754,7 +754,7 @@ class Categorical(ExtensionArray, PandasObject):\n \n         self._dtype = new_dtype\n \n-    def _set_dtype(self, dtype: CategoricalDtype) -> \"Categorical\":\n+    def _set_dtype(self, dtype: CategoricalDtype):\n         \"\"\"\n         Internal method for directly updating the CategoricalDtype\n \n@@ -1939,7 +1939,7 @@ class Categorical(ExtensionArray, PandasObject):\n \n     take = take_nd\n \n-    def __len__(self) -> int:\n+    def __len__(self):\n         \"\"\"\n         The length of this Categorical.\n         \"\"\"\n@@ -2047,7 +2047,7 @@ class Categorical(ExtensionArray, PandasObject):\n         result = formatter.to_string()\n         return str(result)\n \n-    def __repr__(self) -> str:\n+    def __repr__(self):\n         \"\"\"\n         String representation.\n         \"\"\"\n@@ -2468,27 +2468,6 @@ class Categorical(ExtensionArray, PandasObject):\n         null_mask = np.asarray(isna(values))\n         code_values = self.categories.get_indexer(values)\n         code_values = code_values[null_mask | (code_values >= 0)]\n-        return algorithms.isin(self.codes, code_values)\n-\n-\n-# The Series.cat accessor\n-\n-\n-@delegate_names(\n-    delegate=Categorical, accessors=[\"categories\", \"ordered\"], typ=\"property\"\n-)\n-@delegate_names(\n-    delegate=Categorical,\n-    accessors=[\n-        \"rename_categories\",\n-        \"reorder_categories\",\n-        \"add_categories\",\n-        \"remove_categories\",\n-        \"remove_unused_categories\",\n-        \"set_categories\",\n-        \"as_ordered\",\n-        \"as_unordered\",\n-    ],\n     typ=\"method\",\n )\n class CategoricalAccessor(PandasDelegate, PandasObject, NoNewAttributesMixin):\ndiff --git a/pandas/tests/arrays/categorical/test_algos.py b/pandas/tests/arrays/categorical/test_algos.py\nindex 1a48ccf85f..e076015c5f 100644\n--- a/pandas/tests/arrays/categorical/test_algos.py\n+++ b/pandas/tests/arrays/categorical/test_algos.py\n@@ -59,6 +59,24 @@ def test_isin_cats():\n     tm.assert_numpy_array_equal(expected, result)\n \n \n+@pytest.mark.parametrize(\n+    \"to_replace, value, result\",\n+    [(\"b\", \"c\", [\"a\", \"c\"]), (\"c\", \"d\", [\"a\", \"b\"]), (\"b\", None, [\"a\", None])],\n+)\n+def test_replace(to_replace, value, result):\n+    # GH 26988\n+    cat = pd.Categorical([\"a\", \"b\"])\n+    expected = pd.Categorical(result)\n+    result = cat.replace(to_replace, value)\n+    tm.assert_categorical_equal(result, expected)\n+    if to_replace == \"b\":  # the \"c\" test is supposed to be unchanged\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_categorical_equal(cat, expected)\n+    cat.replace(to_replace, value, inplace=True)\n+    tm.assert_categorical_equal(cat, expected)\n+\n+\n @pytest.mark.parametrize(\"empty\", [[], pd.Series(), np.array([])])\n def test_isin_empty(empty):\n     s = pd.Categorical([\"a\", \"b\"])\ndiff --git a/pandas/tests/frame/test_replace.py b/pandas/tests/frame/test_replace.py\nindex c30efa1212..60b601b57e 100644\n--- a/pandas/tests/frame/test_replace.py\n+++ b/pandas/tests/frame/test_replace.py\n@@ -1296,6 +1296,24 @@ class TestDataFrameReplace:\n         expected = DataFrame(expected)\n         tm.assert_frame_equal(result, expected)\n \n+    @pytest.mark.parametrize(\n+        \"replace_dict, final_data\",\n+        [({\"a\": 1, \"b\": 1}, [[3, 3], [2, 2]]), ({\"a\": 1, \"b\": 2}, [[3, 1], [2, 3]])],\n+    )\n+    def test_categorical_replace_with_dict(self, replace_dict, final_data):\n+        # GH 26988\n+        df = DataFrame([[1, 1], [2, 2]], columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected = DataFrame(final_data, columns=[\"a\", \"b\"], dtype=\"category\")\n+        expected[\"a\"] = expected[\"a\"].cat.set_categories([1, 2, 3])\n+        expected[\"b\"] = expected[\"b\"].cat.set_categories([1, 2, 3])\n+        result = df.replace(replace_dict, 3)\n+        tm.assert_frame_equal(result, expected)\n+        with pytest.raises(AssertionError):\n+            # ensure non-inplace call does not affect original\n+            tm.assert_frame_equal(df, expected)\n+        df.replace(replace_dict, 3, inplace=True)\n+        tm.assert_frame_equal(df, expected)\n+\n     @pytest.mark.parametrize(\n         \"df, to_replace, exp\",\n         [\n"
+  },
+  "timestamp": "2026-06-30 16:11:11 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_125",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_125/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG-26988 implement replace for categorical blocks (#27026)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 183,
+        "end_line": 183,
+        "suspiciousness": 0.426852,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 189,
+        "end_line": 189,
+        "suspiciousness": 0.426852,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 190,
+        "end_line": 190,
+        "suspiciousness": 0.426852,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 1994,
+        "end_line": 1994,
+        "suspiciousness": 0.426852,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 636,
+        "end_line": 636,
+        "suspiciousness": 0.426852,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 638,
+        "end_line": 638,
+        "suspiciousness": 0.426852,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 641,
+        "end_line": 641,
+        "suspiciousness": 0.426852,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 643,
+        "end_line": 643,
+        "suspiciousness": 0.426852,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/algorithms.py",
+        "start_line": 644,
+        "end_line": 644,
+        "suspiciousness": 0.426852,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/arrays/categorical.py",
+        "start_line": 373,
+        "end_line": 373,
+        "suspiciousness": 0.426852,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arrays/categorical/test_algos.py::test_replace",
+      "pytest pandas/tests/frame/test_replace.py::TestDataFrameReplace::test_categorical_replace_with_dict"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 183,
+      "end_line": 183,
+      "suspiciousness": 0.426852,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 189,
+      "end_line": 189,
+      "suspiciousness": 0.426852,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 190,
+      "end_line": 190,
+      "suspiciousness": 0.426852,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 1994,
+      "end_line": 1994,
+      "suspiciousness": 0.426852,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 636,
+      "end_line": 636,
+      "suspiciousness": 0.426852,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 638,
+      "end_line": 638,
+      "suspiciousness": 0.426852,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 641,
+      "end_line": 641,
+      "suspiciousness": 0.426852,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 643,
+      "end_line": 643,
+      "suspiciousness": 0.426852,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/algorithms.py",
+      "start_line": 644,
+      "end_line": 644,
+      "suspiciousness": 0.426852,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/arrays/categorical.py",
+      "start_line": 373,
+      "end_line": 373,
+      "suspiciousness": 0.426852,
+      "rank": 10
+    }
+  ]
+}

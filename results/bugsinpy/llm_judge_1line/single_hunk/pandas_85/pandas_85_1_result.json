@@ -1,0 +1,74 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_85",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 09:31:42",
+      "end_time": "2026-03-23 09:41:01",
+      "duration_seconds": 558,
+      "duration_human": "9m 18s"
+    },
+    "model_cost": 0.0277,
+    "model_calls": 23,
+    "token_usage": {
+      "input_tokens": 154299,
+      "output_tokens": 14695,
+      "total_tokens": 168994,
+      "cached_input_tokens": 74112,
+      "uncached_input_tokens": 80187
+    },
+    "agent_steps": 23,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/indexes/multi.py b/pandas/core/indexes/multi.py\nindex 8682af6ab6..053c46bdb2 100644\n--- a/pandas/core/indexes/multi.py\n+++ b/pandas/core/indexes/multi.py\n@@ -1262,13 +1262,12 @@ class MultiIndex(Index):\n         else:\n             grouper = level_index.take(codes, fill_value=True)\n \n-        return grouper, codes, level_index\n-\n-    @property\n-    def _constructor(self):\n-        return MultiIndex.from_tuples\n+        # Ensure we return a regular Index, not a level\n+        if hasattr(level_index, \"_no_setting_name\") and level_index._no_setting_name:\n+            level_index = level_index.copy()\n+            level_index._no_setting_name = False\n \n-    @cache_readonly\n+        return grouper, codes, level_index\n     def inferred_type(self) -> str:\n         return \"mixed\"\n \ndiff --git a/pandas/tests/groupby/test_apply.py b/pandas/tests/groupby/test_apply.py\nindex e81ff37510..708d342928 100644\n--- a/pandas/tests/groupby/test_apply.py\n+++ b/pandas/tests/groupby/test_apply.py\n@@ -775,3 +775,20 @@ def test_apply_series_return_dataframe_groups():\n         [\"17661101\"], index=pd.DatetimeIndex([\"2015-02-24\"], name=\"day\"), name=\"userId\"\n     )\n     tm.assert_series_equal(result, expected)\n+\n+\n+@pytest.mark.parametrize(\"category\", [False, True])\n+def test_apply_multi_level_name(category):\n+    # https://github.com/pandas-dev/pandas/issues/31068\n+    b = [1, 2] * 5\n+    if category:\n+        b = pd.Categorical(b, categories=[1, 2, 3])\n+    df = pd.DataFrame(\n+        {\"A\": np.arange(10), \"B\": b, \"C\": list(range(10)), \"D\": list(range(10))}\n+    ).set_index([\"A\", \"B\"])\n+    result = df.groupby(\"B\").apply(lambda x: x.sum())\n+    expected = pd.DataFrame(\n+        {\"C\": [20, 25], \"D\": [20, 25]}, index=pd.Index([1, 2], name=\"B\")\n+    )\n+    tm.assert_frame_equal(result, expected)\n+    assert df.index.names == [\"A\", \"B\"]\n"
+  },
+  "timestamp": "2026-03-23 05:41:01 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_85",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_85/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: Break reference from grouping level to MI (#31133)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 1258,
+        "end_line": 1259,
+        "function_name": "_get_grouper_for_level",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 1259,
+        "end_line": 1260,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 1260,
+        "end_line": 1261,
+        "function_name": "_get_grouper_for_level",
+        "class_name": ""
+      },
+      {
+        "file": "pandas/core/indexes/multi.py",
+        "start_line": 1261,
+        "end_line": 1262,
+        "function_name": "_get_grouper_for_level",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/groupby/test_apply.py::test_apply_multi_level_name"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null
+}

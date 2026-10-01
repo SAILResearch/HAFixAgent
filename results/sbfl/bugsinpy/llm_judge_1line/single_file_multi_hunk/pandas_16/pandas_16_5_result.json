@@ -1,0 +1,193 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_16",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-25 18:37:51",
+      "end_time": "2026-06-25 19:20:12",
+      "duration_seconds": 2540,
+      "duration_human": "42m 20s"
+    },
+    "model_cost": 0.2621,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 2159564,
+      "output_tokens": 87648,
+      "total_tokens": 2247212,
+      "cached_input_tokens": 1321792,
+      "uncached_input_tokens": 837772
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/arrays/datetimelike.py b/pandas/core/arrays/datetimelike.py\nindex 407daf15d5..2dae6fc0e1 100644\n--- a/pandas/core/arrays/datetimelike.py\n+++ b/pandas/core/arrays/datetimelike.py\n@@ -1174,9 +1174,29 @@ class DatetimeLikeArrayMixin(\n     _sub_datetime_arraylike = _sub_datetimelike_scalar\n \n     def _sub_period(self, other):\n-        # Overridden by PeriodArray\n-        raise TypeError(f\"cannot subtract Period from a {type(self).__name__}\")\n+        \"\"\"\n+        Subtract a Period from self.  This is only valid if self is\n+        a PeriodArray.\n+        \"\"\"\n+        if not isinstance(self, PeriodArray):\n+            raise TypeError(\n+                \"cannot subtract Period from a {cls}\".format(cls=type(self).__name__)\n+            )\n \n+        # Handle NaT (both NaT singleton and Period with value iNaT)\n+        from pandas._libs.tslibs import NaT, iNaT\n+        if other is NaT or getattr(other, 'value', None) == iNaT:\n+            # Return TimedeltaArray with NaT values and no frequency\n+            from pandas.core.arrays import TimedeltaArray\n+            import numpy as np\n+            \n+            # Create an array of iNaT\n+            nat_array = np.full(len(self), iNaT, dtype=np.int64)\n+            # Create TimedeltaArray with freq=None\n+            return TimedeltaArray._simple_new(nat_array, freq=None, dtype=\"timedelta64[ns]\")\n+        \n+        # For non-NaT case, return self - other.ordinal (current behavior)\n+        return self - other.ordinal\n     def _add_offset(self, offset):\n         raise AbstractMethodError(self)\n \ndiff --git a/pandas/core/arrays/timedeltas.py b/pandas/core/arrays/timedeltas.py\nindex 7cffe6a5a1..2e53a6bcae 100644\n--- a/pandas/core/arrays/timedeltas.py\n+++ b/pandas/core/arrays/timedeltas.py\n@@ -198,6 +198,8 @@ class TimedeltaArray(dtl.DatetimeLikeArrayMixin, dtl.TimelikeOps):\n \n     @classmethod\n     def _simple_new(cls, values, freq=None, dtype=TD64NS_DTYPE):\n+        from pandas._libs.tslibs import iNaT\n+        import numpy as np\n         assert dtype == TD64NS_DTYPE, dtype\n         assert isinstance(values, np.ndarray), type(values)\n         if values.dtype != TD64NS_DTYPE:\n@@ -206,6 +208,12 @@ class TimedeltaArray(dtl.DatetimeLikeArrayMixin, dtl.TimelikeOps):\n \n         result = object.__new__(cls)\n         result._data = values\n+        # If all values are NaT, ensure freq is None\n+        if freq is not None and np.all(values == iNaT):\n+            result._freq = None\n+            result._dtype = TD64NS_DTYPE\n+            return result\n+\n         result._freq = to_offset(freq)\n         result._dtype = TD64NS_DTYPE\n         return result\ndiff --git a/pandas/tests/arithmetic/test_period.py b/pandas/tests/arithmetic/test_period.py\nindex 4cf1988a33..55a547b361 100644\n--- a/pandas/tests/arithmetic/test_period.py\n+++ b/pandas/tests/arithmetic/test_period.py\n@@ -1444,8 +1444,13 @@ class TestPeriodIndexSeriesMethods:\n         tm.assert_index_equal(result, exp)\n \n         exp = pd.TimedeltaIndex([np.nan, np.nan, np.nan, np.nan], name=\"idx\")\n-        tm.assert_index_equal(idx - pd.Period(\"NaT\", freq=\"M\"), exp)\n-        tm.assert_index_equal(pd.Period(\"NaT\", freq=\"M\") - idx, exp)\n+        result = idx - pd.Period(\"NaT\", freq=\"M\")\n+        tm.assert_index_equal(result, exp)\n+        assert result.freq == exp.freq\n+\n+        result = pd.Period(\"NaT\", freq=\"M\") - idx\n+        tm.assert_index_equal(result, exp)\n+        assert result.freq == exp.freq\n \n     def test_pi_sub_pdnat(self):\n         # GH#13071\n"
+  },
+  "timestamp": "2026-06-25 19:20:12 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_16",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_16/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: incorrect freq in PeriodIndex-Period (#33801)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 617,
+        "end_line": 617,
+        "suspiciousness": 0.909091,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 619,
+        "end_line": 619,
+        "suspiciousness": 0.909091,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 622,
+        "end_line": 622,
+        "suspiciousness": 0.909091,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 624,
+        "end_line": 624,
+        "suspiciousness": 0.909091,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 628,
+        "end_line": 628,
+        "suspiciousness": 0.909091,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 629,
+        "end_line": 629,
+        "suspiciousness": 0.909091,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 630,
+        "end_line": 630,
+        "suspiciousness": 0.909091,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/arrays/timedeltas.py",
+        "start_line": 122,
+        "end_line": 122,
+        "suspiciousness": 0.909091,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/arrays/timedeltas.py",
+        "start_line": 313,
+        "end_line": 313,
+        "suspiciousness": 0.909091,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/arrays/timedeltas.py",
+        "start_line": 315,
+        "end_line": 315,
+        "suspiciousness": 0.909091,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/arithmetic/test_period.py::TestPeriodIndexSeriesMethods::test_pi_sub_period"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 617,
+      "end_line": 617,
+      "suspiciousness": 0.909091,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 619,
+      "end_line": 619,
+      "suspiciousness": 0.909091,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 622,
+      "end_line": 622,
+      "suspiciousness": 0.909091,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 624,
+      "end_line": 624,
+      "suspiciousness": 0.909091,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 628,
+      "end_line": 628,
+      "suspiciousness": 0.909091,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 629,
+      "end_line": 629,
+      "suspiciousness": 0.909091,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 630,
+      "end_line": 630,
+      "suspiciousness": 0.909091,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/arrays/timedeltas.py",
+      "start_line": 122,
+      "end_line": 122,
+      "suspiciousness": 0.909091,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/arrays/timedeltas.py",
+      "start_line": 313,
+      "end_line": 313,
+      "suspiciousness": 0.909091,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/arrays/timedeltas.py",
+      "start_line": 315,
+      "end_line": 315,
+      "suspiciousness": 0.909091,
+      "rank": 10
+    }
+  ]
+}

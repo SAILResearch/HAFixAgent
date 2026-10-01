@@ -1,0 +1,83 @@
+{
+  "project_name": "cookiecutter",
+  "bug_id": "cookiecutter_4",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-24 03:34:31",
+      "end_time": "2026-03-24 03:45:31",
+      "duration_seconds": 660,
+      "duration_human": "11m 0s"
+    },
+    "model_cost": 0.0887,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 476576,
+      "output_tokens": 15737,
+      "total_tokens": 492313,
+      "cached_input_tokens": 171968,
+      "uncached_input_tokens": 304608
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/cookiecutter/exceptions.py b/cookiecutter/exceptions.py\nindex 0ad6b58..096c331 100755\n--- a/cookiecutter/exceptions.py\n+++ b/cookiecutter/exceptions.py\n@@ -77,6 +77,9 @@ class OutputDirExistsException(CookiecutterException):\n \n \n class InvalidModeException(CookiecutterException):\n+\n+class FailedHookException(CookiecutterException):\n+    pass\n     \"\"\"\n     Raised when cookiecutter is called with both `no_input==True` and\n     `replay==True` at the same time.\ndiff --git a/cookiecutter/generate.py b/cookiecutter/generate.py\nindex a38ef26..565ccbc 100755\n--- a/cookiecutter/generate.py\n+++ b/cookiecutter/generate.py\n@@ -23,7 +23,9 @@ from binaryornot.check import is_binary\n \n from .exceptions import (\n     NonTemplatedInputDirException,\n+    FailedHookException,\n     ContextDecodingException,\n+    FailedHookException,\n     OutputDirExistsException\n )\n from .find import find_template\ndiff --git a/cookiecutter/hooks.py b/cookiecutter/hooks.py\nindex 550d6de..f12b32e 100755\n--- a/cookiecutter/hooks.py\n+++ b/cookiecutter/hooks.py\n@@ -17,7 +17,7 @@ import tempfile\n \n from jinja2 import Template\n \n-from cookiecutter import utils\n+from cookiecutter import utils, exceptions\n \n \n _HOOKS = [\n@@ -106,4 +106,7 @@ def run_hook(hook_name, project_dir, context):\n     if script is None:\n         logging.debug('No hooks found')\n         return EXIT_SUCCESS\n-    return run_script_with_context(script, project_dir, context)\n+    exit_code = run_script_with_context(script, project_dir, context)\n+    if exit_code != EXIT_SUCCESS:\n+        raise exceptions.FailedHookException('Hook script failed (exit code: {})'.format(exit_code))\n+    return exit_code\ndiff --git a/setup.py b/setup.py\nindex eff59cf..26e9a9c 100755\n--- a/setup.py\n+++ b/setup.py\n@@ -1,5 +1,6 @@\n #!/usr/bin/env python\n \n+import io\n import os\n import platform\n import sys\n@@ -21,10 +22,10 @@ if sys.argv[-1] == 'tag':\n     os.system(\"git push --tags\")\n     sys.exit()\n \n-with open('README.rst') as readme_file:\n+with io.open('README.rst', encoding='utf-8') as readme_file:\n     readme = readme_file.read()\n \n-with open('HISTORY.rst') as history_file:\n+with io.open('HISTORY.rst', encoding='utf-8') as history_file:\n     history = history_file.read().replace('.. :changelog:', '')\n \n requirements = [\n@@ -35,28 +36,17 @@ requirements = [\n     'whichcraft>=0.1.1'\n ]\n \n-# Use PyYAML for 2.7 on Windows, ruamel.yaml everywhere else\n-PY2 = sys.version_info[0] == 2\n-windows = platform.system().lower().startswith('windows')\n-if PY2 and windows:\n-    requirements.append('PyYAML>=3.10')\n-else:\n-    requirements.append('ruamel.yaml>=0.10.12')\n-\n-long_description = readme + '\\n\\n' + history\n-\n-if sys.argv[-1] == 'readme':\n-    print(long_description)\n-    sys.exit()\n-\n+test_requirements = [\n+    'pytest',\n+    'pytest-cov',\n+    'pytest-mock',\n+]\n \n setup(\n     name='cookiecutter',\n     version=version,\n-    description=('A command-line utility that creates projects from project '\n-                 'templates, e.g. creating a Python package project from a '\n-                 'Python package project template.'),\n-    long_description=long_description,\n+    description='A command-line utility that creates projects from project templates, e.g. creating a Python package project from a Python package project template.',\n+    long_description=readme + '\\n\\n' + history,\n     author='Audrey Roy',\n     author_email='audreyr@gmail.com',\n     url='https://github.com/audreyr/cookiecutter',\n@@ -71,28 +61,20 @@ setup(\n     },\n     include_package_data=True,\n     install_requires=requirements,\n-    license='BSD',\n+    license=\"BSD\",\n     zip_safe=False,\n+    keywords='cookiecutter',\n     classifiers=[\n-        'Development Status :: 5 - Production/Stable',\n-        'Environment :: Console',\n+        'Development Status :: 4 - Beta',\n         'Intended Audience :: Developers',\n-        'Natural Language :: English',\n         'License :: OSI Approved :: BSD License',\n-        'Programming Language :: Python',\n-        'Programming Language :: Python :: 2',\n+        'Natural Language :: English',\n+        \"Programming Language :: Python :: 2\",\n         'Programming Language :: Python :: 2.7',\n         'Programming Language :: Python :: 3',\n-        'Programming Language :: Python :: 3.3',\n         'Programming Language :: Python :: 3.4',\n         'Programming Language :: Python :: 3.5',\n-        'Programming Language :: Python :: Implementation :: CPython',\n-        'Programming Language :: Python :: Implementation :: PyPy',\n-        'Topic :: Software Development',\n     ],\n-    keywords=(\n-        'cookiecutter, Python, projects, project templates, Jinja2, '\n-        'skeleton, scaffolding, project directory, setup.py, package, '\n-        'packaging'\n-    ),\n+    test_suite='tests',\n+    tests_require=test_requirements\n )\ndiff --git a/tests/test_hooks.py b/tests/test_hooks.py\nindex 8df394f..e7f7ee1 100755\n--- a/tests/test_hooks.py\n+++ b/tests/test_hooks.py\n@@ -11,8 +11,9 @@ Tests for `cookiecutter.hooks` module.\n import sys\n import os\n import stat\n+import pytest\n \n-from cookiecutter import hooks, utils\n+from cookiecutter import hooks, utils, exceptions\n \n \n def make_test_repo(name):\n@@ -166,3 +167,16 @@ class TestExternalHooks(object):\n \n             hooks.run_hook('post_gen_project', tests_dir, {})\n             assert os.path.isfile(os.path.join(tests_dir, 'shell_post.txt'))\n+\n+    def test_run_failing_hook(self):\n+        hook_path = os.path.join(self.hooks_path, 'pre_gen_project.py')\n+        tests_dir = os.path.join(self.repo_path, 'input{{hooks}}')\n+\n+        with open(hook_path, 'w') as f:\n+            f.write(\"#!/usr/bin/env python\\n\")\n+            f.write(\"import sys; sys.exit(1)\\n\")\n+\n+        with utils.work_in(self.repo_path):\n+            with pytest.raises(exceptions.FailedHookException) as excinfo:\n+                hooks.run_hook('pre_gen_project', tests_dir, {})\n+            assert 'Hook script failed' in str(excinfo)\n"
+  },
+  "timestamp": "2026-03-23 23:45:31 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "cookiecutter",
+    "bug_id": "cookiecutter_4",
+    "repo_path": "/BugsInPy/framework/bin/temp/cookiecutter_4/cookiecutter",
+    "github_url": "https://github.com/cookiecutter/cookiecutter",
+    "description": "",
+    "commit_message": "using custom exception instead of exit status and cleanup project dir",
+    "fault_locations": [
+      {
+        "file": "cookiecutter/generate.py",
+        "start_line": 31,
+        "end_line": 31,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/generate.py",
+        "start_line": 260,
+        "end_line": 260,
+        "function_name": "generate_files",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 72,
+        "end_line": 72,
+        "function_name": "run_script",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 94,
+        "end_line": 94,
+        "function_name": "run_script_with_context",
+        "class_name": ""
+      },
+      {
+        "file": "cookiecutter/hooks.py",
+        "start_line": 108,
+        "end_line": 109,
+        "function_name": "run_hook",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "tox tests/test_hooks.py::TestExternalHooks::test_run_failing_hook"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}

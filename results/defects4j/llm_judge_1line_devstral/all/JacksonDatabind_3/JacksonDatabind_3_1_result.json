@@ -1,0 +1,75 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "3",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 20:31:02",
+      "end_time": "2026-06-26 20:32:46",
+      "duration_seconds": 104,
+      "duration_human": "1m 44s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 47,
+    "token_usage": {
+      "input_tokens": 742831,
+      "output_tokens": 4214,
+      "total_tokens": 747045,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 742831
+    },
+    "agent_steps": 47,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\nindex fdfeecb2e..c0757eeb6 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\n@@ -63,7 +63,7 @@ public final class StringArrayDeserializer\n             if (t == JsonToken.VALUE_STRING) {\n                 value = jp.getText();\n             } else if (t == JsonToken.VALUE_NULL) {\n-                value = _elementDeserializer.getNullValue();\n+                value = null;\n             } else {\n                 value = _parseString(jp, ctxt);\n             }\n"
+  },
+  "timestamp": "2026-06-26 20:32:46 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_3",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_3",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Regression updating from 2.3.3 to 2.4.0: `null` won't deserialize in `String[]`\nSteps to reproduce\n1. Clone the repository at https://github.com/huxi/sulky\n2. Execute the contained `./gradlew` or `gradlew.bat`\n3. Clone the repository at https://github.com/huxi/lilith/\n4. Change jackson-version [in the project.ext.versions map of dependencyDefinitions.gradle](https://github.com/huxi/lilith/blob/master/dependencyDefinitions.gradle#L6) from `'2.3.3'` to `'2.4.0'`.\n5. Execute the contained `./gradlew` or `gradlew.bat`\n\nThere will be six test-failures with 2.4.0 that won't happen with 2.3.3.\n\nThere are actually only 2 test-methods that fail 3 times each.\n\nThose methods reside at [full()](https://github.com/huxi/lilith/blob/master/lilith-data/logging-io-test/src/main/java/de/huxhorn/lilith/data/logging/test/LoggingEventIOTestBase.java#L230) and [nullArgument()](https://github.com/huxi/lilith/blob/master/lilith-data/logging-io-test/src/main/java/de/huxhorn/lilith/data/logging/test/LoggingEventIOTestBase.java#L120).\n\nI first suspected that `AfterburnerModule` might be the culprit but removing it from `LoggingJsonDecoder`/`LoggingJsonEncoder` didn't fix the problem.\n\nSorry for not narrowing down the problem further. I'll give this another look tomorrow but you may already be able to find the issue in the meantime.\n\nThe interesting thing is that several other test cases are working as intended...\n\n",
+    "commit_message": "Try to fix #479",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java",
+        "start_line": 66,
+        "end_line": 66,
+        "line_numbers": [
+          66
+        ],
+        "function_name": "deserialize",
+        "class_name": "StringArrayDeserializer",
+        "filename": "StringArrayDeserializer.java",
+        "code_snippet": "    public String[] deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n        // Ok: must point to START_ARRAY (or equivalent)\n        if (!jp.isExpectedStartArrayToken()) {\n            return handleNonArray(jp, ctxt);\n        }\n        if (_elementDeserializer != null) {\n            return _deserializeCustom(jp, ctxt);\n        }\n\n        final ObjectBuffer buffer = ctxt.leaseObjectBuffer();\n        Object[] chunk = buffer.resetAndStart();\n        \n        int ix = 0;\n        JsonToken t;\n        \n        while ((t = jp.nextToken()) != JsonToken.END_ARRAY) {\n            // Ok: no need to convert Strings, but must recognize nulls\n            String value;\n            if (t == JsonToken.VALUE_STRING) {\n                value = jp.getText();\n            } else if (t == JsonToken.VALUE_NULL) {\n                value = _elementDeserializer.getNullValue();\n            } else {\n                value = _parseString(jp, ctxt);\n            }\n            if (ix >= chunk.length) {\n                chunk = buffer.appendCompletedChunk(chunk);\n                ix = 0;\n            }\n            chunk[ix++] = value;\n        }\n        String[] result = buffer.completeAndClearBuffer(chunk, ix, String.class);\n        ctxt.returnObjectBuffer(buffer);\n        return result;\n    }",
+        "granularity": "function"
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java",
+        "start_line": 95,
+        "end_line": 95,
+        "line_numbers": [
+          95
+        ],
+        "function_name": "_deserializeCustom",
+        "class_name": "StringArrayDeserializer",
+        "filename": "StringArrayDeserializer.java",
+        "code_snippet": "    protected final String[] _deserializeCustom(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n        final ObjectBuffer buffer = ctxt.leaseObjectBuffer();\n        Object[] chunk = buffer.resetAndStart();\n        final JsonDeserializer<String> deser = _elementDeserializer;\n        \n        int ix = 0;\n        JsonToken t;\n        \n        while ((t = jp.nextToken()) != JsonToken.END_ARRAY) {\n            // Ok: no need to convert Strings, but must recognize nulls\n            String value = (t == JsonToken.VALUE_NULL) ? null : deser.deserialize(jp, ctxt);\n            if (ix >= chunk.length) {\n                chunk = buffer.appendCompletedChunk(chunk);\n                ix = 0;\n            }\n            chunk[ix++] = value;\n        }\n        String[] result = buffer.completeAndClearBuffer(chunk, ix, String.class);\n        ctxt.returnObjectBuffer(buffer);\n        return result;\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.deser.TestArrayDeserialization::testStringArray"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\nindex 5475ba564..fdfeecb2e 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/StringArrayDeserializer.java\n@@ -63,7 +63,7 @@ public final class StringArrayDeserializer\n             if (t == JsonToken.VALUE_STRING) {\n                 value = jp.getText();\n             } else if (t == JsonToken.VALUE_NULL) {\n+                value = null; // since we have established that '_elementDeserializer == null' earlier\n-                value = _elementDeserializer.getNullValue();\n             } else {\n                 value = _parseString(jp, ctxt);\n             }\n@@ -92,7 +92,7 @@ public final class StringArrayDeserializer\n         \n         while ((t = jp.nextToken()) != JsonToken.END_ARRAY) {\n             // Ok: no need to convert Strings, but must recognize nulls\n+            String value = (t == JsonToken.VALUE_NULL) ? deser.getNullValue() : deser.deserialize(jp, ctxt);\n-            String value = (t == JsonToken.VALUE_NULL) ? null : deser.deserialize(jp, ctxt);\n             if (ix >= chunk.length) {\n                 chunk = buffer.appendCompletedChunk(chunk);\n                 ix = 0;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

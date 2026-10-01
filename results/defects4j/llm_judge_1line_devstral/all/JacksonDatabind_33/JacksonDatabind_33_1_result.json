@@ -1,0 +1,62 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "33",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 20:38:45",
+      "end_time": "2026-06-26 20:41:17",
+      "duration_seconds": 152,
+      "duration_human": "2m 32s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 41,
+    "token_usage": {
+      "input_tokens": 598122,
+      "output_tokens": 8585,
+      "total_tokens": 606707,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 598122
+    },
+    "agent_steps": 41,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex 92b3ffa27..e5ec60303 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -747,6 +747,8 @@ public class JacksonAnnotationIntrospector\n                     || _hasAnnotation(a, JsonView.class)\n                     || _hasAnnotation(a, JsonRawValue.class)) {\n                 name = \"\";\n+            } else if (_findAnnotation(a, JsonUnwrapped.class) != null) {\n+                name = \"\";\n             } else {\n                 return null;\n             }\n"
+  },
+  "timestamp": "2026-06-26 20:41:18 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_33",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_33",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "@JsonUnwrapped is not treated as assuming @JsonProperty(\"\")\nSee discussion [here](https://groups.google.com/forum/#!topic/jackson-user/QLpWb8YzIoE) but basically `@JsonUnwrapped` on a private field by itself does not cause that field to be serialized, currently,  You need to add an explicit `@JsonProperty`.  You shouldn't have to do that.  (Following test fails currently, should pass, though you can make it pass by commenting out the line with `@JsonProperty`.  Uses TestNG and AssertJ.)\n\n``` java\npackage com.bakins_bits;\n\nimport static org.assertj.core.api.Assertions.assertThat;\n\nimport org.testng.annotations.Test;\n\nimport com.fasterxml.jackson.annotation.JsonUnwrapped;\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\npublic class TestJsonUnwrappedShouldMakePrivateFieldsSerializable\n{\n    public static class Inner\n    {\n        public String animal;\n    }\n\n    public static class Outer\n    {\n        // @JsonProperty\n        @JsonUnwrapped\n        private Inner inner;\n    }\n\n    @Test\n    public void jsonUnwrapped_should_make_private_fields_serializable() throws JsonProcessingException {\n        // ARRANGE\n        Inner inner = new Inner();\n        inner.animal = \"Zebra\";\n\n        Outer outer = new Outer();\n        outer.inner = inner;\n\n        ObjectMapper sut = new ObjectMapper();\n\n        // ACT\n        String actual = sut.writeValueAsString(outer);\n\n        // ASSERT\n        assertThat(actual).contains(\"animal\");\n        assertThat(actual).contains(\"Zebra\");\n        assertThat(actual).doesNotContain(\"inner\");\n    }\n}\n```\n\n",
+    "commit_message": "Fix #1013",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+        "start_line": 748,
+        "end_line": 748,
+        "line_numbers": [
+          748
+        ],
+        "function_name": "findNameForSerialization",
+        "class_name": "JacksonAnnotationIntrospector",
+        "filename": "JacksonAnnotationIntrospector.java",
+        "code_snippet": "    public PropertyName findNameForSerialization(Annotated a)\n    {\n        String name = null;\n\n        JsonGetter jg = _findAnnotation(a, JsonGetter.class);\n        if (jg != null) {\n            name = jg.value();\n        } else {\n            JsonProperty pann = _findAnnotation(a, JsonProperty.class);\n            if (pann != null) {\n                name = pann.value();\n                /* 22-Apr-2014, tatu: Should figure out a better way to do this, but\n                 *   it's actually bit tricky to do it more efficiently (meta-annotations\n                 *   add more lookups; AnnotationMap costs etc)\n                 */\n            } else if (_hasAnnotation(a, JsonSerialize.class)\n                    || _hasAnnotation(a, JsonView.class)\n                    || _hasAnnotation(a, JsonRawValue.class)) {\n                name = \"\";\n            } else {\n                return null;\n            }\n        }\n        return PropertyName.construct(name);\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.struct.TestUnwrapped::testUnwrappedAsPropertyIndicator"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\nindex 5db1584c1..92b3ffa27 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java\n@@ -745,10 +745,7 @@ public class JacksonAnnotationIntrospector\n                  */\n             } else if (_hasAnnotation(a, JsonSerialize.class)\n                     || _hasAnnotation(a, JsonView.class)\n+                    || _hasAnnotation(a, JsonRawValue.class)\n+                    || _hasAnnotation(a, JsonUnwrapped.class)\n+                    || _hasAnnotation(a, JsonBackReference.class)\n+                    || _hasAnnotation(a, JsonManagedReference.class)) {\n-                    || _hasAnnotation(a, JsonRawValue.class)) {\n                 name = \"\";\n             } else {\n                 return null;",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "project_name": "Jsoup",
+  "bug_id": "Jsoup_52",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 00:06:16",
+      "end_time": "2026-06-24 00:25:23",
+      "duration_seconds": 1146,
+      "duration_human": "19m 6s"
+    },
+    "model_cost": 0.0641,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 475638,
+      "output_tokens": 12237,
+      "total_tokens": 487875,
+      "cached_input_tokens": 256896,
+      "uncached_input_tokens": 218742
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/jsoup/nodes/XmlDeclaration.java b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\nindex 24a9f164..dd2caedb 100644\n--- a/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n+++ b/src/main/java/org/jsoup/nodes/XmlDeclaration.java\n@@ -1,8 +1,11 @@\n package org.jsoup.nodes;\n \n import org.jsoup.helper.Validate;\n+import org.jsoup.helper.StringUtil;\n \n import java.io.IOException;\n+import java.util.ArrayList;\n+import java.util.List;\n \n /**\n  An XML Declaration.\n@@ -21,9 +24,110 @@ public class XmlDeclaration extends Node {\n     public XmlDeclaration(String name, String baseUri, boolean isProcessingInstruction) {\n         super(baseUri);\n         Validate.notNull(name);\n-        this.name = name;\n+        \n+        // Parse the declaration string to extract actual name and attributes\n+        // Format: \"xml version='1' encoding='UTF-8' something='else'\"\n+        // or just \"xml\" if no attributes\n+        \n+        name = name.trim();\n+        if (name.isEmpty()) {\n+            this.name = \"\";\n+            this.isProcessingInstruction = isProcessingInstruction;\n+            return;\n+        }\n+        \n+        // Parse name and attributes\n+        ParseResult result = parseDeclaration(name);\n+        this.name = result.name;\n+        for (Attribute attr : result.attributes) {\n+            attr(attr.getKey(), attr.getValue());\n+        }\n+        \n         this.isProcessingInstruction = isProcessingInstruction;\n     }\n+    \n+    private static class ParseResult {\n+        String name;\n+        List<Attribute> attributes = new ArrayList<Attribute>();\n+    }\n+    \n+    private ParseResult parseDeclaration(String decl) {\n+        ParseResult result = new ParseResult();\n+        \n+        int pos = 0;\n+        int length = decl.length();\n+        \n+        // Parse name (first word)\n+        while (pos < length && Character.isWhitespace(decl.charAt(pos))) {\n+            pos++;\n+        }\n+        int nameStart = pos;\n+        while (pos < length && !Character.isWhitespace(decl.charAt(pos))) {\n+            pos++;\n+        }\n+        result.name = decl.substring(nameStart, pos);\n+        \n+        // Parse attributes\n+        while (pos < length) {\n+            // Skip whitespace\n+            while (pos < length && Character.isWhitespace(decl.charAt(pos))) {\n+                pos++;\n+            }\n+            if (pos >= length) break;\n+            \n+            // Find key\n+            int keyStart = pos;\n+            while (pos < length && !Character.isWhitespace(decl.charAt(pos)) && decl.charAt(pos) != '=') {\n+                pos++;\n+            }\n+            if (pos >= length) break;\n+            \n+            String key = decl.substring(keyStart, pos);\n+            \n+            // Skip to =\n+            while (pos < length && decl.charAt(pos) != '=') {\n+                pos++;\n+            }\n+            if (pos >= length) break;\n+            \n+            pos++; // Skip '='\n+            \n+            // Skip whitespace after =\n+            while (pos < length && Character.isWhitespace(decl.charAt(pos))) {\n+                pos++;\n+            }\n+            if (pos >= length) break;\n+            \n+            // Check for quote\n+            char quote = decl.charAt(pos);\n+            String value;\n+            if (quote != '\\'' && quote != '\"') {\n+                // No quote, value extends to next whitespace\n+                int valueStart = pos;\n+                while (pos < length && !Character.isWhitespace(decl.charAt(pos))) {\n+                    pos++;\n+                }\n+                value = decl.substring(valueStart, pos);\n+            } else {\n+                // Quoted value\n+                pos++; // Skip opening quote\n+                int valueStart = pos;\n+                while (pos < length && decl.charAt(pos) != quote) {\n+                    pos++;\n+                }\n+                if (pos >= length) {\n+                    value = decl.substring(valueStart);\n+                } else {\n+                    value = decl.substring(valueStart, pos);\n+                    pos++; // Skip closing quote\n+                }\n+            }\n+            \n+            result.attributes.add(new Attribute(key, value));\n+        }\n+        \n+        return result;\n+    }\n \n     public String nodeName() {\n         return \"#declaration\";\n@@ -43,22 +147,15 @@ public class XmlDeclaration extends Node {\n      @return XML declaration\n      */\n     public String getWholeDeclaration() {\n-        final String decl = this.name;\n-        if(decl.equals(\"xml\") && attributes.size() > 1 ) {\n-            StringBuilder sb = new StringBuilder(decl);\n-            final String version = attributes.get(\"version\");\n-            if( version != null ) {\n-                sb.append(\" version=\\\"\").append(version).append(\"\\\"\");\n-            }\n-            final String encoding = attributes.get(\"encoding\");\n-            if( encoding != null ) {\n-                sb.append(\" encoding=\\\"\").append(encoding).append(\"\\\"\");\n-            }\n-            return sb.toString();\n+        if (attributes.isEmpty()) {\n+            return name;\n         }\n-        else {\n-            return this.name;\n+        \n+        StringBuilder sb = new StringBuilder(name);\n+        for (Attribute attr : attributes()) {\n+            sb.append(\" \").append(attr.getKey()).append(\"=\\\"\").append(attr.getValue()).append(\"\\\"\");\n         }\n+        return sb.toString();\n     }\n \n \tvoid outerHtmlHead(Appendable accum, int depth, Document.OutputSettings out) throws IOException {\n"
+  },
+  "timestamp": "2026-06-24 00:25:23 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Jsoup",
+    "bug_id": "Jsoup_52",
+    "repo_path": "/defects4j/framework/bin/temp/Jsoup_52",
+    "github_url": "https://github.com/jhy/jsoup.git",
+    "description": "Should detect ?xml encoding charset\nHi,\n\nFor example this is target URL: http://www.elacontecer.com.uy/rss/hoy.xml, its charset is `ISO-8859-1`.\n\nI use Jsoup like this:\n\n``` java\nfinal Document doc = Jsoup.connect(\"http://...\").parser(Parser.xmlParser()).get();\nSystem.out.println(\"charset=\" + doc.charset());\n```\n\nThe result is: `java.nio.charset.CharsetICU[UTF-8]`\n\nWould you please check to see if it's a bug?\n\nThanks,\n\n",
+    "commit_message": "Detect charset from xml prolog",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 22,
+        "end_line": 22,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 23,
+        "end_line": 23,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 24,
+        "end_line": 24,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 25,
+        "end_line": 25,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 26,
+        "end_line": 26,
+        "suspiciousness": 1.0,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 29,
+        "end_line": 29,
+        "suspiciousness": 0.8451542547285166,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 46,
+        "end_line": 46,
+        "suspiciousness": 0.8451542547285166,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 47,
+        "end_line": 47,
+        "suspiciousness": 0.8451542547285166,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 65,
+        "end_line": 65,
+        "suspiciousness": 0.8451542547285166,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+        "start_line": 66,
+        "end_line": 66,
+        "suspiciousness": 0.8451542547285166,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlNoCharset",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlIso8859",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlUtf8",
+      "org.jsoup.nodes.DocumentTest::testMetaCharsetUpdateXmlDisabledNoChanges",
+      "org.jsoup.parser.XmlTreeBuilderTest::handlesXmlDeclarationAsDeclaration",
+      "org.jsoup.parser.XmlTreeBuilderTest::testDetectCharsetEncodingDeclaration",
+      "org.jsoup.parser.XmlTreeBuilderTest::testParseDeclarationAttributes"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 22,
+      "end_line": 22,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 23,
+      "end_line": 23,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 24,
+      "end_line": 24,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 25,
+      "end_line": 25,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 26,
+      "end_line": 26,
+      "suspiciousness": 1.0,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 29,
+      "end_line": 29,
+      "suspiciousness": 0.8451542547285166,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 46,
+      "end_line": 46,
+      "suspiciousness": 0.8451542547285166,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 47,
+      "end_line": 47,
+      "suspiciousness": 0.8451542547285166,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 65,
+      "end_line": 65,
+      "suspiciousness": 0.8451542547285166,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/org/jsoup/nodes/XmlDeclaration.java",
+      "start_line": 66,
+      "end_line": 66,
+      "suspiciousness": 0.8451542547285166,
+      "rank": 10
+    }
+  ]
+}

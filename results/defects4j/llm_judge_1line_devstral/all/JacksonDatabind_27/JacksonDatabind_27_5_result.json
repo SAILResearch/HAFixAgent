@@ -1,0 +1,173 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "27",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-27 03:03:05",
+      "end_time": "2026-06-27 03:04:47",
+      "duration_seconds": 102,
+      "duration_human": "1m 42s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 495215,
+      "output_tokens": 4278,
+      "total_tokens": 499493,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 495215
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\nindex fc7961de5..23d989e83 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n@@ -791,7 +791,7 @@ public class BeanDeserializer\n                 // first: let's check to see if this might be part of value with external type id:\n                 // 11-Sep-2015, tatu: Important; do NOT pass buffer as last arg, but null,\n                 //   since it is not the bean\n-                if (ext.handlePropertyValue(p, ctxt, propName, buffer)) {\n+                if (ext.handlePropertyValue(p, ctxt, propName, null)) {\n                     ;\n                 } else {\n                     // Last creator property to set?\n"
+  },
+  "timestamp": "2026-06-27 03:04:47 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_27",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_27",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "Problem deserializing External Type Id if type id comes before POJO\n(note: seems to be similar or related to https://github.com/FasterXML/jackson-module-afterburner/issues/58)\n\nWith 2.6, looks like handling of External Type Id is broken in some rare (?) cases; existing unit tests did not catch this. At this point I am speculating this is due to some refactoring, or change to use more efficient 'nextFieldName()' method.\n\n",
+    "commit_message": "Fix #928",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java",
+        "start_line": 794,
+        "end_line": 794,
+        "line_numbers": [
+          794
+        ],
+        "function_name": "deserializeUsingPropertyBasedWithExternalTypeId",
+        "class_name": "BeanDeserializer",
+        "filename": "BeanDeserializer.java",
+        "code_snippet": "    protected Object deserializeUsingPropertyBasedWithExternalTypeId(JsonParser p, DeserializationContext ctxt)\n        throws IOException\n    {\n        final ExternalTypeHandler ext = _externalTypeIdHandler.start();\n        final PropertyBasedCreator creator = _propertyBasedCreator;\n        PropertyValueBuffer buffer = creator.startBuilding(p, ctxt, _objectIdReader);\n\n        TokenBuffer tokens = new TokenBuffer(p);\n        tokens.writeStartObject();\n\n        JsonToken t = p.getCurrentToken();\n        for (; t == JsonToken.FIELD_NAME; t = p.nextToken()) {\n            String propName = p.getCurrentName();\n            p.nextToken(); // to point to value\n            // creator property?\n            SettableBeanProperty creatorProp = creator.findCreatorProperty(propName);\n            if (creatorProp != null) {\n                // first: let's check to see if this might be part of value with external type id:\n                // 11-Sep-2015, tatu: Important; do NOT pass buffer as last arg, but null,\n                //   since it is not the bean\n                if (ext.handlePropertyValue(p, ctxt, propName, buffer)) {\n                    ;\n                } else {\n                    // Last creator property to set?\n                    if (buffer.assignParameter(creatorProp, _deserializeWithErrorWrapping(p, ctxt, creatorProp))) {\n                        t = p.nextToken(); // to move to following FIELD_NAME/END_OBJECT\n                        Object bean;\n                        try {\n                            bean = creator.build(ctxt, buffer);\n                        } catch (Exception e) {\n                            wrapAndThrow(e, _beanType.getRawClass(), propName, ctxt);\n                            continue; // never gets here\n                        }\n                        // if so, need to copy all remaining tokens into buffer\n                        while (t == JsonToken.FIELD_NAME) {\n                            p.nextToken(); // to skip name\n                            tokens.copyCurrentStructure(p);\n                            t = p.nextToken();\n                        }\n                        if (bean.getClass() != _beanType.getRawClass()) {\n                            // !!! 08-Jul-2011, tatu: Could theoretically support; but for now\n                            //   it's too complicated, so bail out\n                            throw ctxt.mappingException(\"Can not create polymorphic instances with unwrapped values\");\n                        }\n                        return ext.complete(p, ctxt, bean);\n                    }\n                }\n                continue;\n            }\n            // Object Id property?\n            if (buffer.readIdProperty(propName)) {\n                continue;\n            }\n            // regular property? needs buffering\n            SettableBeanProperty prop = _beanProperties.find(propName);\n            if (prop != null) {\n                buffer.bufferProperty(prop, prop.deserialize(p, ctxt));\n                continue;\n            }\n            // external type id (or property that depends on it)?\n            if (ext.handlePropertyValue(p, ctxt, propName, null)) {\n                continue;\n            }\n            /* As per [JACKSON-313], things marked as ignorable should not be\n             * passed to any setter\n             */\n            if (_ignorableProps != null && _ignorableProps.contains(propName)) {\n                handleIgnoredProperty(p, ctxt, handledType(), propName);\n                continue;\n            }\n            // \"any property\"?\n            if (_anySetter != null) {\n                buffer.bufferAnyProperty(_anySetter, propName, _anySetter.deserialize(p, ctxt));\n            }\n        }\n\n        // We hit END_OBJECT; resolve the pieces:\n        try {\n            return ext.complete(p, ctxt, buffer, creator);\n        } catch (Exception e) {\n            wrapInstantiationProblem(e, ctxt);\n            return null; // never gets here\n        }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.jsontype.TestExternalId::testInverseExternalId928"
+    ],
+    "golden_patch": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\nindex 23d989e83..fc7961de5 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n@@ -791,7 +791,7 @@ public class BeanDeserializer\n                 // first: let's check to see if this might be part of value with external type id:\n                 // 11-Sep-2015, tatu: Important; do NOT pass buffer as last arg, but null,\n                 //   since it is not the bean\n+                if (ext.handlePropertyValue(p, ctxt, propName, null)) {\n-                if (ext.handlePropertyValue(p, ctxt, propName, buffer)) {\n                     ;\n                 } else {\n                     // Last creator property to set?",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Tatu Saloranta",
+        "commit_date": "2012-03-04 22:52:36",
+        "commit_message": "Fix [JACKSON-798]",
+        "commit_hash": "e1ceccd484643cd7a8e213de14bc3a85eebb3c11"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [],
+        "functions_name_co_evolved_all_files": [
+          "_deserialize",
+          "_deserializeAndSet",
+          "handleToken",
+          "handlePropertyValue",
+          "complete",
+          "isComplete"
+        ],
+        "functions_name_modified_file": [
+          "_deserializeUsingPropertyBased",
+          "deserialize",
+          "_vanillaDeserializeHandleUnknown",
+          "deserializeFromDouble",
+          "deserializeWithUnwrapped",
+          "deserializeUsingPropertyBasedWithExternalTypeId",
+          "unwrappingDeserializer",
+          "deserializeFromObjectUsingNonDefault",
+          "vanillaDeserialize",
+          "withIgnorableProperties",
+          "deserializeWithExternalTypeId",
+          "deserializeFromString",
+          "deserializeWithView",
+          "withObjectIdReader",
+          "deserializeUsingPropertyBasedWithUnwrapped",
+          "handlePolymorphic",
+          "deserializeFromObject",
+          "BeanDeserializer",
+          "deserializeFromBoolean",
+          "deserializeFromArray",
+          "deserializeFromNumber"
+        ],
+        "functions_name_all_files": [
+          "_deserializeUsingPropertyBased",
+          "ExtTypedProperty",
+          "getInjectableValueId",
+          "deserialize",
+          "_vanillaDeserializeHandleUnknown",
+          "deserializeFromDouble",
+          "_deserializeAndSet",
+          "toString",
+          "CreatorProperty",
+          "handlePropertyValue",
+          "getProperty",
+          "complete",
+          "deserializeWithUnwrapped",
+          "bufferAnyProperty",
+          "findInjectableValue",
+          "deserializeUsingPropertyBasedWithExternalTypeId",
+          "bufferProperty",
+          "bufferMapProperty",
+          "unwrappingDeserializer",
+          "deserializeFromObjectUsingNonDefault",
+          "vanillaDeserialize",
+          "withIgnorableProperties",
+          "inject",
+          "deserializeWithExternalTypeId",
+          "PropertyValueBuffer",
+          "buffered",
+          "isComplete",
+          "deserializeSetAndReturn",
+          "BuilderBasedDeserializer",
+          "deserializeAndSet",
+          "getTypePropertyName",
+          "start",
+          "deserializeFromString",
+          "assignParameter",
+          "deserializeWithView",
+          "withObjectIdReader",
+          "set",
+          "deserializeUsingPropertyBasedWithUnwrapped",
+          "handlePolymorphic",
+          "deserializeFromObject",
+          "withValueDeserializer",
+          "setAndReturn",
+          "hasTypePropertyName",
+          "finishBuild",
+          "_deserialize",
+          "build",
+          "BeanDeserializer",
+          "deserializeFromBoolean",
+          "withName",
+          "deserializeFromArray",
+          "ExternalTypeHandler",
+          "deserializeFromNumber",
+          "addExternal"
+        ],
+        "function_code_before": "            return deserializeUsingPropertyBasedWithExternalTypeId(jp, ctxt);\n        }\n        return deserializeWithExternalTypeId(jp, ctxt, _valueInstantiator.createUsingDefault(ctxt));\n    }\n    \n    protected Object deserializeWithExternalTypeId(JsonParser jp, DeserializationContext ctxt,\n            Object bean)\n        throws IOException, JsonProcessingException\n    {\n        final Class<?> activeView = _needViewProcesing ? ctxt.getActiveView() : null;\n        final ExternalTypeHandler ext = _externalTypeIdHandler.start();\n        for (; jp.getCurrentToken() != JsonToken.END_OBJECT; jp.nextToken()) {",
+        "function_code_after": "            return deserializeUsingPropertyBasedWithExternalTypeId(jp, ctxt);\n        }\n        return deserializeWithExternalTypeId(jp, ctxt, _valueInstantiator.createUsingDefault(ctxt));\n    }\n    \n    protected Object deserializeWithExternalTypeId(JsonParser jp, DeserializationContext ctxt,\n            Object bean)\n        throws IOException, JsonProcessingException\n    {\n        final Class<?> activeView = _needViewProcesing ? ctxt.getActiveView() : null;\n        final ExternalTypeHandler ext = _externalTypeIdHandler.start();\n        for (; jp.getCurrentToken() != JsonToken.END_OBJECT; jp.nextToken()) {"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/BuilderBasedDeserializer.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/CreatorProperty.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/impl/ExternalTypeHandler.java",
+          "src/main/java/com/fasterxml/jackson/databind/deser/impl/PropertyValueBuffer.java"
+        ],
+        "file_patches": {
+          "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java": "diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\nindex 093b13b73..071cf60ae 100644\n--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n+++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializer.java\n@@ -860,7 +860,7 @@ public class BeanDeserializer\n                 continue;\n             }\n             // but others are likely to be part of external type id thingy...\n-            if (ext.handleToken(jp, ctxt, propName, bean)) {\n+            if (ext.handlePropertyValue(jp, ctxt, propName, bean)) {\n                 continue;\n             }\n             // if not, the usual fallback handling:\n@@ -896,33 +896,34 @@ public class BeanDeserializer\n             // creator property?\n             SettableBeanProperty creatorProp = creator.findCreatorProperty(propName);\n             if (creatorProp != null) {\n-                // first things first: external type-ids are tricky, so:\n-                if (ext.handleToken(jp, ctxt, propName, null)) {\n-                    continue;\n-                }\n-                // Last creator property to set?\n-                Object value = creatorProp.deserialize(jp, ctxt);\n-                if (buffer.assignParameter(creatorProp.getPropertyIndex(), value)) {\n-                    t = jp.nextToken(); // to move to following FIELD_NAME/END_OBJECT\n-                    Object bean;\n-                    try {\n-                        bean = creator.build(ctxt, buffer);\n-                    } catch (Exception e) {\n-                        wrapAndThrow(e, _beanType.getRawClass(), propName, ctxt);\n-                        continue; // never gets here\n-                    }\n-                    // if so, need to copy all remaining tokens into buffer\n-                    while (t == JsonToken.FIELD_NAME) {\n-                        jp.nextToken(); // to skip name\n-                        tokens.copyCurrentStructure(jp);\n-                        t = jp.nextToken();\n+                // first: let's check to see if this might be part of value with external type id:\n+                if (ext.handlePropertyValue(jp, ctxt, propName, buffer)) {\n+                    ;\n+                } else {\n+                    // Last creator property to set?\n+                    Object value = creatorProp.deserialize(jp, ctxt);\n+                    if (buffer.assignParameter(creatorProp.getPropertyIndex(), value)) {\n+                        t = jp.nextToken(); // to move to following FIELD_NAME/END_OBJECT\n+                        Object bean;\n+                        try {\n+                            bean = creator.build(ctxt, buffer);\n+                        } catch (Exception e) {\n+                            wrapAndThrow(e, _beanType.getRawClass(), propName, ctxt);\n+                            continue; // never gets here\n+                        }\n+                        // if so, need to copy all remaining tokens into buffer\n+                        while (t == JsonToken.FIELD_NAME) {\n+                            jp.nextToken(); // to skip name\n+                            tokens.copyCurrentStructure(jp);\n+                            t = jp.nextToken();\n+                        }\n+                        if (bean.getClass() != _beanType.getRawClass()) {\n+                            // !!! 08-Jul-2011, tatu: Could probably support; but for now\n+                            //   it's too complicated, so bail out\n+                            throw ctxt.mappingException(\"Can not create polymorphic instances with unwrapped values\");\n+                        }\n+                        return ext.complete(jp, ctxt, bean);\n                     }\n-                    if (bean.getClass() != _beanType.getRawClass()) {\n-                        // !!! 08-Jul-2011, tatu: Could probably support; but for now\n-                        //   it's too complicated, so bail out\n-                        throw ctxt.mappingException(\"Can not create polymorphic instances with unwrapped values\");\n-                    }\n-                    return ext.complete(jp, ctxt, bean);\n                 }\n                 continue;\n             }\n@@ -933,7 +934,7 @@ public class BeanDeserializer\n                 continue;\n             }\n             // external type id (or property that depends on it)?\n-            if (ext.handleToken(jp, ctxt, propName, null)) {\n+            if (ext.handlePropertyValue(jp, ctxt, propName, null)) {\n                 continue;\n             }\n             /* As per [JACKSON-313], things marked as ignorable should not be\n@@ -949,14 +950,12 @@ public class BeanDeserializer\n             }\n         }\n \n-        // We hit END_OBJECT, so:\n-        Object bean;\n+        // We hit END_OBJECT; resolve the pieces:\n         try {\n-            bean = creator.build(ctxt, buffer);\n+            return ext.complete(jp, ctxt, buffer, creator);\n         } catch (Exception e) {\n             wrapInstantiationProblem(e, ctxt);\n             return null; // never gets here\n         }\n-        return ext.complete(jp, ctxt, bean);\n     }\n }"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

@@ -1,0 +1,191 @@
+{
+  "project_name": "Closure",
+  "bug_id": "Closure_113",
+  "history_category": "baseline",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-16 22:25:03",
+      "end_time": "2026-06-16 22:54:55",
+      "duration_seconds": 1793,
+      "duration_human": "29m 53s"
+    },
+    "model_cost": 0.2218,
+    "model_calls": 46,
+    "token_usage": {
+      "input_tokens": 1510463,
+      "output_tokens": 58451,
+      "total_tokens": 1568914,
+      "cached_input_tokens": 777920,
+      "uncached_input_tokens": 732543
+    },
+    "agent_steps": 46,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/ProcessClosurePrimitives.java b/src/com/google/javascript/jscomp/ProcessClosurePrimitives.java\nindex 70bf1b00d..9284d246d 100644\n--- a/src/com/google/javascript/jscomp/ProcessClosurePrimitives.java\n+++ b/src/com/google/javascript/jscomp/ProcessClosurePrimitives.java\n@@ -1,186 +1,3 @@\n-/*\n- * Copyright 2006 The Closure Compiler Authors.\n- *\n- * Licensed under the Apache License, Version 2.0 (the \"License\");\n- * you may not use this file except in compliance with the License.\n- * You may obtain a copy of the License at\n- *\n- *     http://www.apache.org/licenses/LICENSE-2.0\n- *\n- * Unless required by applicable law or agreed to in writing, software\n- * distributed under the License is distributed on an \"AS IS\" BASIS,\n- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n- * See the License for the specific language governing permissions and\n- * limitations under the License.\n- */\n-\n-package com.google.javascript.jscomp;\n-\n-import com.google.common.base.Preconditions;\n-import com.google.common.collect.Lists;\n-import com.google.common.collect.Maps;\n-import com.google.common.collect.Sets;\n-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;\n-import com.google.javascript.rhino.IR;\n-import com.google.javascript.rhino.JSDocInfo;\n-import com.google.javascript.rhino.JSDocInfoBuilder;\n-import com.google.javascript.rhino.Node;\n-import com.google.javascript.rhino.Token;\n-\n-import java.util.List;\n-import java.util.Map;\n-import java.util.Set;\n-\n-import javax.annotation.Nullable;\n-\n-/**\n- * Replaces goog.provide calls, removes goog.require calls, verifies that\n- * goog.require has a corresponding goog.provide and some closure specific\n- * simplifications.\n- *\n- */\n-class ProcessClosurePrimitives extends AbstractPostOrderCallback\n-    implements HotSwapCompilerPass {\n-\n-  static final DiagnosticType NULL_ARGUMENT_ERROR = DiagnosticType.error(\n-      \"JSC_NULL_ARGUMENT_ERROR\",\n-      \"method \\\"{0}\\\" called without an argument\");\n-\n-  static final DiagnosticType EXPECTED_OBJECTLIT_ERROR = DiagnosticType.error(\n-      \"JSC_EXPECTED_OBJECTLIT_ERROR\",\n-      \"method \\\"{0}\\\" expected an object literal argument\");\n-\n-  static final DiagnosticType EXPECTED_STRING_ERROR = DiagnosticType.error(\n-      \"JSC_EXPECTED_STRING_ERROR\",\n-      \"method \\\"{0}\\\" expected an object string argument\");\n-\n-  static final DiagnosticType INVALID_ARGUMENT_ERROR = DiagnosticType.error(\n-      \"JSC_INVALID_ARGUMENT_ERROR\",\n-      \"method \\\"{0}\\\" called with invalid argument\");\n-\n-  static final DiagnosticType INVALID_STYLE_ERROR = DiagnosticType.error(\n-      \"JSC_INVALID_CSS_NAME_MAP_STYLE_ERROR\",\n-      \"Invalid CSS name map style {0}\");\n-\n-  static final DiagnosticType TOO_MANY_ARGUMENTS_ERROR = DiagnosticType.error(\n-      \"JSC_TOO_MANY_ARGUMENTS_ERROR\",\n-      \"method \\\"{0}\\\" called with more than one argument\");\n-\n-  static final DiagnosticType DUPLICATE_NAMESPACE_ERROR = DiagnosticType.error(\n-      \"JSC_DUPLICATE_NAMESPACE_ERROR\",\n-      \"namespace \\\"{0}\\\" cannot be provided twice\");\n-\n-  static final DiagnosticType FUNCTION_NAMESPACE_ERROR = DiagnosticType.error(\n-      \"JSC_FUNCTION_NAMESPACE_ERROR\",\n-      \"\\\"{0}\\\" cannot be both provided and declared as a function\");\n-\n-  static final DiagnosticType MISSING_PROVIDE_ERROR = DiagnosticType.error(\n-      \"JSC_MISSING_PROVIDE_ERROR\",\n-      \"required \\\"{0}\\\" namespace never provided\");\n-\n-  static final DiagnosticType LATE_PROVIDE_ERROR = DiagnosticType.error(\n-      \"JSC_LATE_PROVIDE_ERROR\",\n-      \"required \\\"{0}\\\" namespace not provided yet\");\n-\n-  static final DiagnosticType INVALID_PROVIDE_ERROR = DiagnosticType.error(\n-      \"JSC_INVALID_PROVIDE_ERROR\",\n-      \"\\\"{0}\\\" is not a valid JS identifier name\");\n-\n-  static final DiagnosticType INVALID_DEFINE_NAME_ERROR = DiagnosticType.error(\n-      \"JSC_INVALID_DEFINE_NAME_ERROR\",\n-      \"\\\"{0}\\\" is not a valid JS identifier name\");\n-\n-  static final DiagnosticType MISSING_DEFINE_ANNOTATION = DiagnosticType.error(\n-      \"JSC_INVALID_MISSING_DEFINE_ANNOTATION\",\n-      \"Missing @define annotation\");\n-\n-  static final DiagnosticType XMODULE_REQUIRE_ERROR = DiagnosticType.warning(\n-      \"JSC_XMODULE_REQUIRE_ERROR\",\n-      \"namespace \\\"{0}\\\" provided in module {1} \" +\n-      \"but required in module {2}\");\n-\n-  static final DiagnosticType NON_STRING_PASSED_TO_SET_CSS_NAME_MAPPING_ERROR =\n-      DiagnosticType.error(\n-          \"JSC_NON_STRING_PASSED_TO_SET_CSS_NAME_MAPPING_ERROR\",\n-      \"goog.setCssNameMapping only takes an object literal with string values\");\n-\n-  static final DiagnosticType INVALID_CSS_RENAMING_MAP = DiagnosticType.warning(\n-      \"INVALID_CSS_RENAMING_MAP\",\n-      \"Invalid entries in css renaming map: {0}\");\n-\n-  static final DiagnosticType BASE_CLASS_ERROR = DiagnosticType.error(\n-      \"JSC_BASE_CLASS_ERROR\",\n-      \"incorrect use of goog.base: {0}\");\n-\n-  /** The root Closure namespace */\n-  static final String GOOG = \"goog\";\n-\n-  private final AbstractCompiler compiler;\n-  private final JSModuleGraph moduleGraph;\n-\n-  // The goog.provides must be processed in a deterministic order.\n-  private final Map<String, ProvidedName> providedNames =\n-      Maps.newLinkedHashMap();\n-\n-  private final List<UnrecognizedRequire> unrecognizedRequires =\n-      Lists.newArrayList();\n-  private final Set<String> exportedVariables = Sets.newHashSet();\n-  private final CheckLevel requiresLevel;\n-  private final PreprocessorSymbolTable preprocessorSymbolTable;\n-  private final List<Node> defineCalls = Lists.newArrayList();\n-\n-  ProcessClosurePrimitives(AbstractCompiler compiler,\n-      @Nullable PreprocessorSymbolTable preprocessorSymbolTable,\n-      CheckLevel requiresLevel) {\n-    this.compiler = compiler;\n-    this.preprocessorSymbolTable = preprocessorSymbolTable;\n-    this.moduleGraph = compiler.getModuleGraph();\n-    this.requiresLevel = requiresLevel;\n-\n-    // goog is special-cased because it is provided in Closure's base library.\n-    providedNames.put(GOOG,\n-        new ProvidedName(GOOG, null, null, false /* implicit */));\n-  }\n-\n-  Set<String> getExportedVariableNames() {\n-    return exportedVariables;\n-  }\n-\n-  @Override\n-  public void process(Node externs, Node root) {\n-    new NodeTraversal(compiler, this).traverse(root);\n-\n-    for (Node n : defineCalls) {\n-      replaceGoogDefines(n);\n-    }\n-\n-    for (ProvidedName pn : providedNames.values()) {\n-      pn.replace();\n-    }\n-\n-    if (requiresLevel.isOn()) {\n-      for (UnrecognizedRequire r : unrecognizedRequires) {\n-        DiagnosticType error;\n-        ProvidedName expectedName = providedNames.get(r.namespace);\n-        if (expectedName != null && expectedName.firstNode != null) {\n-          // The namespace ended up getting provided after it was required.\n-          error = LATE_PROVIDE_ERROR;\n-        } else {\n-          error = MISSING_PROVIDE_ERROR;\n-        }\n-\n-        compiler.report(JSError.make(\n-            r.inputName, r.requireNode, requiresLevel, error, r.namespace));\n-      }\n-    }\n-  }\n-\n-  /**\n-   * @param n\n-   */\n-  private void replaceGoogDefines(Node n) {\n-    Node parent = n.getParent();\n-    Preconditions.checkState(parent.isExprResult());\n     String name = n.getChildAtIndex(1).getString();\n     Node value = n.getChildAtIndex(2).detachFromParent();\n \n@@ -326,7 +143,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback\n       // the checks for broken requires turned off. In these cases, we\n       // allow broken requires to be preserved by the first run to\n       // let them be caught in the subsequent run.\n-      if (provided != null) {\n+      if (provided != null && provided.isExplicitlyProvided()) {\n         parent.detachFromParent();\n         compiler.reportCodeChange();\n       }\n"
+  },
+  "timestamp": "2026-06-16 22:54:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_113",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_113",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Bug in require calls processing\nThe Problem\r\n\r\nProcessClosurePrimitives pass has a bug in processRequireCall method.\r\nThe method processes goog.require calls. If a require symbol is invalid i.e is not provided anywhere, the method collects it for further error reporting. If the require symbol is valid, the method removes it from the ast.\r\n\r\nAll invalid require calls must be left for further using/checking of the code! The related comment in the code confirms this.\r\n\r\nNevertheless, the second condition (requiresLevel.isOn() -&gt; see source code) is invalid and always causes removing of the requires when we want to check these requires.\r\n\r\nIn any case, the method should not use the requiresLevel to decide if we need removing. The requiresLevel should be used to check if we need error reporting. \r\n\r\nThe Solution\r\n\r\nRemove the condition.\r\nPlease see the attached patch.",
+    "commit_message": "This change had to be rolled-back, since it breaks some users of the Java API. See the updated comment and new test case for reasoning.",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 169,
+        "end_line": 169,
+        "suspiciousness": 0.4472135954999579,
+        "rank": 1
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 164,
+        "end_line": 164,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 2
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 165,
+        "end_line": 165,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 3
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 172,
+        "end_line": 172,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 4
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 174,
+        "end_line": 174,
+        "suspiciousness": 0.3779644730092272,
+        "rank": 5
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 302,
+        "end_line": 302,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 6
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 303,
+        "end_line": 303,
+        "suspiciousness": 0.3333333333333333,
+        "rank": 7
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 299,
+        "end_line": 299,
+        "suspiciousness": 0.19611613513818404,
+        "rank": 8
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 300,
+        "end_line": 300,
+        "suspiciousness": 0.19611613513818404,
+        "rank": 9
+      },
+      {
+        "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+        "start_line": 301,
+        "end_line": 301,
+        "suspiciousness": 0.19611613513818404,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.VarCheckTest::testNoUndeclaredVarWhenUsingClosurePass"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 169,
+      "end_line": 169,
+      "suspiciousness": 0.4472135954999579,
+      "rank": 1
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 164,
+      "end_line": 164,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 2
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 165,
+      "end_line": 165,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 3
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 172,
+      "end_line": 172,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 4
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 174,
+      "end_line": 174,
+      "suspiciousness": 0.3779644730092272,
+      "rank": 5
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 302,
+      "end_line": 302,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 6
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 303,
+      "end_line": 303,
+      "suspiciousness": 0.3333333333333333,
+      "rank": 7
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 299,
+      "end_line": 299,
+      "suspiciousness": 0.19611613513818404,
+      "rank": 8
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 300,
+      "end_line": 300,
+      "suspiciousness": 0.19611613513818404,
+      "rank": 9
+    },
+    {
+      "file": "src/com/google/javascript/jscomp/ProcessClosurePrimitives.java",
+      "start_line": 301,
+      "end_line": 301,
+      "suspiciousness": 0.19611613513818404,
+      "rank": 10
+    }
+  ]
+}

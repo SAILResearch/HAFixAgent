@@ -1,0 +1,191 @@
+{
+  "project_name": "pandas",
+  "bug_id": "pandas_164",
+  "history_category": "baseline",
+  "fl_source": "sbfl_fauxpy",
+  "dataset": "bugsinpy",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-17 15:58:33",
+      "end_time": "2026-06-17 16:23:54",
+      "duration_seconds": 1521,
+      "duration_human": "25m 21s"
+    },
+    "model_cost": 0.3193,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 2692495,
+      "output_tokens": 46418,
+      "total_tokens": 2738913,
+      "cached_input_tokens": 1580352,
+      "uncached_input_tokens": 1112143
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/pandas/core/tools/datetimes.py b/pandas/core/tools/datetimes.py\nindex 172084e97a..d76a9b22ee 100644\n--- a/pandas/core/tools/datetimes.py\n+++ b/pandas/core/tools/datetimes.py\n@@ -37,29 +37,6 @@ from pandas.core.dtypes.generic import (\n )\n from pandas.core.dtypes.missing import notna\n \n-from pandas._typing import ArrayLike\n-from pandas.core import algorithms\n-from pandas.core.algorithms import unique\n-\n-# ---------------------------------------------------------------------\n-# types used in annotations\n-\n-ArrayConvertible = Union[list, tuple, ArrayLike, ABCSeries]\n-\n-# ---------------------------------------------------------------------\n-\n-# ---------------------------------------------------------------------\n-# types used in annotations\n-\n-Scalar = Union[int, float, str]\n-DatetimeScalar = TypeVar(\"DatetimeScalar\", Scalar, datetime)\n-DatetimeScalarOrArrayConvertible = Union[\n-    DatetimeScalar, list, tuple, ArrayLike, ABCSeries\n-]\n-\n-\n-# ---------------------------------------------------------------------\n-\n \n def _guess_datetime_format_for_array(arr, **kwargs):\n     # Try to guess the format based on the first non-NaN element\n@@ -69,8 +46,8 @@ def _guess_datetime_format_for_array(arr, **kwargs):\n \n \n def should_cache(\n-    arg: ArrayConvertible, unique_share: float = 0.7, check_count: Optional[int] = None\n-) -> bool:\n+    arg, unique_share=0.7, check_count=None\n+):\n     \"\"\"\n     Decides whether to do caching.\n \n@@ -140,8 +117,7 @@ def _maybe_cache(arg, format, cache, convert_listlike):\n \n     Returns\n     -------\n-    cache_array : Series\n-        Cache of converted, unique dates. Can be empty\n+    cache_arrayCache of converted, unique dates. Can be empty\n     \"\"\"\n     from pandas import Series\n \n@@ -159,8 +135,8 @@ def _maybe_cache(arg, format, cache, convert_listlike):\n \n \n def _box_as_indexlike(\n-    dt_array: ArrayLike, utc: Optional[bool] = None, name: Optional[str] = None\n-) -> Union[ABCIndex, ABCDatetimeIndex]:\n+    dt_array, utc=None, name=None\n+):\n     \"\"\"\n     Properly boxes the ndarray of datetimes to DatetimeIndex\n     if it is possible or to generic Index instead\n@@ -189,19 +165,18 @@ def _box_as_indexlike(\n \n \n def _convert_and_box_cache(\n-    arg: DatetimeScalarOrArrayConvertible,\n-    cache_array: ABCSeries,\n-    box: bool,\n-    name: Optional[str] = None,\n-) -> Union[ABCIndex, np.ndarray]:\n+    arg,\n+    cache_array,\n+    box=True,\n+    name=None,\n+):\n     \"\"\"\n     Convert array of dates with a cache and box the result\n \n     Parameters\n     ----------\n     arg : integer, float, string, datetime, list, tuple, 1-d array, Series\n-    cache_array : Series\n-        Cache of converted, unique dates\n+    cache_arrayCache of converted, unique dates\n     box : boolean\n         True boxes result as an Index-like, False returns an ndarray\n     name : string, default None\n@@ -349,8 +324,8 @@ def _convert_listlike_datetimes(\n                 result = Index(result, name=name)\n             else:\n                 result = DatetimeIndex(result, name=name)\n-            # GH 23758: We may still need to localize the result with tz\n-            # GH 25546: Apply tz_parsed first (from arg), then tz (from caller)\n+            # GH 23758may still need to localize the result with tz\n+            # GH 25546tz_parsed first (from arg), then tz (from caller)\n             # result will be naive but in UTC\n             try:\n                 result = result.tz_localize(\"UTC\").tz_convert(tz_parsed)\n@@ -554,193 +529,6 @@ def _adjust_to_origin(arg, origin, unit):\n     return arg\n \n \n-@deprecate_kwarg(old_arg_name=\"box\", new_arg_name=None)\n-def to_datetime(\n-    arg,\n-    errors=\"raise\",\n-    dayfirst=False,\n-    yearfirst=False,\n-    utc=None,\n-    box=True,\n-    format=None,\n-    exact=True,\n-    unit=None,\n-    infer_datetime_format=False,\n-    origin=\"unix\",\n-    cache=True,\n-):\n-    \"\"\"\n-    Convert argument to datetime.\n-\n-    Parameters\n-    ----------\n-    arg : integer, float, string, datetime, list, tuple, 1-d array, Series\n-           or DataFrame/dict-like\n-\n-    errors : {'ignore', 'raise', 'coerce'}, default 'raise'\n-\n-        - If 'raise', then invalid parsing will raise an exception\n-        - If 'coerce', then invalid parsing will be set as NaT\n-        - If 'ignore', then invalid parsing will return the input\n-    dayfirst : boolean, default False\n-        Specify a date parse order if `arg` is str or its list-likes.\n-        If True, parses dates with the day first, eg 10/11/12 is parsed as\n-        2012-11-10.\n-        Warning: dayfirst=True is not strict, but will prefer to parse\n-        with day first (this is a known bug, based on dateutil behavior).\n-    yearfirst : boolean, default False\n-        Specify a date parse order if `arg` is str or its list-likes.\n-\n-        - If True parses dates with the year first, eg 10/11/12 is parsed as\n-          2010-11-12.\n-        - If both dayfirst and yearfirst are True, yearfirst is preceded (same\n-          as dateutil).\n-\n-        Warning: yearfirst=True is not strict, but will prefer to parse\n-        with year first (this is a known bug, based on dateutil behavior).\n-\n-        .. versionadded:: 0.16.1\n-\n-    utc : boolean, default None\n-        Return UTC DatetimeIndex if True (converting any tz-aware\n-        datetime.datetime objects as well).\n-    box : boolean, default True\n-\n-        - If True returns a DatetimeIndex or Index-like object\n-        - If False returns ndarray of values.\n-\n-        .. deprecated:: 0.25.0\n-            Use :meth:`Series.to_numpy` or :meth:`Timestamp.to_datetime64`\n-            instead to get an ndarray of values or numpy.datetime64,\n-            respectively.\n-\n-    format : string, default None\n-        strftime to parse time, eg \"%d/%m/%Y\", note that \"%f\" will parse\n-        all the way up to nanoseconds.\n-        See strftime documentation for more information on choices:\n-        https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior\n-    exact : boolean, True by default\n-\n-        - If True, require an exact format match.\n-        - If False, allow the format to match anywhere in the target string.\n-\n-    unit : string, default 'ns'\n-        unit of the arg (D,s,ms,us,ns) denote the unit, which is an\n-        integer or float number. This will be based off the origin.\n-        Example, with unit='ms' and origin='unix' (the default), this\n-        would calculate the number of milliseconds to the unix epoch start.\n-    infer_datetime_format : boolean, default False\n-        If True and no `format` is given, attempt to infer the format of the\n-        datetime strings, and if it can be inferred, switch to a faster\n-        method of parsing them. In some cases this can increase the parsing\n-        speed by ~5-10x.\n-    origin : scalar, default is 'unix'\n-        Define the reference date. The numeric values would be parsed as number\n-        of units (defined by `unit`) since this reference date.\n-\n-        - If 'unix' (or POSIX) time; origin is set to 1970-01-01.\n-        - If 'julian', unit must be 'D', and origin is set to beginning of\n-          Julian Calendar. Julian day number 0 is assigned to the day starting\n-          at noon on January 1, 4713 BC.\n-        - If Timestamp convertible, origin is set to Timestamp identified by\n-          origin.\n-\n-        .. versionadded:: 0.20.0\n-    cache : boolean, default True\n-        If True, use a cache of unique, converted dates to apply the datetime\n-        conversion. May produce significant speed-up when parsing duplicate\n-        date strings, especially ones with timezone offsets.\n-\n-        .. versionadded:: 0.23.0\n-\n-        .. versionchanged:: 0.25.0\n-            - changed default value from False to True\n-\n-    Returns\n-    -------\n-    ret : datetime if parsing succeeded.\n-        Return type depends on input:\n-\n-        - list-like: DatetimeIndex\n-        - Series: Series of datetime64 dtype\n-        - scalar: Timestamp\n-\n-        In case when it is not possible to return designated types (e.g. when\n-        any element of input is before Timestamp.min or after Timestamp.max)\n-        return will have datetime.datetime type (or corresponding\n-        array/Series).\n-\n-    See Also\n-    --------\n-    DataFrame.astype : Cast argument to a specified dtype.\n-    to_timedelta : Convert argument to timedelta.\n-\n-    Examples\n-    --------\n-    Assembling a datetime from multiple columns of a DataFrame. The keys can be\n-    common abbreviations like ['year', 'month', 'day', 'minute', 'second',\n-    'ms', 'us', 'ns']) or plurals of the same\n-\n-    >>> df = pd.DataFrame({'year': [2015, 2016],\n-    ...                    'month': [2, 3],\n-    ...                    'day': [4, 5]})\n-    >>> pd.to_datetime(df)\n-    0   2015-02-04\n-    1   2016-03-05\n-    dtype: datetime64[ns]\n-\n-    If a date does not meet the `timestamp limitations\n-    <http://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html\n-    #timeseries-timestamp-limits>`_, passing errors='ignore'\n-    will return the original input instead of raising any exception.\n-\n-    Passing errors='coerce' will force an out-of-bounds date to NaT,\n-    in addition to forcing non-dates (or non-parseable dates) to NaT.\n-\n-    >>> pd.to_datetime('13000101', format='%Y%m%d', errors='ignore')\n-    datetime.datetime(1300, 1, 1, 0, 0)\n-    >>> pd.to_datetime('13000101', format='%Y%m%d', errors='coerce')\n-    NaT\n-\n-    Passing infer_datetime_format=True can often-times speedup a parsing\n-    if its not an ISO8601 format exactly, but in a regular format.\n-\n-    >>> s = pd.Series(['3/11/2000', '3/12/2000', '3/13/2000'] * 1000)\n-    >>> s.head()\n-    0    3/11/2000\n-    1    3/12/2000\n-    2    3/13/2000\n-    3    3/11/2000\n-    4    3/12/2000\n-    dtype: object\n-\n-    >>> %timeit pd.to_datetime(s,infer_datetime_format=True)  # doctest: +SKIP\n-    100 loops, best of 3: 10.4 ms per loop\n-\n-    >>> %timeit pd.to_datetime(s,infer_datetime_format=False)  # doctest: +SKIP\n-    1 loop, best of 3: 471 ms per loop\n-\n-    Using a unix epoch time\n-\n-    >>> pd.to_datetime(1490195805, unit='s')\n-    Timestamp('2017-03-22 15:16:45')\n-    >>> pd.to_datetime(1490195805433502912, unit='ns')\n-    Timestamp('2017-03-22 15:16:45.433502912')\n-\n-    .. warning:: For float arg, precision rounding might happen. To prevent\n-        unexpected behavior use a fixed-width exact type.\n-\n-    Using a non-unix epoch origin\n-\n-    >>> pd.to_datetime([1, 2, 3], unit='D',\n-    ...                origin=pd.Timestamp('1960-01-01'))\n-    DatetimeIndex(['1960-01-02', '1960-01-03', '1960-01-04'], \\\n-dtype='datetime64[ns]', freq=None)\n-    \"\"\"\n-    if arg is None:\n-        return None\n-\n-    if origin != \"unix\":\n         arg = _adjust_to_origin(arg, origin, unit)\n \n     tz = \"utc\" if utc else None\n@@ -823,8 +611,7 @@ def _assemble_from_unit_mappings(arg, errors, box, tz):\n \n     Parameters\n     ----------\n-    arg : DataFrame\n-    errors : {'ignore', 'raise', 'coerce'}, default 'raise'\n+    argerrors : {'ignore', 'raise', 'coerce'}, default 'raise'\n \n         - If 'raise', then invalid parsing will raise an exception\n         - If 'coerce', then invalid parsing will be set as NaT\n@@ -833,7 +620,7 @@ def _assemble_from_unit_mappings(arg, errors, box, tz):\n \n         - If True, return a DatetimeIndex\n         - If False, return an array\n-    tz : None or 'utc'\n+    tzor 'utc'\n \n     Returns\n     -------\n@@ -856,7 +643,7 @@ def _assemble_from_unit_mappings(arg, errors, box, tz):\n \n         return value\n \n-    unit = {k: f(k) for k in arg.keys()}\n+    unit = {k) for k in arg.keys()}\n     unit_rev = {v: k for k, v in unit.items()}\n \n     # we require at least Ymd\n@@ -895,7 +682,7 @@ def _assemble_from_unit_mappings(arg, errors, box, tz):\n     try:\n         values = to_datetime(values, format=\"%Y%m%d\", errors=errors, utc=tz)\n     except (TypeError, ValueError) as e:\n-        raise ValueError(\"cannot assemble the datetimes: {error}\".format(error=e))\n+        raise ValueError(\"cannot assemble the datetimes=e))\n \n     for u in [\"h\", \"m\", \"s\", \"ms\", \"us\", \"ns\"]:\n         value = unit_rev.get(u)\ndiff --git a/pandas/tests/indexes/datetimes/test_tools.py b/pandas/tests/indexes/datetimes/test_tools.py\nindex 8db15709da..9af0f47f6d 100644\n--- a/pandas/tests/indexes/datetimes/test_tools.py\n+++ b/pandas/tests/indexes/datetimes/test_tools.py\n@@ -1620,6 +1620,18 @@ class TestToDatetimeMisc:\n         tm.assert_index_equal(expected, idx5)\n         tm.assert_index_equal(expected, idx6)\n \n+    @pytest.mark.parametrize(\"klass\", [DatetimeIndex, DatetimeArray])\n+    def test_to_datetime_dta_tz(self, klass):\n+        # GH#27733\n+        dti = date_range(\"2015-04-05\", periods=3).rename(\"foo\")\n+        expected = dti.tz_localize(\"UTC\")\n+\n+        obj = klass(dti)\n+        expected = klass(expected)\n+\n+        result = to_datetime(obj, utc=True)\n+        tm.assert_equal(result, expected)\n+\n \n class TestGuessDatetimeFormat:\n     @td.skip_if_not_us_locale\n"
+  },
+  "timestamp": "2026-06-17 16:23:54 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "pandas",
+    "bug_id": "pandas_164",
+    "repo_path": "/BugsInPy/framework/bin/temp/pandas_164/pandas",
+    "github_url": "https://github.com/pandas-dev/pandas",
+    "description": "",
+    "commit_message": "BUG: fix to_datetime(dti, utc=True) (#27733)",
+    "fault_locations": [
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 1620,
+        "end_line": 1620,
+        "suspiciousness": 0.952381,
+        "rank": 1
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 1626,
+        "end_line": 1626,
+        "suspiciousness": 0.952381,
+        "rank": 2
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 1627,
+        "end_line": 1627,
+        "suspiciousness": 0.952381,
+        "rank": 3
+      },
+      {
+        "file": "pandas/core/arrays/datetimelike.py",
+        "start_line": 1628,
+        "end_line": 1628,
+        "suspiciousness": 0.952381,
+        "rank": 4
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1349,
+        "end_line": 1349,
+        "suspiciousness": 0.952381,
+        "rank": 5
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1351,
+        "end_line": 1351,
+        "suspiciousness": 0.952381,
+        "rank": 6
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1356,
+        "end_line": 1356,
+        "suspiciousness": 0.952381,
+        "rank": 7
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1357,
+        "end_line": 1357,
+        "suspiciousness": 0.952381,
+        "rank": 8
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1361,
+        "end_line": 1361,
+        "suspiciousness": 0.952381,
+        "rank": 9
+      },
+      {
+        "file": "pandas/core/indexes/base.py",
+        "start_line": 1422,
+        "end_line": 1422,
+        "suspiciousness": 0.952381,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "pytest pandas/tests/indexes/datetimes/test_tools.py::TestToDatetimeMisc::test_to_datetime_dta_tz"
+    ],
+    "bug_category": "single_hunk"
+  },
+  "blame_info": null,
+  "sbfl_fault_locations": [
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 1620,
+      "end_line": 1620,
+      "suspiciousness": 0.952381,
+      "rank": 1
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 1626,
+      "end_line": 1626,
+      "suspiciousness": 0.952381,
+      "rank": 2
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 1627,
+      "end_line": 1627,
+      "suspiciousness": 0.952381,
+      "rank": 3
+    },
+    {
+      "file": "pandas/core/arrays/datetimelike.py",
+      "start_line": 1628,
+      "end_line": 1628,
+      "suspiciousness": 0.952381,
+      "rank": 4
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1349,
+      "end_line": 1349,
+      "suspiciousness": 0.952381,
+      "rank": 5
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1351,
+      "end_line": 1351,
+      "suspiciousness": 0.952381,
+      "rank": 6
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1356,
+      "end_line": 1356,
+      "suspiciousness": 0.952381,
+      "rank": 7
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1357,
+      "end_line": 1357,
+      "suspiciousness": 0.952381,
+      "rank": 8
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1361,
+      "end_line": 1361,
+      "suspiciousness": 0.952381,
+      "rank": 9
+    },
+    {
+      "file": "pandas/core/indexes/base.py",
+      "start_line": 1422,
+      "end_line": 1422,
+      "suspiciousness": 0.952381,
+      "rank": 10
+    }
+  ]
+}

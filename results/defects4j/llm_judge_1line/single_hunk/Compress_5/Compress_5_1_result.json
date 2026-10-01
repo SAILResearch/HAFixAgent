@@ -1,0 +1,63 @@
+{
+  "project_name": "Compress",
+  "bug_id": "5",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": true,
+    "exit_status": "Submitted",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:39:37",
+      "end_time": "2025-10-10 22:42:55",
+      "duration_seconds": 198,
+      "duration_human": "3m 18s"
+    },
+    "model_cost": 0.0159,
+    "model_calls": 30,
+    "token_usage": {
+      "input_tokens": 183342,
+      "output_tokens": 3417,
+      "total_tokens": 186759,
+      "cached_input_tokens": 175552,
+      "uncached_input_tokens": 7790
+    },
+    "agent_steps": 30,
+    "checkout_success": true,
+    "patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex befee541..52ff9373 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -238,6 +238,8 @@ public class ZipArchiveInputStream extends ArchiveInputStream {\n             }\n             if (read == 0 && inf.finished()) {\n                 return -1;\n+            } else if (read == 0 && lengthOfLastRead == -1) {\n+                throw new IOException(\"Truncated ZIP file\");\n             }\n             crc.update(buffer, start, read);\n             return read;\n"
+  },
+  "timestamp": "2025-10-10 18:42:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_5",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_5",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "ZipArchiveInputStream doesn't report the end of a truncated archive\nIf a Zip archive is truncated, (e.g. because it is the first volume in a multi-volume archive) the ZipArchiveInputStream.read() method will not detect that fact. All calls to read() will return 0 bytes read. They will not return -1 (end of stream), nor will they throw any exception (which would seem like a good idea to me because the archive is truncated).\n\nI have tracked this problem to ZipArchiveInputStream.java, line 239. It contains a check\n\nif (read == 0 && inf.finished()) {\n    return -1;\n}\n\nFor truncated archives the read is always zero but the inf is never finished(). I suggest adding two lines below:\n\nif (read == 0 && inf.finished()) {\n    return -1;\n} else if (read == 0 && lengthOfLastRead == -1) {\n\tthrow new IOException(\"Truncated ZIP file\");\n}\n\nThis solves the problem in my tests.",
+    "commit_message": "make ZipArchiveInputStream deal better with truncated archives.  Submitted by Antoni Mylka.  COMPRESS-87",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+        "start_line": 239,
+        "end_line": 240,
+        "line_numbers": [
+          239,
+          240
+        ],
+        "function_name": "read",
+        "class_name": "ZipArchiveInputStream",
+        "filename": "ZipArchiveInputStream.java",
+        "code_snippet": "    public int read(byte[] buffer, int start, int length) throws IOException {\n        if (closed) {\n            throw new IOException(\"The stream is closed\");\n        }\n        if (inf.finished() || current == null) {\n            return -1;\n        }\n\n        // avoid int overflow, check null buffer\n        if (start <= buffer.length && length >= 0 && start >= 0\n            && buffer.length - start >= length) {\n            if (current.getMethod() == ZipArchiveOutputStream.STORED) {\n                int csize = (int) current.getSize();\n                if (readBytesOfEntry >= csize) {\n                    return -1;\n                }\n                if (offsetInBuffer >= lengthOfLastRead) {\n                    offsetInBuffer = 0;\n                    if ((lengthOfLastRead = in.read(buf)) == -1) {\n                        return -1;\n                    }\n                    count(lengthOfLastRead);\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n                int toRead = length > lengthOfLastRead\n                    ? lengthOfLastRead - offsetInBuffer\n                    : length;\n                if ((csize - readBytesOfEntry) < toRead) {\n                    toRead = csize - readBytesOfEntry;\n                }\n                System.arraycopy(buf, offsetInBuffer, buffer, start, toRead);\n                offsetInBuffer += toRead;\n                readBytesOfEntry += toRead;\n                crc.update(buffer, start, toRead);\n                return toRead;\n            }\n            if (inf.needsInput()) {\n                fill();\n                if (lengthOfLastRead > 0) {\n                    bytesReadFromStream += lengthOfLastRead;\n                }\n            }\n            int read = 0;\n            try {\n                read = inf.inflate(buffer, start, length);\n            } catch (DataFormatException e) {\n                throw new ZipException(e.getMessage());\n            }\n            if (read == 0 && inf.finished()) {\n                return -1;\n            }\n            crc.update(buffer, start, read);\n            return read;\n        }\n        throw new ArrayIndexOutOfBoundsException();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.Maven221MultiVolumeTest::testRead7ZipMultiVolumeArchiveForStream"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\nindex 5ee2eab9..befee541 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java\n@@ -236,12 +236,8 @@ public class ZipArchiveInputStream extends ArchiveInputStream {\n             } catch (DataFormatException e) {\n                 throw new ZipException(e.getMessage());\n             }\n+            if (read == 0) {\n+                if (inf.finished()) {\n+                    return -1;\n+                } else if (lengthOfLastRead == -1) {\n+                    throw new IOException(\"Truncated ZIP file\");\n+                }\n-            if (read == 0 && inf.finished()) {\n-                return -1;\n             }\n             crc.update(buffer, start, read);\n             return read;",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

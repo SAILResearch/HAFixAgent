@@ -1,0 +1,62 @@
+{
+  "project_name": "Closure",
+  "bug_id": "129",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-26 22:22:57",
+      "end_time": "2026-06-26 22:25:53",
+      "duration_seconds": 176,
+      "duration_human": "2m 56s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 361475,
+      "output_tokens": 3948,
+      "total_tokens": 365423,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 361475
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/PrepareAst.java b/src/com/google/javascript/jscomp/PrepareAst.java\nindex d993bee7b..d3e949de7 100644\n--- a/src/com/google/javascript/jscomp/PrepareAst.java\n+++ b/src/com/google/javascript/jscomp/PrepareAst.java\n@@ -164,7 +164,13 @@ class PrepareAst implements CompilerPass {\n \n       // ignore cast nodes.\n \n-      if (!NodeUtil.isGet(first)) {\n+      // ignore cast nodes.\n+      if (!NodeUtil.isGet(first) && !first.isCast()) {\n+        n.putBooleanProp(Node.FREE_CALL, true);\n+      }\n+      if (!NodeUtil.isGet(first)       if (!NodeUtil.isGet(first)) {      if (!NodeUtil.isGet(first)) { !first.isCast()) {\n+        n.putBooleanProp(Node.FREE_CALL, true);\n+      }\n         n.putBooleanProp(Node.FREE_CALL, true);\n       }\n \n"
+  },
+  "timestamp": "2026-06-26 22:25:53 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_129",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_129",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Casting a function before calling it produces bad code and breaks plugin code\n1. Compile this code with ADVANCED_OPTIMIZATIONS:\r\nconsole.log( /** @type {function(!string):!string} */ ((new window.ActiveXObject( 'ShockwaveFlash.ShockwaveFlash' ))['GetVariable'])( '$version' ) );\r\n\r\nproduces:\r\n\r\n'use strict';console.log((0,(new window.ActiveXObject(&quot;ShockwaveFlash.ShockwaveFlash&quot;)).GetVariable)(&quot;$version&quot;));\r\n\r\n2. Compare with this code:\r\nconsole.log( /** @type {!string} */ ((new window.ActiveXObject( 'ShockwaveFlash.ShockwaveFlash' ))['GetVariable']( '$version' )) )\r\n\r\nproduces:\r\n\r\n'use strict';console.log((new window.ActiveXObject(&quot;ShockwaveFlash.ShockwaveFlash&quot;)).GetVariable(&quot;$version&quot;));\r\n\r\n\r\nNotice the (0,...) wrapping around the GetVariable function in the first example. This causes the call to fail in every browser (this code is IE-only but it's just for a minimal example). The second version produces a warning that the type of GetVariable could not be determined (I enabled type warnings), and it wouldn't be possible to define these in an externs file without making a horrible mess.\r\n\r\nThis applies to all cases where functions are cast, but only causes problems (other than bloat) with plugins like this. It seems to serve no purpose whatsoever, so I assume it is a bug.\r\n\r\nRunning on a mac, not sure what version but it reports Built on: 2013/02/12 17:00, so will have been downloaded about that time.",
+    "commit_message": "Look through CAST nodes when annotating CALL nodes as free calls. Fixes issue 937 ------------- Created by MOE: http://code.google.com/p/moe-java MOE_MIGRATED_REVID=44143144",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/PrepareAst.java",
+        "start_line": 165,
+        "end_line": 165,
+        "line_numbers": [
+          165
+        ],
+        "function_name": "annotateCalls",
+        "class_name": "PrepareAnnotations",
+        "filename": "PrepareAst.java",
+        "code_snippet": "    private void annotateCalls(Node n) {\n      Preconditions.checkState(n.isCall());\n\n      // Keep track of of the \"this\" context of a call.  A call without an\n      // explicit \"this\" is a free call.\n      Node first = n.getFirstChild();\n\n      // ignore cast nodes.\n\n      if (!NodeUtil.isGet(first)) {\n        n.putBooleanProp(Node.FREE_CALL, true);\n      }\n\n      // Keep track of the context in which eval is called. It is important\n      // to distinguish between \"(0, eval)()\" and \"eval()\".\n      if (first.isName() &&\n          \"eval\".equals(first.getString())) {\n        first.putBooleanProp(Node.DIRECT_EVAL, true);\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.IntegrationTest::testIssue937"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/PrepareAst.java b/src/com/google/javascript/jscomp/PrepareAst.java\nindex 42982af..d993bee 100644\n--- a/src/com/google/javascript/jscomp/PrepareAst.java\n+++ b/src/com/google/javascript/jscomp/PrepareAst.java\n@@ -163,9 +163,6 @@ class PrepareAst implements CompilerPass {\n       Node first = n.getFirstChild();\n \n       // ignore cast nodes.\n+      while (first.isCast()) {\n+        first = first.getFirstChild();\n+      }\n \n       if (!NodeUtil.isGet(first)) {\n         n.putBooleanProp(Node.FREE_CALL, true);",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

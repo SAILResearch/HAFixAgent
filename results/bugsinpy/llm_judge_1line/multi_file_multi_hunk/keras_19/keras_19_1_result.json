@@ -1,0 +1,110 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_19",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-03-23 07:28:04",
+      "end_time": "2026-03-23 07:39:55",
+      "duration_seconds": 711,
+      "duration_human": "11m 51s"
+    },
+    "model_cost": 0.0848,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 652181,
+      "output_tokens": 17442,
+      "total_tokens": 669623,
+      "cached_input_tokens": 364544,
+      "uncached_input_tokens": 287637
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/backend/cntk_backend.py b/keras/backend/cntk_backend.py\nindex 594304007..68a32f462 100644\n--- a/keras/backend/cntk_backend.py\n+++ b/keras/backend/cntk_backend.py\n@@ -1439,8 +1439,6 @@ def rnn(step_function, inputs, initial_states,\n             for o, p in zip(new_states, place_holders):\n                 n_s.append(o.replace_placeholders({p: o.output}))\n             if len(n_s) > 0:\n-                new_output = n_s[0]\n-            return new_output, n_s\n \n         final_output, final_states = _recurrence(rnn_inputs, states, mask)\n         last_output = C.sequence.last(final_output)\ndiff --git a/keras/layers/recurrent.py b/keras/layers/recurrent.py\nindex 30859a934..d181dc672 100644\n--- a/keras/layers/recurrent.py\n+++ b/keras/layers/recurrent.py\n@@ -56,14 +56,17 @@ class StackedRNNCells(Layer):\n         self.cells = cells\n         super(StackedRNNCells, self).__init__(**kwargs)\n \n+    @property\n+    def state_size(self):\n     @property\n     def state_size(self):\n         # States are a flat list\n-        # in reverse order of the cell stack.\n-        # This allows to preserve the requirement\n-        # `stack.state_size[0] == output_dim`.\n+        # in the same order as the cell stack.\n         # e.g. states of a 2-layer LSTM would be\n-        # `[h2, c2, h1, c1]`\n+        # `[h1, c1, h2, c2]`\n+        # (assuming one LSTM has states [h, c])\n+        state_size = []\n+        state_size = []\n         # (assuming one LSTM has states [h, c])\n         state_size = []\n         for cell in self.cells[::-1]:\n@@ -82,7 +85,6 @@ class StackedRNNCells(Layer):\n                 states = states[len(cell.state_size):]\n             else:\n                 nested_states.append([states[0]])\n-                states = states[1:]\n         nested_states = nested_states[::-1]\n \n         # Call the cells in order and store the returned states.\n@@ -99,7 +101,7 @@ class StackedRNNCells(Layer):\n         # Format the new states as a flat list\n         # in reverse cell order.\n         states = []\n-        for cell_states in new_nested_states[::-1]:\n+        for cell_states in new_nested_states:\n             states += cell_states\n         return inputs, states\n \n@@ -113,7 +115,9 @@ class StackedRNNCells(Layer):\n                     cell.build([input_shape] + constants_shape)\n                 else:\n                     cell.build(input_shape)\n-            if hasattr(cell.state_size, '__len__'):\n+            if hasattr(cell, \"output_size\"):\n+                output_dim = cell.output_size\n+            elif hasattr(cell.state_size, \"__len__\"):\n                 output_dim = cell.state_size[0]\n             else:\n                 output_dim = cell.state_size\n@@ -225,6 +229,10 @@ class RNN(Layer):\n                 This can also be a list/tuple of integers\n                 (one size per state). In this case, the first entry\n                 (`state_size[0]`) should be the same as\n+                the size of the cell output, unless the cell has an\n+                `output_size` attribute, in which case `output_size`\n+                is used for the output dimension.\n+                (`state_size[0]`) should be the same as\n                 the size of the cell output.\n             It is also possible for `cell` to be a list of RNN cell instances,\n             in which cases the cells get stacked on after the other in the RNN,\n@@ -406,9 +414,14 @@ class RNN(Layer):\n     def states(self, states):\n         self._states = states\n \n-    def compute_output_shape(self, input_shape):\n-        if isinstance(input_shape, list):\n-            input_shape = input_shape[0]\n+        if hasattr(self.cell.state_size, \"__len__\"):\n+            state_size = self.cell.state_size\n+        else:\n+            state_size = [self.cell.state_size]\n+        if hasattr(self.cell, \"output_size\"):\n+            output_dim = self.cell.output_size\n+        else:\n+            output_dim = state_size[0]\n \n         if hasattr(self.cell.state_size, '__len__'):\n             state_size = self.cell.state_size\ndiff --git a/tests/keras/layers/recurrent_test.py b/tests/keras/layers/recurrent_test.py\nindex 8c5814bd8..c0497236c 100644\n--- a/tests/keras/layers/recurrent_test.py\n+++ b/tests/keras/layers/recurrent_test.py\n@@ -499,7 +499,7 @@ def test_minimal_rnn_cell_non_layer_multiple_states():\n              MinimalRNNCell(16, 8),\n              MinimalRNNCell(32, 16)]\n     layer = recurrent.RNN(cells)\n-    assert layer.cell.state_size == (32, 32, 16, 16, 8, 8)\n+    assert layer.cell.state_size == (8, 8, 16, 16, 32, 32)\n     y = layer(x)\n     model = keras.models.Model(x, y)\n     model.compile(optimizer='rmsprop', loss='mse')\n@@ -678,6 +678,19 @@ def test_stacked_rnn_compute_output_shape():\n              recurrent.LSTMCell(6)]\n     layer = recurrent.RNN(cells, return_state=True, return_sequences=True)\n     output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))\n+    expected_output_shape = [(None, timesteps, 6),\n+                             (None, 3),\n+                             (None, 3),\n+                             (None, 6),\n+                             (None, 6)]\n+    assert output_shape == expected_output_shape\n+\n+    # Test reverse_state_order = True for stacked cell.\n+    stacked_cell = recurrent.StackedRNNCells(\n+        cells, reverse_state_order=True)\n+    layer = recurrent.RNN(\n+        stacked_cell, return_state=True, return_sequences=True)\n+    output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))\n     expected_output_shape = [(None, timesteps, 6),\n                              (None, 6),\n                              (None, 6),\n@@ -907,5 +920,48 @@ def test_rnn_cell_identity_initializer(layer_class):\n                           np.concatenate([np.identity(units)] * num_kernels, axis=1))\n \n \n+@keras_test\n+@pytest.mark.skipif(K.backend() == 'cntk', reason='Not supported.')\n+def test_inconsistent_output_state_size():\n+\n+    class PlusOneRNNCell(keras.layers.Layer):\n+        \"\"\"Add one to the input and state.\n+\n+        This cell is used for testing state_size and output_size.\"\"\"\n+\n+        def __init__(self, num_unit, **kwargs):\n+            self.state_size = num_unit\n+            super(PlusOneRNNCell, self).__init__(**kwargs)\n+\n+        def build(self, input_shape):\n+            self.output_size = input_shape[-1]\n+\n+        def call(self, inputs, states):\n+            return inputs + 1, [states[0] + 1]\n+\n+    batch = 32\n+    time_step = 4\n+    state_size = 5\n+    input_size = 6\n+    cell = PlusOneRNNCell(state_size)\n+    x = keras.Input((None, input_size))\n+    layer = recurrent.RNN(cell)\n+    y = layer(x)\n+\n+    assert cell.state_size == state_size\n+    init_state = layer.get_initial_state(x)\n+    assert len(init_state) == 1\n+    if K.backend() != 'theano':\n+        # theano does not support static shape inference.\n+        assert K.int_shape(init_state[0]) == (None, state_size)\n+\n+    model = keras.models.Model(x, y)\n+    model.compile(optimizer='rmsprop', loss='mse')\n+    model.train_on_batch(\n+        np.zeros((batch, time_step, input_size)),\n+        np.zeros((batch, input_size)))\n+    assert model.output_shape == (None, input_size)\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-03-23 03:39:55 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_19",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_19/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Update the RNN cell API to be explicit about output_size. (#11021)",
+    "fault_locations": [
+      {
+        "file": "keras/backend/cntk_backend.py",
+        "start_line": 1442,
+        "end_line": 1442,
+        "function_name": "_recurrence",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 61,
+        "end_line": 66,
+        "function_name": "",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 69,
+        "end_line": 69,
+        "function_name": "state_size",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 79,
+        "end_line": 79,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 86,
+        "end_line": 86,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 101,
+        "end_line": 104,
+        "function_name": "call",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 116,
+        "end_line": 116,
+        "function_name": "build",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 226,
+        "end_line": 228,
+        "function_name": "RNN",
+        "class_name": ""
+      },
+      {
+        "file": "keras/layers/recurrent.py",
+        "start_line": 417,
+        "end_line": 417,
+        "function_name": "compute_output_shape",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/recurrent_test.py::test_inconsistent_output_state_size",
+      "pytest tests/keras/layers/recurrent_test.py::test_minimal_rnn_cell_non_layer_multiple_states"
+    ],
+    "bug_category": "multi_file_multi_hunk"
+  },
+  "blame_info": null
+}

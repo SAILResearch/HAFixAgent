@@ -1,0 +1,77 @@
+{
+  "project_name": "Closure",
+  "bug_id": "150",
+  "history_category": "baseline",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2025-10-10 22:23:05",
+      "end_time": "2025-10-10 22:29:12",
+      "duration_seconds": 368,
+      "duration_human": "6m 8s"
+    },
+    "model_cost": 0.0502,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 640431,
+      "output_tokens": 4405,
+      "total_tokens": 644836,
+      "cached_input_tokens": 623616,
+      "uncached_input_tokens": 16815
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/com/google/javascript/jscomp/SideEffectsAnalysis.java b/src/com/google/javascript/jscomp/SideEffectsAnalysis.java\nindex d79b9934c..59384c574 100644\n--- a/src/com/google/javascript/jscomp/SideEffectsAnalysis.java\n+++ b/src/com/google/javascript/jscomp/SideEffectsAnalysis.java\n@@ -43,8 +43,8 @@ import java.util.Set;\n  * \n  * See:\n  * \n- * Banning, John. \u201cAn efficient way to find the side effects of procedure\n- *      calls and the aliases of variables.\u201d POPL \u201879.\n+ * Banning, John. \"An efficient way to find the side effects of procedure\n+ *      calls and the aliases of variables.\" POPL '79.\n  * \n  * For an introduction to MOD and REF sets.\n  * \ndiff --git a/src/com/google/javascript/jscomp/SourceMap2.java b/src/com/google/javascript/jscomp/SourceMap2.java\nindex 599cbee81..ec95b4b04 100644\n--- a/src/com/google/javascript/jscomp/SourceMap2.java\n+++ b/src/com/google/javascript/jscomp/SourceMap2.java\n@@ -245,7 +245,7 @@ public class SourceMap2 implements SourceMap {\n    *\n    * 1.  {\n    * 2.    version: 2,\n-   * 3.    file: \u201cout.js\u201d\n+   * 3.    file: \"out.js\"\n    * 4.    lineCount: 2\n    * 5.    lineMaps: [\n    * 6.        \"ABAAA\",\n@@ -264,15 +264,15 @@ public class SourceMap2 implements SourceMap {\n    * Line 2: File revision (always the first entry in the object)\n    * Line 3: The name of the file that this source map is associated with.\n    * Line 4: The number of lines represented in the sourcemap.\n-   * Line 5: \u201clineMaps\u201d field is a JSON array, where each entry represents a\n+   * Line 5: \"lineMaps\" field is a JSON array, where each entry represents a\n    *     line in the generated text.\n    * Line 6: A line entry, representing a series of line segments, where each\n    *     segment encodes an mappings-id and repetition count.\n    * Line 9: An optional source root, useful for relocating source files on a\n-   *     server or removing repeated prefix values in the \u201csources\u201d entry.\n-   * Line 10: A list of sources used by the \u201cmappings\u201d entry relative to the\n+   *     server or removing repeated prefix values in the \"sources\" entry.\n+   * Line 10: A list of sources used by the \"mappings\" entry relative to the\n    *     sourceRoot.\n-   * Line 11: A list of symbol names used by the \u201cmapping\u201d entry.  This list\n+   * Line 11: A list of symbol names used by the \"mapping\" entry.  This list\n    *     may be incomplete.\n    * Line 12: The mappings field.\n    * Line 13: Each entry represent a block of text in the original source, and\n@@ -281,7 +281,7 @@ public class SourceMap2 implements SourceMap {\n    *     The line in the source file the text begins\n    *     The column in the line that the text begins\n    *     An optional name (from the original source) that this entry represents.\n-   *     This can either be an string or index into the \u201cnames\u201d field.\n+   *     This can either be an string or index into the \"names\" field.\n    */\n   public void appendTo(Appendable out, String name) throws IOException {\n     int maxLine = prepMappings();\ndiff --git a/src/com/google/javascript/jscomp/TypedScopeCreator.java b/src/com/google/javascript/jscomp/TypedScopeCreator.java\nindex 4b841ae8f..116b17e0a 100644\n--- a/src/com/google/javascript/jscomp/TypedScopeCreator.java\n+++ b/src/com/google/javascript/jscomp/TypedScopeCreator.java\n@@ -1459,6 +1459,18 @@ final class TypedScopeCreator implements ScopeCreator {\n         case Token.CATCH:\n           defineCatch(n, parent);\n           break;\n+        case Token.ASSIGN:\n+          // Handle constructor and enum definitions.\n+          defineNamedTypeAssign(n, parent);\n+\n+          // Handle initialization of properties.\n+          Node firstChild = n.getFirstChild();\n+          if (firstChild.getType() == Token.GETPROP &&\n+              firstChild.isQualifiedName()) {\n+            maybeDeclareQualifiedName(t, n.getJSDocInfo(),\n+                firstChild, n, firstChild.getNext());\n+          }\n+          break;\n         case Token.VAR:\n           defineVar(n, parent);\n           break;\n"
+  },
+  "timestamp": "2025-10-10 18:29:13 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Closure",
+    "bug_id": "Closure_150",
+    "repo_path": "/defects4j/framework/bin/temp/Closure_150",
+    "github_url": "https://github.com/google/closure-compiler.git",
+    "description": "Type checker misses annotations on functions defined within functions\n<b>What steps will reproduce the problem?</b>\n1. Compile the following code under --warning_level VERBOSE\r\n\r\nvar ns = {};\r\n\r\n/** @param {string=} b */\r\nns.a = function(b) {}\r\n\r\nfunction d() {\r\n    ns.a();\r\n    ns.a(123);\r\n}\r\n\r\n2. Observe that the type checker correctly emits one warning, as 123 \r\ndoesn't match the type {string}\r\n\r\n3. Now compile the code with ns.a defined within an anonymous function, \r\nlike so:\r\n\r\nvar ns = {};\r\n\r\n(function() {\r\n    /** @param {string=} b */\r\n    ns.a = function(b) {}\r\n})();\r\n\r\nfunction d() {\r\n    ns.a();\r\n    ns.a(123);\r\n}\r\n\r\n4. Observe that a warning is emitted for calling ns.a with 0 parameters, and \r\nnot for the type error, as though the @param declaration were ignored. \r\n\r\n<b>What version of the product are you using? On what operating system?</b>\nr15\r\n\r\n<b>Please provide any additional information below.</b>\n\r\nThis sort of module pattern is common enough that it strikes me as worth \r\nsupporting.\r\n\r\nOne last note to make matters stranger: if the calling code isn't itself within \r\na function, no warnings are emitted at all:\r\n\r\nvar ns = {};\r\n\r\n(function() {\r\n    /** @param {string=} b */\r\n    ns.a = function(b) {}\r\n})();\r\n\r\nns.a();\r\nns.a(123);",
+    "commit_message": "Unify global scope building and local scope building. This goes a long way towards fixing issue 61. Try #2",
+    "fault_locations": [
+      {
+        "file": "src/com/google/javascript/jscomp/TypedScopeCreator.java",
+        "start_line": 1451,
+        "end_line": 1465,
+        "line_numbers": [
+          1451,
+          1452,
+          1453,
+          1454,
+          1455,
+          1456,
+          1457,
+          1458,
+          1459,
+          1460,
+          1461,
+          1462,
+          1463,
+          1464,
+          1465
+        ],
+        "function_name": "visit",
+        "class_name": "LocalScopeBuilder",
+        "filename": "TypedScopeCreator.java",
+        "code_snippet": "    @Override public void visit(NodeTraversal t, Node n, Node parent) {\n      if (n == scope.getRootNode()) return;\n\n      if (n.getType() == Token.LP && parent == scope.getRootNode()) {\n        handleFunctionInputs(parent);\n        return;\n      }\n\n      attachLiteralTypes(n);\n      switch (n.getType()) {\n        case Token.FUNCTION:\n          if (parent.getType() == Token.NAME) {\n            return;\n          }\n          defineDeclaredFunction(n, parent);\n          break;\n        case Token.CATCH:\n          defineCatch(n, parent);\n          break;\n        case Token.VAR:\n          defineVar(n, parent);\n          break;\n      }\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "com.google.javascript.jscomp.TypedScopeCreatorTest::testNamespacedFunctionStubLocal",
+      "com.google.javascript.jscomp.TypedScopeCreatorTest::testCollectedFunctionStubLocal"
+    ],
+    "golden_patch": "diff --git a/src/com/google/javascript/jscomp/TypedScopeCreator.java b/src/com/google/javascript/jscomp/TypedScopeCreator.java\nindex 5628a08a..4b841ae8 100644\n--- a/src/com/google/javascript/jscomp/TypedScopeCreator.java\n+++ b/src/com/google/javascript/jscomp/TypedScopeCreator.java\n@@ -1448,7 +1448,21 @@ final class TypedScopeCreator implements ScopeCreator {\n         return;\n       }\n \n+      super.visit(t, n, parent);\n-      attachLiteralTypes(n);\n-      switch (n.getType()) {\n-        case Token.FUNCTION:\n-          if (parent.getType() == Token.NAME) {\n-            return;\n-          }\n-          defineDeclaredFunction(n, parent);\n-          break;\n-        case Token.CATCH:\n-          defineCatch(n, parent);\n-          break;\n-        case Token.VAR:\n-          defineVar(n, parent);\n-          break;\n-      }\n     }\n \n     /** Handle bleeding functions and function parameters. */",
+    "bug_category": "single_hunk"
+  },
+  "blame_info": {
+    "blame_failure_reason": null
+  }
+}

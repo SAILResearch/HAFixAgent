@@ -1,0 +1,193 @@
+{
+  "project_name": "JacksonDatabind",
+  "bug_id": "JacksonDatabind_83",
+  "history_category": "baseline_all_functions_name_all_files_blame",
+  "fl_source": "sbfl_gzoltar",
+  "dataset": "defects4j",
+  "top_n": 10,
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-24 11:01:04",
+      "end_time": "2026-06-24 11:07:24",
+      "duration_seconds": 380,
+      "duration_human": "6m 20s"
+    },
+    "model_cost": 0.1383,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 1028009,
+      "output_tokens": 12646,
+      "total_tokens": 1040655,
+      "cached_input_tokens": 535168,
+      "uncached_input_tokens": 492841
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java b/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\ndeleted file mode 100644\nindex b6121bb30..000000000\n--- a/src/test/java/com/fasterxml/jackson/databind/introspect/TestScalaLikeImplicitProperties.java\n+++ /dev/null\n@@ -1,181 +0,0 @@\n-package com.fasterxml.jackson.databind.introspect;\n-\n-import com.fasterxml.jackson.databind.*;\n-\n-/**\n- * Tests Scala-style JVM naming patterns for properties.\n- *\n- * Scala uses identifiers that are legal JVM names, but not legal Java names:\n- *\n- * <ul>\n- *     <li><code>prop\u2423</code> (trailing space) for fields</li>\n- *     <li><code>prop</code> for getters</li>\n- *     <li><code>prop_=</code> for setters</li>\n- * </ul>\n- *\n- * Scala sources turn property accesses into method calls in most cases; the\n- * backing field and the particulars of the method names are implementation details.\n- *\n- * Since I can't reproduce them in Java, I've substituted legal but uncommonly\n- * used characters as placeholders.\n- */\n-public class TestScalaLikeImplicitProperties extends BaseMapTest\n-{\n-    static class NameMangler extends JacksonAnnotationIntrospector\n-    {\n-        private static final long serialVersionUID = 1L;\n-\n-        @Override\n-        public String findImplicitPropertyName(AnnotatedMember member) {\n-            String name = null;\n-            if (member instanceof AnnotatedField) {\n-                name = member.getName();\n-                if (name.endsWith(\"\u203f\")) {\n-                    return name.substring(0, name.length()-1);\n-                }\n-            } else if (member instanceof AnnotatedMethod) {\n-                name = member.getName();\n-                if (name.endsWith(\"_\u2040\")) {\n-                    return name.substring(0, name.length()-2);\n-                }\n-                if (!name.startsWith(\"get\") && !name.startsWith(\"set\")) {\n-                    return name;\n-                }\n-            } else if (member instanceof AnnotatedParameter) {\n-                // A placeholder for legitimate property name detection\n-                // such as what the JDK8 module provides\n-                return \"prop\";\n-            }\n-            return null;\n-        }\n-\n-        @Override\n-        public boolean hasCreatorAnnotation(Annotated a) {\n-            // A placeholder for legitmate creator detection.\n-            // In Scala, all primary constructors should be creators,\n-            // but I can't obtain a reference to the AnnotatedClass from the\n-            // AnnotatedConstructor, so it's simulated here.\n-            return (a instanceof AnnotatedConstructor);\n-        }\n-    }\n-\n-    static class ValProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-\n-        public ValProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class ValWithBeanProperty\n-    {\n-        private final String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public String getProp() { return prop\u203f; }\n-\n-        public ValWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-\n-        public VarProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class VarWithBeanProperty\n-    {\n-        private String prop\u203f;\n-        public String prop() { return prop\u203f; }\n-        public void prop_\u2040(String p) { prop\u203f = p; }\n-        public String getProp() { return prop\u203f; }\n-        public void setProp(String p) { prop\u203f = p; }\n-\n-        public VarWithBeanProperty(String prop) {\n-            prop\u203f = prop;\n-        }\n-    }\n-\n-    static class GetterSetterProperty\n-    {\n-        // Different name to represent an arbitrary implementation, not necessarily local to this class.\n-        private String _prop_impl = \"get/set\";\n-        public String prop() { return _prop_impl; }\n-        public void prop_\u2040(String p) { _prop_impl = p; }\n-\n-        // Getter/Setters are typically not in the constructor because they are implemented\n-        // by the end user, not the compiler. They should be detected similar to 'bean-style'\n-        // getProp/setProp pairs.\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Test methods\n-    /**********************************************************\n-     */\n-\n-    public void testValProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValProperty(\"val\")));\n-    }\n-\n-    public void testValWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"val\\\"}\", m.writeValueAsString(new ValWithBeanProperty(\"val\")));\n-    }\n-\n-\n-    public void testVarProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarProperty(\"var\")));\n-        VarProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testVarWithBeanProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"var\\\"}\", m.writeValueAsString(new VarWithBeanProperty(\"var\")));\n-        VarWithBeanProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", VarWithBeanProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-\n-    public void testGetterSetterProperty() throws Exception\n-    {\n-        ObjectMapper m = manglingMapper();\n-\n-        assertEquals(\"{\\\"prop\\\":\\\"get/set\\\"}\", m.writeValueAsString(new GetterSetterProperty()));\n-        GetterSetterProperty result = m.readValue(\"{\\\"prop\\\":\\\"read\\\"}\", GetterSetterProperty.class);\n-        assertEquals(\"read\", result.prop());\n-    }\n-\n-    /*\n-    /**********************************************************\n-    /* Helper methods\n-    /**********************************************************\n-     */\n-    \n-    private ObjectMapper manglingMapper()\n-    {\n-        ObjectMapper m = new ObjectMapper();\n-        m.setAnnotationIntrospector(new NameMangler());\n-        return m;\n-    }\n-}\n"
+  },
+  "timestamp": "2026-06-24 11:07:24 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "JacksonDatabind",
+    "bug_id": "JacksonDatabind_83",
+    "repo_path": "/defects4j/framework/bin/temp/JacksonDatabind_83",
+    "github_url": "https://github.com/FasterXML/jackson-databind.git",
+    "description": "`FromStringDeserializer` ignores registered `DeserializationProblemHandler` for `java.util.UUID`\nCulprit appears to be [lines 155-161 of FromStringDeserializer](https://github.com/FasterXML/jackson-databind/blob/60ae6000d361f910ab0d7d269a5bac1fc66f4cd9/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java#L155-L161):\r\n\r\n```\r\n            // 05-May-2016, tatu: Unlike most usage, this seems legit, so...\r\n            JsonMappingException e = ctxt.weirdStringException(text, _valueClass, msg);\r\n            if (cause != null) {\r\n                e.initCause(cause);\r\n            }\r\n            throw e;\r\n            // nothing to do here, yet? We'll fail anyway\r\n```\r\nThe above lines appear to show that the exception will be thrown regardless of any problem handling logic.\r\n\r\nTest Case:\r\n\r\n```\r\nimport com.fasterxml.jackson.databind.DeserializationContext;\r\nimport com.fasterxml.jackson.databind.ObjectMapper;\r\nimport com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;\r\nimport org.junit.Test;\r\n\r\nimport java.io.IOException;\r\nimport java.util.UUID;\r\n\r\npublic class UUIDDeserializerTest {\r\n\r\n\r\n  @Test\r\n  public void itUsesDeserializationProblemHandlerProperly() throws IOException {\r\n    ObjectMapper mapper = new ObjectMapper().addHandler(new DeserializationProblemHandler() {\r\n      @Override\r\n      public Object handleWeirdStringValue(final DeserializationContext ctxt, final Class<?> targetType, final String valueToConvert, final String failureMsg) throws IOException {\r\n        return null;\r\n      }\r\n    });\r\n\r\n    mapper.readValue(\"{\\\"id\\\" : \\\"I am not a UUID\\\"}\", IdBean.class);\r\n\r\n\r\n\r\n  }\r\n\r\n  public static class IdBean {\r\n    private UUID id;\r\n\r\n    public UUID getId() {\r\n      return id;\r\n    }\r\n\r\n    public void setId(final UUID id) {\r\n      this.id = id;\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nThe handler handles the issue properly; but an exception is thrown anyway:\r\n\r\n```\r\nan not deserialize value of type java.util.UUID from String \"I am not a UUID\": not a valid textual representation\r\n at [Source: (String)\"{\"id\" : \"I am not a UUID\"}\"; line: 1, column: 9] (through reference chain: com.company.test.UUIDDeserializerTest$IdBean[\"id\"])\r\ncom.fasterxml.jackson.databind.exc.InvalidFormatException: Can not deserialize value of type java.util.UUID from String \"I am not a UUID\": not a valid textual representation\r\n at [Source: (String)\"{\"id\" : \"I am not a UUID\"}\"; line: 1, column: 9] (through reference chain: com.company.test.UUIDDeserializerTest$IdBean[\"id\"])\r\n\tat com.fasterxml.jackson.databind.exc.InvalidFormatException.from(InvalidFormatException.java:67)\r\n\tat com.fasterxml.jackson.databind.DeserializationContext.weirdStringException(DeserializationContext.java:1504)\r\n\tat com.fasterxml.jackson.databind.deser.std.FromStringDeserializer.deserialize(FromStringDeserializer.java:156)\r\n\tat com.fasterxml.jackson.databind.deser.impl.MethodProperty.deserializeAndSet(MethodProperty.java:127)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.vanillaDeserialize(BeanDeserializer.java:287)\r\n\tat com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:151)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:3999)\r\n\tat com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:2980)\r\n```\r\n\n",
+    "commit_message": "Fix #1629",
+    "fault_locations": [
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 280,
+        "end_line": 280,
+        "suspiciousness": 1.0,
+        "rank": 1
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 281,
+        "end_line": 281,
+        "suspiciousness": 1.0,
+        "rank": 2
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "start_line": 285,
+        "end_line": 285,
+        "suspiciousness": 1.0,
+        "rank": 3
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 1.0,
+        "rank": 4
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 78,
+        "end_line": 78,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 5
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 79,
+        "end_line": 79,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 6
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 80,
+        "end_line": 80,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 7
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 81,
+        "end_line": 81,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 8
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 82,
+        "end_line": 82,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 9
+      },
+      {
+        "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+        "start_line": 83,
+        "end_line": 83,
+        "suspiciousness": 0.9911963072580084,
+        "rank": 10
+      }
+    ],
+    "failing_tests": [
+      "com.fasterxml.jackson.databind.filter.ProblemHandlerTest::testWeirdStringHandling"
+    ],
+    "bug_category": "single_file_multi_hunk"
+  },
+  "blame_info": {
+    "has_blame": true
+  },
+  "sbfl_fault_locations": [
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 280,
+      "end_line": 280,
+      "suspiciousness": 1.0,
+      "rank": 1
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 281,
+      "end_line": 281,
+      "suspiciousness": 1.0,
+      "rank": 2
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+      "start_line": 285,
+      "end_line": 285,
+      "suspiciousness": 1.0,
+      "rank": 3
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 1.0,
+      "rank": 4
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 78,
+      "end_line": 78,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 5
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 79,
+      "end_line": 79,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 6
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 80,
+      "end_line": 80,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 7
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 81,
+      "end_line": 81,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 8
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 82,
+      "end_line": 82,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 9
+    },
+    {
+      "file": "src/main/java/com/fasterxml/jackson/databind/JavaType.java",
+      "start_line": 83,
+      "end_line": 83,
+      "suspiciousness": 0.9911963072580084,
+      "rank": 10
+    }
+  ]
+}

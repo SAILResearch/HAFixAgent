@@ -1,0 +1,178 @@
+{
+  "project_name": "Compress",
+  "bug_id": "34",
+  "history_category": "baseline_file_code_patch_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": null,
+    "timing": {
+      "start_time": "2026-06-20 10:37:33",
+      "end_time": "2026-06-20 10:41:36",
+      "duration_seconds": 242,
+      "duration_human": "4m 2s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 931792,
+      "output_tokens": 7028,
+      "total_tokens": 938820,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 931792
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": ""
+  },
+  "timestamp": "2026-06-20 10:41:36 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "Compress",
+    "bug_id": "Compress_34",
+    "repo_path": "/defects4j/framework/bin/temp/Compress_34",
+    "github_url": "https://github.com/apache/commons-compress.git",
+    "description": "Exception in X7875_NewUnix.parseFromLocalFileData when parsing 0-sized \"ux\" local entry\nWhen trying to detect content type of a zip file with Tika 1.10 (which uses Commons Compress 1.9 internally) in manner like this:\n\n{code}\n        byte[] content = ... // whole zip file.\n        String name = \"TR_01.ZIP\";\n        Tika tika = new Tika();\n        return tika.detect(content, name);\n{code}\n\nit throws an exception:\n\n{code}\njava.lang.ArrayIndexOutOfBoundsException: 13\n\tat org.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromLocalFileData(X7875_NewUnix.java:199)\n\tat org.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromCentralDirectoryData(X7875_NewUnix.java:220)\n\tat org.apache.commons.compress.archivers.zip.ExtraFieldUtils.parse(ExtraFieldUtils.java:174)\n\tat org.apache.commons.compress.archivers.zip.ZipArchiveEntry.setCentralDirectoryExtra(ZipArchiveEntry.java:476)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.readCentralDirectoryEntry(ZipFile.java:575)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.populateFromCentralDirectory(ZipFile.java:492)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:216)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:192)\n\tat org.apache.commons.compress.archivers.zip.ZipFile.<init>(ZipFile.java:153)\n\tat org.apache.tika.parser.pkg.ZipContainerDetector.detectZipFormat(ZipContainerDetector.java:141)\n\tat org.apache.tika.parser.pkg.ZipContainerDetector.detect(ZipContainerDetector.java:88)\n\tat org.apache.tika.detect.CompositeDetector.detect(CompositeDetector.java:77)\n\tat org.apache.tika.Tika.detect(Tika.java:155)\n\tat org.apache.tika.Tika.detect(Tika.java:183)\n\tat org.apache.tika.Tika.detect(Tika.java:223)\n{code}\n\nThe zip file does contain two .jpg images and is not a \"special\" (JAR, Openoffice, ... ) zip file.\n\nUnfortunately, the contents of the zip file is confidential and so I cannot attach it to this ticket as it is, although I can provide the parameters supplied to\norg.apache.commons.compress.archivers.zip.X7875_NewUnix.parseFromLocalFileData(X7875_NewUnix.java:199) as caught by the debugger:\n\n{code}\ndata = {byte[13]@2103}\n 0 = 85\n 1 = 84\n 2 = 5\n 3 = 0\n 4 = 7\n 5 = -112\n 6 = -108\n 7 = 51\n 8 = 85\n 9 = 117\n 10 = 120\n 11 = 0\n 12 = 0\noffset = 13\nlength = 0\n{code}\n\nThis data comes from the local zip entry for the first file, it seems the method tries to read more bytes than is actually available in the buffer.\n\nIt seems that first 9 bytes of the buffer are 'UT' extended field with timestamp, followed by 0-sized 'ux' field (bytes 9-12) that is supposed to contain UID/GID - according to infozip's doc the 0-size is common for global dictionary, but the local dictionary should contain complete data. In this case for some reason it does contain 0-sized data.\n\nNote that 7zip and unzip can unzip the file without even a warning, so Commons Compress should be also able to handle that file correctly without choking on that exception.",
+    "commit_message": "COMPRESS-321 X7875_NewUnix doesn't handle centra directory correctly",
+    "fault_locations": [
+      {
+        "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+        "start_line": 146,
+        "end_line": 146,
+        "line_numbers": [
+          146
+        ],
+        "function_name": "getCentralDirectoryLength",
+        "class_name": "X7875_NewUnix",
+        "filename": "X7875_NewUnix.java",
+        "code_snippet": "    public ZipShort getCentralDirectoryLength() {\n        return getLocalFileDataLength();\n    }",
+        "granularity": "function"
+      }
+    ],
+    "failing_tests": [
+      "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest::testParseReparse"
+    ],
+    "golden_patch": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\nindex e325b564..89816fd5 100644\n--- a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\n@@ -55,7 +55,6 @@ import static org.apache.commons.compress.archivers.zip.ZipUtil.unsignedIntToSig\n  */\n public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {\n     private static final ZipShort HEADER_ID = new ZipShort(0x7875);\n+    private static final ZipShort ZERO = new ZipShort(0);\n     private static final BigInteger ONE_THOUSAND = BigInteger.valueOf(1000);\n     private static final long serialVersionUID = 1L;\n \n@@ -144,7 +143,7 @@ public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {\n      * @return a <code>ZipShort</code> for the length of the data of this extra field\n      */\n     public ZipShort getCentralDirectoryLength() {\n+        return ZERO;\n-        return getLocalFileDataLength();\n     }\n \n     /**",
+    "bug_category": "all"
+  },
+  "blame_info": {
+    "blame_commit": {
+      "commit": {
+        "commit_author": "Julius Davies",
+        "commit_date": "2013-01-07 19:13:18",
+        "commit_message": "COMPRESS-211 - handle zip extra field 0x7875 - Info Zip New Unix Extra Field",
+        "commit_hash": "2245d7ade5283dcf8bf01c2aed1016188771779b"
+      },
+      "function": {
+        "functions_name_co_evolved_modified_file": [
+          "X7875_NewUnix",
+          "getHeaderId",
+          "clone",
+          "setUID",
+          "getCentralDirectoryLength",
+          "equals",
+          "parseFromCentralDirectoryData",
+          "toString",
+          "getGID",
+          "hashCode",
+          "parseFromLocalFileData",
+          "reset",
+          "getUID",
+          "getLocalFileDataLength",
+          "setGID"
+        ],
+        "functions_name_co_evolved_all_files": [
+          "longToBig",
+          "equals",
+          "reset",
+          "getUID",
+          "setGID",
+          "toString",
+          "getGID",
+          "parseFromCentralDirectoryData",
+          "getLocalFileDataLength",
+          "getCentralDirectoryLength",
+          "parseFromLocalFileData",
+          "unsignedIntToSignedByte",
+          "signedByteToUnsignedInt",
+          "X7875_NewUnix",
+          "getHeaderId",
+          "clone",
+          "setUID",
+          "bigToLong",
+          "hashCode"
+        ],
+        "functions_name_modified_file": [
+          "X7875_NewUnix",
+          "getHeaderId",
+          "clone",
+          "setUID",
+          "getCentralDirectoryLength",
+          "equals",
+          "InfoZip",
+          "parseFromCentralDirectoryData",
+          "toString",
+          "getGID",
+          "hashCode",
+          "parseFromLocalFileData",
+          "reset",
+          "getUID",
+          "getLocalFileDataLength",
+          "setGID"
+        ],
+        "functions_name_all_files": [
+          "longToBig",
+          "getKey",
+          "adjustToLong",
+          "equals",
+          "checkRequestedFeatures",
+          "supportsEncryptionOf",
+          "reset",
+          "getUID",
+          "setGID",
+          "fromDosTime",
+          "InfoZip",
+          "toString",
+          "getGID",
+          "UnparseableExtraField",
+          "parseFromCentralDirectoryData",
+          "getLocalFileDataLength",
+          "canHandleEntryData",
+          "setNameAndCommentFromExtraFields",
+          "getCentralDirectoryLength",
+          "dosToJavaTime",
+          "supportsMethodOf",
+          "ZipUtil",
+          "createExtraField",
+          "parseFromLocalFileData",
+          "toDosTime",
+          "ExtraFieldUtils",
+          "unsignedIntToSignedByte",
+          "signedByteToUnsignedInt",
+          "X7875_NewUnix",
+          "getHeaderId",
+          "clone",
+          "setUID",
+          "bigToLong",
+          "getUnicodeStringIfOriginalMatches",
+          "hashCode",
+          "register"
+        ],
+        "function_code_before": "",
+        "function_code_after": "    /**\n     * Length of the extra field in the central directory data - without\n     * Header-ID or length specifier.\n     *\n     * @return a <code>ZipShort</code> for the length of the data of this extra field\n     */\n    public ZipShort getCentralDirectoryLength() {\n        return getLocalFileDataLength();  // No different than local version.\n    }"
+      },
+      "file": {
+        "files_name_in_blame_commit": [
+          "src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+          "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java"
+        ],
+        "file_patches": {
+          "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java": "diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\nnew file mode 100644\nindex 00000000..51dac7d0\n--- /dev/null\n+++ b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java\n@@ -0,0 +1,339 @@\n+/*\n+ * Licensed to the Apache Software Foundation (ASF) under one\n+ * or more contributor license agreements.  See the NOTICE file\n+ * distributed with this work for additional information\n+ * regarding copyright ownership.  The ASF licenses this file\n+ * to you under the Apache License, Version 2.0 (the\n+ * \"License\"); you may not use this file except in compliance\n+ * with the License.  You may obtain a copy of the License at\n+ *\n+ * http://www.apache.org/licenses/LICENSE-2.0\n+ *\n+ * Unless required by applicable law or agreed to in writing,\n+ * software distributed under the License is distributed on an\n+ * \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\n+ * KIND, either express or implied.  See the License for the\n+ * specific language governing permissions and limitations\n+ * under the License.\n+ */\n+package org.apache.commons.compress.archivers.zip;\n+\n+import java.io.Serializable;\n+import java.math.BigInteger;\n+import java.util.zip.ZipException;\n+\n+import static org.apache.commons.compress.archivers.zip.ZipUtil.reverse;\n+import static org.apache.commons.compress.archivers.zip.ZipUtil.signedByteToUnsignedInt;\n+import static org.apache.commons.compress.archivers.zip.ZipUtil.unsignedIntToSignedByte;\n+\n+/**\n+ * An extra field that stores UNIX UID/GID data (owner & group ownership) for a given\n+ * zip entry.  We're using the field definition given in Info-Zip's source archive:\n+ * zip-3.0.tar.gz/proginfo/extrafld.txt\n+ * <p/>\n+ * <pre>\n+ * Value         Size        Description\n+ * -----         ----        -----------\n+ * 0x7875        Short       tag for this extra block type (\"ux\")\n+ * TSize         Short       total data size for this block\n+ * Version       1 byte      version of this extra field, currently 1\n+ * UIDSize       1 byte      Size of UID field\n+ * UID           Variable    UID for this entry (little endian)\n+ * GIDSize       1 byte      Size of GID field\n+ * GID           Variable    GID for this entry (little endian)\n+ * </pre>\n+ */\n+public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {\n+    private static final ZipShort HEADER_ID = new ZipShort(0x7875);\n+    private static final BigInteger ONE_THOUSAND = BigInteger.valueOf(1000);\n+    private static final long serialVersionUID = 1L;\n+\n+    private int version = 1; // always '1' according to current info-zip spec.\n+\n+    // BigInteger helps us with little-endian / big-endian conversions.\n+    // (thanks to BigInteger.toByteArray() and a reverse() method we created).\n+    // Also, the spec theoretically allows UID/GID up to 255 bytes long!\n+    private BigInteger uid;\n+    private BigInteger gid;\n+\n+    /**\n+     * Constructor for X7875_NewUnix.\n+     */\n+    public X7875_NewUnix() {\n+        reset();\n+    }\n+\n+    /**\n+     * The Header-ID.\n+     *\n+     * @return the value for the header id for this extrafield\n+     */\n+    public ZipShort getHeaderId() {\n+        return HEADER_ID;\n+    }\n+\n+    /**\n+     * Gets the UID as a long.  UID is typically a 32 bit unsigned\n+     * value on most UNIX systems, so we return a long to avoid\n+     * integer overflow into the negatives in case values above\n+     * and including 2^31 are being used.\n+     *\n+     * @return the UID value.\n+     */\n+    public long getUID() { return ZipUtil.bigToLong(uid); }\n+\n+    /**\n+     * Gets the GID as a long.  GID is typically a 32 bit unsigned\n+     * value on most UNIX systems, so we return a long to avoid\n+     * integer overflow into the negatives in case values above\n+     * and including 2^31 are being used.\n+     *\n+     * @return the GID value.\n+     */\n+    public long getGID() { return ZipUtil.bigToLong(gid); }\n+\n+    /**\n+     * Sets the UID.\n+     *\n+     * @param l UID value to set on this extra field.\n+     */\n+    public void setUID(long l) {\n+        this.uid = ZipUtil.longToBig(l);\n+    }\n+\n+    /**\n+     * Sets the GID.\n+     *\n+     * @param l GID value to set on this extra field.\n+     */\n+    public void setGID(long l) {\n+        this.gid = ZipUtil.longToBig(l);\n+    }\n+\n+    /**\n+     * Length of the extra field in the local file data - without\n+     * Header-ID or length specifier.\n+     *\n+     * @return a <code>ZipShort</code> for the length of the data of this extra field\n+     */\n+    public ZipShort getLocalFileDataLength() {\n+        int uidSize = trimLeadingZeroesForceMinLength(uid.toByteArray()).length;\n+        int gidSize = trimLeadingZeroesForceMinLength(gid.toByteArray()).length;\n+\n+        // The 3 comes from:  version=1 + uidsize=1 + gidsize=1\n+        return new ZipShort(3 + uidSize + gidSize);\n+    }\n+\n+    /**\n+     * Length of the extra field in the central directory data - without\n+     * Header-ID or length specifier.\n+     *\n+     * @return a <code>ZipShort</code> for the length of the data of this extra field\n+     */\n+    public ZipShort getCentralDirectoryLength() {\n+        return getLocalFileDataLength();  // No different than local version.\n+    }\n+\n+    /**\n+     * The actual data to put into local file data - without Header-ID\n+     * or length specifier.\n+     *\n+     * @return get the data\n+     */\n+    public byte[] getLocalFileDataData() {\n+        byte[] uidBytes = uid.toByteArray();\n+        byte[] gidBytes = gid.toByteArray();\n+\n+        // BigInteger might prepend a leading-zero to force a positive representation\n+        // (e.g., so that the sign-bit is set to zero).  We need to remove that\n+        // before sending the number over the wire.\n+        uidBytes = trimLeadingZeroesForceMinLength(uidBytes);\n+        gidBytes = trimLeadingZeroesForceMinLength(gidBytes);\n+\n+        // Couldn't bring myself to just call getLocalFileDataLength() when we've\n+        // already got the arrays right here.  Yeah, yeah, I know, premature\n+        // optimization is the root of all...\n+        //\n+        // The 3 comes from:  version=1 + uidsize=1 + gidsize=1\n+        byte[] data = new byte[3 + uidBytes.length + gidBytes.length];\n+\n+        // reverse() switches byte array from big-endian to little-endian.\n+        reverse(uidBytes);\n+        reverse(gidBytes);\n+\n+        int pos = 0;\n+        data[pos++] = unsignedIntToSignedByte(version);\n+        data[pos++] = unsignedIntToSignedByte(uidBytes.length);\n+        System.arraycopy(uidBytes, 0, data, pos, uidBytes.length);\n+        pos += uidBytes.length;\n+        data[pos++] = unsignedIntToSignedByte(gidBytes.length);\n+        System.arraycopy(gidBytes, 0, data, pos, gidBytes.length);\n+        return data;\n+    }\n+\n+    /**\n+     * The actual data to put into central directory data - without Header-ID\n+     * or length specifier.\n+     *\n+     * @return get the data\n+     */\n+    public byte[] getCentralDirectoryData() {\n+        return getLocalFileDataData();\n+    }\n+\n+    /**\n+     * Populate data from this array as if it was in local file data.\n+     *\n+     * @param data   an array of bytes\n+     * @param offset the start offset\n+     * @param length the number of bytes in the array from offset\n+     * @throws java.util.zip.ZipException on error\n+     */\n+    public void parseFromLocalFileData(\n+            byte[] data, int offset, int length\n+    ) throws ZipException {\n+        reset();\n+        this.version = signedByteToUnsignedInt(data[offset++]);\n+        int uidSize = signedByteToUnsignedInt(data[offset++]);\n+        byte[] uidBytes = new byte[uidSize];\n+        System.arraycopy(data, offset, uidBytes, 0, uidSize);\n+        offset += uidSize;\n+        this.uid = new BigInteger(1, reverse(uidBytes)); // sign-bit forced positive\n+\n+        int gidSize = signedByteToUnsignedInt(data[offset++]);\n+        byte[] gidBytes = new byte[gidSize];\n+        System.arraycopy(data, offset, gidBytes, 0, gidSize);\n+        this.gid = new BigInteger(1, reverse(gidBytes)); // sign-bit forced positive\n+    }\n+\n+    /**\n+     * Doesn't do anything special since this class always uses the\n+     * same data in central directory and local file data.\n+     */\n+    public void parseFromCentralDirectoryData(\n+            byte[] buffer, int offset, int length\n+    ) throws ZipException {\n+        reset();\n+        parseFromLocalFileData(buffer, offset, length);\n+    }\n+\n+    /**\n+     * Reset state back to newly constructed state.  Helps us make sure\n+     * parse() calls always generate clean results.\n+     */\n+    private void reset() {\n+        // Typical UID/GID of the first non-root user created on a unix system.\n+        uid = ONE_THOUSAND;\n+        gid = ONE_THOUSAND;\n+    }\n+\n+    /**\n+     * Returns a String representation of this class useful for\n+     * debugging purposes.\n+     *\n+     * @return A String representation of this class useful for\n+     *         debugging purposes.\n+     */\n+    public String toString() {\n+        return \"0x7875 Zip Extra Field: UID=\" + uid + \" GID=\" + gid;\n+    }\n+\n+    @Override\n+    public Object clone() throws CloneNotSupportedException {\n+        return super.clone();\n+    }\n+\n+    @Override\n+    public boolean equals(Object o) {\n+        if (o instanceof X7875_NewUnix) {\n+            X7875_NewUnix xf = (X7875_NewUnix) o;\n+            if (version == xf.version) {\n+                // The BigInteger==BigInteger clause handles the case where both are null.\n+                if (uid == xf.uid || (uid != null && uid.equals(xf.uid))) {\n+                    return gid == xf.gid || (gid != null && gid.equals(xf.gid));\n+                }\n+            }\n+        }\n+        return false;\n+    }\n+\n+    @Override\n+    public int hashCode() {\n+        int hc = (-1234567 * version);\n+        if (uid != null) {\n+            hc ^= uid.hashCode();\n+        }\n+        if (gid != null) {\n+            hc ^= gid.hashCode();\n+        }\n+        return hc;\n+    }\n+\n+    /**\n+     * Not really for external usage, but marked \"package\" visibility\n+     * to help us JUnit it.   Trims a byte array of leading zeroes while\n+     * also enforcing a minimum length, and thus it really trims AND pads\n+     * at the same time.\n+     *\n+     * @param array byte[] array to trim & pad.\n+     * @return trimmed & padded byte[] array.\n+     */\n+    static byte[] trimLeadingZeroesForceMinLength(byte[] array) {\n+        if (array == null) {\n+            return array;\n+        }\n+\n+        int pos = 0;\n+        for (byte b : array) {\n+            if (b == 0) {\n+                pos++;\n+            } else {\n+                break;\n+            }\n+        }\n+\n+        /*\n+\n+        I agonized over my choice of MIN_LENGTH=1.  Here's the situation:\n+        InfoZip (the tool I am using to test interop) always sets these\n+        to length=4.  And so a UID of 0 (typically root) for example is\n+        encoded as {4,0,0,0,0} (len=4, 32 bits of zero), when it could just\n+        as easily be encoded as {1,0} (len=1, 8 bits of zero) according to\n+        the spec.\n+\n+        In the end I decided on MIN_LENGTH=1 for four reasons:\n+\n+        1.)  We are adhering to the spec as far as I can tell, and so\n+             a consumer that cannot parse this is broken.\n+\n+        2.)  Fundamentally, zip files are about shrinking things, so\n+             let's save a few bytes per entry while we can.\n+\n+        3.)  Of all the people creating zip files using commons-\n+             compress, how many care about UNIX UID/GID attributes\n+             of the files they store?   (e.g., I am probably thinking\n+             way too hard about this and no one cares!)\n+\n+        4.)  InfoZip's tool, even though it carefully stores every UID/GID\n+             for every file zipped on a unix machine (by default) currently\n+             appears unable to ever restore UID/GID.\n+             unzip -X has no effect on my machine, even when run as root!!!!\n+\n+        And thus it is decided:  MIN_LENGTH=1.\n+\n+        If anyone runs into interop problems from this, feel free to set\n+        it to MIN_LENGTH=4 at some future time, and then we will behave\n+        exactly like InfoZip (requires changes to unit tests, though).\n+\n+        And I am sorry that the time you spent reading this comment is now\n+        gone and you can never have it back.\n+\n+        */\n+        final int MIN_LENGTH = 1;\n+\n+        byte[] trimmedArray = new byte[Math.max(MIN_LENGTH, array.length - pos)];\n+        int startPos = trimmedArray.length - (array.length - pos);\n+        System.arraycopy(array, pos, trimmedArray, startPos, trimmedArray.length - startPos);\n+        return trimmedArray;\n+    }\n+}"
+        }
+      }
+    },
+    "blame_failure_reason": null
+  }
+}

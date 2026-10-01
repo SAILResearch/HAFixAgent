@@ -1,0 +1,55 @@
+{
+  "project_name": "keras",
+  "bug_id": "keras_22",
+  "history_category": "baseline_function_code_pair_blame",
+  "repair_result": {
+    "success": false,
+    "exit_status": "LimitsExceeded",
+    "message": "",
+    "timing": {
+      "start_time": "2026-06-27 22:31:45",
+      "end_time": "2026-06-27 22:36:43",
+      "duration_seconds": 298,
+      "duration_human": "4m 58s"
+    },
+    "model_cost": 0.0,
+    "model_calls": 50,
+    "token_usage": {
+      "input_tokens": 763845,
+      "output_tokens": 4068,
+      "total_tokens": 767913,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 763845
+    },
+    "agent_steps": 50,
+    "checkout_success": true,
+    "patch": "diff --git a/keras/engine/input_layer.py b/keras/engine/input_layer.py\nindex bc1491684..6057ecd54 100644\n--- a/keras/engine/input_layer.py\n+++ b/keras/engine/input_layer.py\n@@ -17,7 +17,11 @@ class InputLayer(Layer):\n     It can either wrap an existing tensor (pass an `input_tensor` argument)\n     or create its a placeholder tensor (pass arguments `input_shape`\n     or `batch_input_shape` as well as `dtype`).\n-\n+    @interfaces.legacy_input_support\n+    def __init__(self, input_shape=None, batch_size=None,\n+                 batch_input_shape=None,\n+                 dtype=None, input_tensor=None, sparse=False, name=None,\n+                 supports_masking=False):\n     # Arguments\n         input_shape: Shape tuple, not including the batch axis.\n         batch_size: Optional input batch size (integer or None).\n@@ -26,6 +30,7 @@ class InputLayer(Layer):\n         input_tensor: Optional tensor to use as layer input\n             instead of creating a placeholder.\n         sparse: Boolean, whether the placeholder created\n+        self.supports_masking = supports_masking\n             is meant to be sparse.\n         name: Name of the layer (string).\n     \"\"\"\n@@ -65,7 +70,7 @@ class InputLayer(Layer):\n                 raise ValueError('An Input layer should be passed either '\n                                  'a `batch_input_shape` or an `input_shape`.')\n             else:\n-                batch_input_shape = (batch_size,) + tuple(input_shape)\n+                batch_input_shape = tuple(input_shape) if batch_size is None else (batch_size,) + tuple(input_shape)\n         else:\n             batch_input_shape = tuple(batch_input_shape)\n \n@@ -106,10 +111,9 @@ class InputLayer(Layer):\n         config = {'batch_input_shape': self.batch_input_shape,\n                   'dtype': self.dtype,\n                   'sparse': self.sparse,\n-                  'name': self.name}\n-        return config\n-\n-\n+def Input(shape=None, batch_shape=None,\n+          name=None, dtype=None, sparse=False,\n+          tensor=None, supports_masking=False):\n def Input(shape=None, batch_shape=None,\n           name=None, dtype=None, sparse=False,\n           tensor=None):\n@@ -164,7 +168,11 @@ def Input(shape=None, batch_shape=None,\n     \"\"\"\n     if not batch_shape and tensor is None:\n         assert shape is not None, ('Please provide to Input either a `shape`'\n-                                   ' or a `batch_shape` argument. Note that '\n+    input_layer = InputLayer(batch_input_shape=batch_shape,\n+                             name=name, dtype=dtype,\n+                             sparse=sparse,\n+                             input_tensor=tensor,\n+                             supports_masking=supports_masking)\n                                    '`shape` does not include the batch '\n                                    'dimension.')\n     if shape is not None and not batch_shape:\ndiff --git a/keras/engine/sequential.py b/keras/engine/sequential.py\nindex 6def870b9..1addf3f9a 100644\n--- a/keras/engine/sequential.py\n+++ b/keras/engine/sequential.py\n@@ -159,8 +159,7 @@ class Sequential(Model):\n                         dtype=dtype,\n                         name=layer.name + '_input')\n                     # This will build the current layer\n-                    # and create the node connecting the current layer\n-                    # to the input layer we just created.\n+                        supports_masking=first_layer.supports_masking if hasattr(first_layer, \"supports_masking\") else False)\n                     layer(x)\n                     set_inputs = True\n                 else:\ndiff --git a/tests/keras/layers/core_test.py b/tests/keras/layers/core_test.py\nindex 1d3ac1967..dd60f5a46 100644\n--- a/tests/keras/layers/core_test.py\n+++ b/tests/keras/layers/core_test.py\n@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose\n from keras import backend as K\n from keras import layers\n from keras.models import Model\n+from keras.models import Sequential\n from keras.utils.test_utils import layer_test\n from keras.utils.test_utils import keras_test\n from keras import regularizers\n@@ -343,5 +344,30 @@ def test_activity_regularization():\n     model.compile('rmsprop', 'mse')\n \n \n+@keras_test\n+def test_sequential_as_downstream_of_masking_layer():\n+\n+    inputs = layers.Input(shape=(3, 4))\n+    x = layers.Masking(mask_value=0., input_shape=(3, 4))(inputs)\n+    s = Sequential()\n+    s.add(layers.Dense(5, input_shape=(4,)))\n+    s.add(layers.Activation('relu'))\n+    x = layers.wrappers.TimeDistributed(s)(x)\n+    model = Model(inputs=inputs, outputs=x)\n+    model.compile(optimizer='rmsprop', loss='mse')\n+    model_input = np.random.randint(low=1, high=5, size=(10, 3, 4))\n+    for i in range(4):\n+        model_input[i, i:, :] = 0.\n+    model.fit(model_input,\n+              np.random.random((10, 3, 5)), epochs=1, batch_size=6)\n+\n+    mask_outputs = [model.layers[1].compute_mask(model.layers[1].input)]\n+    mask_outputs += [model.layers[2].compute_mask(model.layers[2].input, mask_outputs[-1])]\n+    func = K.function([model.input], mask_outputs)\n+    mask_outputs_val = func([model_input])\n+    assert np.array_equal(mask_outputs_val[0], np.any(model_input, axis=-1))\n+    assert np.array_equal(mask_outputs_val[1], np.any(model_input, axis=-1))\n+\n+\n if __name__ == '__main__':\n     pytest.main([__file__])\n"
+  },
+  "timestamp": "2026-06-27 22:36:43 EDT",
+  "selector_type": "llm_judge",
+  "n_lines": 1,
+  "bug_info": {
+    "project": "keras",
+    "bug_id": "keras_22",
+    "repo_path": "/BugsInPy/framework/bin/temp/keras_22/keras",
+    "github_url": "https://github.com/keras-team/keras",
+    "description": "",
+    "commit_message": "Make InputLayer support masking (#10794)",
+    "fault_locations": [
+      {
+        "file": "keras/engine/input_layer.py",
+        "start_line": 44,
+        "end_line": 45,
+        "function_name": "__init__",
+        "class_name": ""
+      }
+    ],
+    "failing_tests": [
+      "pytest tests/keras/layers/core_test.py::test_sequential_as_downstream_of_masking_layer"
+    ],
+    "bug_category": "single_line"
+  },
+  "blame_info": {
+    "has_blame": true
+  }
+}
