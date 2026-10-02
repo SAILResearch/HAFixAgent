@@ -93,13 +93,17 @@ python analysis/analyze_rq0_blame_availability.py
 ```
 
 ## 🐳 RQ1: Effectiveness, Complementarity, and Cross-Model Generalization
-Run the four configurations under perfect FL (example on Defects4J single-hunk bugs):
+Run the four configurations under perfect FL on Defects4J:
 ```bash
-# Control and the three history representations
-hafixagent --bug-category single_hunk --history baseline --selector-type llm_judge --workers 4
-hafixagent --bug-category single_hunk --history fn_all  --selector-type llm_judge --workers 4
-hafixagent --bug-category single_hunk --history fn_pair --selector-type llm_judge --workers 4
-hafixagent --bug-category single_hunk --history fl_diff --selector-type llm_judge --workers 4
+# hafixagent is the console entry for python evaluation/run_defects4j_evaluation.py
+# --bug-category: single_line | single_hunk | single_file_multi_hunk | multi_file_multi_hunk | all
+hafixagent --bug-category all --history baseline --selector-type llm_judge --workers 4
+python evaluation/run_defects4j_evaluation.py --bug-category all --history fn_all  --selector-type llm_judge --workers 4
+python evaluation/run_defects4j_evaluation.py --bug-category all --history fn_pair --selector-type llm_judge --workers 4
+python evaluation/run_defects4j_evaluation.py --bug-category all --history fl_diff --selector-type llm_judge --workers 4
+
+# Scope to a single category instead of all:
+python evaluation/run_defects4j_evaluation.py --bug-category single_file_multi_hunk --history fl_diff --selector-type llm_judge --workers 4
 
 # BugsInPy (same four configs)
 python evaluation/run_bugsinpy_evaluation.py --bug-category all --history fl_diff --workers 4
@@ -110,20 +114,21 @@ hafixagent --bug-category all --history fn_pair --model-config config/models/qwe
 Analysis (ablation tables, Venn complementarity, external baselines, significance):
 ```bash
 python analysis/analyze_rq1_effectiveness.py                       # history ablation + complementarity
-python analysis/analyze_rq1_external_baselines.py -b repairagent   # vs RepairAgent / BIRCH
-python analysis/analyze_local_model_ablation.py --tag qwen3coder   # cross-model ablation (Qwen/Devstral)
-python analysis/analyze_ablation_significance.py --regime perfect  # per-config McNemar
+python analysis/analyze_rq1_external_baselines.py -b repairagent   # choices: repairagent, hunk4j
+python analysis/analyze_local_model_ablation.py --tag qwen3coder   # cross-model ablation (--tag devstral for Devstral)
+python analysis/analyze_ablation_significance.py --regime perfect  # per-config and Union McNemar
 ```
 
 ## 📊 RQ2: Realistic Fault Localization (SBFL)
-The FL stage runs once per bug and caches Ochiai rankings under `results/sbfl/<dataset>/fl_cache/`.
-The repair stage reads those cached rankings (no developer patch in the loop), writing to
-`results/sbfl/<dataset>/llm_judge_1line[_<model>]/`.
 ```bash
-# Repair with SBFL-ranked top-10 locations
+# 1. (optional) regenerate the FL cache: GZoltar (Java) / FauxPy (Python)
+python evaluation/sbfl/run_fl_defects4j.py --all --workers 8
+python evaluation/sbfl/run_fl_bugsinpy.py  --all --workers 4
+
+# 2. repair with SBFL-ranked top-10 locations (repeat --history for baseline, fn_all, fn_pair, fl_diff)
 python evaluation/run_sbfl_evaluation.py --dataset defects4j --history fl_diff --all --workers 4
 
-# FL accuracy (top-N hit rate) and repair outcomes
+# 3. FL accuracy (top-N hit rate) and repair outcomes
 python analysis/analyze_rq2_sbfl_fl_accuracy.py --dataset defects4j
 python analysis/analyze_rq2_sbfl_repair.py --latex
 ```
